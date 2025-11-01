@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# IDEs
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Data files
+*.db
+*.db-journal
+*.log
+*.pcap
+*.jsonl
+
+# Model files
+*.pkl
+*.h5
+*_keras/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Sensitive data
+config.json
+secrets/
+data/baseline/
+data/models/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
