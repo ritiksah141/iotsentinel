@@ -7,42 +7,38 @@ __pycache__/
 venv/
 env/
 ENV/
-build/
-dist/
 *.egg-info/
-.pytest_cache/
-.coverage
 
-# IDEs
-.vscode/settings.json
-.idea/
+# Data (too large for git)
+data/database/*.db
+data/database/*.db-*
+data/logs/*.log
+data/baseline/*.json
+data/baseline/zeek_logs/
+data/models/*.h5
+data/models/*.pkl
+*.pcap
+*.pcapng
+
+# OS
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
+*~
 
-# Data files
-*.db
-*.db-journal
-*.log
-*.pcap
-*.jsonl
+# IDE
+.vscode/
+.idea/
+*.code-workspace
 
-# Model files
-*.pkl
-*.h5
-*_keras/
+# Secrets
+.env
+config/config.json
+*.key
+*.pem
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Sensitive data
-config.json
-secrets/
-data/baseline/
-data/models/
-
-# Temporary files
-tmp/
-temp/
+# Temp
 *.tmp
+*.bak
+.pytest_cache/

@@ -1,0 +1,22 @@
+[Unit]
+Description=IoTSentinel Dashboard
+After=network.target iotsentinel-ml.service
+
+[Service]
+Type=simple
+User=sentinel
+WorkingDirectory=/home/sentinel/iotsentinel
+ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/dashboard/app.py
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iotsentinel-dashboard
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+{
+    "system": {
+        "name": "IoTSentinel",
+        "version": "1.0.0",
+        "environment": "production",
+        "architecture": "zeek-based"
+    },
+    "network": {
+        "interface": "wlan0",
+        "local_networks": ["192.168.1.0/24"],
+        "zeek_enabled": true,
+        "zeek_bin_path": "/opt/zeek/bin",
+        "zeek_log_path": "/opt/zeek/logs"
+    },
+    "zeek": {
+        "parse_interval_seconds": 60,
+        "log_types": ["conn", "http", "dns"],
+        "json_format": true
+    },
+    "ml": {
+        "model_type": "autoencoder",
+        "autoencoder_path": "data/models/autoencoder.h5",
+        "isolation_forest_path": "data/models/isolation_forest.pkl",
+        "feature_extractor_path": "data/models/feature_extractor.pkl",
+        "inference_batch_size": 100,
+        "inference_interval_seconds": 300,
+        "anomaly_threshold": 0.95
+    },
+    "database": {
+        "path": "data/database/iotsentinel.db"
+    },
+    "dashboard": {
+        "host": "0.0.0.0",
+        "port": 8050,
+        "debug": false
+    },
+    "logging": {
+        "level": "INFO",
+        "log_dir": "data/logs"
+    }
+}

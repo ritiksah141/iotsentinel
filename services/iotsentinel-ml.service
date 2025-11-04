@@ -1,0 +1,23 @@
+[Unit]
+Description=IoTSentinel ML Inference Engine
+After=network.target iotsentinel-zeek-parser.service
+Requires=iotsentinel-zeek-parser.service
+
+[Service]
+Type=simple
+User=sentinel
+WorkingDirectory=/home/sentinel/iotsentinel
+ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/ml/inference_engine.py --continuous --interval 300
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iotsentinel-ml
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
