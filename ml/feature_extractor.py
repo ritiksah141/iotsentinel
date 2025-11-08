@@ -38,7 +38,8 @@ class FeatureExtractor:
             Tuple of (feature_matrix, feature_names)
         """
         if len(connections_df) == 0:
-            return np.array([]), []
+            # Return empty arrays with specific shape to avoid downstream errors
+            return np.empty((0, len(self.feature_names) if self.feature_names else 0)), self.feature_names[:]
         
         df = connections_df.copy()
         
@@ -57,29 +58,38 @@ class FeatureExtractor:
             feature_names.append('duration')
         
         # 2. Byte features
-        if 'bytes_sent' in df.columns and 'bytes_received' in df.columns:
+        bytes_sent_present = 'bytes_sent' in df.columns
+        bytes_received_present = 'bytes_received' in df.columns
+        
+        if bytes_sent_present:
             df['bytes_sent'] = df['bytes_sent'].fillna(0)
+        else:
+            df['bytes_sent'] = 0
+
+        if bytes_received_present:
             df['bytes_received'] = df['bytes_received'].fillna(0)
-            
-            # Total bytes
-            df['total_bytes'] = df['bytes_sent'] + df['bytes_received']
-            features.append(df['total_bytes'].values.reshape(-1, 1))
-            feature_names.append('total_bytes')
-            
-            # Byte ratio (sent/received)
-            df['bytes_ratio'] = np.where(
-                df['bytes_received'] > 0,
-                df['bytes_sent'] / (df['bytes_received'] + 1),
-                df['bytes_sent']
-            )
-            features.append(df['bytes_ratio'].values.reshape(-1, 1))
-            feature_names.append('bytes_ratio')
-            
-            # Individual byte counts
-            features.append(df['bytes_sent'].values.reshape(-1, 1))
-            feature_names.append('bytes_sent')
-            features.append(df['bytes_received'].values.reshape(-1, 1))
-            feature_names.append('bytes_received')
+        else:
+            df['bytes_received'] = 0
+
+        # Total bytes
+        df['total_bytes'] = df['bytes_sent'] + df['bytes_received']
+        features.append(df['total_bytes'].values.reshape(-1, 1))
+        feature_names.append('total_bytes')
+        
+        # Byte ratio (sent/received)
+        df['bytes_ratio'] = np.where(
+            df['bytes_received'] > 0,
+            df['bytes_sent'] / (df['bytes_received'] + 1), # +1 to avoid div by zero if received=1
+            df['bytes_sent']
+        )
+        features.append(df['bytes_ratio'].values.reshape(-1, 1))
+        feature_names.append('bytes_ratio')
+        
+        # Individual byte counts
+        features.append(df['bytes_sent'].values.reshape(-1, 1))
+        feature_names.append('bytes_sent')
+        features.append(df['bytes_received'].values.reshape(-1, 1))
+        feature_names.append('bytes_received')
         
         # 3. Packet features
         if 'packets_sent' in df.columns and 'packets_received' in df.columns:
@@ -91,11 +101,11 @@ class FeatureExtractor:
             feature_names.append('total_packets')
         
         # 4. Rate features
-        if 'duration' in df.columns and 'total_bytes' in df.columns:
+        if 'duration' in df.columns:
             df['bytes_per_second'] = np.where(
                 df['duration'] > 0,
-                df['total_bytes'] / (df['duration'] + 0.001),
-                0
+                df['total_bytes'] / df['duration'],
+                df['total_bytes'] / 0.001 # Avoid division by zero, use a small epsilon
             )
             features.append(df['bytes_per_second'].values.reshape(-1, 1))
             feature_names.append('bytes_per_second')
@@ -115,21 +125,23 @@ class FeatureExtractor:
         
         # 6. Protocol features (one-hot encoding)
         if 'protocol' in df.columns:
-            protocol_dummies = pd.get_dummies(df['protocol'], prefix='proto')
+            # FIX: Convert to string and lowercase before creating dummies
+            protocol_dummies = pd.get_dummies(df['protocol'].astype(str).str.lower(), prefix='proto')
             for col in protocol_dummies.columns:
                 features.append(protocol_dummies[col].values.reshape(-1, 1))
                 feature_names.append(col)
         
         # 7. Connection state features
         if 'conn_state' in df.columns:
-            state_dummies = pd.get_dummies(df['conn_state'], prefix='state')
+            # FIX: Fill NA, convert to string, and lowercase before creating dummies
+            state_dummies = pd.get_dummies(df['conn_state'].fillna('unknown').astype(str).str.lower(), prefix='state')
             for col in state_dummies.columns:
                 features.append(state_dummies[col].values.reshape(-1, 1))
                 feature_names.append(col)
         
         # 8. Port feature (normalized)
         if 'dest_port' in df.columns:
-            df['dest_port_norm'] = df['dest_port'] / 65535.0
+            df['dest_port_norm'] = df['dest_port'].fillna(0) / 65535.0
             features.append(df['dest_port_norm'].values.reshape(-1, 1))
             feature_names.append('dest_port_norm')
         
@@ -138,7 +150,7 @@ class FeatureExtractor:
             feature_matrix = np.hstack(features)
             self.feature_names = feature_names
             
-            logger.info(f"Extracted {len(feature_names)} features from {len(df)} connections")
+            logger.debug(f"Extracted {len(feature_names)} features from {len(df)} connections")
             return feature_matrix, feature_names
         else:
             logger.warning("No features could be extracted")
@@ -146,6 +158,10 @@ class FeatureExtractor:
     
     def fit_scaler(self, X: np.ndarray):
         """Fit standardization scaler on training data."""
+        if X.shape[0] == 0:
+            logger.warning("Cannot fit scaler on empty data.")
+            return
+            
         self.scaler_mean = np.mean(X, axis=0)
         self.scaler_std = np.std(X, axis=0) + 1e-8  # Avoid division by zero
         logger.info("Scaler fitted")
@@ -155,6 +171,11 @@ class FeatureExtractor:
         if self.scaler_mean is None or self.scaler_std is None:
             logger.warning("Scaler not fitted. Returning original data.")
             return X
+        
+        if X.shape[0] == 0:
+            logger.debug("Transforming empty array.")
+            return X
+            
         return (X - self.scaler_mean) / self.scaler_std
     
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
@@ -189,7 +210,21 @@ if __name__ == '__main__':
     # Test with synthetic data
     from database.db_manager import DatabaseManager
     
-    db = DatabaseManager(config.get('database', 'path'))
+    # Use a test DB path
+    db_path = config.get('database', 'path', fallback='data/iot_sentinel.db')
+    
+    db = DatabaseManager(db_path)
+    
+    # We need to ensure schema exists for this main block test
+    # This is a bit of a hack, but necessary if not running via pytest
+    try:
+        db.get_all_devices()
+    except sqlite3.OperationalError:
+        print("Running __main__, database tables not found. This is OK if running tests.")
+        print("If you are testing the script directly, run init_database.py first.")
+        db.close()
+        sys.exit()
+
     connections = db.get_unprocessed_connections(limit=100)
     
     if connections:
