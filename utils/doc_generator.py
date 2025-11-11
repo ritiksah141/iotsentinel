@@ -44,25 +44,25 @@ class DocumentationGenerator:
                 'requirement': 'System shall discover network devices automatically',
                 'user_story': 'US-001',
                 'design': 'C4 Container: Zeek NSM',
-                'implementation': 'capture/zeek_log_parser.py:67-89',
-                'test': 'TC-INT-001, TC-INT-002',
+                'implementation': 'capture/zeek_log_parser.py:67-151',
+                'test': 'TC-CAP-001, TC-INT-001, TC-INT-002',
                 'status': '✅ Implemented'
             },
             {
                 'id': 'FR-002',
                 'requirement': 'System shall detect anomalous network behavior using ML',
-                'user_story': 'US-005',
+                'user_story': 'US-003',
                 'design': 'C4 Component: ML Engine',
-                'implementation': 'ml/inference_engine.py:89-145',
+                'implementation': 'ml/inference_engine.py:100-200',
                 'test': 'TC-INT-004, TC-ML-011-023',
                 'status': '✅ Implemented'
             },
             {
                 'id': 'FR-003',
                 'requirement': 'System shall provide plain-English alert explanations',
-                'user_story': 'US-006',
+                'user_story': 'US-004',
                 'design': 'UX Design: Alert Card Component',
-                'implementation': 'dashboard/app.py:450-520',
+                'implementation': 'dashboard/app.py:710-820',
                 'test': 'TC-VAL-002 (Usability Test)',
                 'status': '✅ Implemented'
             },
@@ -71,32 +71,32 @@ class DocumentationGenerator:
                 'requirement': 'System shall process connections in real-time (< 30s latency)',
                 'user_story': 'US-008',
                 'design': 'Architecture: Batch Processing Pattern',
-                'implementation': 'ml/inference_engine.py:45-88',
+                'implementation': 'ml/inference_engine.py:222-233',
                 'test': 'TC-SYS-001 (Performance Test)',
                 'status': '✅ Implemented'
             },
             {
                 'id': 'FR-005',
                 'requirement': 'System shall store 7-day baseline for training',
-                'user_story': 'US-010',
+                'user_story': 'US-005',
                 'design': 'Data Design: connections table',
                 'implementation': 'scripts/baseline_collector.py',
-                'test': 'TC-INT-005',
+                'test': 'TC-INT-006',
                 'status': '✅ Implemented'
             },
             {
                 'id': 'NFR-001',
                 'requirement': 'System shall ensure privacy (no cloud uploads)',
-                'user_story': 'US-015',
+                'user_story': 'US-011',
                 'design': 'Architecture: On-device processing',
                 'implementation': 'All components (local SQLite)',
-                'test': 'TC-SEC-001 (Security Test)',
+                'test': 'TC-SEC-002',
                 'status': '✅ Implemented'
             },
             {
                 'id': 'NFR-002',
                 'requirement': 'System shall run on Raspberry Pi 4 (4GB RAM)',
-                'user_story': 'US-016',
+                'user_story': 'N/A',
                 'design': 'Architecture: Lightweight design',
                 'implementation': 'Zeek + Python + SQLite',
                 'test': 'TC-SYS-001 (Load Test on Pi)',
@@ -109,7 +109,7 @@ class DocumentationGenerator:
                 'design': 'Test Suite Architecture',
                 'implementation': 'tests/*.py',
                 'test': 'pytest --cov',
-                'status': '✅ Achieved (88%)'
+                'status': '✅ Achieved (84%)'
             }
         ]
         
@@ -123,7 +123,7 @@ class DocumentationGenerator:
         
         for req in requirements:
             output += f"| {req['id']} | {req['requirement']} | {req['user_story']} | "
-            output += f"{req['design']} | {req['implementation']} | {req['test']} | {req['status']} |\n"
+            output += f"{req['design']} | `{req['implementation']}` | {req['test']} | {req['status']} |\n"
         
         output += "\n## Traceability Statistics\n\n"
         output += f"- **Total Requirements**: {len(requirements)}\n"
@@ -164,8 +164,15 @@ class DocumentationGenerator:
                 'categories': ['Feature Extraction', 'Scaling', 'Edge Cases', 'Persistence']
             },
             {
+                'name': 'Capture Module Unit Tests',
+                'file': 'tests/test_capture.py',
+                'tests': 4,
+                'coverage': '85%',
+                'categories': ['Log Parsing', 'Error Handling']
+            },
+            {
                 'name': 'Integration Tests',
-                'file': 'tests/test_integration.py',
+                'file': 'tests/test_integeration.py',
                 'tests': 10,
                 'coverage': 'N/A',
                 'categories': ['Pipeline Flow', 'Data Consistency', 'Performance']
@@ -202,39 +209,39 @@ class DocumentationGenerator:
         
         critical_tests = [
             {
-                'id': 'TC-DB-007',
-                'name': 'Connection insertion with foreign key',
-                'category': 'Integration',
+                'id': 'TC-DB-009',
+                'name': 'Foreign key constraint enforcement',
+                'category': 'Unit',
                 'result': 'PASS',
                 'importance': 'Verifies database integrity'
             },
             {
-                'id': 'TC-ML-002',
-                'name': 'Feature calculation accuracy',
+                'id': 'TC-ML-017',
+                'name': 'Zero duration connection handling',
                 'category': 'Unit',
                 'result': 'PASS',
-                'importance': 'Validates ML input data quality'
+                'importance': 'Prevents division-by-zero errors in feature extraction'
+            },
+            {
+                'id': 'TC-CAP-003',
+                'name': 'Graceful handling of corrupt log entries',
+                'category': 'Unit',
+                'result': 'PASS',
+                'importance': 'Ensures data pipeline robustness'
             },
             {
                 'id': 'TC-INT-005',
-                'name': 'End-to-end pipeline',
+                'name': 'End-to-end pipeline (log to alert)',
                 'category': 'Integration',
                 'result': 'PASS',
                 'importance': 'Validates complete system flow'
             },
             {
                 'id': 'TC-SYS-001',
-                'name': 'Performance under load (1000 conn/hr)',
+                'name': 'Performance under load',
                 'category': 'System',
                 'result': 'PASS',
                 'importance': 'Validates scalability'
-            },
-            {
-                'id': 'TC-VAL-002',
-                'name': 'Alert comprehension (usability)',
-                'category': 'Validation',
-                'result': 'PASS (5/5 users)',
-                'importance': 'Validates educational UVP'
             }
         ]
         
@@ -250,17 +257,14 @@ class DocumentationGenerator:
         output += "- ✅ **Isolated tests** using fixtures and temporary databases\n"
         output += "- ✅ **Edge cases** tested (missing values, zero values, extreme values)\n"
         output += "- ✅ **Integration tests** verify component interactions\n"
-        output += "- ✅ **Performance tests** measure system throughput\n"
-        output += "- ✅ **Usability testing** validates educational goals\n\n"
+        output += "- ✅ **Performance tests** measure system throughput\n\n"
         
         output += "## How to Run Tests\n\n"
         output += "```bash\n"
         output += "# Run all tests with coverage\n"
         output += "pytest tests/ -v --cov=. --cov-report=html\n\n"
-        output += "# Run specific test suite\n"
-        output += "pytest tests/test_database.py -v\n\n"
-        output += "# Run integration tests only\n"
-        output += "pytest tests/test_integration.py -v\n"
+        output += "# Run a specific test suite\n"
+        output += "pytest tests/test_database.py -v\n"
         output += "```\n"
         
         # Save
@@ -282,54 +286,102 @@ class DocumentationGenerator:
         # Define code files with metadata
         code_files = [
             # Database
-            {'file': 'database/db_manager.py', 'type': 'Created', 'lines': 350, 
-             'purpose': 'SQLite database manager with CRUD operations', 'complexity': 'Medium'},
-            {'file': 'database/schema.sql', 'type': 'Created', 'lines': 60,
-             'purpose': 'Database schema definition', 'complexity': 'Low'},
+            {
+                'file': 'database/db_manager.py', 'type': 'Created', 'lines': 420, 
+                'purpose': 'SQLite database manager with CRUD operations', 'complexity': 'Medium'
+            },
+            {
+                'file': 'database/schema.sql', 'type': 'Created', 'lines': 60,
+                'purpose': 'Database schema definition', 'complexity': 'Low'
+            },
             
             # ML Components
-            {'file': 'ml/feature_extractor.py', 'type': 'Created', 'lines': 250,
-             'purpose': '15+ feature extraction from network connections', 'complexity': 'High'},
-            {'file': 'ml/inference_engine.py', 'type': 'Created', 'lines': 280,
-             'purpose': 'Real-time ML inference with dual models', 'complexity': 'High'},
-            {'file': 'ml/train_autoencoder.py', 'type': 'Created', 'lines': 200,
-             'purpose': 'Train Autoencoder neural network', 'complexity': 'High'},
-            {'file': 'ml/train_isolation_forest.py', 'type': 'Created', 'lines': 180,
-             'purpose': 'Train Isolation Forest model', 'complexity': 'Medium'},
+            {
+                'file': 'ml/feature_extractor.py', 'type': 'Created', 'lines': 250,
+                'purpose': '15+ feature extraction from network connections', 'complexity': 'High'
+            },
+            {
+                'file': 'ml/inference_engine.py', 'type': 'Created', 'lines': 280,
+                'purpose': 'Real-time ML inference with dual models', 'complexity': 'High'
+            },
+            {
+                'file': 'ml/train_autoencoder.py', 'type': 'Created', 'lines': 212,
+                'purpose': 'Train Autoencoder neural network', 'complexity': 'High'
+            },
+            {
+                'file': 'ml/train_isolation_forest.py', 'type': 'Created', 'lines': 145,
+                'purpose': 'Train Isolation Forest model', 'complexity': 'Medium'
+            },
             
             # Data Capture
-            {'file': 'capture/zeek_log_parser.py', 'type': 'Created', 'lines': 320,
-             'purpose': 'Parse Zeek JSON logs into database', 'complexity': 'Medium'},
+            {
+                'file': 'capture/zeek_log_parser.py', 'type': 'Created', 'lines': 320,
+                'purpose': 'Parse Zeek JSON logs into database', 'complexity': 'Medium'
+            },
             
             # Dashboard
-            {'file': 'dashboard/app.py', 'type': 'Created', 'lines': 1200,
-             'purpose': 'Complete Dash web dashboard with 5 tabs', 'complexity': 'High'},
+            {
+                'file': 'dashboard/app.py', 'type': 'Created', 'lines': 1400,
+                'purpose': 'Complete Dash web dashboard with 5 tabs', 'complexity': 'High'
+            },
             
             # Configuration
-            {'file': 'config/config_manager.py', 'type': 'Created', 'lines': 150,
-             'purpose': 'Multi-layer configuration management', 'complexity': 'Low'},
-            {'file': 'config/init_database.py', 'type': 'Created', 'lines': 80,
-             'purpose': 'Initialize database schema', 'complexity': 'Low'},
+            {
+                'file': 'config/config_manager.py', 'type': 'Created', 'lines': 150,
+                'purpose': 'Multi-layer configuration management', 'complexity': 'Low'
+            },
+            {
+                'file': 'config/init_database.py', 'type': 'Created', 'lines': 80,
+                'purpose': 'Initialize database schema', 'complexity': 'Low'
+            },
             
             # Scripts
-            {'file': 'scripts/baseline_collector.py', 'type': 'Created', 'lines': 280,
-             'purpose': '7-day baseline collection orchestration', 'complexity': 'Medium'},
-            {'file': 'scripts/generate_test_data.py', 'type': 'Created', 'lines': 250,
-             'purpose': 'Generate realistic test data', 'complexity': 'Low'},
-            {'file': 'scripts/deploy_to_pi.sh', 'type': 'Created', 'lines': 120,
-             'purpose': 'Automated deployment to Raspberry Pi', 'complexity': 'Low'},
+            {
+                'file': 'scripts/baseline_collector.py', 'type': 'Created', 'lines': 263,
+                'purpose': '7-day baseline collection orchestration', 'complexity': 'Medium'
+            },
+            {
+                'file': 'scripts/generate_test_data.py', 'type': 'Created', 'lines': 250,
+                'purpose': 'Generate realistic test data', 'complexity': 'Low'
+            },
+            {
+                'file': 'scripts/compare_models.py', 'type': 'Created', 'lines': 160,
+                'purpose': 'Compare performance of ML models', 'complexity': 'Medium'
+            },
             
             # Tests
-            {'file': 'tests/test_database.py', 'type': 'Created', 'lines': 450,
-             'purpose': '22 unit tests for database manager', 'complexity': 'Medium'},
-            {'file': 'tests/test_ml.py', 'type': 'Created', 'lines': 480,
-             'purpose': '23 unit tests for ML components', 'complexity': 'Medium'},
-            {'file': 'tests/test_integration.py', 'type': 'Created', 'lines': 400,
-             'purpose': '10 integration tests for pipeline', 'complexity': 'High'},
+            {
+                'file': 'tests/test_database.py', 'type': 'Created', 'lines': 500,
+                'purpose': '22 unit tests for database manager', 'complexity': 'Medium'
+            },
+            {
+                'file': 'tests/test_ml.py', 'type': 'Created', 'lines': 500,
+                'purpose': '23 unit tests for ML components', 'complexity': 'Medium'
+            },
+            {
+                'file': 'tests/test_integeration.py', 'type': 'Created', 'lines': 400,
+                'purpose': '10 integration tests for pipeline', 'complexity': 'High'
+            },
+            {
+                'file': 'tests/test_capture.py', 'type': 'Created', 'lines': 100,
+                'purpose': '4 unit tests for capture module', 'complexity': 'Low'
+            },
             
             # Utilities
-            {'file': 'utils/metrics_collector.py', 'type': 'Created', 'lines': 350,
-             'purpose': 'System metrics collection and reporting', 'complexity': 'Medium'}
+            {
+                'file': 'utils/metrics_collector.py', 'type': 'Created', 'lines': 400,
+                'purpose': 'System metrics collection and reporting', 'complexity': 'Medium'
+            },
+            {
+                'file': 'utils/doc_generator.py', 'type': 'Modified', 'lines': 400,
+                'purpose': 'Generates documentation for reports', 'complexity': 'Medium'
+            },
+             
+            # Alerts
+            {
+                'file': 'alerts/alert_manager.py', 'type': 'Created', 'lines': 50,
+                'purpose': 'Placeholder for future alert notification functionality', 'complexity': 'Low'
+            },
         ]
         
         output += "## File Manifest Table\n\n"
@@ -343,7 +395,7 @@ class DocumentationGenerator:
             total_lines += file_info['lines']
         
         output += f"\n**Total Files**: {len(code_files)}\n"
-        output += f"**Total Lines of Code**: {total_lines:,}\n\n"
+        output += f"**Total Lines of Code (approx.)**: {total_lines:,}\n\n"
         
         output += "## Code Statistics\n\n"
         output += f"- **Python Files**: {len([f for f in code_files if f['file'].endswith('.py')])}\n"
@@ -354,27 +406,6 @@ class DocumentationGenerator:
         output += f"- **High Complexity**: {len([f for f in code_files if f['complexity'] == 'High'])} files\n"
         output += f"- **Medium Complexity**: {len([f for f in code_files if f['complexity'] == 'Medium'])} files\n"
         output += f"- **Low Complexity**: {len([f for f in code_files if f['complexity'] == 'Low'])} files\n\n"
-        
-        output += "## Key Implementation Highlights\n\n"
-        output += "1. **Database Manager** (`db_manager.py`)\n"
-        output += "   - Implements connection pooling and transaction support\n"
-        output += "   - Uses parameterized queries to prevent SQL injection\n"
-        output += "   - Batch processing pattern for ML engine\n\n"
-        
-        output += "2. **Feature Extractor** (`feature_extractor.py`)\n"
-        output += "   - Extracts 15+ features from network metadata\n"
-        output += "   - Handles missing values and zero division\n"
-        output += "   - Standardization (zero mean, unit variance)\n\n"
-        
-        output += "3. **Inference Engine** (`inference_engine.py`)\n"
-        output += "   - Dual-model approach (Autoencoder + Isolation Forest)\n"
-        output += "   - Real-time processing with < 30s latency\n"
-        output += "   - Automatic alert generation with explanations\n\n"
-        
-        output += "4. **Dashboard** (`app.py`)\n"
-        output += "   - 5 tabs: Network, Alerts, Devices, Analytics, System\n"
-        output += "   - Real-time updates every 5 seconds\n"
-        output += "   - Educational transparency features\n\n"
         
         # Save
         manifest_file = self.docs_dir / 'CODE_MANIFEST.md'
@@ -392,7 +423,7 @@ class DocumentationGenerator:
         
         rtm_file = self.generate_requirements_traceability_matrix()
         test_file = self.generate_test_coverage_report()
-        manifest_file = self.generate_code_manifest()
+        manifest_file = a = self.generate_code_manifest()
         
         print("\n" + "=" * 60)
         print("✓ All Documentation Generated")
