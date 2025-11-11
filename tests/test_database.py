@@ -212,7 +212,7 @@ class TestDeviceOperations:
         """TC-DB-006: Verify old devices excluded from active list."""
         # Arrange - Add device and manually set old timestamp
         db.add_device(**sample_device)
-        old_timestamp_str = (datetime.now() - timedelta(hours=2)).isoformat()
+        old_timestamp_str = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
         
         cursor = db.conn.cursor()
         cursor.execute(
