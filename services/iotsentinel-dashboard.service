@@ -1,22 +1,17 @@
 [Unit]
-Description=IoTSentinel Dashboard
-After=network.target iotsentinel-ml.service
+Description=IoTSentinel Web Dashboard
+After=iotsentinel-backend.service
+BindsTo=iotsentinel-backend.service
 
 [Service]
 Type=simple
-User=sentinel
-WorkingDirectory=/home/sentinel/iotsentinel
-ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/dashboard/app.py
+User=pi
+WorkingDirectory=/home/pi/iotsentinel
+ExecStart=/home/pi/iotsentinel/venv/bin/python3 /home/pi/iotsentinel/dashboard/app.py
 Restart=on-failure
-RestartSec=10
-
-# Logging
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=iotsentinel-dashboard
-
-# Environment
-Environment="PYTHONUNBUFFERED=1"
 
 [Install]
 WantedBy=multi-user.target
