@@ -1,0 +1,16 @@
+[Unit]
+Description=IoTSentinel Backend Orchestrator (Parser and ML Engine)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/iotsentinel
+ExecStart=/home/pi/iotsentinel/venv/bin/python3 /home/pi/iotsentinel/orchestrator.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
