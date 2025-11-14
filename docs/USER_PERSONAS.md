@@ -1,6 +1,5 @@
-# User Personas for IoTSentinel
+# User Personas for IoTSentinel (v2.1 - Aligned)
 
-**Created**:
 **Purpose**: Define target users to guide UX design and requirements
 
 ---
@@ -18,32 +17,20 @@
 
 ### Technology Context
 
-- **Devices at Home**:
-  - 2x Laptops (work and personal)
-  - 4x Smartphones (family)
-  - 1x Smart TV
-  - 2x Tablets (children's devices)
-  - 1x Amazon Echo
-  - 1x Ring doorbell
+- **Devices at Home**: 2x Laptops, 4x Smartphones, 1x Smart TV, 2x Tablets, 1x Amazon Echo, 1x Ring doorbell
 
 ### Goals & Motivations
 
-1. **Primary Goal**: Protect children from online threats
-2. **Secondary Goal**: Monitor family's device usage
-3. **Aspiration**: Understand what her devices are doing without technical jargon
+1.  **Primary Goal**: Protect children from online threats.
+2.  **Secondary Goal**: Understand what her devices are doing without technical jargon.
+3.  **Aspiration**: Feel in control of her home's digital safety.
 
 ### Pain Points
 
-- "I get too many confusing security alerts from my router"
-- "I don't know if my children are visiting dangerous websites"
-- "Security products are either too expensive or too complicated"
-- "I want to learn about cybersecurity, but most tools don't explain anything"
-
-### Frustrations with Current Solutions
-
-- **Bitdefender BOX**: "It tells me something is blocked, but not WHY"
-- **Router Admin Panel**: "I tried logging in once - gave up after 5 minutes"
-- **Antivirus Software**: "Pop-ups are annoying and I don't understand them"
+- "I get too many confusing security alerts from my router."
+- "I don't know if my children's devices are talking to something dangerous."
+- "Security products are either too expensive or too complicated."
+- "I want to learn, but most tools don't explain anything."
 
 ### Quote
 
@@ -51,10 +38,11 @@
 
 ### Success Criteria for IoTSentinel
 
-- ✅ Can identify all family devices within 5 minutes
-- ✅ Receives alerts she can understand without Googling terms
-- ✅ Can explain to her husband what an alert means
-- ✅ Feels empowered, not overwhelmed
+- ✅ Can identify all family devices on the dashboard (US-001).
+- ✅ Receives alerts she can understand without Googling terms (US-003, US-004).
+- ✅ Can see patterns in alerts over time (US-007).
+- ✅ Can take direct action, like blocking a device (US-015).
+- ✅ Feels empowered, not overwhelmed.
 
 ---
 
@@ -71,34 +59,19 @@
 
 ### Technology Context
 
-- **Devices at Home**:
-  - 3x Laptops/desktops (work machines)
-  - 2x Smartphones
-  - 1x NAS (Synology for backup)
-  - 2x Smart speakers
-  - 1x Smart thermostat (Nest)
-  - 3x Smart bulbs
-  - 1x Security camera
-  - 1x Gaming console
+- **Devices at Home**: 3x Laptops/desktops, 2x Smartphones, 1x NAS (Synology), 2x Smart speakers, 1x Smart thermostat, 3x Smart bulbs, 1x Security camera.
 
 ### Goals & Motivations
 
-1. **Primary Goal**: Understand his home network security
-2. **Secondary Goal**: Learn about cybersecurity concepts
-3. **Aspiration**: Become more tech-savvy without formal training
+1.  **Primary Goal**: Understand his home network's behavior and security.
+2.  **Secondary Goal**: Learn about cybersecurity concepts through a practical tool.
+3.  **Aspiration**: See the data and understand _how_ the system works.
 
 ### Pain Points
 
-- "Commercial products are 'black boxes' - I want to see HOW they work"
-- "I'm willing to learn, but documentation is either too basic or too advanced"
-- "I don't want to pay £99/year for something I can't customize"
-- "I want transparency: show me the data, show me the algorithm"
-
-### Frustrations with Current Solutions
-
-- **Firewalla**: "Too many features I don't need, interface is overwhelming"
-- **DIY Solutions**: "I tried pfSense - gave up after 3 hours"
-- **Commercial Products**: "Why can't they just tell me what the ML model is seeing?"
+- "Commercial products are 'black boxes' - I want to see HOW they work."
+- "I'm willing to learn, but documentation is either too basic or too advanced."
+- "I want transparency: show me the data, show me the algorithm's logic."
 
 ### Quote
 
@@ -106,10 +79,11 @@
 
 ### Success Criteria for IoTSentinel
 
-- ✅ Understands what "anomaly detection" actually means
-- ✅ Can see which features triggered an alert (with explanations)
-- ✅ Feels like he's learning security concepts through use
-- ✅ Can confidently discuss home network security with friends
+- ✅ Can see live network traffic in real-time (US-002).
+- ✅ Understands _why_ an alert was triggered via explanations (US-004).
+- ✅ Can see visual patterns, like the device heatmap (US-006).
+- ✅ Can see the ML model's performance metrics (US-010).
+- ✅ Can export raw data for his own analysis (US-013).
 
 ---
 
@@ -126,31 +100,19 @@
 
 ### Technology Context
 
-- **Devices at Home**:
-  - 1x Laptop (rarely used)
-  - 1x iPad (primary device)
-  - 1x Smartphone
-  - 1x Smart TV
-  - 1x Wireless printer
+- **Devices at Home**: 1x Laptop (rarely used), 1x iPad (primary device), 1x Smartphone, 1x Smart TV.
 
 ### Goals & Motivations
 
-1. **Primary Goal**: Avoid subscription fees (fixed income)
-2. **Secondary Goal**: Feel safe online without spending money
-3. **Aspiration**: Not be a burden on her son (who handles her tech issues)
+1.  **Primary Goal**: Avoid subscription fees (fixed income).
+2.  **Secondary Goal**: Feel safe online without spending money.
+3.  **Aspiration**: Not be a burden on her son (who handles her tech issues).
 
 ### Pain Points
 
-- "I can't afford £10/month for security software"
-- "I worry about online banking security"
-- "My grandson's devices might be unsafe when he visits"
-- "I don't want to call my son every time I get a security warning"
-
-### Frustrations with Current Solutions
-
-- **Subscription Costs**: "£99/year is my entire monthly grocery budget"
-- **Complexity**: "Setup required a phone call to my son"
-- **Trust**: "How do I know the security company isn't spying on me?"
+- "I can't afford £10/month for security software."
+- "I worry about online banking security."
+- "I don't want to call my son every time I get a security warning."
 
 ### Quote
 
@@ -158,35 +120,78 @@
 
 ### Success Criteria for IoTSentinel
 
-- ✅ One-time hardware cost only (Raspberry Pi ~£50)
-- ✅ No recurring subscription fees
-- ✅ Setup simple enough to do with written instructions
-- ✅ Clear alerts that don't require technical support calls
+- ✅ One-time hardware cost only (Raspberry Pi).
+- ✅ No recurring subscription fees.
+- ✅ Setup is simple via an Onboarding Wizard (US-018).
+- ✅ The dashboard is fast and responsive on her iPad (US-008, US-017).
+- ✅ Can pause monitoring if she feels it's necessary (US-011).
 
 ---
 
-## Design Implications
+## Persona 4: "The System Administrator" - (Technical Persona)
+
+### Demographics
+
+- **Name**: (Internal Persona)
+- **Occupation**: Developer / System Operator
+- **Tech Proficiency**: High (Creator of the system)
+
+### Technology Context
+
+- **Devices**: Development machine, Raspberry Pi, test devices.
+
+### Goals & Motivations
+
+1.  **Primary Goal**: Ensure the system is stable, reliable, and performant.
+2.  **Secondary Goal**: Create a robust baseline for the ML models.
+3.  **Aspiration**: Build a system that runs without constant intervention.
+
+### Pain Points
+
+- "The ML model is useless if it's trained on bad 'normal' data."
+- "I can't debug the system if I don't know its resource usage."
+- "If the capture process (Zeek) dies, the whole system stops working."
+
+### Quote
+
+> "The user-facing features don't matter if the backend isn't stable. I need to monitor system health and ensure the ML training is correct."
+
+### Success Criteria for IoTSentinel
+
+- ✅ Can initiate and monitor a 7-day baseline training period (US-005).
+- ✅ Can see system health (CPU, RAM, Disk) on the dashboard (US-012).
+- ✅ The system has an orchestrator to auto-restart failed processes (US-012/FR-015).
+
+---
+
+## Design Implications (Updated)
 
 ### From Sarah (Concerned Parent)
 
-- **Implication 1**: Alerts MUST use plain language (no "TCP SYN flood")
-- **Implication 2**: Dashboard must show device names, not IP addresses
-- **Implication 3**: Color coding (red/yellow/green) for quick status checks
-- **Implication 4**: Educational tooltips for every technical term
+- **Implication 1**: Alerts MUST use plain language (US-003, US-004).
+- **Implication 2**: Dashboard must show device names, not IPs (US-001).
+- **Implication 3**: Clear action buttons (Block, Acknowledge) (US-014, US-015).
+- **Implication 4**: Educational tooltips for every technical term.
 
 ### From David (Tech-Curious)
 
-- **Implication 1**: "Show Your Work" - explain which features caused alert
-- **Implication 2**: Provide access to raw data (CSV export, API)
-- **Implication 3**: Documentation should explain ML concepts clearly
-- **Implication 4**: Allow customization of detection thresholds
+- **Implication 1**: "Show Your Work" - explain _why_ an alert fired (US-004).
+- **Implication 2**: Provide access to raw data (US-013 Export).
+- **Implication 3**: Dashboard must visualize data (Heatmap, Timeline) (US-006, US-007).
+- **Implication 4**: Show ML performance and threat intel data (US-010, US-019).
 
 ### From Margaret (Budget-Conscious)
 
-- **Implication 1**: Emphasize "No subscription" in all marketing
-- **Implication 2**: Setup wizard must be foolproof (max 10 steps)
-- **Implication 3**: Provide written quick-start guide (large font)
-- **Implication 4**: Minimal ongoing maintenance required
+- **Implication 1**: Emphasize "No Subscription" and one-time cost.
+- **Implication 2**: Setup wizard must be foolproof (US-018).
+- **Implication 3**: UI must be fast and responsive, especially on mobile/tablet (US-008, US-017).
+- **Implication 4**: Features must be intuitive (e.g., "Pause" button) (US-011).
+
+### From System Administrator (Technical)
+
+- **Implication 1**: A separate "System" tab is needed for health metrics (US-012).
+- **Implication 2**: Baseline collection must be a clear, separate process (US-005).
+- **Implication 3**: Backend processes must be resilient (FR-015 Orchestrator).
 
 ---
 
@@ -194,41 +199,29 @@
 
 ### Requirements Phase (AT2)
 
-- Map each user story to a specific persona
-- Example: "As **Sarah**, I want to see device names..."
+- Map each user story (US-001 to US-020) to a primary persona.
+- Example: "As **Sarah** (US-003), I want to receive alerts..."
+- Example: "As **System Administrator** (US-005), I want to collect..."
 
 ### Design Phase (AT3)
 
-- Test UI designs against persona expectations
-- Example: Would David find this explanation satisfying?
+- Test UI designs against persona expectations.
+- Example: Would David find this explanation satisfying? Is this button clear for Margaret?
 
 ### Testing Phase (Usability)
 
-- Recruit participants matching persona profiles
-- Example: Find 2 non-technical parents for testing
+- Recruit participants matching persona profiles.
+- Example: Find 2 non-technical users (Sarah/Margaret) for usability testing.
 
 ### Evaluation Phase (AT3)
 
-- Measure success against persona-specific criteria
-- Example: Did Sarah complete device identification in < 5 minutes?
+- Measure success against persona-specific criteria.
+- Example: Did Sarah understand the alert? Did David find the ML metrics?
 
 ---
 
 ## Anti-Personas (Who We're NOT Targeting)
 
-### Anti-Persona: "The Enterprise IT Admin"
-
-- **Why**: Needs features like SIEM integration, compliance reporting
-- **IoTSentinel Limitation**: Designed for home use, not enterprise
-
-### Anti-Persona: "The Privacy Extremist"
-
-- **Why**: Wants zero data collection, even locally
-- **IoTSentinel Limitation**: Requires monitoring to function
-
-### Anti-Persona: "The Advanced Hacker"
-
-- **Why**: Wants full packet captures, manual rule writing
-- **IoTSentinel Limitation**: Educational tool, not penetration testing platform
-
----
+- **"The Enterprise IT Admin"**: Needs features like SIEM integration, compliance reporting. IoTSentinel is for home use.
+- **"The Privacy Extremist"**: Wants zero data collection. IoTSentinel _requires_ local network monitoring to function.
+- **"The Advanced Hacker"**: Wants full packet captures and manual rule writing. IoTSentinel is an educational/alerting tool, not a forensics platform.
