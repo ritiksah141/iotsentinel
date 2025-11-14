@@ -1,0 +1,26 @@
+/* Make the layout more mobile-friendly */
+@media (max-width: 768px) {
+    /* Stack columns on smaller screens */
+    .row {
+        flex-direction: column;
+    }
+
+    /* Adjust header font sizes */
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    h2 {
+        font-size: 1.2rem;
+    }
+
+    /* Reduce padding on the main container */
+    .p-4 {
+        padding: 1rem !important;
+    }
+
+    /* Make graph heights smaller */
+    .card .graph {
+        height: 250px !important;
+    }
+}

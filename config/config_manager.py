@@ -143,6 +143,39 @@ class ConfigManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w') as f:
             json.dump(self._config, f, indent=4)
+
+    def save_user_config(self, new_settings: Dict):
+        """
+        Save a dictionary of settings to the project config file.
+        This is safer as it only modifies specified settings.
+        """
+        # Create backup
+        if self.PROJECT_CONFIG_PATH.exists():
+            backup_path = self.PROJECT_CONFIG_PATH.with_suffix('.json.bak')
+            self.PROJECT_CONFIG_PATH.rename(backup_path)
+            logger.info(f"Created backup: {backup_path}")
+
+        # Load existing project config
+        current_config = self._load_json(self.PROJECT_CONFIG_PATH)
+        
+        # Merge new settings
+        self._deep_merge(current_config, new_settings)
+        
+        # Save
+        try:
+            with open(self.PROJECT_CONFIG_PATH, 'w') as f:
+                json.dump(current_config, f, indent=4)
+            logger.info(f"Saved user config to {self.PROJECT_CONFIG_PATH}")
+            
+            # Reload config to apply changes
+            self.reload()
+            
+        except Exception as e:
+            logger.error(f"Error saving user config: {e}")
+            # Restore backup on error
+            if 'backup_path' in locals() and backup_path.exists():
+                backup_path.rename(self.PROJECT_CONFIG_PATH)
+                logger.warning("Restored backup due to save error.")
     
     def is_pi(self) -> bool:
         try:

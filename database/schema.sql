@@ -39,3 +39,17 @@ ml_predictions (
     anomaly_score,
     model_type  -- autoencoder/isolation_forest
 )
+
+model_performance (
+    id PRIMARY KEY,
+    timestamp,
+    model_type,
+    precision,
+    recall,
+    f1_score
+)
+
+malicious_ips (
+    ip TEXT PRIMARY KEY,
+    source TEXT
+)

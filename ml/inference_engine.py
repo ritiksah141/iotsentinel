@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import config
 from database.db_manager import DatabaseManager
 from ml.feature_extractor import FeatureExtractor
+from alerts.email_notifier import send_alert_email
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ class InferenceEngine:
         self.autoencoder_threshold = None
         
         self._load_models()
+        self.last_metric_update = time.time()
+        self.status_file_path = Path(config.get('system', 'status_file_path', default='config/monitoring_status.json'))
     
     def _load_models(self):
         """Load trained ML models."""
@@ -103,6 +106,21 @@ class InferenceEngine:
         anomaly_count = 0
         
         for i, (conn_id, features) in enumerate(zip(df['id'], X_scaled)):
+            
+            # Check against threat intelligence feed
+            dest_ip = df.iloc[i].get('dest_ip')
+            if dest_ip and self.db.is_ip_malicious(dest_ip):
+                logger.warning(f"MALICIOUS IP DETECTED: {df.iloc[i]['device_ip']} to {dest_ip}")
+                self.db.create_alert(
+                    device_ip=df.iloc[i]['device_ip'],
+                    severity='critical',
+                    anomaly_score=1.0,
+                    explanation=f"Connection made to a known malicious IP address: {dest_ip}",
+                    top_features=json.dumps({'malicious_ip': dest_ip})
+                )
+                anomaly_count += 1
+                continue # Skip ML inference for this connection
+
             is_anomaly = False
             anomaly_score = 0.0
             model_type = 'none'
@@ -151,6 +169,16 @@ class InferenceEngine:
                     explanation=explanation,
                     top_features=json.dumps(top_features)
                 )
+                
+                if severity == 'critical':
+                    alert_details = {
+                        'device_ip': device_ip,
+                        'severity': severity,
+                        'anomaly_score': float(anomaly_score),
+                        'explanation': explanation,
+                        'timestamp': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    send_alert_email(alert_details)
                 
                 anomaly_count += 1
                 logger.warning(f"ANOMALY DETECTED: {device_ip} (score: {anomaly_score:.4f})")
@@ -201,6 +229,46 @@ class InferenceEngine:
         
         return top_features
     
+    def _update_performance_metrics(self):
+        """
+        Periodically generate and store dummy performance metrics.
+        
+        NOTE: This is a placeholder. In a real-world scenario, you would
+        calculate these metrics based on labeled data or user feedback.
+        """
+        # Update once every 24 hours
+        if time.time() - self.last_metric_update < 86400:
+            return
+            
+        logger.info("Updating dummy model performance metrics...")
+        
+        # Generate dummy metrics (replace with real calculation)
+        precision = 0.85 + (np.random.rand() - 0.5) * 0.1
+        recall = 0.90 + (np.random.rand() - 0.5) * 0.1
+        f1_score = 2 * (precision * recall) / (precision + recall)
+        
+        self.db.add_model_performance_metric(
+            model_type='combined',
+            precision=precision,
+            recall=recall,
+            f1_score=f1_score
+        )
+        
+        self.last_metric_update = time.time()
+        logger.info("✓ Dummy metrics updated")
+    
+    def _is_monitoring_paused(self) -> bool:
+        """Check if monitoring is paused."""
+        try:
+            with open(self.status_file_path, 'r') as f:
+                status = json.load(f)
+                if status.get('status') == 'paused':
+                    return True
+        except (FileNotFoundError, json.JSONDecodeError):
+            # If file is missing or invalid, assume not paused
+            return False
+        return False
+    
     def run_continuous(self, interval: int = 300):
         """Run inference continuously."""
         logger.info("=" * 60)
@@ -210,7 +278,13 @@ class InferenceEngine:
         
         try:
             while True:
+                if self._is_monitoring_paused():
+                    logger.info("Monitoring is paused. Checking again in 60 seconds...")
+                    time.sleep(60)
+                    continue
+                
                 self.process_connections()
+                self._update_performance_metrics()
                 time.sleep(interval)
         except KeyboardInterrupt:
             logger.info("Stopping inference engine...")

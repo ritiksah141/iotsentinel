@@ -32,6 +32,7 @@ class ZeekLogParser:
     def __init__(self):
         self.zeek_log_path = Path(config.get('network', 'zeek_log_path'))
         self.db = DatabaseManager(config.get('database', 'path'))
+        self.status_file_path = Path(config.get('system', 'status_file_path', default='config/monitoring_status.json'))
         
         # Track file positions for resuming
         self.file_positions = {}
@@ -204,6 +205,18 @@ class ZeekLogParser:
             logger.error(f"Error reading dns.log: {e}")
             return 0
     
+    def _is_monitoring_paused(self) -> bool:
+        """Check if monitoring is paused."""
+        try:
+            with open(self.status_file_path, 'r') as f:
+                status = json.load(f)
+                if status.get('status') == 'paused':
+                    return True
+        except (FileNotFoundError, json.JSONDecodeError):
+            # If file is missing or invalid, assume not paused
+            return False
+        return False
+    
     def watch_and_parse(self, interval: int = 60):
         """
         Continuously monitor and parse Zeek logs.
@@ -217,6 +230,11 @@ class ZeekLogParser:
         
         try:
             while True:
+                if self._is_monitoring_paused():
+                    logger.info("Monitoring is paused. Checking again in 60 seconds...")
+                    time.sleep(60)
+                    continue
+                
                 current_log_dir = self.zeek_log_path / 'current'
                 
                 if not current_log_dir.exists():
