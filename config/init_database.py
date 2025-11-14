@@ -100,6 +100,26 @@ def init_database():
         )
     ''')
     
+    # Model performance metrics
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS model_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            model_type TEXT,
+            precision REAL,
+            recall REAL,
+            f1_score REAL
+        )
+    ''')
+    
+    # Malicious IPs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS malicious_ips (
+            ip TEXT PRIMARY KEY,
+            source TEXT
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     
@@ -109,6 +129,8 @@ def init_database():
     print("  - connections")
     print("  - alerts")
     print("  - ml_predictions")
+    print("  - model_performance")
+    print("  - malicious_ips")
 
 
 if __name__ == "__main__":

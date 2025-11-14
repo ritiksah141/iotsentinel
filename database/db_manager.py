@@ -359,6 +359,165 @@ class DatabaseManager:
             logger.error(f"Error getting connection count: {e}")
             return 0
     
+    def add_model_performance_metric(self, model_type: str, precision: float, recall: float, f1_score: float) -> bool:
+        """
+        Store model performance metrics.
+        
+        Args:
+            model_type: Model identifier (e.g., 'combined')
+            precision: Precision score
+            recall: Recall score
+            f1_score: F1-score
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO model_performance
+                (model_type, precision, recall, f1_score)
+                VALUES (?, ?, ?, ?)
+            """, (model_type, precision, recall, f1_score))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error storing model performance metric: {e}")
+            return False
+
+    def get_model_performance_metrics(self, days: int = 30) -> List[Dict]:
+        """
+        Get recent model performance metrics.
+        
+        Args:
+            days: Look back this many days
+            
+        Returns:
+            List of metric dictionaries
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM model_performance
+                WHERE timestamp > datetime('now', ? || ' days')
+                ORDER BY timestamp ASC
+            """, (f'-{days}',))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching model performance metrics: {e}")
+            return []
+    
+    def set_device_trust(self, device_ip: str, is_trusted: bool) -> bool:
+        """Set the trust status for a device."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE devices
+                SET is_trusted = ?
+                WHERE device_ip = ?
+            """, (int(is_trusted), device_ip))
+            self.conn.commit()
+            logger.info(f"Set device {device_ip} trust to {is_trusted}")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error setting trust for device {device_ip}: {e}")
+            return False
+
+    def get_trusted_devices(self) -> List[Dict]:
+        """Get all trusted devices."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM devices WHERE is_trusted = 1")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching trusted devices: {e}")
+            return []
+    
+    def get_bandwidth_stats(self, hours: int = 24) -> List[Dict]:
+        """
+        Get bandwidth usage stats per device.
+
+        Args:
+            hours: Look back this many hours.
+
+        Returns:
+            List of dictionaries with device_ip and total_bytes.
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT
+                    device_ip,
+                    SUM(bytes_sent + bytes_received) as total_bytes
+                FROM connections
+                WHERE timestamp > datetime('now', ? || ' hours')
+                GROUP BY device_ip
+                ORDER BY total_bytes DESC
+                LIMIT 10
+            """, (f'-{hours}',))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching bandwidth stats: {e}")
+            return []
+    
+    def add_malicious_ips(self, ips: List[str], source: str):
+        """
+        Add a list of malicious IPs to the database.
+
+        Args:
+            ips: A list of IP addresses.
+            source: The source of the threat intelligence feed.
+        """
+        try:
+            cursor = self.conn.cursor()
+            data = [(ip, source) for ip in ips]
+            cursor.executemany("INSERT OR IGNORE INTO malicious_ips (ip, source) VALUES (?, ?)", data)
+            self.conn.commit()
+            logger.info(f"Added {len(ips)} new malicious IPs from {source}")
+        except sqlite3.Error as e:
+            logger.error(f"Error adding malicious IPs: {e}")
+
+    def is_ip_malicious(self, ip: str) -> bool:
+        """
+        Check if an IP address is in the malicious list.
+
+        Args:
+            ip: The IP address to check.
+
+        Returns:
+            True if the IP is malicious, False otherwise.
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1 FROM malicious_ips WHERE ip = ?", (ip,))
+            return cursor.fetchone() is not None
+        except sqlite3.Error as e:
+            logger.error(f"Error checking malicious IP {ip}: {e}")
+            return False
+    
+    def get_recent_connections(self, hours: int = 1) -> List[Dict]:
+        """
+        Get recent connections for the network graph.
+
+        Args:
+            hours: Look back this many hours.
+
+        Returns:
+            List of connection dictionaries.
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT device_ip, dest_ip FROM connections
+                WHERE timestamp > datetime('now', ? || ' hours')
+                AND dest_ip IS NOT NULL
+            """, (f'-{hours}',))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching recent connections: {e}")
+            return []
+    
     def close(self):
         """Close database connection."""
         if self.conn:

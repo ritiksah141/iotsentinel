@@ -3,7 +3,8 @@
         "name": "IoTSentinel",
         "version": "1.0.0",
         "environment": "production",
-        "architecture": "zeek-based"
+        "architecture": "zeek-based",
+        "status_file_path": "config/monitoring_status.json"
     },
     "network": {
         "interface": "wlan0",
@@ -37,5 +38,20 @@
     "logging": {
         "level": "INFO",
         "log_dir": "data/logs"
+    },
+    "email": {
+        "enabled": false,
+        "smtp_host": "smtp.example.com",
+        "smtp_port": 587,
+        "smtp_user": "user@example.com",
+        "smtp_password": "your_password",
+        "sender_email": "iotsentinel@example.com",
+        "recipient_email": "you@example.com"
+    },
+    "firewall": {
+        "enabled": false,
+        "router_ip": "192.168.1.1",
+        "router_user": "root",
+        "router_password": "your_router_password"
     }
 }
