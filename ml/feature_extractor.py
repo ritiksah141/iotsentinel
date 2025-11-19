@@ -6,6 +6,7 @@ Extracts numerical features from network connection data
 for anomaly detection using Autoencoder and Isolation Forest.
 """
 
+import sqlite3
 import pandas as pd
 import numpy as np
 import pickle
@@ -15,6 +16,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import config
+from database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -214,8 +216,11 @@ if __name__ == '__main__':
     # Test with synthetic data
     from database.db_manager import DatabaseManager
 
-    # Use a test DB path
-    db_path = config.get('database', 'path', fallback='data/iot_sentinel.db')
+    # Use a test DB path. ConfigManager.get may not support 'fallback',
+    # so read and apply a Python-side default if necessary.
+    db_path = config.get('database', 'path')
+    if not db_path:
+        db_path = 'data/iot_sentinel.db'
 
     db = DatabaseManager(db_path)
 
