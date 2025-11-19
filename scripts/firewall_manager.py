@@ -31,16 +31,17 @@ def get_ssh_client():
 
     router_ip = config.get('firewall', 'router_ip')
     router_user = config.get('firewall', 'router_user')
-    router_password = config.get('firewall', 'router_password')
+    private_key_path = config.get('firewall', 'router_private_key_path')
 
-    if not all([router_ip, router_user, router_password]):
+    if not all([router_ip, router_user, private_key_path]):
         logger.error("Firewall configuration is incomplete.")
         return None
 
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(router_ip, username=router_user, password=router_password, timeout=10)
+        private_key = paramiko.RSAKey.from_private_key_file(private_key_path)
+        client.connect(router_ip, username=router_user, pkey=private_key, timeout=10)
         logger.info(f"SSH connection successful to {router_ip}")
         return client
     except Exception as e:
@@ -75,7 +76,7 @@ def apply_rules(trusted_mac_addresses: list):
 
         # 4. Add a rule to drop all other traffic in our chain
         client.exec_command(f"iptables -A {IPTABLES_CHAIN} -j DROP")
-        
+
         # 5. Insert our chain at the top of the FORWARD chain
         # This ensures our rules are checked first.
         client.exec_command(f"iptables -I FORWARD 1 -j {IPTABLES_CHAIN}")
@@ -116,9 +117,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="IoTSentinel Firewall Manager")
     parser.add_argument('--apply', nargs='+', help='List of trusted MAC addresses to apply')
     parser.add_argument('--clear', action='store_true', help='Clear all rules')
-    
+
     args = parser.parse_args()
-    
+
     if args.apply:
         print(f"Applying rules for: {args.apply}")
         apply_rules(args.apply)

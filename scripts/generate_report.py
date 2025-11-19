@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def generate_html_report(summary_data: dict) -> str:
     """Generate an HTML report from summary data."""
-    
+
     # CSS for styling
     styles = """
     <style>
@@ -35,16 +35,16 @@ def generate_html_report(summary_data: dict) -> str:
         th { background-color: #f2f2f2; }
     </style>
     """
-    
+
     # Report body
     html = f"<html><head>{styles}</head><body>"
     html += "<h1>IoTSentinel Weekly Summary</h1>"
-    
+
     # Summary section
     html += "<h2>Summary</h2>"
     html += f"<p>New Devices Discovered: <strong>{summary_data['new_devices']}</strong></p>"
     html += f"<p>Total Alerts Generated: <strong>{summary_data['total_alerts']}</strong></p>"
-    
+
     # Top Alerts
     html += "<h2>Top Alerts</h2>"
     if summary_data['top_alerts']:
@@ -54,7 +54,7 @@ def generate_html_report(summary_data: dict) -> str:
         html += "</table>"
     else:
         html += "<p>No alerts this week. Great job!</p>"
-        
+
     # Top Bandwidth Consumers
     html += "<h2>Top 5 Devices by Bandwidth</h2>"
     if summary_data['top_bandwidth']:
@@ -65,45 +65,45 @@ def generate_html_report(summary_data: dict) -> str:
         html += "</table>"
     else:
         html += "<p>No bandwidth data available.</p>"
-        
+
     html += "</body></html>"
     return html
 
 def generate_report():
     """Generate and email the weekly report."""
     logger.info("Generating weekly report...")
-    
+
     db = DatabaseManager(config.get('database', 'path'))
-    
+
     try:
         # Fetch data
         one_week_ago = (datetime.now() - timedelta(days=7)).isoformat()
-        
+
         # Using existing methods where possible
         all_alerts = db.get_recent_alerts(hours=7*24)
         top_alerts = sorted(all_alerts, key=lambda x: x['severity'], reverse=True)[:5]
-        
+
         top_bandwidth = db.get_bandwidth_stats(hours=7*24)
-        
+
         # Get new devices (this requires a new DB method)
         # For now, we'll just count devices seen in the last week
         # A proper implementation would check `first_seen`
-        new_devices_count = db.get_connection_count(hours=7*24) # Placeholder
-        
+        new_devices_count = db.get_new_devices_count(days=7)
+
         summary_data = {
             "new_devices": new_devices_count,
             "total_alerts": len(all_alerts),
             "top_alerts": top_alerts,
             "top_bandwidth": top_bandwidth
         }
-        
+
         # Generate HTML
         html_report = generate_html_report(summary_data)
-        
+
         # Send email
         subject = f"IoTSentinel Weekly Report: {datetime.now().strftime('%Y-%m-%d')}"
         send_email(subject, html_report)
-        
+
     except Exception as e:
         logger.error(f"Failed to generate report: {e}")
     finally:
