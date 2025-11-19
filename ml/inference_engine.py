@@ -110,14 +110,28 @@ class InferenceEngine:
             # Check against threat intelligence feed
             dest_ip = df.iloc[i].get('dest_ip')
             if dest_ip and self.db.is_ip_malicious(dest_ip):
-                logger.warning(f"MALICIOUS IP DETECTED: {df.iloc[i]['device_ip']} to {dest_ip}")
+                device_ip = df.iloc[i]['device_ip']
+                explanation = f"Connection made to a known malicious IP address: {dest_ip}"
+                logger.warning(f"MALICIOUS IP DETECTED: {device_ip} to {dest_ip}")
+
                 self.db.create_alert(
-                    device_ip=df.iloc[i]['device_ip'],
+                    device_ip=device_ip,
                     severity='critical',
                     anomaly_score=1.0,
-                    explanation=f"Connection made to a known malicious IP address: {dest_ip}",
+                    explanation=explanation,
                     top_features=json.dumps({'malicious_ip': dest_ip})
                 )
+
+                # Also send an email for this critical alert
+                alert_details = {
+                    'device_ip': device_ip,
+                    'severity': 'critical',
+                    'anomaly_score': 1.0,
+                    'explanation': explanation,
+                    'timestamp': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                send_alert_email(alert_details)
+
                 anomaly_count += 1
                 continue # Skip ML inference for this connection
 
