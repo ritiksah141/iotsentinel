@@ -1,206 +1,60 @@
-#!/usr/bin/env python3
 """
-Professional Configuration Manager for IoTSentinel
+Configuration Manager for IoTSentinel
 
-Loads configuration with priority:
-1. Environment variables (highest)
-2. User config (~/.iotsentinel/config.json)
-3. Project config (config/config.json)
-4. Default config (config/default_config.json)
+Loads configuration from a default JSON file and overrides with environment
+variables from a .env file for secure credential management.
 """
 
-import os
 import json
-import logging
+import os
 from pathlib import Path
-from typing import Dict, Any, Optional
-import copy
-
-logger = logging.getLogger(__name__)
-
+from dotenv import load_dotenv
 
 class ConfigManager:
-    """Singleton configuration manager."""
-    
-    PROJECT_ROOT = Path(__file__).parent.parent
-    DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default_config.json"
-    PROJECT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.json"
-    USER_CONFIG_PATH = Path.home() / ".iotsentinel" / "config.json"
-    
-    _instance = None
-    _config = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        if self._config is None:
-            self.reload()
-    
-    def reload(self):
-        """Load configuration from all sources."""
-        # Start with default
-        self._config = self._load_json(self.DEFAULT_CONFIG_PATH)
-        
-        # Merge project config
-        if self.PROJECT_CONFIG_PATH.exists():
-            project_config = self._load_json(self.PROJECT_CONFIG_PATH)
-            self._deep_merge(self._config, project_config)
-        
-        # Merge user config
-        if self.USER_CONFIG_PATH.exists():
-            user_config = self._load_json(self.USER_CONFIG_PATH)
-            self._deep_merge(self._config, user_config)
-        
-        # Apply environment overrides
-        self._apply_env_overrides()
-        
-        # Resolve paths
-        self._resolve_paths()
-    
-    def _load_json(self, path: Path) -> Dict:
-        try:
-            with open(path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Could not load config from {path}: {e}")
-            return {}
-    
-    def _deep_merge(self, base: Dict, override: Dict):
-        for key, value in override.items():
-            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-                self._deep_merge(base[key], value)
-            else:
-                base[key] = value
-    
-    def _apply_env_overrides(self):
-        env_mappings = {
-            'IOTSENTINEL_INTERFACE': ['network', 'interface'],
-            'IOTSENTINEL_DB_PATH': ['database', 'path'],
-            'IOTSENTINEL_DASHBOARD_PORT': ['dashboard', 'port'],
-            'IOTSENTINEL_LOG_LEVEL': ['logging', 'level'],
-        }
-        
-        for env_var, config_path in env_mappings.items():
-            value = os.getenv(env_var)
-            if value:
-                current = self._config
-                for key in config_path[:-1]:
-                    current = current.setdefault(key, {})
-                
-                final_key = config_path[-1]
-                if isinstance(current.get(final_key), int):
-                    current[final_key] = int(value)
-                elif isinstance(current.get(final_key), bool):
-                    current[final_key] = value.lower() in ('true', '1', 'yes')
-                else:
-                    current[final_key] = value
-    
-    def _resolve_paths(self):
-        """Convert relative paths to absolute."""
-        # Database
-        db_path = Path(self._config['database']['path'])
-        if not db_path.is_absolute():
-            self._config['database']['path'] = str(self.PROJECT_ROOT / db_path)
-        
-        # Logs
-        log_dir = Path(self._config['logging']['log_dir'])
-        if not log_dir.is_absolute():
-            self._config['logging']['log_dir'] = str(self.PROJECT_ROOT / log_dir)
-        
-        # Models
-        for key in ['autoencoder_path', 'isolation_forest_path', 'feature_extractor_path']:
-            if key in self._config['ml']:
-                model_path = Path(self._config['ml'][key])
-                if not model_path.is_absolute():
-                    self._config['ml'][key] = str(self.PROJECT_ROOT / model_path)
-    
-    def get(self, *keys, default=None) -> Any:
-        """Get config value by path."""
-        current = self._config
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return default
-        return current
-    
-    def set(self, *keys, value):
-        """Set config value by path."""
-        current = self._config
-        for key in keys[:-1]:
-            current = current.setdefault(key, {})
-        current[keys[-1]] = value
-    
-    def get_all(self) -> Dict:
-        return copy.deepcopy(self._config)
-    
-    def save(self, path: Optional[Path] = None):
-        if path is None:
-            path = self.PROJECT_CONFIG_PATH
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
-            json.dump(self._config, f, indent=4)
+    """Manages loading and accessing configuration."""
 
-    def save_user_config(self, new_settings: Dict):
+    def __init__(self, default_config_path: Path, env_path: Path = None):
+        # Load default config
+        with open(default_config_path, 'r') as f:
+            self._config = json.load(f)
+
+        # Load environment variables from .env file
+        if env_path and env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+
+        # Override with environment variables
+        self._override_with_env()
+
+    def _override_with_env(self):
+        """Override JSON config with environment variables."""
+        for section, settings in self._config.items():
+            for key, _ in settings.items():
+                env_var_name = f"{section.upper()}_{key.upper()}"
+                env_var_value = os.getenv(env_var_name)
+                if env_var_value is not None:
+                    self._config[section][key] = env_var_value
+
+    def get(self, section: str, key: str, default: any = None) -> any:
         """
-        Save a dictionary of settings to the project config file.
-        This is safer as it only modifies specified settings.
+        Get a configuration value.
+
+        Args:
+            section: The configuration section (e.g., 'database').
+            key: The configuration key (e.g., 'path').
+            default: The default value to return if not found.
+
+        Returns:
+            The configuration value.
         """
-        # Create backup
-        if self.PROJECT_CONFIG_PATH.exists():
-            backup_path = self.PROJECT_CONFIG_PATH.with_suffix('.json.bak')
-            self.PROJECT_CONFIG_PATH.rename(backup_path)
-            logger.info(f"Created backup: {backup_path}")
+        return self._config.get(section, {}).get(key, default)
 
-        # Load existing project config
-        current_config = self._load_json(self.PROJECT_CONFIG_PATH)
-        
-        # Merge new settings
-        self._deep_merge(current_config, new_settings)
-        
-        # Save
-        try:
-            with open(self.PROJECT_CONFIG_PATH, 'w') as f:
-                json.dump(current_config, f, indent=4)
-            logger.info(f"Saved user config to {self.PROJECT_CONFIG_PATH}")
-            
-            # Reload config to apply changes
-            self.reload()
-            
-        except Exception as e:
-            logger.error(f"Error saving user config: {e}")
-            # Restore backup on error
-            if 'backup_path' in locals() and backup_path.exists():
-                backup_path.rename(self.PROJECT_CONFIG_PATH)
-                logger.warning("Restored backup due to save error.")
-    
-    def is_pi(self) -> bool:
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                return 'Raspberry Pi' in f.read()
-        except:
-            return False
-    
-    def get_platform(self) -> str:
-        if self.is_pi():
-            return 'raspberry_pi'
-        elif os.uname().sysname == 'Darwin':
-            return 'macos'
-        elif os.uname().sysname == 'Linux':
-            return 'linux'
-        else:
-            return 'windows'
+    def get_section(self, section: str) -> dict:
+        """Get a whole configuration section."""
+        return self._config.get(section, {})
 
+# Initialize a single config instance for the application
+project_root = Path(__file__).parent.parent
+default_config_path = project_root / 'config' / 'default_config.json'
+env_path = project_root / '.env'
 
-# Global instance
-config = ConfigManager()
-
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    print(f"Platform: {config.get_platform()}")
-    print(f"Interface: {config.get('network', 'interface')}")
-    print(f"Database: {config.get('database', 'path')}")
+config = ConfigManager(default_config_path, env_path)

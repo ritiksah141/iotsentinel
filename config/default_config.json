@@ -52,6 +52,6 @@
         "enabled": false,
         "router_ip": "192.168.1.1",
         "router_user": "root",
-        "router_password": "your_router_password"
+        "router_private_key_path": "/path/to/your/private/key"
     }
 }

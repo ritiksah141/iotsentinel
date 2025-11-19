@@ -45,6 +45,7 @@ app = dash.Dash(
 
 # Database path
 DB_PATH = config.get('database', 'path')
+db_manager = DatabaseManager(DB_PATH)
 
 def get_db_connection():
     """Get database connection (read-only for safety)."""
@@ -64,14 +65,14 @@ def load_model_comparison_data():
     """Loads data from the model comparison reports."""
     report_path = project_root / 'comparison_report.json'
     image_path = project_root / 'model_comparison_visualization.png'
-    
+
     report_data = {}
     encoded_image = None
 
     if report_path.exists():
         with open(report_path, 'r', encoding='utf-8') as f:
             report_data = json.load(f)
-    
+
     if image_path.exists():
         with open(image_path, 'rb') as f:
             encoded_image = base64.b64encode(f.read()).decode()
@@ -91,10 +92,10 @@ app.layout = dbc.Container([
         dbc.Col(html.Div([html.H2(id='alert-count'), html.Small("Active Alerts")], className="text-end"), width=1),
         dbc.Col(html.Div([html.H2(id='connection-count'), html.Small("Connections/Hour")], className="text-end"), width=2)
     ], className="mb-4 mt-3"),
-    
+
     # System status banner
     dbc.Row([dbc.Col(dbc.Alert(id='system-status', color="success", className="mb-3"))]),
-    
+
     # Main tabs
     dbc.Tabs([
         dbc.Tab(label="🌐 Network", tab_id="tab-network", children=[
@@ -187,7 +188,7 @@ app.layout = dbc.Container([
             ])
         ])
     ], id="tabs", active_tab="tab-network"),
-    
+
     dcc.Interval(id='interval-component', interval=5*1000, n_intervals=0),
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='onboarding-store', storage_type='local'),
@@ -205,7 +206,7 @@ app.layout = dbc.Container([
         dbc.ModalHeader(dbc.ModalTitle(id="device-details-title")),
         dbc.ModalBody(id="device-details-body"),
     ], id="device-details-modal", is_open=False),
-    
+
 ], fluid=True, className="p-4")
 
 # ============================================================================
@@ -282,13 +283,13 @@ def update_onboarding_content(step):
         step = 0
     if step >= len(ONBOARDING_STEPS):
         step = len(ONBOARDING_STEPS) - 1
-        
+
     content = ONBOARDING_STEPS[step]
     prev_disabled = (step == 0)
     next_text = "Next"
     if step == len(ONBOARDING_STEPS) - 1:
         next_text = "Finish"
-        
+
     return content['title'], content['body'], prev_disabled, next_text
 
 @app.callback(
@@ -308,7 +309,7 @@ def update_onboarding_step(_, __, step, ___):
         return 0, dash.no_update, dash.no_update
 
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
     if button_id == 'onboarding-next':
         if step == len(ONBOARDING_STEPS) - 1:
             # Finish
@@ -317,7 +318,7 @@ def update_onboarding_step(_, __, step, ___):
             return step + 1, dash.no_update, dash.no_update
     elif button_id == 'onboarding-prev':
         return step - 1, dash.no_update, dash.no_update
-        
+
     return 0, dash.no_update, dash.no_update
 
 @app.callback(
@@ -336,14 +337,14 @@ def toggle_pause_monitoring(n_clicks, button_text):
                 status = json.load(f).get('status', 'running')
         except (FileNotFoundError, json.JSONDecodeError):
             status = 'running'
-        
+
         if status == 'paused':
             return "Resume Monitoring", "success"
         else:
             return "Pause Monitoring", "warning"
 
     status_file = project_root / config.get('system', 'status_file_path')
-    
+
     # Determine new state
     if "Pause" in button_text:
         new_status = 'paused'
@@ -353,7 +354,7 @@ def toggle_pause_monitoring(n_clicks, button_text):
         new_status = 'running'
         new_button_text = "Pause Monitoring"
         new_color = "warning"
-        
+
     # Write new state to file
     try:
         with open(status_file, 'w', encoding='utf-8') as f:
@@ -401,18 +402,16 @@ def update_header_stats(_):
 )
 def update_network_graph(_):
     """Updates the network graph."""
-    db = DatabaseManager(DB_PATH)
-    connections = db.get_recent_connections(hours=1)
-    db.close()
+    connections = db_manager.get_recent_connections(hours=1)
 
     if not connections:
         return go.Figure().update_layout(title="No recent connections")
 
     df = pd.DataFrame(connections)
     nodes = pd.unique(df[['device_ip', 'dest_ip']].values.ravel('K'))
-    
+
     node_map = {node: i for i, node in enumerate(nodes)}
-    
+
     edges_x = []
     edges_y = []
     for _, row in df.iterrows():
@@ -433,7 +432,7 @@ def update_network_graph(_):
             color='lightblue',
             size=10,
             line_width=2))
-            
+
     edge_trace = go.Scatter(
         x=edges_x, y=edges_y,
         line=dict(width=0.5, color='#888'),
@@ -466,14 +465,11 @@ def display_device_details(clickData, _):
         return False, "", ""
 
     node_label = clickData['points'][0]['text']
-    
-    db = DatabaseManager(DB_PATH)
-    # This is a simplified details fetch. A dedicated function would be better.
-    device_info = db.get_all_devices()
-    db.close()
-    
+
+    device_info = db_manager.get_all_devices()
+
     device = next((d for d in device_info if d['device_ip'] == node_label), None)
-    
+
     if device:
         body = [
             html.P(f"IP Address: {device['device_ip']}"),
@@ -489,18 +485,38 @@ def display_device_details(clickData, _):
 
 @app.callback(Output('recent-activity', 'children'), Input('interval-component', 'n_intervals'))
 def update_recent_activity(_):
-    """Placeholder for recent activity feed."""
-    return [html.P("Recent activity feed...")]
+    """Updates the recent activity feed."""
+    connections = db_manager.get_recent_connections(hours=1)
+    if not connections:
+        return [html.P("No recent activity.")]
+
+    feed = []
+    for conn in connections[:30]: # Limit to 30
+        feed.append(html.P(f"{conn['device_ip']} -> {conn['dest_ip']}", className="small"))
+    return feed
 
 @app.callback(Output('traffic-timeline', 'figure'), Input('interval-component', 'n_intervals'))
 def update_traffic_timeline(_):
-    """Placeholder for traffic timeline."""
-    return go.Figure().update_layout(title="Traffic Timeline (Placeholder)")
+    """Updates the traffic timeline chart."""
+    data = db_manager.get_traffic_timeline(hours=24)
+    if not data:
+        return go.Figure().update_layout(title="No traffic data available")
+
+    df = pd.DataFrame(data)
+    fig = px.bar(df, x='hour', y='total_bytes', title="Network Traffic by Hour")
+    fig.update_layout(xaxis_title="Hour", yaxis_title="Bytes")
+    return fig
 
 @app.callback(Output('protocol-pie', 'figure'), Input('interval-component', 'n_intervals'))
 def update_protocol_pie(_):
-    """Placeholder for protocol distribution."""
-    return go.Figure().update_layout(title="Protocol Pie (Placeholder)")
+    """Updates the protocol distribution pie chart."""
+    data = db_manager.get_protocol_distribution(hours=24)
+    if not data:
+        return go.Figure().update_layout(title="No protocol data available")
+
+    df = pd.DataFrame(data)
+    fig = px.pie(df, values='count', names='protocol', title='Protocol Distribution')
+    return fig
 
 
 # ** ENHANCED ALERTS TAB CALLBACK **
@@ -513,9 +529,9 @@ def update_alerts(_, filter_severity):
     """Display alerts with enhanced educational explanations."""
     conn = get_db_connection()
     if not conn: return dbc.Alert("Database error", color="danger")
-    
+
     query = """
-        SELECT 
+        SELECT
             a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
             a.anomaly_score, a.explanation, a.top_features, a.acknowledged,
             (SELECT GROUP_CONCAT(mp.model_type) FROM ml_predictions mp JOIN connections c ON mp.connection_id = c.id WHERE a.device_ip = c.device_ip AND mp.is_anomaly = 1 AND ABS(JULIANDAY(c.timestamp) - JULIANDAY(a.timestamp)) * 86400 < 5) as model_types
@@ -526,7 +542,7 @@ def update_alerts(_, filter_severity):
     if filter_severity != 'all':
         query += f" AND a.severity = '{filter_severity}'"
     query += " ORDER BY a.timestamp DESC"
-    
+
     try:
         df = pd.read_sql_query(query, conn)
     except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
@@ -537,14 +553,14 @@ def update_alerts(_, filter_severity):
 
     if len(df) == 0:
         return dbc.Alert([html.H4("✅ All Clear!"), html.P("No security alerts in the last 24 hours.")], color="success")
-    
+
     severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
     alert_cards = []
     for _, alert in df.iterrows():
         device_name = alert['device_name'] or alert['device_ip']
         time_str = datetime.fromisoformat(alert['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
         color = severity_colors.get(alert['severity'], 'secondary')
-        
+
         try:
             top_features = json.loads(alert['top_features'])
             features_list = [f"{k.replace('_', ' ').title()}: {v:.2f}" if isinstance(v, float) else f"{k.replace('_', ' ').title()}: {v}" for k, v in top_features.items()]
@@ -572,23 +588,12 @@ def update_alerts(_, filter_severity):
             ])
         ], className="mb-3", color=color, outline=True)
         alert_cards.append(card)
-    
+
     return alert_cards
 
 def get_all_devices_data():
     """Fetches all devices from the database."""
-    conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
-    try:
-        df = pd.read_sql_query("SELECT * FROM devices ORDER BY last_seen DESC", conn)
-        return df
-    except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
-        logger.error(f"Error fetching all devices data: {e}")
-        return pd.DataFrame()
-    finally:
-        if conn:
-            conn.close()
+    return db_manager.get_all_devices()
 
 @app.callback(
     Output('devices-table', 'children'),
@@ -596,11 +601,11 @@ def get_all_devices_data():
 )
 def update_devices_table(_):
     """Updates the devices table."""
-    df = get_all_devices_data()
-    
+    df = pd.DataFrame(get_all_devices_data())
+
     if df.empty:
         return dbc.Alert("No devices found.", color="info")
-        
+
     table_header = [
         html.Thead(html.Tr([
             html.Th("IP Address"),
@@ -610,7 +615,7 @@ def update_devices_table(_):
             html.Th("Trusted")
         ]))
     ]
-    
+
     table_body = [html.Tbody([
         html.Tr([
             html.Td(row['device_ip']),
@@ -620,7 +625,7 @@ def update_devices_table(_):
             html.Td(dbc.Switch(id={'type': 'trust-switch', 'ip': row['device_ip']}, value=bool(row['is_trusted'])))
         ]) for _, row in df.iterrows()
     ])]
-    
+
     return dbc.Table(table_header + table_body, bordered=True, striped=True, hover=True, size="sm")
 
 @app.callback(
@@ -638,11 +643,9 @@ def update_device_trust(values):
     switch_id = json.loads(switch_id)
     device_ip = switch_id['ip']
     is_trusted = ctx.triggered[0]['value']
-    
-    db = DatabaseManager(DB_PATH)
-    db.set_device_trust(device_ip, is_trusted)
-    db.close()
-    
+
+    db_manager.set_device_trust(device_ip, is_trusted)
+
     # This is a bit of a hack to prevent the callback from firing again
     # and creating a loop. We return the values as they are.
     return values
@@ -650,23 +653,40 @@ def update_device_trust(values):
 # Devices and Analytics Tab Callbacks (no changes needed)
 @app.callback(Output('device-heatmap', 'figure'), Input('interval-component', 'n_intervals'))
 def update_device_heatmap(_):
-    """Placeholder for device activity heatmap."""
-    return go.Figure().update_layout(title="Device Heatmap (Placeholder)")
+    """Updates the device activity heatmap."""
+    data = db_manager.get_device_activity_heatmap(hours=24)
+    if not data:
+        return go.Figure().update_layout(title="No activity data available")
+
+    df = pd.DataFrame(data)
+    fig = px.density_heatmap(df, x="hour", y="device_ip", z="count", title="Device Activity by Hour")
+    return fig
+
 @app.callback(Output('alert-timeline', 'figure'), Input('interval-component', 'n_intervals'))
 def update_alert_timeline(_):
-    """Placeholder for alert timeline."""
-    return go.Figure().update_layout(title="Alert Timeline (Placeholder)")
+    """Updates the alert timeline chart."""
+    data = db_manager.get_alert_timeline(days=7)
+    if not data:
+        return go.Figure().update_layout(title="No alerts in the last 7 days")
+
+    df = pd.DataFrame(data)
+    fig = px.bar(df, x="day", y="count", color="severity", title="Alerts by Day")
+    return fig
+
 @app.callback(Output('anomaly-distribution', 'figure'), Input('interval-component', 'n_intervals'))
 def update_anomaly_distribution(_):
-    """Placeholder for anomaly score distribution."""
-    return go.Figure().update_layout(title="Anomaly Distribution (Placeholder)")
+    """Updates the anomaly score distribution chart."""
+    data = db_manager.get_anomaly_distribution(hours=24)
+    if not data:
+        return go.Figure().update_layout(title="No anomaly data available")
+
+    df = pd.DataFrame(data)
+    fig = px.histogram(df, x="anomaly_score", title="Anomaly Score Distribution")
+    return fig
 
 def get_bandwidth_data(hours=24):
     """Fetches bandwidth data from the database."""
-    db = DatabaseManager(DB_PATH)
-    data = db.get_bandwidth_stats(hours=hours)
-    db.close()
-    return pd.DataFrame(data)
+    return db_manager.get_bandwidth_stats(hours=hours)
 
 @app.callback(
     Output('bandwidth-chart', 'figure'),
@@ -674,11 +694,11 @@ def get_bandwidth_data(hours=24):
 )
 def update_bandwidth_chart(_):
     """Updates the bandwidth chart."""
-    df = get_bandwidth_data()
-    
+    df = pd.DataFrame(get_bandwidth_data())
+
     if df.empty:
         return go.Figure().update_layout(title="No Bandwidth Data Available")
-        
+
     fig = px.bar(df, x='device_ip', y='total_bytes', title="Top 10 Devices by Bandwidth Usage")
     fig.update_layout(xaxis_title="Device IP", yaxis_title="Total Bytes")
     return fig
@@ -691,8 +711,12 @@ def update_system_performance(_):
 # System Info Callbacks
 @app.callback(Output('system-info', 'children'), Input('interval-component', 'n_intervals'))
 def update_system_info(_):
-    """Placeholder for system info."""
-    return [html.P("System info...")]
+    """Displays system information."""
+    # In a real app, this would come from a more robust monitoring tool
+    return [
+        html.P(f"Database Path: {DB_PATH}"),
+        html.P(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    ]
 
 @app.callback(Output('model-info', 'children'), Input('interval-component', 'n_intervals'))
 def update_model_info(_):
@@ -701,19 +725,7 @@ def update_model_info(_):
 
 def get_model_performance_metrics_data(days=30):
     """Fetches model performance metrics from the database."""
-    conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
-    try:
-        query = f"SELECT * FROM model_performance WHERE timestamp > datetime('now', '-{days} days') ORDER BY timestamp ASC"
-        df = pd.read_sql_query(query, conn)
-        return df
-    except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
-        logger.error(f"Error fetching model performance data: {e}")
-        return pd.DataFrame()
-    finally:
-        if conn:
-            conn.close()
+    return db_manager.get_model_performance_metrics(days=days)
 
 @app.callback(
     Output('model-performance-graph', 'figure'),
@@ -721,8 +733,8 @@ def get_model_performance_metrics_data(days=30):
 )
 def update_model_performance_graph(_):
     """Updates the model performance graph."""
-    df = get_model_performance_metrics_data()
-    
+    df = pd.DataFrame(get_model_performance_metrics_data())
+
     if df.empty:
         return go.Figure().update_layout(
             title="No Model Performance Data Available",
@@ -730,12 +742,12 @@ def update_model_performance_graph(_):
             yaxis_title="Score",
             showlegend=True
         )
-    
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df['timestamp'], y=df['precision'], mode='lines+markers', name='Precision'))
     fig.add_trace(go.Scatter(x=df['timestamp'], y=df['recall'], mode='lines+markers', name='Recall'))
     fig.add_trace(go.Scatter(x=df['timestamp'], y=df['f1_score'], mode='lines+markers', name='F1-Score'))
-    
+
     fig.update_layout(
         title="Model Performance Over Time",
         xaxis_title="Date",
@@ -744,7 +756,7 @@ def update_model_performance_graph(_):
         legend_title="Metric",
         template="plotly_white"
     )
-    
+
     return fig
 
 @app.callback(
@@ -757,7 +769,7 @@ def download_csv(_):
     conn = get_db_connection()
     if not conn:
         return None
-    
+
     try:
         df = pd.read_sql_query("SELECT * FROM connections WHERE timestamp > datetime('now', '-24 hours')", conn)
         return dcc.send_data_frame(df.to_csv, "connections.csv")
@@ -800,15 +812,13 @@ def handle_lockdown_mode(switch_on, __, ___, is_open):
     elif trigger_id == 'lockdown-confirm':
         # User confirmed, apply rules
         logger.info("Lockdown mode enabled. Applying firewall rules...")
-        db = DatabaseManager(DB_PATH)
-        trusted_devices = db.get_trusted_devices()
-        db.close()
-        
+        trusted_devices = db_manager.get_trusted_devices()
+
         trusted_macs = [d['mac_address'] for d in trusted_devices if d['mac_address']]
-        
+
         cmd = ["python3", "scripts/firewall_manager.py", "--apply"] + trusted_macs
         subprocess.run(cmd)
-        
+
         return False, True
 
     elif trigger_id == 'lockdown-cancel':
@@ -827,13 +837,13 @@ def update_config_display(_):
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
-        
+
         # Exclude sensitive fields from display
         if 'firewall' in config_data:
             config_data['firewall']['router_password'] = "********"
         if 'email' in config_data:
             config_data['email']['smtp_password'] = "********"
-            
+
         config_str = json.dumps(config_data, indent=2)
         return f"```json\n{config_str}\n```"
     except (IOError, json.JSONDecodeError) as e:
@@ -864,9 +874,9 @@ def save_settings(n_clicks, recipient_email, smtp_host):
             "smtp_host": smtp_host
         }
     }
-    
+
     config.save_user_config(new_settings)
-    
+
     return dbc.Alert("Settings saved successfully! The application may need to be restarted for all changes to take effect.", color="success")
 
 @app.callback(
@@ -919,12 +929,12 @@ def main():
     host = config.get('dashboard', 'host')
     port = config.get('dashboard', 'port')
     debug = config.get('dashboard', 'debug', default=False)
-    
+
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Advanced Edition")
     logger.info(f"URL: http://{host}:{port}")
     logger.info("=" * 70)
-    
+
     app.run_server(host=host, port=port, debug=debug)
 
 if __name__ == '__main__':

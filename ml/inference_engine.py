@@ -28,20 +28,20 @@ logger = logging.getLogger(__name__)
 
 class InferenceEngine:
     """Real-time ML inference engine."""
-    
+
     def __init__(self):
         self.db = DatabaseManager(config.get('database', 'path'))
         self.extractor = FeatureExtractor()
-        
+
         # Load models
         self.autoencoder = None
         self.isolation_forest = None
         self.autoencoder_threshold = None
-        
+
         self._load_models()
         self.last_metric_update = time.time()
         self.status_file_path = Path(config.get('system', 'status_file_path', default='config/monitoring_status.json'))
-    
+
     def _load_models(self):
         """Load trained ML models."""
         # Load feature extractor
@@ -51,7 +51,7 @@ class InferenceEngine:
             logger.info(f"✓ Feature extractor loaded")
         else:
             logger.warning("Feature extractor not found. Train models first.")
-        
+
         # Load Isolation Forest
         if_path = Path(config.get('ml', 'isolation_forest_path'))
         if if_path.exists():
@@ -60,7 +60,7 @@ class InferenceEngine:
             logger.info(f"✓ Isolation Forest loaded")
         else:
             logger.warning("Isolation Forest not found")
-        
+
         # Load Autoencoder (if TensorFlow available)
         try:
             import tensorflow as tf
@@ -68,7 +68,7 @@ class InferenceEngine:
             if ae_path.exists():
                 self.autoencoder = tf.keras.models.load_model(ae_path)
                 logger.info(f"✓ Autoencoder loaded")
-                
+
                 # Load threshold
                 threshold_path = ae_path.parent / 'autoencoder_threshold.pkl'
                 if threshold_path.exists():
@@ -79,34 +79,34 @@ class InferenceEngine:
                 logger.warning("Autoencoder not found")
         except ImportError:
             logger.warning("TensorFlow not available. Autoencoder disabled.")
-    
+
     def process_connections(self, batch_size: int = 100):
         """Process unprocessed connections."""
         # Get unprocessed connections
         connections = self.db.get_unprocessed_connections(limit=batch_size)
-        
+
         if not connections:
             logger.debug("No unprocessed connections")
             return 0
-        
+
         logger.info(f"Processing {len(connections)} connections...")
-        
+
         # Extract features
         df = pd.DataFrame(connections)
         X, feature_names = self.extractor.extract_features(df)
-        
+
         if X.shape[0] == 0:
             logger.warning("No features extracted")
             return 0
-        
+
         # Standardize
         X_scaled = self.extractor.transform(X)
-        
+
         # Run inference
         anomaly_count = 0
-        
+
         for i, (conn_id, features) in enumerate(zip(df['id'], X_scaled)):
-            
+
             # Check against threat intelligence feed
             dest_ip = df.iloc[i].get('dest_ip')
             if dest_ip and self.db.is_ip_malicious(dest_ip):
@@ -124,27 +124,27 @@ class InferenceEngine:
             is_anomaly = False
             anomaly_score = 0.0
             model_type = 'none'
-            
+
             # Isolation Forest
             if self.isolation_forest:
                 if_pred = self.isolation_forest.predict([features])[0]
                 if_score = self.isolation_forest.score_samples([features])[0]
-                
+
                 if if_pred == -1:  # Anomaly
                     is_anomaly = True
                     anomaly_score = abs(if_score)
                     model_type = 'isolation_forest'
-            
+
             # Autoencoder
             if self.autoencoder and self.autoencoder_threshold:
                 ae_pred = self.autoencoder.predict(features.reshape(1, -1), verbose=0)
                 reconstruction_error = np.mean(np.square(features - ae_pred[0]))
-                
+
                 if reconstruction_error > self.autoencoder_threshold:
                     is_anomaly = True
                     anomaly_score = max(anomaly_score, reconstruction_error)
                     model_type = 'autoencoder'
-            
+
             # Store prediction
             self.db.store_prediction(
                 connection_id=conn_id,
@@ -152,16 +152,16 @@ class InferenceEngine:
                 anomaly_score=float(anomaly_score),
                 model_type=model_type
             )
-            
+
             # Create alert if anomaly
             if is_anomaly:
                 device_ip = df.iloc[i]['device_ip']
                 severity = self._calculate_severity(anomaly_score)
                 explanation = self._generate_explanation(df.iloc[i], anomaly_score, model_type)
-                
+
                 # Get top contributing features
                 top_features = self._get_top_features(features, feature_names)
-                
+
                 self.db.create_alert(
                     device_ip=device_ip,
                     severity=severity,
@@ -169,7 +169,7 @@ class InferenceEngine:
                     explanation=explanation,
                     top_features=json.dumps(top_features)
                 )
-                
+
                 if severity == 'critical':
                     alert_details = {
                         'device_ip': device_ip,
@@ -179,17 +179,17 @@ class InferenceEngine:
                         'timestamp': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
                     }
                     send_alert_email(alert_details)
-                
+
                 anomaly_count += 1
                 logger.warning(f"ANOMALY DETECTED: {device_ip} (score: {anomaly_score:.4f})")
-        
+
         # Mark as processed
         connection_ids = df['id'].tolist()
         self.db.mark_connections_processed(connection_ids)
-        
+
         logger.info(f"✓ Processed {len(connections)} connections, {anomaly_count} anomalies")
         return anomaly_count
-    
+
     def _calculate_severity(self, score: float) -> str:
         """Calculate alert severity based on anomaly score."""
         if score > 1.0:
@@ -200,91 +200,50 @@ class InferenceEngine:
             return 'medium'
         else:
             return 'low'
-    
+
     def _generate_explanation(self, connection, score: float, model_type: str) -> str:
         """Generate human-readable explanation."""
         device_ip = connection['device_ip']
         dest_ip = connection.get('dest_ip', 'unknown')
         protocol = connection.get('protocol', 'unknown')
-        
+
         explanation = (
             f"Unusual network activity detected from {device_ip}. "
             f"Connection to {dest_ip} ({protocol}) "
             f"deviated from normal baseline pattern "
             f"(anomaly score: {score:.2f}, model: {model_type})."
         )
-        
+
         return explanation
-    
+
     def _get_top_features(self, features, feature_names, top_n=5):
         """Get top contributing features."""
         # Simple approach: highest absolute values
         abs_features = np.abs(features)
         top_indices = np.argsort(abs_features)[-top_n:][::-1]
-        
+
         top_features = {}
         for idx in top_indices:
             if idx < len(feature_names):
                 top_features[feature_names[idx]] = float(features[idx])
-        
+
         return top_features
-    
-    def _update_performance_metrics(self):
-        """
-        Periodically generate and store dummy performance metrics.
-        
-        NOTE: This is a placeholder. In a real-world scenario, you would
-        calculate these metrics based on labeled data or user feedback.
-        """
-        # Update once every 24 hours
-        if time.time() - self.last_metric_update < 86400:
-            return
-            
-        logger.info("Updating dummy model performance metrics...")
-        
-        # Generate dummy metrics (replace with real calculation)
-        precision = 0.85 + (np.random.rand() - 0.5) * 0.1
-        recall = 0.90 + (np.random.rand() - 0.5) * 0.1
-        f1_score = 2 * (precision * recall) / (precision + recall)
-        
-        self.db.add_model_performance_metric(
-            model_type='combined',
-            precision=precision,
-            recall=recall,
-            f1_score=f1_score
-        )
-        
-        self.last_metric_update = time.time()
-        logger.info("✓ Dummy metrics updated")
-    
-    def _is_monitoring_paused(self) -> bool:
-        """Check if monitoring is paused."""
-        try:
-            with open(self.status_file_path, 'r') as f:
-                status = json.load(f)
-                if status.get('status') == 'paused':
-                    return True
-        except (FileNotFoundError, json.JSONDecodeError):
-            # If file is missing or invalid, assume not paused
-            return False
-        return False
-    
+
     def run_continuous(self, interval: int = 300):
         """Run inference continuously."""
         logger.info("=" * 60)
         logger.info("INFERENCE ENGINE STARTED")
         logger.info(f"Interval: {interval} seconds")
         logger.info("=" * 60)
-        
+
         try:
             while True:
                 if self._is_monitoring_paused():
                     logger.info("Monitoring is paused. Checking again in 60 seconds...")
                     time.sleep(60)
                     continue
-                
+
                 self.process_connections()
-                self._update_performance_metrics()
                 time.sleep(interval)
         except KeyboardInterrupt:
             logger.info("Stopping inference engine...")
@@ -295,16 +254,16 @@ class InferenceEngine:
 def main():
     """Main entry point."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='IoTSentinel ML Inference Engine')
     parser.add_argument('--once', action='store_true', help='Process once and exit')
     parser.add_argument('--continuous', action='store_true', help='Run continuously')
     parser.add_argument('--interval', type=int, default=300, help='Interval (seconds)')
-    
+
     args = parser.parse_args()
-    
+
     engine = InferenceEngine()
-    
+
     if args.once:
         engine.process_connections()
     elif args.continuous:
