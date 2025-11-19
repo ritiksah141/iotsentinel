@@ -12,13 +12,13 @@
 
 IoTSentinel is an educational network security monitor that uses **Zeek**, an enterprise-grade network analysis framework, combined with **unsupervised machine learning** to detect anomalies in home network traffic. It is designed to be a privacy-first, low-power solution that runs entirely on a Raspberry Pi.
 
-The project's unique value proposition is **educational transparency**: it doesn't just block threats, it explains *why* an activity was flagged as anomalous, helping non-technical users understand their network's behavior.
+The project's unique value proposition is **educational transparency**: it doesn't just block threats, it explains _why_ an activity was flagged as anomalous, helping non-technical users understand their network's behavior.
 
 ### Key Features
 
 - ✅ **Professional Architecture**: Leverages Zeek's powerful C++ engine for deep protocol analysis.
 - ✅ **Unsupervised ML**: A dual-model approach using an Autoencoder and an Isolation Forest for zero-day threat detection.
-- ✅ **Educational Dashboard**: A user-friendly web interface that explains *why* an alert was triggered, showing the contributing factors.
+- ✅ **Educational Dashboard**: A user-friendly web interface that explains _why_ an alert was triggered, showing the contributing factors.
 - ✅ **Privacy-First**: All data processing and analysis happens on-device. No data is sent to the cloud.
 - ✅ **Low Power**: Optimized for a Raspberry Pi 5, consuming significantly less power than a traditional desktop-based solution.
 - ✅ **Comprehensive Testing**: Includes 59 unit and integration tests, achieving 84% code coverage.
@@ -62,22 +62,26 @@ The system follows a modular, pipeline-based architecture:
 ### Installation
 
 1.  **Clone the repository**:
+
     ```bash
     git clone https://github.com/your_username/iotsentinel.git
     cd iotsentinel
     ```
 
 2.  **Create a Python virtual environment**:
+
     ```bash
     python3 -m venv venv
     source venv/bin/activate
     ```
 
 3.  **Install dependencies**:
+
     ```bash
     pip install -r requirements.txt
     ```
-    *Note: For development on a non-Pi machine (like a Mac), you may need to adjust dependencies (e.g., `tensorflow` vs `tensorflow-macos`).*
+
+    _Note: For development on a non-Pi machine (like a Mac), you may need to adjust dependencies (e.g., `tensorflow` vs `tensorflow-macos`)._
 
 4.  **Initialize the database**:
     ```bash
@@ -95,7 +99,9 @@ To learn what "normal" traffic looks like on your network, run the baseline coll
 ```bash
 python3 scripts/baseline_collector.py start
 ```
+
 This process runs for 7 days. You can check its status at any time with:
+
 ```bash
 python3 scripts/baseline_collector.py status
 ```
@@ -111,6 +117,7 @@ python3 ml/train_isolation_forest.py
 # Train the Autoencoder model
 python3 ml/train_autoencoder.py
 ```
+
 This will create the model files in `data/models/`.
 
 **3. Running the Application**
@@ -136,14 +143,17 @@ Once the models are trained, you can start the monitoring components. It's recom
 The project includes a comprehensive suite of **59 tests** with **84% code coverage**.
 
 To run all tests:
+
 ```bash
 pytest tests/
 ```
 
 To run tests with a coverage report:
+
 ```bash
 pytest tests/ --cov=. --cov-report=html
 ```
+
 The HTML report will be generated in the `htmlcov/` directory.
 
 ## 📚 Documentation
