@@ -96,7 +96,7 @@ fi
 # 5. Install Python dependencies
 echo "Installing Python dependencies..."
 source venv/bin/activate
-pip install --upgrade pip --quiet
+pip install --upgrade pip setuptools --quiet
 pip install -r requirements-pi.txt --quiet
 
 echo "✓ Python packages installed"

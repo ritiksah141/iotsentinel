@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/iotsentinel
-ExecStart=/home/pi/iotsentinel/venv/bin/python3 /home/pi/iotsentinel/orchestrator.py
+User=sentinel
+WorkingDirectory=/home/sentinel/iotsentinel
+ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/orchestrator.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

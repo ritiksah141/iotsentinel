@@ -1,19 +1,19 @@
 # Core Dependencies
-numpy==1.24.3
-pandas==2.0.3
-scikit-learn==1.3.0
+numpy
+pandas
+scikit-learn
 
 # Machine Learning (Pi-optimized)
 # Note: Train models on Mac, run inference on Pi
-scikit-learn==1.3.0
+scikit-learn
 
 # Web Dashboard
-dash==2.14.0
-dash-bootstrap-components==1.5.0
-plotly==5.18.0
+dash
+dash-bootstrap-components
+plotly
 
 # Utilities
-python-dateutil==2.8.2
-psutil==5.9.6
+python-dateutil
+psutil
 python-dotenv
-RPi.GPIO==0.7.1
+RPi.GPIO
