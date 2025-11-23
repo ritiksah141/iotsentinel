@@ -91,8 +91,14 @@ class ZeekLogParser:
                         record = json.loads(line)
 
                         # Extract connection data
+                        device_ip = record.get('id.orig_h')
+
+                        # Ensure device exists (will be updated with MAC/name from DHCP later)
+                        if device_ip:
+                            self.db.add_device(device_ip)
+
                         conn_id = self.db.add_connection(
-                            device_ip=record.get('id.orig_h'),
+                            device_ip=device_ip,
                             dest_ip=record.get('id.resp_h'),
                             dest_port=record.get('id.resp_p', 0),
                             protocol=record.get('proto', 'unknown'),
@@ -111,12 +117,12 @@ class ZeekLogParser:
                             self.stats['total_records'] += 1
 
                         if records_parsed % 1000 == 0:
-                            logger.info(f"Parsed {records_parsed:,} conn records...")
+                            logger.debug(f"Parsed {records_parsed:,} conn records...")
 
                     except json.JSONDecodeError:
                         continue
                     except Exception as e:
-                        logger.error(f"Error parsing record: {e}")
+                        logger.error(f"Error parsing conn record: {e}")
                         continue
 
                 # Save position
@@ -154,21 +160,33 @@ class ZeekLogParser:
                         continue
                     try:
                         record = json.loads(line)
+
+                        # Zeek DHCP log fields
                         mac = record.get('mac')
-                        ip = record.get('assigned_ip')
-                        hostname = record.get('host_name')
+                        ip = record.get('assigned_addr') or record.get('assigned_ip')
+                        hostname = record.get('host_name') or record.get('client_fqdn')
 
                         if mac and ip:
+                            # Get manufacturer from MAC
                             manufacturer = get_manufacturer(mac)
-                            self.db.add_device(
+
+                            # Generate friendly name
+                            device_name = hostname if hostname else f"Device-{mac[-8:].replace(':', '')}"
+
+                            # Update device with MAC and hostname
+                            success = self.db.add_device(
                                 device_ip=ip,
                                 mac_address=mac,
-                                device_name=hostname,
+                                device_name=device_name,
                                 manufacturer=manufacturer
                             )
-                            records_parsed += 1
-                            self.stats['dhcp_records'] += 1
-                            self.stats['total_records'] += 1
+
+                            if success:
+                                records_parsed += 1
+                                self.stats['dhcp_records'] += 1
+                                self.stats['total_records'] += 1
+                                logger.debug(f"DHCP: {ip} → {mac} ({device_name})")
+
                     except json.JSONDecodeError:
                         continue
                     except Exception as e:
@@ -178,12 +196,12 @@ class ZeekLogParser:
                 self.file_positions[file_key] = f.tell()
 
             if records_parsed > 0:
-                logger.info(f"✓ Parsed {records_parsed} DHCP records from {log_path.name}")
+                logger.info(f"✓ Parsed {records_parsed} DHCP records")
 
             return records_parsed
 
         except FileNotFoundError:
-            logger.debug(f"DHCP log file not found: {log_path}")
+            logger.warning("dhcp.log not found")
             return 0
         except Exception as e:
             logger.error(f"Error reading dhcp.log: {e}")
@@ -198,6 +216,10 @@ class ZeekLogParser:
                 f = gzip.open(log_path, 'rt')
             else:
                 f = open(log_path, 'r')
+
+            file_key = str(log_path)
+            if file_key in self.file_positions:
+                f.seek(self.file_positions[file_key])
 
             with f:
                 for line in f:
@@ -215,6 +237,8 @@ class ZeekLogParser:
                         self.stats['total_records'] += 1
                     except json.JSONDecodeError:
                         continue
+
+                self.file_positions[file_key] = f.tell()
 
             if records_parsed > 0:
                 logger.info(f"✓ Parsed {records_parsed} HTTP records")
@@ -237,6 +261,10 @@ class ZeekLogParser:
             else:
                 f = open(log_path, 'r')
 
+            file_key = str(log_path)
+            if file_key in self.file_positions:
+                f.seek(self.file_positions[file_key])
+
             with f:
                 for line in f:
                     if line.startswith('#'):
@@ -250,6 +278,8 @@ class ZeekLogParser:
                         self.stats['total_records'] += 1
                     except json.JSONDecodeError:
                         continue
+
+                self.file_positions[file_key] = f.tell()
 
             if records_parsed > 0:
                 logger.info(f"✓ Parsed {records_parsed} DNS records")
@@ -265,14 +295,13 @@ class ZeekLogParser:
     def _is_monitoring_paused(self) -> bool:
         """Check if monitoring is paused."""
         try:
+            if not self.status_file_path.exists():
+                return False
             with open(self.status_file_path, 'r') as f:
                 status = json.load(f)
-                if status.get('status') == 'paused':
-                    return True
+                return status.get('status') == 'paused'
         except (FileNotFoundError, json.JSONDecodeError):
-            # If file is missing or invalid, assume not paused
             return False
-        return False
 
     def watch_and_parse(self, interval: int = 60):
         """
@@ -299,7 +328,7 @@ class ZeekLogParser:
                     time.sleep(interval)
                     continue
 
-                # Parse dhcp.log for device info
+                # Parse dhcp.log FIRST to get device info
                 dhcp_log = current_log_dir / 'dhcp.log'
                 if dhcp_log.exists():
                     self.parse_dhcp_log(dhcp_log)
@@ -351,23 +380,26 @@ class ZeekLogParser:
             logger.info("Make sure Zeek is running: sudo /opt/zeek/bin/zeekctl status")
             return
 
-        # Parse all log types
+        # Parse DHCP FIRST to get device names/MAC addresses
         dhcp_log = current_log_dir / 'dhcp.log'
         if dhcp_log.exists():
             self.parse_dhcp_log(dhcp_log)
         else:
-            logger.warning("dhcp.log not found")
+            logger.warning("dhcp.log not found - device names and MAC addresses won't be available")
 
+        # Parse conn.log
         conn_log = current_log_dir / 'conn.log'
         if conn_log.exists():
             self.parse_conn_log(conn_log)
         else:
             logger.warning("conn.log not found")
 
+        # Parse http.log
         http_log = current_log_dir / 'http.log'
         if http_log.exists():
             self.parse_http_log(http_log)
 
+        # Parse dns.log
         dns_log = current_log_dir / 'dns.log'
         if dns_log.exists():
             self.parse_dns_log(dns_log)
@@ -390,7 +422,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='IoTSentinel Zeek Log Parser')
     parser.add_argument('--watch', action='store_true', help='Continuously monitor logs')
-    parser.add_gument('--interval', type=int, default=60, help='Watch interval (seconds)')
+    parser.add_argument('--interval', type=int, default=60, help='Watch interval (seconds)')
     parser.add_argument('--once', action='store_true', help='Parse once and exit')
 
     args = parser.parse_args()
@@ -409,7 +441,6 @@ def main():
     )
 
     # Initialize parser
-    zeek_.env
     zeek_parser = ZeekLogParser()
 
     if args.once:

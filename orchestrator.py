@@ -5,6 +5,7 @@ IoTSentinel System Orchestrator
 Main entry point that coordinates all system components:
 - Zeek log parsing
 - ML inference engine
+- ARP network scanning
 - Web dashboard (to be run separately)
 
 Designed for systemd service deployment on Raspberry Pi OS.
@@ -28,6 +29,7 @@ from ml.inference_engine import InferenceEngine
 from database.db_manager import DatabaseManager
 from config.init_database import init_database as init_db
 from services.hardware_monitor import HardwareMonitor, IS_RPI
+from utils.arp_scanner import ARPScanner, SCAPY_AVAILABLE
 
 # Configure logging
 log_dir = Path(config.get('logging', 'log_dir'))
@@ -48,12 +50,13 @@ class IoTSentinelOrchestrator:
     """
     Main system orchestrator for IoTSentinel.
 
-    Coordinates the log parser and ML inference engine in a multi-threaded architecture.
+    Coordinates all system components in a multi-threaded architecture:
     - Thread 1: Zeek log monitoring and parsing.
     - Thread 2: ML inference pipeline.
     - Thread 3: Daily database cleanup.
     - Thread 4: System health watchdog.
     - Thread 5: Hardware monitor (Pi only).
+    - Thread 6: ARP network scanner (if available).
     """
 
     def __init__(self):
@@ -62,6 +65,19 @@ class IoTSentinelOrchestrator:
         self.parser = ZeekLogParser()
         self.inference_engine = InferenceEngine()
         self.db = DatabaseManager(config.get('database', 'path'))
+
+        # Initialize ARP scanner if available
+        self.arp_scanner = None
+        if SCAPY_AVAILABLE:
+            try:
+                self.arp_scanner = ARPScanner()
+                logger.info("ARP scanner initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize ARP scanner: {e}")
+                self.arp_scanner = None
+        else:
+            logger.warning("ARP scanner disabled (scapy not available)")
+            logger.info("Install scapy for device discovery: pip install scapy")
 
         # Threading control
         self.running = False
@@ -123,6 +139,19 @@ class IoTSentinelOrchestrator:
         )
         health_thread.start()
         self.threads.append(health_thread)
+
+        # Start ARP scanner thread (if available)
+        if self.arp_scanner:
+            arp_thread = threading.Thread(
+                target=self._arp_scan_loop,
+                name="ARPScanThread",
+                daemon=True
+            )
+            arp_thread.start()
+            self.threads.append(arp_thread)
+            logger.info("ARP scanner started.")
+        else:
+            logger.info("ARP scanner disabled (not available).")
 
         # Start hardware monitor thread (only on Pi)
         if IS_RPI:
@@ -197,6 +226,53 @@ class IoTSentinelOrchestrator:
         except Exception as e:
             logger.error(f"Error in cleanup loop: {e}", exc_info=True)
         logger.info("Database cleanup loop stopped.")
+
+    def _arp_scan_loop(self):
+        """Periodically scan network with ARP to discover devices."""
+        if not self.arp_scanner:
+            logger.warning("ARP scanner not available, loop exiting")
+            return
+
+        logger.info("ARP scan loop started.")
+        try:
+            interval = config.get('network', 'arp_scan_interval', default=300)
+
+            # Perform initial scan immediately
+            logger.info("Performing initial ARP network scan...")
+            try:
+                count = self.arp_scanner.scan_and_update_database()
+                logger.info(f"Initial ARP scan complete: {count} devices discovered")
+            except Exception as e:
+                logger.error(f"Error in initial ARP scan: {e}")
+
+            # Continue with periodic scans
+            while self.running:
+                # Sleep first, then scan
+                for _ in range(interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+                if not self.running:
+                    break
+
+                try:
+                    logger.info("Running periodic ARP network scan...")
+                    count = self.arp_scanner.scan_and_update_database()
+                    logger.info(f"ARP scan complete: {count} devices updated")
+                except Exception as e:
+                    logger.error(f"Error in periodic ARP scan: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in ARP scan loop: {e}", exc_info=True)
+        finally:
+            if self.arp_scanner:
+                try:
+                    self.arp_scanner.close()
+                except Exception as e:
+                    logger.error(f"Error closing ARP scanner: {e}")
+
+        logger.info("ARP scan loop stopped.")
 
     def _is_process_running(self, process_name: str) -> bool:
         """Check if a process with the given name is running."""
