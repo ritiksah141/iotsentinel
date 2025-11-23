@@ -5,10 +5,9 @@ BindsTo=iotsentinel-backend.service
 
 [Service]
 Type=simple
-User=root
-# GPIO access often requires root or 'gpio' group permissions
-WorkingDirectory=/home/pi/iotsentinel
-ExecStart=/home/pi/iotsentinel/venv/bin/python3 /home/pi/iotsentinel/services/hardware_monitor.py
+User=sentinel
+WorkingDirectory=/home/sentinel/iotsentinel
+ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/services/hardware_monitor.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
