@@ -1,0 +1,18 @@
+[Unit]
+Description=IoTSentinel Hardware Monitor (LED/Button)
+After=iotsentinel-backend.service
+BindsTo=iotsentinel-backend.service
+
+[Service]
+Type=simple
+User=root
+# GPIO access often requires root or 'gpio' group permissions
+WorkingDirectory=/home/pi/iotsentinel
+ExecStart=/home/pi/iotsentinel/venv/bin/python3 /home/pi/iotsentinel/services/hardware_monitor.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

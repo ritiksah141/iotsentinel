@@ -249,6 +249,16 @@ class InferenceEngine:
             f"(anomaly score: {score:.2f}, model: {model_type})."
         )
 
+        # Add MITRE mapping logic
+        tactic = "Unknown Tactic"
+        if connection.get('bytes_sent', 0) > 10_000_000:
+            tactic = "Exfiltration (TA0010)"
+        elif connection.get('dest_port') in [22, 3389, 445]: # Common ports for lateral movement
+            tactic = "Lateral Movement (TA0008)"
+        elif connection.get('conn_state') != 'SF': # Failed connections often indicate scanning
+            tactic = "Network Scanning (T1046)"
+
+        explanation += f" Potential MITRE Tactic: {tactic}."
         return explanation
 
     def _get_top_features(self, features, feature_names, top_n=5):

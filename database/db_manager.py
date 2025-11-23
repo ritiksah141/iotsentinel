@@ -14,7 +14,7 @@ Handles all database operations with:
 import sqlite3
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -59,18 +59,16 @@ class DatabaseManager:
             cursor = self.conn.cursor()
 
             cursor.execute("""
-                INSERT INTO devices (device_ip, device_name, device_type, mac_address, manufacturer)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO devices (device_ip, device_name, mac_address, manufacturer, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(device_ip) DO UPDATE SET
                     device_name = COALESCE(excluded.device_name, devices.device_name),
-                    device_type = COALESCE(excluded.device_type, devices.device_type),
                     mac_address = COALESCE(excluded.mac_address, devices.mac_address),
                     manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer),
                     last_seen = CURRENT_TIMESTAMP
             """, (
                 device_ip,
                 kwargs.get('device_name'),
-                kwargs.get('device_type'),
                 kwargs.get('mac_address'),
                 kwargs.get('manufacturer')
             ))
@@ -615,6 +613,37 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Error getting new devices count: {e}")
             return 0
+
+    def cleanup_old_data(self, days: int = 30):
+        """Remove data older than X days to save SD card space."""
+        try:
+            limit_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            cursor = self.conn.cursor()
+
+            logger.info(f"Cleaning up data older than {limit_date}...")
+
+            # Using a subquery to avoid issues with deleting from a table that is being selected from
+            cursor.execute("""
+                DELETE FROM ml_predictions
+                WHERE connection_id IN (SELECT id FROM connections WHERE timestamp < ?)
+            """, (limit_date,))
+            logger.info(f"{cursor.rowcount} ML predictions deleted.")
+
+            cursor.execute("DELETE FROM connections WHERE timestamp < ?", (limit_date,))
+            logger.info(f"{cursor.rowcount} connections deleted.")
+
+            cursor.execute("DELETE FROM alerts WHERE timestamp < ?", (limit_date,))
+            logger.info(f"{cursor.rowcount} alerts deleted.")
+
+            # Reclaim disk space
+            logger.info("Reclaiming disk space (VACUUM)...")
+            self.conn.execute("VACUUM")
+
+            self.conn.commit()
+            logger.info("Database cleanup complete.")
+        except sqlite3.Error as e:
+            logger.error(f"Database cleanup failed: {e}")
+            self.conn.rollback()
 
     def close(self):
         """Close database connection."""

@@ -23,6 +23,7 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
+import dash_cytoscape as cyto
 from dash import dcc, html, Input, Output, State, callback_context
 
 # Setup paths
@@ -46,6 +47,16 @@ app = dash.Dash(
 # Database path
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
+
+# MITRE ATT&CK Mapping
+MITRE_ATTACK_MAPPING = {
+    "High Outbound Traffic": "Exfiltration (TA0010)",
+    "Unusual Port Activity": "Lateral Movement (TA0008)",
+    "Anomalous Connection Time": "Execution (TA0002)",
+    "High Ratio of Outbound to Inbound Bytes": "Exfiltration (TA0010)",
+    "Scanning Behavior Detected": "Discovery (TA0007)",
+    "Connection to Known Malicious IP": "Command and Control (TA0011)"
+}
 
 def get_db_connection():
     """Get database connection (read-only for safety)."""
@@ -100,7 +111,17 @@ app.layout = dbc.Container([
     dbc.Tabs([
         dbc.Tab(label="🌐 Network", tab_id="tab-network", children=[
             dbc.Row([
-                dbc.Col(dbc.Card([dbc.CardHeader("Network Topology"), dbc.CardBody(dcc.Graph(id='network-graph', style={'height': '450px'}))]), width=8),
+                dbc.Col(dbc.Card([dbc.CardHeader("Network Topology"), dbc.CardBody(
+                    cyto.Cytoscape(
+                        id='network-graph',
+                        layout={'name': 'cose'},
+                        style={'width': '100%', 'height': '450px'},
+                        stylesheet=[
+                            {'selector': 'node', 'style': {'label': 'data(label)'}},
+                            {'selector': 'edge', 'style': {'curve-style': 'bezier'}}
+                        ]
+                    )
+                )]), width=8),
                 dbc.Col(dbc.Card([dbc.CardHeader("Live Connection Feed"), dbc.CardBody(html.Div(id='recent-activity', style={'height': '450px', 'overflowY': 'auto'}))]), width=4)
             ], className="mb-3"),
             dbc.Row([
@@ -397,74 +418,44 @@ def update_header_stats(_):
 
 # Network Tab Callbacks (no changes needed)
 @app.callback(
-    Output('network-graph', 'figure'),
+    Output('network-graph', 'elements'),
     Input('interval-component', 'n_intervals')
 )
 def update_network_graph(_):
     """Updates the network graph."""
     connections = db_manager.get_recent_connections(hours=1)
-
     if not connections:
-        return go.Figure().update_layout(title="No recent connections")
+        return []
 
-    df = pd.DataFrame(connections)
-    nodes = pd.unique(df[['device_ip', 'dest_ip']].values.ravel('K'))
+    nodes = set()
+    edges = set()
+    for conn in connections:
+        nodes.add(conn['device_ip'])
+        nodes.add(conn['dest_ip'])
+        edges.add((conn['device_ip'], conn['dest_ip']))
 
-    node_map = {node: i for i, node in enumerate(nodes)}
+    elements = []
+    for node in nodes:
+        elements.append({'data': {'id': node, 'label': node}})
+    for edge in edges:
+        elements.append({'data': {'source': edge[0], 'target': edge[1]}})
 
-    edges_x = []
-    edges_y = []
-    for _, row in df.iterrows():
-        source = node_map.get(row['device_ip'])
-        target = node_map.get(row['dest_ip'])
-        if source is not None and target is not None:
-            edges_x.extend([source, target, None])
-            edges_y.extend([list(nodes).index(row['device_ip']), list(nodes).index(row['dest_ip']), None])
-
-    node_trace = go.Scatter(
-        x=list(range(len(nodes))), y=list(range(len(nodes))),
-        mode='markers+text',
-        hoverinfo='text',
-        text=nodes,
-        textposition="bottom center",
-        marker=dict(
-            showscale=False,
-            color='lightblue',
-            size=10,
-            line_width=2))
-
-    edge_trace = go.Scatter(
-        x=edges_x, y=edges_y,
-        line=dict(width=0.5, color='#888'),
-        hoverinfo='none',
-        mode='lines')
-
-    fig = go.Figure(data=[edge_trace, node_trace],
-                 layout=go.Layout(
-                    title='<br>Network Graph (Last Hour)',
-                    titlefont_size=16,
-                    showlegend=False,
-                    hovermode='closest',
-                    margin=dict(b=20,l=5,r=5,t=40),
-                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-                    )
-    return fig
+    return elements
 
 @app.callback(
     [Output('device-details-modal', 'is_open'),
      Output('device-details-title', 'children'),
      Output('device-details-body', 'children')],
-    [Input('network-graph', 'clickData')],
+    [Input('network-graph', 'tapNodeData')],
     [State('device-details-modal', 'is_open')],
     prevent_initial_call=True
 )
-def display_device_details(clickData, _):
+def display_device_details(tapNodeData, _):
     """Display details of a device when clicked on the network graph."""
-    if not clickData:
+    if not tapNodeData:
         return False, "", ""
 
-    node_label = clickData['points'][0]['text']
+    node_label = tapNodeData['label']
 
     device_info = db_manager.get_all_devices()
 
@@ -560,6 +551,7 @@ def update_alerts(_, filter_severity):
         device_name = alert['device_name'] or alert['device_ip']
         time_str = datetime.fromisoformat(alert['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
         color = severity_colors.get(alert['severity'], 'secondary')
+        mitre_tactic = MITRE_ATTACK_MAPPING.get(alert['explanation'], "Unknown Tactic")
 
         try:
             top_features = json.loads(alert['top_features'])
@@ -571,6 +563,7 @@ def update_alerts(_, filter_severity):
             dbc.CardHeader([
                 dbc.Badge(alert['severity'].upper(), color=color, className="me-2"),
                 html.Strong(f"{device_name} - Unusual Activity"),
+                dbc.Badge(mitre_tactic, color="dark", className="ms-2"),
                 html.Span(time_str, className="float-end text-muted small")
             ]),
             dbc.CardBody([
@@ -611,6 +604,7 @@ def update_devices_table(_):
             html.Th("IP Address"),
             html.Th("Name"),
             html.Th("MAC Address"),
+            html.Th("Manufacturer"),
             html.Th("Last Seen"),
             html.Th("Trusted")
         ]))
@@ -621,6 +615,7 @@ def update_devices_table(_):
             html.Td(row['device_ip']),
             html.Td(row['device_name']),
             html.Td(row['mac_address']),
+            html.Td(row['manufacturer']),
             html.Td(datetime.fromisoformat(row['last_seen']).strftime('%Y-%m-%d %H:%M:%S')),
             html.Td(dbc.Switch(id={'type': 'trust-switch', 'ip': row['device_ip']}, value=bool(row['is_trusted'])))
         ]) for _, row in df.iterrows()

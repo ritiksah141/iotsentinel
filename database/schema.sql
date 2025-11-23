@@ -2,6 +2,7 @@ devices (
     device_ip PRIMARY KEY,
     device_name,
     mac_address,
+    manufacturer,
     first_seen,
     last_seen,
     is_trusted
