@@ -119,11 +119,9 @@ fi
 echo "Installing systemd services..."
 sudo cp services/iotsentinel-backend.service /etc/systemd/system/ || echo "⚠️  Could not install iotsentinel-backend.service"
 sudo cp services/iotsentinel-dashboard.service /etc/systemd/system/ || echo "⚠️  Could not install iotsentinel-dashboard.service"
-sudo cp services/iotsentinel-hardware.service /etc/systemd/system/ || echo "⚠️  Could not install iotsentinel-hardware.service"
 sudo systemctl daemon-reload
 sudo systemctl enable --now iotsentinel-backend.service || echo "⚠️  Could not enable iotsentinel-backend.service"
 sudo systemctl enable --now iotsentinel-dashboard.service || echo "⚠️  Could not enable iotsentinel-dashboard.service"
-sudo systemctl enable --now iotsentinel-hardware.service || echo "⚠️  Could not enable iotsentinel-hardware.service"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
