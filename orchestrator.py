@@ -26,7 +26,7 @@ from config.config_manager import config
 from capture.zeek_log_parser import ZeekLogParser
 from ml.inference_engine import InferenceEngine
 from database.db_manager import DatabaseManager
-from config.init_database import main as init_db
+from config.init_database import init_database as init_db
 from services.hardware_monitor import HardwareMonitor, IS_RPI
 
 # Configure logging
