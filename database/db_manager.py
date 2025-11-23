@@ -615,32 +615,62 @@ class DatabaseManager:
             return 0
 
     def cleanup_old_data(self, days: int = 30):
-        """Remove data older than X days to save SD card space."""
+        """
+        Delete data older than specified days and reclaim disk space.
+
+        Args:
+            days: Number of days to retain (default: 30)
+        """
+        cutoff_date = datetime.now() - timedelta(days=days)
+        logger.info(f"Cleaning up data older than {cutoff_date}...")
+
         try:
-            limit_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
             cursor = self.conn.cursor()
 
-            logger.info(f"Cleaning up data older than {limit_date}...")
+            # Delete old ML predictions
+            cursor.execute(
+                "DELETE FROM ml_predictions WHERE timestamp < ?",
+                (cutoff_date,)
+            )
+            predictions_deleted = cursor.rowcount
+            logger.info(f"{predictions_deleted} ML predictions deleted.")
 
-            # Using a subquery to avoid issues with deleting from a table that is being selected from
-            cursor.execute("""
-                DELETE FROM ml_predictions
-                WHERE connection_id IN (SELECT id FROM connections WHERE timestamp < ?)
-            """, (limit_date,))
-            logger.info(f"{cursor.rowcount} ML predictions deleted.")
+            # Delete old connections
+            cursor.execute(
+                "DELETE FROM connections WHERE timestamp < ?",
+                (cutoff_date,)
+            )
+            connections_deleted = cursor.rowcount
+            logger.info(f"{connections_deleted} connections deleted.")
 
-            cursor.execute("DELETE FROM connections WHERE timestamp < ?", (limit_date,))
-            logger.info(f"{cursor.rowcount} connections deleted.")
-
-            cursor.execute("DELETE FROM alerts WHERE timestamp < ?", (limit_date,))
-            logger.info(f"{cursor.rowcount} alerts deleted.")
-
-            # Reclaim disk space
-            logger.info("Reclaiming disk space (VACUUM)...")
-            self.conn.execute("VACUUM")
+            # Delete old alerts
+            cursor.execute(
+                "DELETE FROM alerts WHERE timestamp < ?",
+                (cutoff_date,)
+            )
+            alerts_deleted = cursor.rowcount
+            logger.info(f"{alerts_deleted} alerts deleted.")
 
             self.conn.commit()
-            logger.info("Database cleanup complete.")
+            cursor.close()
+
+            # VACUUM must be run outside of a transaction
+            # Temporarily enable autocommit mode
+            logger.info("Reclaiming disk space (VACUUM)...")
+            old_isolation = self.conn.isolation_level
+            self.conn.isolation_level = None  # Enable autocommit mode
+
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("VACUUM")
+                cursor.close()
+                logger.info("VACUUM completed successfully.")
+            finally:
+                # Restore original isolation level
+                self.conn.isolation_level = old_isolation
+
+            logger.info("Database cleanup completed successfully.")
+
         except sqlite3.Error as e:
             logger.error(f"Database cleanup failed: {e}")
             self.conn.rollback()
