@@ -16,4 +16,6 @@ plotly
 python-dateutil
 psutil
 python-dotenv
+manuf
+requests
 RPi.GPIO
