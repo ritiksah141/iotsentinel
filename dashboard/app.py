@@ -930,7 +930,7 @@ def main():
     logger.info(f"URL: http://{host}:{port}")
     logger.info("=" * 70)
 
-    app.run_server(host=host, port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug)
 
 if __name__ == '__main__':
     main()
