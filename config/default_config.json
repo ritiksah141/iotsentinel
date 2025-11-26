@@ -4,14 +4,16 @@
         "version": "1.0.0",
         "environment": "production",
         "architecture": "zeek-based",
-        "status_file_path": "config/monitoring_status.json"
+        "status_file_path": "config/monitoring_status.json",
+        "health_check_interval_seconds": 600
     },
     "network": {
         "interface": "wlan0",
         "local_networks": ["192.168.1.0/24"],
         "zeek_enabled": true,
         "zeek_bin_path": "/opt/zeek/bin",
-        "zeek_log_path": "/opt/zeek/logs"
+        "zeek_log_path": "/opt/zeek/logs",
+        "arp_scan_interval": 300
     },
     "zeek": {
         "parse_interval_seconds": 60,
@@ -28,7 +30,8 @@
         "anomaly_threshold": 0.95
     },
     "database": {
-        "path": "data/database/iotsentinel.db"
+        "path": "data/database/iotsentinel.db",
+        "retention_days": 30
     },
     "dashboard": {
         "host": "0.0.0.0",
@@ -41,12 +44,32 @@
     },
     "email": {
         "enabled": false,
-        "smtp_host": "smtp.example.com",
+        "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
-        "smtp_user": "user@example.com",
-        "smtp_password": "your_password",
-        "sender_email": "iotsentinel@example.com",
-        "recipient_email": "you@example.com"
+        "smtp_user": "",
+        "smtp_password": "",
+        "sender_email": "",
+        "recipient_email": ""
+    },
+    "alerting": {
+        "enabled": true,
+        "max_per_device_per_hour": 5,
+        "max_global_per_hour": 20,
+        "cooldown_minutes": 15,
+        "severity_thresholds": {
+            "critical": 0.98,
+            "high": 0.95,
+            "medium": 0.85,
+            "low": 0.70
+        },
+        "reports": {
+            "weekly_enabled": true,
+            "weekly_day": "sunday",
+            "weekly_hour": 9,
+            "monthly_enabled": true,
+            "monthly_day": 1,
+            "monthly_hour": 9
+        }
     },
     "firewall": {
         "enabled": false,

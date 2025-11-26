@@ -6,6 +6,7 @@ Main entry point that coordinates all system components:
 - Zeek log parsing
 - ML inference engine
 - ARP network scanning
+- Alerting system (email notifications + scheduled reports)
 - Web dashboard (to be run separately)
 
 Designed for systemd service deployment on Raspberry Pi OS.
@@ -57,14 +58,24 @@ class IoTSentinelOrchestrator:
     - Thread 4: System health watchdog.
     - Thread 5: Hardware monitor (Pi only).
     - Thread 6: ARP network scanner (if available).
+    - Background: Alerting system with scheduled reports.
     """
 
     def __init__(self):
         """Initialize system components."""
         self._ensure_database_initialized()
-        self.parser = ZeekLogParser()
-        self.inference_engine = InferenceEngine()
+
+        # Core database connection
         self.db = DatabaseManager(config.get('database', 'path'))
+
+        # Initialize alerting system
+        self.alerting = self._init_alerting_system()
+
+        # Initialize parser
+        self.parser = ZeekLogParser()
+
+        # Initialize inference engine with alerting
+        self.inference_engine = InferenceEngine(alerting_system=self.alerting)
 
         # Initialize ARP scanner if available
         self.arp_scanner = None
@@ -86,6 +97,31 @@ class IoTSentinelOrchestrator:
 
         logger.info("IoTSentinel orchestrator initialized")
 
+    def _init_alerting_system(self):
+        """Initialize the alerting system if available."""
+        try:
+            from alerts.integration import AlertingSystem
+
+            alerting = AlertingSystem(self.db, config)
+
+            if alerting.is_enabled:
+                logger.info("Alerting system initialized")
+                status = alerting.get_status()
+                logger.info(f"  - Email notifications: {'enabled' if status['components']['email_handler'] else 'disabled'}")
+                logger.info(f"  - Report scheduler: {'ready' if status['components']['report_scheduler'] else 'disabled'}")
+                return alerting
+            else:
+                logger.info("Alerting system disabled in configuration")
+                return None
+
+        except ImportError:
+            logger.warning("Alerting module not found. Running without notifications.")
+            logger.info("To enable: ensure 'alerts/' folder is in project root")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to initialize alerting system: {e}")
+            return None
+
     def _ensure_database_initialized(self):
         """Check if the database exists, and if not, initialize it."""
         db_path = Path(config.get('database', 'path'))
@@ -103,6 +139,11 @@ class IoTSentinelOrchestrator:
         logger.info("Starting IoTSentinel components...")
 
         self.running = True
+
+        # Start alerting system (for scheduled reports)
+        if self.alerting:
+            self.alerting.start()
+            logger.info("Alerting system started (reports scheduled)")
 
         # Start parser thread
         parser_thread = threading.Thread(
@@ -168,6 +209,25 @@ class IoTSentinelOrchestrator:
             logger.info("Hardware monitor disabled (not running on Pi).")
 
         logger.info("All components started. Orchestrator is running.")
+        self._print_status()
+
+    def _print_status(self):
+        """Print system status summary."""
+        logger.info("=" * 60)
+        logger.info("IOTSENTINEL STATUS")
+        logger.info("=" * 60)
+        logger.info(f"  Threads running: {len(self.threads)}")
+        logger.info(f"  Database: {config.get('database', 'path')}")
+
+        if self.alerting:
+            status = self.alerting.get_status()
+            logger.info(f"  Alerting: ENABLED")
+            logger.info(f"    - Email: {'✓' if status['components']['email_handler'] else '✗'}")
+            logger.info(f"    - Reports: {'✓' if status['running'] else '✗'}")
+        else:
+            logger.info(f"  Alerting: DISABLED")
+
+        logger.info("=" * 60)
 
     def _parser_loop(self):
         """Wrapper for the Zeek log parser's watch loop."""
@@ -295,7 +355,6 @@ class IoTSentinelOrchestrator:
                 if not self._is_process_running("zeek"):
                     logger.critical("Zeek is not running! Attempting to restart...")
                     try:
-                        # This assumes zeekctl is in the PATH and sudo is configured
                         subprocess.run(
                             ["sudo", "/opt/zeek/bin/zeekctl", "deploy"],
                             check=True,
@@ -326,6 +385,14 @@ class IoTSentinelOrchestrator:
 
         self.running = False
 
+        # Stop alerting system
+        if self.alerting:
+            try:
+                self.alerting.stop()
+                logger.info("Alerting system stopped")
+            except Exception as e:
+                logger.error(f"Error stopping alerting system: {e}")
+
         # Stop hardware monitor if it exists
         if self.hardware_monitor:
             try:
@@ -336,7 +403,7 @@ class IoTSentinelOrchestrator:
         # Wait for threads to finish (with timeout)
         for thread in self.threads:
             logger.debug(f"Waiting for thread {thread.name} to stop...")
-            thread.join(timeout=3)  # Reduced timeout since threads now check more frequently
+            thread.join(timeout=3)
             if thread.is_alive():
                 logger.warning(f"Thread {thread.name} did not stop gracefully within timeout")
 
@@ -347,6 +414,35 @@ class IoTSentinelOrchestrator:
             logger.error(f"Error closing database: {e}")
 
         logger.info("IoTSentinel orchestrator stopped.")
+
+    # === Public API for external access ===
+
+    def send_test_email(self) -> bool:
+        """Send a test email to verify alerting configuration."""
+        if not self.alerting:
+            logger.warning("Alerting system not available")
+            return False
+        return self.alerting.send_test_email()
+
+    def send_report_now(self, report_type: str = 'weekly') -> bool:
+        """Manually trigger a report send."""
+        if not self.alerting:
+            logger.warning("Alerting system not available")
+            return False
+        return self.alerting.send_report_now(report_type)
+
+    def get_alert_summary(self, hours: int = 24) -> dict:
+        """Get alert summary for dashboard."""
+        if self.alerting:
+            return self.alerting.get_alert_summary(hours=hours)
+        else:
+            # Fallback to direct DB query
+            alerts = self.db.get_recent_alerts(hours=hours)
+            return {
+                'total': len(alerts),
+                'by_severity': {},
+                'by_device': {}
+            }
 
 
 # --- Main Execution ---
