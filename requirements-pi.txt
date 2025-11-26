@@ -16,6 +16,7 @@ plotly
 python-dateutil
 psutil
 python-dotenv
+apscheduler
 manuf
 requests
 RPi.GPIO

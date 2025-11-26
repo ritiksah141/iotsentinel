@@ -314,6 +314,17 @@ class DatabaseManager:
             logger.error(f"Error fetching all devices: {e}")
             return []
 
+    def get_device(self, device_ip: str) -> Optional[Dict]:
+        """Get a single device by IP address."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM devices WHERE device_ip = ?", (device_ip,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching device {device_ip}: {e}")
+            return None
+
     def update_device_name(self, device_ip: str, device_name: str) -> bool:
         """Update device friendly name."""
         try:
