@@ -1394,17 +1394,33 @@ def update_network_graph_3d(ws_message):
     node_colors = []
     node_sizes = []
     node_symbols = []
+    node_x = []
+    node_y = []
+    node_z = []
+    node_text = []
 
     for d in devices:
-        node_text.append(d.get('device_name') or d['device_ip'])
-        node_colors.append(DEVICE_STATUS_COLORS.get(d['status'], '#6c757d'))
+        # Text label for hover
+        node_text.append(d.get('device_name') or d.get('device_ip'))
+
+        # Coordinates (set to 0 if not provided)
+        x = d.get('x', 0)
+        y = d.get('y', 0)
+        z = d.get('z', 0)
+        node_x.append(x)
+        node_y.append(y)
+        node_z.append(z)
+
+        # Color / sizing based on status/alerts
+        status_color = DEVICE_STATUS_COLORS.get(d.get('status'), '#6c757d')
         if d.get('has_critical_alert'):
-            node_sizes.append(20) # Larger size for critical alerts
-            node_symbols.append('circle') # Use circle for critical alerts
-            node_colors[-1] = '#ff0000' # Bright red for critical alerts
+            node_sizes.append(20)  # Larger size for critical alerts
+            node_symbols.append('circle')
+            node_colors.append('#ff0000')  # Bright red for critical alerts
         else:
             node_sizes.append(12)
             node_symbols.append('circle')
+            node_colors.append(status_color)
 
     node_trace = go.Scatter3d(
         x=node_x, y=node_y, z=node_z,
