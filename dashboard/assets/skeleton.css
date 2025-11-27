@@ -1,0 +1,73 @@
+/*
+ * Basic Skeleton Loading Styles
+ */
+
+/* Base style for skeleton loader */
+.skeleton {
+    animation: pulse-bg 1.5s infinite;
+    background-color: #e0e0e0; /* Light gray for light theme */
+    border-radius: 4px;
+}
+
+body.dark-theme .skeleton {
+    background-color: #3e3e5a; /* Dark gray for dark theme */
+}
+
+/* For text lines */
+.skeleton-text {
+    height: 1em; /* Approximate line height */
+    margin-bottom: 0.5em;
+}
+
+/* For larger blocks like cards or images */
+.skeleton-block {
+    width: 100%;
+    height: 150px; /* Example height, adjust as needed */
+    margin-bottom: 1rem;
+}
+
+/* For avatars or circular elements */
+.skeleton-circle {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+}
+
+/* Animation for the pulsating effect */
+@keyframes pulse-bg {
+    0% {
+        background-color: #e0e0e0;
+    }
+    50% {
+        background-color: #f0f0f0;
+    }
+    100% {
+        background-color: #e0e0e0;
+    }
+}
+@keyframes pulse-bg-dark {
+    0% {
+        background-color: #3e3e5a;
+    }
+    50% {
+        background-color: #4a4a6e;
+    }
+    100% {
+        background-color: #3e3e5a;
+    }
+}
+
+/* Example usage within a card */
+.skeleton-card-body {
+    padding: 1rem;
+}
+
+.skeleton-card-body .skeleton-text:last-child {
+    width: 60%; /* Last line usually shorter */
+}
+
+/* Specific skeleton for the device grid */
+.skeleton-device-card {
+    height: 120px;
+    margin-bottom: 1rem;
+}
