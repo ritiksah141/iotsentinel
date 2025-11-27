@@ -36,3 +36,5 @@ pylint==3.0.3
 ipython==8.18.1
 python-dotenv
 apscheduler
+Flask-SocketIO
+dash-extensions

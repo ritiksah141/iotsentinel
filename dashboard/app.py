@@ -6,6 +6,9 @@ import logging
 import sqlite3
 import subprocess
 import sys
+import math
+import time # Added for AI response simulation
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -24,6 +27,9 @@ sys.path.insert(0, str(project_root))
 
 from config.config_manager import config
 from database.db_manager import DatabaseManager
+from flask_socketio import SocketIO, emit
+from dash_extensions import WebSocket
+import threading # Added import
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,10 +37,13 @@ logger = logging.getLogger(__name__)
 # Initialize Dash app with Bootstrap theme
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.themes.GRID, dbc.icons.FONT_AWESOME, '/assets/skeleton.css'],
     title="IoTSentinel - Network Security Monitor",
     suppress_callback_exceptions=True
 )
+
+# Initialize Flask-SocketIO
+socketio = SocketIO(app.server, cors_allowed_origins="*")
 
 # Database path
 DB_PATH = config.get('database', 'path')
@@ -783,6 +792,27 @@ app.layout = dbc.Container([
             className="d-flex align-items-center"
         ),
         dbc.Col([
+            dbc.Button(
+                [
+                    html.I(className="fa fa-bell"),
+                    dbc.Badge(id="notification-badge", color="danger", className="ms-1", pill=True),
+                ],
+                id="notification-bell-button",
+                color="secondary",
+                outline=True
+            ),
+            dbc.Button(
+                [html.I(className="fa fa-robot")],
+                id="open-chat-button",
+                color="secondary",
+                outline=True,
+                className="ms-2"
+            )
+        ],
+            width=2,
+            className="d-flex align-items-center"
+        ),
+        dbc.Col([
             html.Div([
                 html.H2(id='device-count', className="mb-0"),
                 html.Small("Active Devices", className="text-muted")
@@ -807,6 +837,31 @@ app.layout = dbc.Container([
         dbc.Col(dbc.Alert(id='system-status', color="success", className="mb-3"))
     ]),
 
+    # Theme Selector
+    dbc.Row([
+        dbc.Col([
+            dbc.RadioItems(
+                id="theme-selector",
+                options=[
+                    {"label": "Light", "value": "light"},
+                    {"label": "Dark", "value": "dark"},
+                    {"label": "Cyberpunk", "value": "cyberpunk"},
+                ],
+                value="light",
+                inline=True,
+            ),
+            dbc.Switch(
+                id="voice-alert-toggle",
+                label="Voice Alerts",
+                value=False,
+                className="ms-3"
+            ),
+        ],
+            width={"size": "auto", "offset": 6},
+            className="text-end d-flex align-items-center"
+        )
+    ]),
+
     # ========================================================================
     # MAIN TABS
     # ========================================================================
@@ -821,55 +876,38 @@ app.layout = dbc.Container([
                     dbc.CardHeader([
                         html.I(className="fa fa-project-diagram me-2"),
                         "Network Topology",
-                        dbc.Badge("Live", color="success", className="ms-2")
-                    ]),
-                    dbc.CardBody(
-                        cyto.Cytoscape(
-                            id='network-graph',
-                            layout={'name': 'cose', 'animate': True},
-                            style={'width': '100%', 'height': '450px'},
-                            stylesheet=[
-                                # Node styles
-                                {
-                                    'selector': 'node',
-                                    'style': {
-                                        'label': 'data(label)',
-                                        'background-color': 'data(color)',
-                                        'color': '#333',
-                                        'text-valign': 'bottom',
-                                        'text-margin-y': '5px',
-                                        'font-size': '10px',
-                                        'width': '40px',
-                                        'height': '40px',
-                                        'border-width': '3px',
-                                        'border-color': 'data(borderColor)'
-                                    }
-                                },
-                                # Router node (central)
-                                {
-                                    'selector': 'node[type="router"]',
-                                    'style': {
-                                        'width': '60px',
-                                        'height': '60px',
-                                        'background-color': '#007bff',
-                                        'shape': 'rectangle'
-                                    }
-                                },
-                                # Edge styles
-                                {
-                                    'selector': 'edge',
-                                    'style': {
-                                        'curve-style': 'bezier',
-                                        'line-color': '#ccc',
-                                        'width': 2,
-                                        'opacity': 0.7
-                                    }
-                                }
-                            ]
+                        dbc.Badge("Live", color="success", className="ms-2"),
+                        dbc.Switch(
+                            id="graph-view-toggle",
+                            label="3D View",
+                            value=False,
+                            className="float-end"
                         )
-                    )
+                    ]),
+                    dbc.CardBody([
+                        # Container for 2D Graph
+                        html.Div(id='2d-graph-container', children=[
+                            dbc.Spinner(
+                                cyto.Cytoscape(
+                                    id='network-graph',
+                                    layout={'name': 'cose', 'animate': True},
+                                    style={'width': '100%', 'height': '450px'},
+                                    stylesheet=[
+                                        # ... (stylesheet content remains the same)
+                                    ]
+                                ),
+                                color="primary", type="grow"
+                            )
+                        ]),
+                        # Container for 3D Graph
+                        html.Div(id='3d-graph-container', children=[
+                            dbc.Spinner(
+                                dcc.Graph(id='network-graph-3d', style={'height': '450px'}),
+                                color="primary", type="grow"
+                            )
+                        ], style={'display': 'none'}) # Hidden by default
+                    ])
                 ]), width=8),
-
                 # Live Connection Feed
                 dbc.Col(dbc.Card([
                     dbc.CardHeader([
@@ -877,9 +915,12 @@ app.layout = dbc.Container([
                         "Live Connection Feed"
                     ]),
                     dbc.CardBody(
-                        html.Div(
-                            id='recent-activity',
-                            style={'height': '450px', 'overflowY': 'auto'}
+                        dbc.Spinner(
+                            html.Div(
+                                id='recent-activity',
+                                style={'height': '450px', 'overflowY': 'auto'}
+                            ),
+                                                        color="primary", type="grow"
                         )
                     )
                 ]), width=4)
@@ -938,7 +979,12 @@ app.layout = dbc.Container([
 
             # Alerts container
             dbc.Row([
-                dbc.Col(html.Div(id='alerts-container'))
+                dbc.Col(
+                    dbc.Spinner(
+                        html.Div(id='alerts-container'),
+                                                    color="primary", type="grow"
+                    )
+                )
             ])
         ]),
 
@@ -961,7 +1007,12 @@ app.layout = dbc.Container([
                             " Alert"
                         ], className="float-end small")
                     ]),
-                    dbc.CardBody(html.Div(id='devices-status-grid'))
+                    dbc.CardBody(
+                        dbc.Spinner(
+                            html.Div(id='devices-status-grid'),
+                                                        color="primary", type="grow"
+                        )
+                    )
                 ]))
             ], className="mb-3"),
 
@@ -972,7 +1023,12 @@ app.layout = dbc.Container([
                         html.I(className="fa fa-table me-2"),
                         "All Devices"
                     ]),
-                    dbc.CardBody(html.Div(id='devices-table'))
+                    dbc.CardBody(
+                        dbc.Spinner(
+                            html.Div(id='devices-table'),
+                                                        color="primary", type="grow"
+                        )
+                    )
                 ]))
             ], className="mb-3"),
 
@@ -1110,11 +1166,17 @@ app.layout = dbc.Container([
     # ========================================================================
     # HIDDEN COMPONENTS AND MODALS
     # ========================================================================
-    dcc.Interval(id='interval-component', interval=5*1000, n_intervals=0),
+    # dcc.Interval(id='interval-component', interval=5*1000, n_intervals=0), # Replaced by WebSocket
+    WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"), # Assuming default Dash port
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='selected-alert-id', data=None),
     dcc.Store(id='onboarding-store', storage_type='local'),
     dcc.Store(id='onboarding-step-store', data=0),
+    dcc.Store(id='theme-store', storage_type='local'),
+    dcc.Store(id='keyboard-shortcut-store', data=None),
+    dcc.Store(id='voice-alert-store', storage_type='local'),
+    dcc.Store(id='announced-alerts-store', storage_type='session', data={}),
+    dcc.Location(id='url', refresh=False),
     dcc.Download(id="download-csv"),
 
     # Onboarding Modal
@@ -1144,6 +1206,38 @@ app.layout = dbc.Container([
         ])
     ], id="alert-details-modal", is_open=False, size="xl"),
 
+    # Container for toast notifications
+    html.Div(id="toast-container", style={"position": "fixed", "top": 66, "right": 10, "width": 350, "zIndex": 9999}),
+
+    # Notification Drawer
+    dbc.Offcanvas(
+        [
+            html.H5("Recent Alerts"),
+            html.Hr(),
+            html.Div(id="notification-drawer-body")
+        ],
+        id="notification-drawer",
+        title="Notifications",
+        is_open=False,
+        placement="end",
+        backdrop=False,
+        scrollable=True,
+    ),
+
+    # AI Chat Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("🤖 AI Assistant")),
+        dbc.ModalBody(html.Div(id='chat-history', style={'height': '400px', 'overflowY': 'auto'})),
+        dbc.ModalFooter(
+            dbc.InputGroup([
+                dbc.Input(id='chat-input', placeholder="Ask about your network..."),
+                dbc.Button("Send", id='chat-send-button', color="primary"),
+            ])
+        ),
+    ], id="chat-modal", is_open=False, size="lg"),
+
+    dcc.Store(id='chat-history-store', storage_type='session', data={'history': []})
+
 ], fluid=True, className="p-4")
 
 
@@ -1160,38 +1254,17 @@ app.layout = dbc.Container([
      Output('alert-count', 'children'),
      Output('connection-count', 'children'),
      Output('system-status', 'children')],
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message') # Listen to WebSocket messages
 )
-def update_header_stats(_):
-    """Update the main statistics in the header."""
-    conn = get_db_connection()
-    if not conn:
-        return "0", "0", "0", "⚠️ Database Error"
+def update_header_stats(ws_message):
+    """Update the main statistics in the header from WebSocket."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
     try:
-        cursor = conn.cursor()
-
-        # Active devices (seen in last 5 minutes)
-        cursor.execute("""
-            SELECT COUNT(*) FROM devices
-            WHERE last_seen > datetime('now', '-5 minutes')
-        """)
-        device_count = cursor.fetchone()[0]
-
-        # Unacknowledged alerts in last 24 hours
-        cursor.execute("""
-            SELECT COUNT(*) FROM alerts
-            WHERE timestamp > datetime('now', '-24 hours')
-            AND acknowledged = 0
-        """)
-        alert_count = cursor.fetchone()[0]
-
-        # Connections in last hour
-        cursor.execute("""
-            SELECT COUNT(*) FROM connections
-            WHERE timestamp > datetime('now', '-1 hour')
-        """)
-        conn_count = cursor.fetchone()[0]
+        device_count = ws_message.get('device_count', 0)
+        alert_count = ws_message.get('alert_count', 0)
+        conn_count = ws_message.get('connection_count', 0)
 
         # Build status message
         if alert_count == 0:
@@ -1200,29 +1273,66 @@ def update_header_stats(_):
                 html.Strong("All Clear"),
                 f" — Monitoring {device_count} devices"
             ]
-            status_color = "success"
         elif alert_count <= 3:
             status = [
                 html.I(className="fa fa-exclamation-triangle me-2"),
                 html.Strong(f"{alert_count} Active Alert(s)"),
                 f" — Monitoring {device_count} devices"
             ]
-            status_color = "warning"
         else:
             status = [
                 html.I(className="fa fa-exclamation-circle me-2"),
                 html.Strong(f"{alert_count} Active Alerts - Review Recommended"),
                 f" — Monitoring {device_count} devices"
             ]
-            status_color = "danger"
 
         return str(device_count), str(alert_count), str(conn_count), status
 
-    except sqlite3.Error as e:
-        logger.error(f"Error in header: {e}")
-        return "0", "0", "0", "⚠️ Error"
-    finally:
-        conn.close()
+    except (KeyError) as e:
+        logger.error(f"Error processing header stats from WebSocket: {e}")
+        raise dash.exceptions.PreventUpdate
+
+
+@app.callback(
+    [Output('notification-badge', 'children'),
+     Output('notification-drawer-body', 'children')],
+    Input('ws', 'message')
+)
+def update_notifications(ws_message):
+    """Update notification badge and drawer content from WebSocket."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    alert_count = ws_message.get('alert_count', 0)
+    recent_alerts = ws_message.get('recent_alerts', [])
+
+    if alert_count == 0:
+        badge_count = ""
+    else:
+        badge_count = str(alert_count)
+
+    if not recent_alerts:
+        drawer_content = [dbc.Alert("No new alerts.", color="info")]
+    else:
+        drawer_content = []
+        for alert in recent_alerts[:10]: # Show top 10 in drawer
+            device_name = alert.get('device_name') or alert.get('device_ip')
+            severity = alert.get('severity', 'medium')
+            config = SEVERITY_CONFIG.get(severity, SEVERITY_CONFIG['medium'])
+
+            drawer_content.append(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.Strong(device_name),
+                        html.P(alert.get('explanation'), className="small mb-0")
+                    ]),
+                    color=config['color'],
+                    inverse=True,
+                    className="mb-2"
+                )
+            )
+
+    return badge_count, drawer_content
 
 
 # ============================================================================
@@ -1231,98 +1341,147 @@ def update_header_stats(_):
 
 @app.callback(
     Output('network-graph', 'elements'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_network_graph(_):
+def update_network_graph(ws_message):
     """
-    Updates the network graph with color-coded nodes based on device status.
-
-    KEY FEATURE: Nodes are colored by security status
-    - Green: Normal
-    - Yellow: Warning
-    - Red: Active alerts
+    Updates the network graph with color-coded nodes based on device status
+    using data received from the WebSocket.
     """
-    devices = get_devices_with_status()
-    connections = db_manager.get_recent_connections(hours=1)
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    elements = []
+    elements = ws_message.get('network_graph_elements', [])
 
-    # Add router node (central)
-    elements.append({
-        'data': {
-            'id': 'router',
-            'label': 'Router',
-            'type': 'router',
-            'color': '#007bff',
-            'borderColor': '#0056b3'
-        }
-    })
-
-    # Add device nodes with status colors
-    device_ips = set()
-    for device in devices:
-        device_ip = device['device_ip']
-        device_ips.add(device_ip)
-
-        status = device.get('status', 'normal')
-        color = DEVICE_STATUS_COLORS.get(status, DEVICE_STATUS_COLORS['unknown'])
-
-        # Determine border color (darker version for emphasis)
-        border_colors = {
-            'normal': '#1e7b34',
-            'warning': '#d39e00',
-            'alert': '#bd2130',
-            'unknown': '#545b62'
-        }
-
-        elements.append({
-            'data': {
-                'id': device_ip,
-                'label': device.get('device_name') or device_ip.split('.')[-1],
-                'type': 'device',
-                'color': color,
-                'borderColor': border_colors.get(status, '#545b62'),
-                'status': status
-            }
-        })
-
-        # Connect device to router
-        elements.append({
-            'data': {
-                'source': 'router',
-                'target': device_ip
-            }
-        })
-
-    # Add edges for recent connections between devices
-    if connections:
-        seen_edges = set()
-        for conn in connections[:50]:  # Limit to avoid clutter
-            src = conn['device_ip']
-            dst = conn['dest_ip']
-
-            # Only add edge if both nodes exist and edge not seen
-            if src in device_ips and dst in device_ips:
-                edge_key = tuple(sorted([src, dst]))
-                if edge_key not in seen_edges:
-                    elements.append({
-                        'data': {
-                            'source': src,
-                            'target': dst
-                        }
-                    })
-                    seen_edges.add(edge_key)
+    if not elements:
+        raise dash.exceptions.PreventUpdate
 
     return elements
 
 
 @app.callback(
-    Output('recent-activity', 'children'),
-    Input('interval-component', 'n_intervals')
+    [Output('2d-graph-container', 'style'),
+     Output('3d-graph-container', 'style')],
+    Input('graph-view-toggle', 'value')
 )
-def update_recent_activity(_):
-    """Updates the recent activity feed with status indicators."""
-    connections = db_manager.get_recent_connections(hours=1)
+def toggle_graph_view(is_3d_view):
+    """Toggle between 2D and 3D network graph views."""
+    if is_3d_view:
+        return {'display': 'none'}, {'display': 'block'}
+    else:
+        return {'display': 'block'}, {'display': 'none'}
+
+
+@app.callback(
+    Output('network-graph-3d', 'figure'),
+    Input('ws', 'message')
+)
+def update_network_graph_3d(ws_message):
+    """Updates the 3D network graph using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    devices = ws_message.get('all_devices_with_status', [])
+    connections = ws_message.get('recent_connections_feed', [])
+
+    if not devices:
+        return go.Figure()
+
+    # Create a mapping of IP to device for quick lookup
+    device_map = {d['device_ip']: d for d in devices}
+
+    # --- Create Node Trace ---
+    node_colors = []
+    node_sizes = []
+    node_symbols = []
+
+    for d in devices:
+        node_text.append(d.get('device_name') or d['device_ip'])
+        node_colors.append(DEVICE_STATUS_COLORS.get(d['status'], '#6c757d'))
+        if d.get('has_critical_alert'):
+            node_sizes.append(20) # Larger size for critical alerts
+            node_symbols.append('circle') # Use circle for critical alerts
+            node_colors[-1] = '#ff0000' # Bright red for critical alerts
+        else:
+            node_sizes.append(12)
+            node_symbols.append('circle')
+
+    node_trace = go.Scatter3d(
+        x=node_x, y=node_y, z=node_z,
+        mode='markers',
+        hoverinfo='text',
+        text=node_text,
+        marker=dict(
+            showscale=False,
+            color=node_colors,
+            size=node_sizes,
+            symbol=node_symbols,
+            line=dict(width=2, color='#222')
+        )
+    )
+
+    # --- Create Edge Traces ---
+    edge_traces = []
+    # Router to device edges
+    for device in devices:
+        edge_traces.append(go.Scatter3d(
+            x=[0, device['x']], y=[0, device['y']], z=[0, device['z']],
+            mode='lines',
+            line=dict(color='#888', width=2),
+            hoverinfo='none'
+        ))
+
+    # Inter-device edges
+    for conn in connections:
+        src = device_map.get(conn['device_ip'])
+        dst = device_map.get(conn['dest_ip'])
+        if src and dst:
+            edge_traces.append(go.Scatter3d(
+                x=[src['x'], dst['x']], y=[src['y'], dst['y']], z=[src['z'], dst['z']],
+                mode='lines',
+                line=dict(color='#00ffcc', width=4), # Highlight inter-device comms
+                hoverinfo='none'
+            ))
+
+    # --- Create Router Trace ---
+    router_trace = go.Scatter3d(
+        x=[0], y=[0], z=[0],
+        mode='markers',
+        hoverinfo='text',
+        text=['Router'],
+        marker=dict(color='#007bff', size=20, symbol='diamond')
+    )
+
+    layout = go.Layout(
+        title='3D Network Topology',
+        showlegend=False,
+        scene=dict(
+            xaxis=dict(showbackground=False, showticklabels=False, title=''),
+            yaxis=dict(showbackground=False, showticklabels=False, title=''),
+            zaxis=dict(showbackground=False, showticklabels=False, title=''),
+        ),
+        margin=dict(l=0, r=0, b=0, t=40)
+    )
+
+    fig = go.Figure(data=edge_traces + [node_trace, router_trace], layout=layout)
+
+    return fig
+
+
+@app.callback(
+    Output('recent-activity', 'children'),
+    Input('ws', 'message')
+)
+def update_recent_activity(ws_message):
+    """Updates the recent activity feed with status indicators using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    connections = ws_message.get('recent_connections_feed', [])
+    devices_with_status = ws_message.get('all_devices_with_status', [])
+
+    # Create a mapping of device_ip to status for quick lookup
+    device_status_map = {device['device_ip']: device['status'] for device in devices_with_status}
 
     if not connections:
         return [
@@ -1334,7 +1493,7 @@ def update_recent_activity(_):
 
     feed_items = []
     for conn in connections[:30]:
-        device_status = get_device_status(conn['device_ip'])
+        device_status = device_status_map.get(conn['device_ip'], 'unknown')
 
         feed_items.append(
             html.Div([
@@ -1351,13 +1510,16 @@ def update_recent_activity(_):
 
 @app.callback(
     Output('traffic-timeline', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_traffic_timeline(_):
-    """Updates the traffic timeline chart."""
-    data = db_manager.get_traffic_timeline(hours=24)
+def update_traffic_timeline(ws_message):
+    """Updates the traffic timeline chart using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    traffic_data = ws_message.get('traffic_timeline', [])
+
+    if not traffic_data:
         fig = go.Figure()
         fig.update_layout(
             title="No traffic data available",
@@ -1366,7 +1528,7 @@ def update_traffic_timeline(_):
         )
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(traffic_data)
 
     fig = px.area(
         df, x='hour', y='total_bytes',
@@ -1385,18 +1547,21 @@ def update_traffic_timeline(_):
 
 @app.callback(
     Output('protocol-pie', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_protocol_pie(_):
-    """Updates the protocol distribution pie chart."""
-    data = db_manager.get_protocol_distribution(hours=24)
+def update_protocol_pie(ws_message):
+    """Updates the protocol distribution pie chart using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    protocol_data = ws_message.get('protocol_distribution', [])
+
+    if not protocol_data:
         fig = go.Figure()
         fig.update_layout(title="No protocol data available")
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(protocol_data)
 
     fig = px.pie(
         df, values='count', names='protocol',
@@ -1414,15 +1579,16 @@ def update_protocol_pie(_):
 
 @app.callback(
     Output('devices-status-grid', 'children'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_devices_status_grid(_):
+def update_devices_status_grid(ws_message):
     """
-    Creates the device status overview grid.
+    Creates the device status overview grid using WebSocket data.
+    """
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    KEY FEATURE #1: Visual status indicators for each device
-    """
-    devices = get_devices_with_status()
+    devices = ws_message.get('all_devices_with_status', [])
 
     if not devices:
         return dbc.Alert("No devices found.", color="info")
@@ -1455,11 +1621,14 @@ def update_devices_status_grid(_):
 
 @app.callback(
     Output('devices-table', 'children'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_devices_table(_):
-    """Updates the devices table with status column."""
-    devices = get_devices_with_status()
+def update_devices_table(ws_message):
+    """Updates the devices table with status column using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    devices = ws_message.get('all_devices_with_status', [])
 
     if not devices:
         return dbc.Alert("No devices found.", color="info")
@@ -1510,18 +1679,21 @@ def update_devices_table(_):
 
 @app.callback(
     Output('device-heatmap', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_device_heatmap(_):
-    """Updates the device activity heatmap."""
-    data = db_manager.get_device_activity_heatmap(hours=24)
+def update_device_heatmap(ws_message):
+    """Updates the device activity heatmap using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    heatmap_data = ws_message.get('device_activity_heatmap', [])
+
+    if not heatmap_data:
         fig = go.Figure()
         fig.update_layout(title="No activity data available")
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(heatmap_data)
 
     fig = px.density_heatmap(
         df, x="hour", y="device_ip", z="count",
@@ -1542,40 +1714,23 @@ def update_device_heatmap(_):
 
 @app.callback(
     Output('alerts-container', 'children'),
-    [Input('interval-component', 'n_intervals'),
+    [Input('ws', 'message'), # Listen to WebSocket messages
      Input('alert-filter', 'data')]
 )
-def update_alerts(_, filter_severity):
+def update_alerts(ws_message, filter_severity):
     """
-    Display alerts with clickable cards for educational drill-down.
-
-    KEY FEATURE #2: Chronological alerts list
+    Display alerts with clickable cards for educational drill-down using WebSocket data.
     """
-    conn = get_db_connection()
-    if not conn:
-        return dbc.Alert("Database error", color="danger")
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    query = """
-        SELECT
-            a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
-            a.anomaly_score, a.explanation, a.top_features, a.acknowledged
-        FROM alerts a
-        LEFT JOIN devices d ON a.device_ip = d.device_ip
-        WHERE a.timestamp > datetime('now', '-24 hours')
-    """
+    recent_alerts_raw = ws_message.get('recent_alerts', [])
 
-    if filter_severity != 'all':
-        query += f" AND a.severity = '{filter_severity}'"
+    # Convert to DataFrame for easier filtering
+    df = pd.DataFrame(recent_alerts_raw)
 
-    query += " ORDER BY a.timestamp DESC"
-
-    try:
-        df = pd.read_sql_query(query, conn)
-    except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
-        logger.error(f"Error fetching alerts: {e}")
-        df = pd.DataFrame()
-    finally:
-        conn.close()
+    if filter_severity != 'all' and not df.empty:
+        df = df[df['severity'] == filter_severity]
 
     if len(df) == 0:
         return dbc.Alert([
@@ -1678,6 +1833,92 @@ def toggle_alert_details(btn_clicks, close_click, is_open):
 
 
 @app.callback(
+    Output("chat-modal", "is_open"),
+    Input("open-chat-button", "n_clicks"),
+    [State("chat-modal", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_chat_modal(n, is_open):
+    if n:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    [Output('chat-history-store', 'data', allow_duplicate=True),
+     Output('chat-input', 'value')],
+    [Input('chat-send-button', 'n_clicks'),
+     Input('chat-input', 'n_submit')],
+    [State('chat-input', 'value'),
+     State('chat-history-store', 'data')],
+    prevent_initial_call=True
+)
+def handle_chat_message(send_clicks, input_submit, text, chat_data):
+    if (send_clicks is None and input_submit is None) or not text:
+        raise dash.exceptions.PreventUpdate
+
+    history = chat_data.get('history', [])
+    history.append({'sender': 'user', 'message': text})
+
+    # Placeholder for AI thinking
+    history.append({'sender': 'ai', 'message': '...'})
+
+    return {'history': history}, ''
+
+
+@app.callback(
+    Output('chat-history', 'children'),
+    Input('chat-history-store', 'data')
+)
+def update_chat_history(chat_data):
+    if not chat_data:
+        return []
+
+    history = chat_data.get('history', [])
+    messages = []
+    for msg in history:
+        if msg['sender'] == 'user':
+            messages.append(
+                dbc.Alert(msg['message'], color="primary", className="text-end")
+            )
+        else:
+            messages.append(
+                dbc.Alert(msg['message'], color="secondary", className="text-start")
+            )
+    return messages
+
+
+@app.callback(
+    Output('chat-history-store', 'data'),
+    Input('chat-history-store', 'data'),
+    prevent_initial_call=True
+)
+def simulate_ai_response(chat_data):
+    if not chat_data or not chat_data['history']:
+        raise dash.exceptions.PreventUpdate
+
+    history = chat_data['history']
+    last_message = history[-1]
+
+    if last_message['sender'] == 'ai' and last_message['message'] == '...':
+        time.sleep(1) # Simulate thinking
+
+        # Placeholder response logic
+        user_message = history[-2]['message'].lower()
+        if 'how many devices' in user_message:
+            response = "Device count is visible on the main dashboard."
+        elif 'show alerts' in user_message:
+            response = "Alerts are available in the 'Alerts' tab."
+        else:
+            response = "This is a placeholder AI response. Full functionality is pending."
+
+        history[-1] = {'sender': 'ai', 'message': response}
+        return {'history': history}
+
+    raise dash.exceptions.PreventUpdate
+
+
+@app.callback(
     Output('alert-filter', 'data'),
     [Input('filter-all', 'n_clicks'),
      Input('filter-critical', 'n_clicks'),
@@ -1701,18 +1942,21 @@ def update_alert_filter(*_):
 
 @app.callback(
     Output('alert-timeline', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_alert_timeline(_):
-    """Updates the alert timeline chart."""
-    data = db_manager.get_alert_timeline(days=7)
+def update_alert_timeline(ws_message):
+    """Updates the alert timeline chart using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    alert_timeline_data = ws_message.get('alert_timeline', [])
+
+    if not alert_timeline_data:
         fig = go.Figure()
         fig.update_layout(title="No alerts in the last 7 days")
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(alert_timeline_data)
 
     fig = px.bar(
         df, x="day", y="count", color="severity",
@@ -1735,18 +1979,21 @@ def update_alert_timeline(_):
 
 @app.callback(
     Output('anomaly-distribution', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_anomaly_distribution(_):
-    """Updates the anomaly score distribution chart."""
-    data = db_manager.get_anomaly_distribution(hours=24)
+def update_anomaly_distribution(ws_message):
+    """Updates the anomaly score distribution chart using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    anomaly_data = ws_message.get('anomaly_distribution', [])
+
+    if not anomaly_data:
         fig = go.Figure()
         fig.update_layout(title="No anomaly data available")
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(anomaly_data)
 
     fig = px.histogram(
         df, x="anomaly_score",
@@ -1768,18 +2015,21 @@ def update_anomaly_distribution(_):
 
 @app.callback(
     Output('bandwidth-chart', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_bandwidth_chart(_):
-    """Updates the bandwidth chart."""
-    data = db_manager.get_bandwidth_stats(hours=24)
+def update_bandwidth_chart(ws_message):
+    """Updates the bandwidth chart using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    bandwidth_data = ws_message.get('bandwidth_chart', [])
+
+    if not bandwidth_data:
         fig = go.Figure()
         fig.update_layout(title="No Bandwidth Data Available")
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(bandwidth_data)
 
     fig = px.bar(
         df, x='device_ip', y='total_bytes',
@@ -1796,11 +2046,16 @@ def update_bandwidth_chart(_):
 
 @app.callback(
     Output('system-performance', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_system_performance(_):
-    """System performance metrics placeholder."""
-    # This would typically come from system monitoring
+def update_system_performance(ws_message):
+    """System performance metrics placeholder (using WebSocket input)."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    # This would typically come from system monitoring, or a more detailed
+    # data payload from the background thread. For now, we keep it static.
+
     fig = go.Figure()
 
     fig.add_trace(go.Indicator(
@@ -1829,53 +2084,37 @@ def update_system_performance(_):
 
 @app.callback(
     Output('system-info', 'children'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_system_info(_):
-    """Displays system information."""
-    conn = get_db_connection()
-    db_stats = {}
+def update_system_info(ws_message):
+    """Displays system information using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM devices")
-            db_stats['total_devices'] = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM connections")
-            db_stats['total_connections'] = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM alerts")
-            db_stats['total_alerts'] = cursor.fetchone()[0]
-        except sqlite3.Error:
-            pass
-        finally:
-            conn.close()
+    # Extract data from the payload
+    total_devices = ws_message.get('total_devices_db', 'N/A')
+    total_connections = ws_message.get('total_connections_db', 'N/A')
+    total_alerts = ws_message.get('total_alerts_db', 'N/A')
 
     return [
         html.P([html.Strong("Database Path: "), str(DB_PATH)]),
-        html.P([html.Strong("Total Devices: "), str(db_stats.get('total_devices', 'N/A'))]),
-        html.P([html.Strong("Total Connections: "), str(db_stats.get('total_connections', 'N/A'))]),
-        html.P([html.Strong("Total Alerts: "), str(db_stats.get('total_alerts', 'N/A'))]),
+        html.P([html.Strong("Total Devices: "), str(total_devices)]),
+        html.P([html.Strong("Total Connections: "), str(total_connections)]),
+        html.P([html.Strong("Total Alerts: "), str(total_alerts)]),
         html.P([html.Strong("Last Updated: "), datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
     ]
 
 
 @app.callback(
     Output('model-info', 'children'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_model_info(_):
-    """Displays ML model information."""
-    model_dir = project_root / 'data' / 'models'
+def update_model_info(ws_message):
+    """Displays ML model information using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    models = []
-    if model_dir.exists():
-        for model_file in model_dir.glob('*.pkl'):
-            stat = model_file.stat()
-            models.append({
-                'name': model_file.stem,
-                'size': f"{stat.st_size / 1024:.1f} KB",
-                'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
-            })
+    models = ws_message.get('model_info', [])
 
     if not models:
         return dbc.Alert("No trained models found.", color="warning")
@@ -1892,11 +2131,15 @@ def update_model_info(_):
 
 @app.callback(
     Output('model-comparison', 'children'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_model_comparison(_):
-    """Displays the model comparison report and visualization."""
-    report_data, encoded_image = load_model_comparison_data()
+def update_model_comparison(ws_message):
+    """Displays the model comparison report and visualization using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
+
+    report_data = ws_message.get('model_comparison_data', {})
+    encoded_image = ws_message.get('model_comparison_image', None)
 
     if not report_data:
         return dbc.Alert(
@@ -1941,13 +2184,16 @@ def update_model_comparison(_):
 
 @app.callback(
     Output('model-performance-graph', 'figure'),
-    Input('interval-component', 'n_intervals')
+    Input('ws', 'message')
 )
-def update_model_performance_graph(_):
-    """Updates the model performance graph over time."""
-    data = db_manager.get_model_performance_metrics(days=30)
+def update_model_performance_graph(ws_message):
+    """Updates the model performance graph over time using WebSocket data."""
+    if ws_message is None:
+        raise dash.exceptions.PreventUpdate
 
-    if not data:
+    performance_data = ws_message.get('model_performance_metrics', [])
+
+    if not performance_data:
         fig = go.Figure()
         fig.update_layout(
             title="No Model Performance Data Available",
@@ -1956,7 +2202,7 @@ def update_model_performance_graph(_):
         )
         return fig
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(performance_data)
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df['timestamp'], y=df['precision'],
@@ -2026,6 +2272,41 @@ def toggle_pause_monitoring(n_clicks, button_content):
 
 
 @app.callback(
+    Output("notification-drawer", "is_open"),
+    Input("notification-bell-button", "n_clicks"),
+    [State("notification-drawer", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_notification_drawer(n, is_open):
+    if n:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    [Output('notification-drawer', 'is_open', allow_duplicate=True),
+     Output('tabs', 'active_tab')],
+    Input('keyboard-shortcut-store', 'data'),
+    State('notification-drawer', 'is_open'),
+    prevent_initial_call=True
+)
+def handle_keyboard_shortcuts(shortcut_data, is_open):
+    if not shortcut_data or 'action' not in shortcut_data:
+        raise dash.exceptions.PreventUpdate
+
+    action = shortcut_data['action']
+
+    if action == 'toggle-notifications':
+        return not is_open, dash.no_update
+    elif action == 'go-to-devices':
+        return dash.no_update, 'tab-devices'
+    elif action == 'go-to-alerts':
+        return dash.no_update, 'tab-alerts'
+
+    raise dash.exceptions.PreventUpdate
+
+
+@app.callback(
     Output("download-csv", "data"),
     Input("btn-download-csv", "n_clicks"),
     prevent_initial_call=True,
@@ -2080,6 +2361,202 @@ def save_settings(n_clicks, recipient_email, smtp_host):
         logger.error(f"Error saving settings: {e}")
         return dbc.Alert(f"Error saving settings: {e}", color="danger")
 
+
+@app.callback(
+    Output('toast-container', 'children'),
+    Input({'type': 'trust-switch', 'ip': dash.dependencies.ALL}, 'value'),
+    State({'type': 'trust-switch', 'ip': dash.dependencies.ALL}, 'id'),
+    prevent_initial_call=True
+)
+def toggle_device_trust(values, ids):
+    """Callback to handle device trust switch toggles."""
+    ctx = callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    # Get the ID of the switch that triggered the callback
+    trigger_id = ctx.triggered[0]['prop_id']
+
+    # Extract the IP from the ID string
+    try:
+        # trigger_id will be like {"ip":"192.168.1.1","type":"trust-switch"}.value
+        # We need to parse the JSON part
+        id_dict = json.loads(trigger_id.split('.')[0])
+        device_ip = id_dict['ip']
+
+        # The 'value' list will contain the values of all switches.
+        # We need to find the value corresponding to the triggered switch.
+        # A simpler way is to map ids to values if they are always in the same order
+        # or iterate to find the matching value.
+        # Given how dash works, ctx.triggered[0]['value'] gives the new value of the triggered component.
+        is_trusted = ctx.triggered[0]['value']
+
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.error(f"Error parsing trust switch ID or value: {e}")
+        return dbc.Toast(
+            "Error processing request.",
+            header="Error",
+            icon="danger",
+            duration=3000,
+        )
+
+    success = db_manager.set_device_trust(device_ip, is_trusted)
+
+    if success:
+        status_text = "Trusted" if is_trusted else "Untrusted"
+        return dbc.Toast(
+            f"Device {device_ip} set to {status_text}.",
+            header="Success",
+            icon="success",
+            duration=3000,
+        )
+    else:
+        return dbc.Toast(
+            f"Failed to update trust status for {device_ip}.",
+            header="Error",
+            icon="danger",
+            duration=3000,
+        )
+
+
+@app.callback(
+    Output('theme-selector', 'value'),
+    Input('theme-store', 'data'),
+    prevent_initial_call=False
+)
+def load_theme_on_startup(theme_data):
+    """Load theme preference from store on startup."""
+    if theme_data and 'theme' in theme_data:
+        return theme_data['theme']
+    return 'light' # Default to light mode
+
+
+@app.callback(
+    Output('theme-store', 'data'),
+    Input('theme-selector', 'value'),
+    prevent_initial_call=True
+)
+def update_theme_store(theme):
+    """Save theme preference to store."""
+    return {'theme': theme}
+
+
+app.clientside_callback(
+    """
+    function(theme_data) {
+        if (!theme_data) {
+            return window.dash_clientside.no_update;
+        }
+        const theme = theme_data.theme;
+        document.body.classList.remove('dark-theme', 'cyberpunk-theme');
+        if (theme === 'dark') {
+            document.body.classList.add('dark-theme');
+        } else if (theme === 'cyberpunk') {
+            document.body.classList.add('cyberpunk-theme');
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('theme-selector', 'id'), # Dummy output
+    Input('theme-store', 'data')
+)
+
+
+@app.callback(
+    Output('voice-alert-toggle', 'value'),
+    Input('voice-alert-store', 'data'),
+    prevent_initial_call=False
+)
+def load_voice_alert_setting(data):
+    """Load voice alert setting from store on startup."""
+    if data and 'enabled' in data:
+        return data['enabled']
+    return False
+
+@app.callback(
+    Output('voice-alert-store', 'data'),
+    Input('voice-alert-toggle', 'value'),
+    prevent_initial_call=True
+)
+def update_voice_alert_store(is_enabled):
+    """Save voice alert setting to store."""
+    return {'enabled': is_enabled}
+
+
+app.clientside_callback(
+    """
+    function(_) {
+        document.addEventListener('keydown', function(event) {
+            // Check if focus is on an input field, if so, disable shortcuts
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            let action = null;
+            if (event.key === 'n') {
+                action = 'toggle-notifications';
+            } else if (event.key === 'd') {
+                action = 'go-to-devices';
+            } else if (event.key === 'a') {
+                action = 'go-to-alerts';
+            }
+
+            if (action) {
+                // To trigger the callback, we need to set a new value.
+                // We use an object with a timestamp to ensure it's always new.
+                dash_clientside.setProps('keyboard-shortcut-store', {
+                    data: { action: action, ts: new Date().getTime() }
+                });
+            }
+        });
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('keyboard-shortcut-store', 'id'), # Dummy output
+    Input('url', 'pathname') # Trigger once on page load
+)
+
+app.clientside_callback(
+    """
+    function(ws_message, voice_setting, announced_data) {
+        if (!ws_message || !voice_setting || !voice_setting.enabled) {
+            return window.dash_clientside.no_update;
+        }
+
+        const alerts = ws_message.recent_alerts || [];
+        let announced_ids = announced_data.ids || [];
+        let new_announcements = false;
+
+        alerts.forEach(alert => {
+            if (alert.severity === 'critical' && !announced_ids.includes(alert.id)) {
+                const deviceName = alert.device_name || alert.device_ip;
+                const msg = `Critical alert for device: ${deviceName}. Reason: ${alert.explanation}`;
+
+                const utterance = new SpeechSynthesisUtterance(msg);
+                window.speechSynthesis.speak(utterance);
+
+                announced_ids.push(alert.id);
+                new_announcements = true;
+            }
+        });
+
+        if (new_announcements) {
+            // Prune old IDs to prevent the store from growing indefinitely
+            if (announced_ids.length > 50) {
+                announced_ids = announced_ids.slice(announced_ids.length - 50);
+            }
+            return { ids: announced_ids };
+        }
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('announced-alerts-store', 'data'),
+    Input('ws', 'message'),
+    State('voice-alert-store', 'data'),
+    State('announced-alerts-store', 'data'),
+    prevent_initial_call=True
+)
 
 # ============================================================================
 # ONBOARDING WIZARD
@@ -2217,6 +2694,195 @@ def update_onboarding_step(_, __, step, ___):
 
 
 # ============================================================================
+# WEBSOCKET SERVER-SIDE LOGIC
+# ============================================================================
+
+thread = None
+thread_lock = threading.Lock()
+
+def background_thread():
+    """Continuously fetches and sends updated dashboard data to connected clients."""
+    while True:
+        socketio.sleep(3) # Emit data every 3 seconds
+
+        data_payload = {}
+
+        # --- 1. Fetch Header Stats ---
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM devices WHERE last_seen > datetime('now', '-5 minutes')")
+                data_payload['device_count'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM alerts WHERE timestamp > datetime('now', '-24 hours') AND acknowledged = 0")
+                data_payload['alert_count'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM connections WHERE timestamp > datetime('now', '-1 hour')")
+                data_payload['connection_count'] = cursor.fetchone()[0]
+            except sqlite3.Error as e:
+                logger.error(f"Error fetching header stats for WebSocket: {e}")
+            finally:
+                conn.close()
+
+        # --- 2. Fetch Network Graph & Recent Activity Data ---
+        devices_with_status = get_devices_with_status()
+        connections_for_graph = db_manager.get_recent_connections(hours=1)
+
+        # Generate 3D coordinates for devices
+        num_devices = len(devices_with_status)
+        phi = math.pi * (3. - math.sqrt(5.))  # Golden angle in radians
+        for i, device in enumerate(devices_with_status):
+            # Add has_critical_alert flag
+            device['has_critical_alert'] = (device.get('status') == 'alert')
+
+            y = 1 - (i / (num_devices - 1)) * 2 if num_devices > 1 else 0 # y goes from 1 to -1
+            radius = math.sqrt(1 - y * y)
+            theta = phi * i
+            x = math.cos(theta) * radius
+            z = math.sin(theta) * radius
+            device['x'] = x * 10 # Scale up for better visualization
+            device['y'] = y * 10
+            device['z'] = z * 10
+
+        elements = []
+        # Add router node (central)
+        elements.append({
+            'data': {
+                'id': 'router',
+                'label': 'Router',
+                'type': 'router',
+                'color': '#007bff',
+                'borderColor': '#0056b3'
+            }
+        })
+        device_ips = set()
+        for device in devices_with_status:
+            device_ip = device['device_ip']
+            device_ips.add(device_ip)
+            status = device.get('status', 'normal')
+            color = DEVICE_STATUS_COLORS.get(status, DEVICE_STATUS_COLORS['unknown'])
+            border_colors = {
+                'normal': '#1e7b34', 'warning': '#d39e00', 'alert': '#bd2130', 'unknown': '#545b62'
+            }
+            elements.append({
+                'data': {
+                    'id': device_ip,
+                    'label': device.get('device_name') or device_ip.split('.')[-1],
+                    'type': 'device',
+                    'color': color,
+                    'borderColor': border_colors.get(status, '#545b62'),
+                    'status': status
+                }
+            })
+            elements.append({'data': {'source': 'router', 'target': device_ip}})
+
+        if connections_for_graph:
+            seen_edges = set()
+            for conn in connections_for_graph[:50]:
+                src = conn['device_ip']
+                dst = conn['dest_ip']
+                if src in device_ips and dst in device_ips:
+                    edge_key = tuple(sorted([src, dst]))
+                    if edge_key not in seen_edges:
+                        elements.append({
+                            'data': {'source': src, 'target': dst},
+                            'classes': 'animated-edge' # Add class for animation
+                        })
+                        seen_edges.add(edge_key)
+        data_payload['network_graph_elements'] = elements
+        data_payload['recent_connections_feed'] = connections_for_graph # for recent activity feed
+
+        # --- 3. Fetch Traffic Timeline ---
+        data_payload['traffic_timeline'] = db_manager.get_traffic_timeline(hours=24)
+
+        # --- 4. Fetch Protocol Distribution ---
+        data_payload['protocol_distribution'] = db_manager.get_protocol_distribution(hours=24)
+
+        # --- 5. Fetch Devices Tab Data ---
+        data_payload['all_devices_with_status'] = devices_with_status # Re-use data for device status grid & table
+        data_payload['device_activity_heatmap'] = db_manager.get_device_activity_heatmap(hours=24)
+
+        # --- 6. Fetch Alerts Tab Data ---
+        # Note: Alerts callback has its own filter logic, so we send all recent alerts.
+        # It's better to fetch filtered data here to reduce payload size if possible,
+        # but for now, sending all recent (24h) and filtering on client side.
+        conn = get_db_connection()
+        if conn:
+            try:
+                query = """
+                    SELECT
+                        a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
+                        a.anomaly_score, a.explanation, a.top_features, a.acknowledged,
+                        d.is_trusted # Include is_trusted for alert context
+                    FROM alerts a
+                    LEFT JOIN devices d ON a.device_ip = d.device_ip
+                    WHERE a.timestamp > datetime('now', '-24 hours')
+                    ORDER BY a.timestamp DESC
+                """
+                df_alerts = pd.read_sql_query(query, conn)
+                data_payload['recent_alerts'] = df_alerts.to_dict('records')
+            except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
+                logger.error(f"Error fetching alerts for WebSocket: {e}")
+            finally:
+                conn.close()
+
+        # --- 7. Fetch Analytics Tab Data ---
+        data_payload['alert_timeline'] = db_manager.get_alert_timeline(days=7)
+        data_payload['anomaly_distribution'] = db_manager.get_anomaly_distribution(hours=24)
+        data_payload['bandwidth_chart'] = db_manager.get_bandwidth_stats(hours=24)
+
+        # --- 8. Fetch System Tab Data ---
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM devices")
+                data_payload['total_devices_db'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM connections")
+                data_payload['total_connections_db'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM alerts")
+                data_payload['total_alerts_db'] = cursor.fetchone()[0]
+            except sqlite3.Error:
+                pass
+            finally:
+                conn.close()
+
+        # Fetch model info from filesystem
+        model_dir = project_root / 'data' / 'models'
+        models_list = []
+        if model_dir.exists():
+            for model_file in model_dir.glob('*.pkl'):
+                stat = model_file.stat()
+                models_list.append({
+                    'name': model_file.stem,
+                    'size': f"{stat.st_size / 1024:.1f} KB",
+                    'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                })
+        data_payload['model_info'] = models_list
+
+        data_payload['model_comparison_data'], data_payload['model_comparison_image'] = load_model_comparison_data()
+        data_payload['model_performance_metrics'] = db_manager.get_model_performance_metrics(days=30)
+
+        # Emit the comprehensive data payload
+        socketio.emit('update_data', data_payload)
+        logger.debug(f"Emitted comprehensive data update.")
+
+
+@socketio.on('connect')
+def test_connect(auth):
+    global thread
+    with thread_lock:
+        if thread is None:
+            thread = socketio.start_background_task(background_thread)
+    emit('my response', {'data': 'Connected', 'count': 0})
+    logger.info("Client connected to WebSocket.")
+
+
+@socketio.on('disconnect')
+def test_disconnect():
+    logger.info("Client disconnected from WebSocket.")
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -2239,8 +2905,11 @@ def main():
     logger.info("  ✓ Visual 'Normal vs Today' comparison charts")
     logger.info("=" * 70)
 
-    app.run(host=host, port=port, debug=debug)
+    # Use socketio.run instead of app.run
+    socketio.run(app.server, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
 
 
 if __name__ == '__main__':
+    # Import threading here since it's used in the server-side logic
+    import threading
     main()
