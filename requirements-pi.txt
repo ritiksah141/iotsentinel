@@ -11,6 +11,8 @@ scikit-learn
 dash
 dash-bootstrap-components
 plotly
+Flask-SocketIO
+dash-extensions
 
 # Utilities
 python-dateutil

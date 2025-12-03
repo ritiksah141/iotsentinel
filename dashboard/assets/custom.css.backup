@@ -1,0 +1,234 @@
+/* Make the layout more mobile-friendly */
+@media (max-width: 768px) {
+    /* Stack columns on smaller screens */
+    .row {
+        flex-direction: column;
+    }
+
+    /* Adjust header font sizes */
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    h2 {
+        font-size: 1.2rem;
+    }
+
+    /* Reduce padding on the main container */
+    .p-4 {
+        padding: 1rem !important;
+    }
+
+    /* Make graph heights smaller */
+    .card .graph {
+        height: 250px !important;
+    }
+}
+
+/* Theme Selector Styling */
+#theme-selector .form-check {
+    display: inline-flex !important;
+    align-items: center;
+    margin-right: 0.75rem;
+}
+
+#theme-selector .form-check-input {
+    margin-top: 0;
+}
+
+#theme-selector .form-check-label {
+    cursor: pointer;
+    padding-left: 0.25rem;
+}
+
+/* Base theme styles */
+body {
+    transition: background-color 0.3s ease, color 0.3s ease;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); /* Subtle light gradient */
+}
+
+/* Glassmorphism Effect for Cards */
+.card {
+    background-color: rgba(255, 255, 255, 0.6) !important; /* Semi-transparent white */
+    backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37) !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease-in-out;
+}
+
+.card:hover {
+    box-shadow: 0 10px 40px 0 rgba(31, 38, 135, 0.45) !important;
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background-color: rgba(255, 255, 255, 0.3) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Dark Theme Styles */
+body.dark-theme {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2e2e4a 100%); /* Dark gradient */
+    color: #e0e0e0; /* Light text */
+}
+
+body.dark-theme .card {
+    background-color: rgba(30, 30, 46, 0.7) !important; /* Semi-transparent dark blue */
+    backdrop-filter: blur(10px) !important;
+    border-color: rgba(74, 74, 110, 0.5) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-theme .card:hover {
+    box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.6) !important;
+}
+
+body.dark-theme .card-header {
+    background-color: rgba(50, 50, 80, 0.5) !important;
+    border-bottom: 1px solid rgba(74, 74, 110, 0.3) !important;
+}
+
+body.dark-theme .form-control,
+body.dark-theme .form-select {
+    background-color: #2e2e4a;
+    color: #e0e0e0;
+    border-color: #4a4a6e;
+}
+
+body.dark-theme .form-control::placeholder {
+    color: #a0a0a0;
+}
+
+body.dark-theme .alert-info {
+    background-color: #1a3a5f;
+    color: #8ed1f4;
+    border-color: #1a3a5f;
+}
+
+body.dark-theme .alert-warning {
+    background-color: #4a3a10;
+    color: #fce293;
+    border-color: #4a3a10;
+}
+
+body.dark-theme .alert-danger {
+    background-color: #5a2a2a;
+    color: #ff9999;
+    border-color: #5a2a2a;
+}
+
+body.dark-theme .alert-success {
+    background-color: #2a5a2a;
+    color: #99ff99;
+    border-color: #2a5a2a;
+}
+
+body.dark-theme .text-muted {
+    color: #a0a0a0 !important;
+}
+
+/* Cytoscape graph dark theme adjustments */
+body.dark-theme #network-graph {
+    background-color: #1a1a2e;
+}
+
+body.dark-theme .cy-node-label {
+    color: #e0e0e0 !important; /* Adjust node label color for dark theme */
+}
+
+body.dark-theme .cy-edge-line {
+    color: #6a6a8a !important; /* Adjust edge color for dark theme */
+}
+
+/* Dash Bootstrap Components overrides for dark theme */
+body.dark-theme .btn-outline-primary {
+    color: #8ed1f4;
+    border-color: #8ed1f4;
+}
+body.dark-theme .btn-outline-primary:hover {
+    background-color: #8ed1f4;
+    color: #1a1a2e;
+}
+
+body.dark-theme .btn-outline-warning {
+    color: #fce293;
+    border-color: #fce293;
+}
+body.dark-theme .btn-outline-warning:hover {
+    background-color: #fce293;
+    color: #1a1a2e;
+}
+
+body.dark-theme .btn-primary {
+    background-color: #8ed1f4;
+    border-color: #8ed1f4;
+    color: #1a1a2e;
+}
+
+body.dark-theme .nav-tabs .nav-link {
+    color: #a0a0a0;
+    background-color: transparent;
+    border-color: transparent;
+}
+body.dark-theme .nav-tabs .nav-link.active {
+    color: #e0e0e0;
+    background-color: #2e2e4a;
+    border-color: #4a4a6e;
+    border-bottom-color: #2e2e4a;
+}
+
+/* Cyberpunk Theme Styles */
+body.cyberpunk-theme {
+    background: #0d0221;
+    background-image: linear-gradient(160deg, #0d0221 0%, #0c164f 100%);
+    color: #00ffcc;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+body.cyberpunk-theme .card {
+    background-color: rgba(10, 2, 40, 0.65) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 255, 204, 0.5) !important;
+    border-radius: 0 !important;
+    box-shadow: 0 0 15px rgba(0, 255, 204, 0.3) !important;
+}
+
+body.cyberpunk-theme .card-header {
+    background-color: transparent !important;
+    border-bottom: 1px solid rgba(0, 255, 204, 0.5) !important;
+    color: #f0f; /* Neon pink for headers */
+    text-shadow: 0 0 5px #f0f;
+}
+
+body.cyberpunk-theme .text-primary {
+    color: #00ffcc !important;
+}
+
+body.cyberpunk-theme .text-muted {
+    color: #9a9a9a !important;
+}
+
+body.cyberpunk-theme .btn-primary {
+    background-color: transparent;
+    border: 1px solid #f0f;
+    color: #f0f;
+    box-shadow: 0 0 5px #f0f;
+}
+
+body.cyberpunk-theme .btn-primary:hover {
+    background-color: #f0f;
+    color: #0d0221;
+    box-shadow: 0 0 15px #f0f;
+}
+
+body.cyberpunk-theme .nav-tabs .nav-link {
+    color: #00ffcc;
+}
+
+body.cyberpunk-theme .nav-tabs .nav-link.active {
+    color: #f0f;
+    border: 1px solid #f0f;
+    border-bottom-color: transparent;
+    background-color: rgba(10, 2, 40, 0.65) !important;
+}

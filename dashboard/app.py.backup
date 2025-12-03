@@ -13,7 +13,6 @@ import math
 import time
 import threading
 import subprocess
-import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -35,7 +34,6 @@ sys.path.insert(0, str(project_root))
 
 from config.config_manager import config
 from database.db_manager import DatabaseManager
-from utils.threat_intel import ThreatIntelligence
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,114 +51,6 @@ socketio = SocketIO(app.server, cors_allowed_origins="*")
 # Database setup
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
-
-# Threat Intelligence setup
-THREAT_INTEL_ENABLED = config.get('threat_intelligence', 'enabled', default=False)
-ABUSEIPDB_API_KEY = config.get('threat_intelligence', 'abuseipdb_api_key', default='')
-THREAT_INTEL_CACHE_HOURS = config.get('threat_intelligence', 'cache_hours', default=24)
-
-threat_intel = ThreatIntelligence(
-    api_key=ABUSEIPDB_API_KEY,
-    db_path=DB_PATH,
-    cache_hours=THREAT_INTEL_CACHE_HOURS
-)
-
-# ============================================================================
-# AI ASSISTANT CONFIGURATION
-# ============================================================================
-
-# Ollama configuration
-OLLAMA_ENABLED = True  # Set to False to use rule-based fallback only
-OLLAMA_API_URL = "http://192.168.1.206:11434/api/generate"
-OLLAMA_MODEL = "mistral:7b"  # Options: llama3.2:3b, phi3:mini, mistral:7b, etc.
-OLLAMA_TIMEOUT = 30  # seconds
-
-def call_ollama_api(prompt: str, context: str, max_tokens: int = 300) -> Optional[str]:
-    """
-    Call local Ollama API for AI-powered responses.
-    Returns None if Ollama is unavailable or errors occur.
-    """
-    if not OLLAMA_ENABLED:
-        return None
-
-    try:
-        full_prompt = f"{context}\n\nUser: {prompt}\n\nAssistant:"
-
-        response = requests.post(
-            OLLAMA_API_URL,
-            json={
-                'model': OLLAMA_MODEL,
-                'prompt': full_prompt,
-                'stream': False,
-                'options': {
-                    'temperature': 0.7,
-                    'num_predict': max_tokens,
-                }
-            },
-            timeout=OLLAMA_TIMEOUT
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            return result.get('response', '').strip()
-        else:
-            logger.warning(f"Ollama API returned status {response.status_code}")
-            return None
-
-    except requests.exceptions.ConnectionError:
-        logger.warning("Ollama not available. Is it running? (ollama serve)")
-        return None
-    except requests.exceptions.Timeout:
-        logger.warning(f"Ollama request timed out after {OLLAMA_TIMEOUT}s")
-        return None
-    except Exception as e:
-        logger.error(f"Error calling Ollama API: {e}")
-        return None
-
-def get_rule_based_response(message: str, device_count: int, alert_count: int, recent_alerts: List[Dict]) -> str:
-    """
-    Fallback rule-based responses when Ollama is unavailable.
-    """
-    user_msg_lower = message.lower()
-
-    # Security-related queries
-    if any(word in user_msg_lower for word in ['safe', 'secure', 'protected', 'risk']):
-        if alert_count == 0:
-            return f"✅ Your network appears secure! All {device_count} devices are behaving normally with no active alerts. Keep monitoring enabled for continuous protection."
-        else:
-            return f"⚠️ I've detected {alert_count} security alert(s) requiring attention. Click on any alert in the right panel to see detailed explanations and recommended actions."
-
-    # Device queries
-    elif any(word in user_msg_lower for word in ['device', 'connected', 'what is']):
-        return f"📱 You have {device_count} devices currently connected to your network. You can click on any device in the left panel to see detailed information, activity statistics, and trust settings."
-
-    # Alert explanation queries
-    elif any(word in user_msg_lower for word in ['alert', 'warning', 'unusual', 'detected']):
-        if alert_count > 0 and recent_alerts:
-            alert = recent_alerts[0]
-            return f"🚨 Most recent alert: {alert.get('explanation', 'Unknown activity')} on device {alert.get('device_name') or alert.get('device_ip', 'Unknown')}. Click the 'Details' button to see educational breakdown with baseline comparisons."
-        else:
-            return "✅ No active alerts! Your network has been quiet. IoTSentinel uses ML models (Autoencoder + Isolation Forest) to detect anomalies in real-time."
-
-    # How-to queries
-    elif any(word in user_msg_lower for word in ['how', 'what does', 'explain']):
-        return "📚 IoTSentinel monitors your network using Zeek for traffic analysis and dual ML models for anomaly detection. When unusual activity is detected, you'll see color-coded alerts with plain English explanations and visual baseline comparisons showing 'Normal vs Today'."
-
-    # Lockdown mode queries
-    elif any(word in user_msg_lower for word in ['lockdown', 'block', 'emergency']):
-        return "🔐 Lockdown Mode is available in Settings → Firewall Control. When enabled, it blocks ALL untrusted devices from accessing your network. Mark important devices as 'Trusted' first by clicking on them and toggling the trust switch."
-
-    # Voice alerts
-    elif any(word in user_msg_lower for word in ['voice', 'speak', 'audio', 'sound']):
-        return "🔊 Voice Alerts can be enabled using the toggle in the header. When turned on, critical and high-severity alerts will be announced using text-to-speech, so you'll hear about security issues even if you're not watching the dashboard."
-
-    # General greeting
-    elif any(word in user_msg_lower for word in ['hello', 'hi', 'hey']):
-        return f"👋 Hello! I'm your IoTSentinel AI Assistant. Your network has {device_count} active devices and {alert_count} alert(s). How can I help you today?"
-
-    # Default response
-    else:
-        return f"I can help you understand your network security! Try asking about:\n\n• Current security status\n• Device information\n• Alert explanations\n• How IoTSentinel works\n• Lockdown mode\n• Voice alerts\n\nYour network: {device_count} devices, {alert_count} active alert(s)."
 
 # ============================================================================
 # CONSTANTS
@@ -218,82 +108,6 @@ SEVERITY_CONFIG = {
 
 DEVICE_STATUS_COLORS = {
     'normal': '#28a745', 'warning': '#ffc107', 'alert': '#dc3545', 'unknown': '#6c757d'
-}
-
-# Device Type Icon Mapping (Emoji + Font Awesome)
-DEVICE_TYPE_ICONS = {
-    # Mobile Devices
-    'smartphone': {'emoji': '📱', 'fa': 'fa-mobile-alt', 'color': '#007bff'},
-    'phone': {'emoji': '📱', 'fa': 'fa-mobile-alt', 'color': '#007bff'},
-    'iphone': {'emoji': '📱', 'fa': 'fa-mobile-alt', 'color': '#007bff'},
-    'android': {'emoji': '📱', 'fa': 'fa-mobile-alt', 'color': '#28a745'},
-    'tablet': {'emoji': '📱', 'fa': 'fa-tablet-alt', 'color': '#6f42c1'},
-    'ipad': {'emoji': '📱', 'fa': 'fa-tablet-alt', 'color': '#6f42c1'},
-
-    # Computers
-    'laptop': {'emoji': '💻', 'fa': 'fa-laptop', 'color': '#6c757d'},
-    'computer': {'emoji': '💻', 'fa': 'fa-desktop', 'color': '#6c757d'},
-    'desktop': {'emoji': '🖥️', 'fa': 'fa-desktop', 'color': '#6c757d'},
-    'pc': {'emoji': '🖥️', 'fa': 'fa-desktop', 'color': '#6c757d'},
-    'mac': {'emoji': '💻', 'fa': 'fa-laptop', 'color': '#6c757d'},
-    'workstation': {'emoji': '🖥️', 'fa': 'fa-desktop', 'color': '#495057'},
-
-    # Smart Home
-    'smart tv': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#e83e8c'},
-    'tv': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#e83e8c'},
-    'streaming device': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#fd7e14'},
-    'roku': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#6f2da8'},
-    'chromecast': {'emoji': '📺', 'fa': 'fa-chromecast', 'color': '#4285f4'},
-    'apple tv': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#000000'},
-    'fire stick': {'emoji': '📺', 'fa': 'fa-tv', 'color': '#ff9900'},
-
-    # Smart Speakers & Assistants
-    'smart speaker': {'emoji': '🔊', 'fa': 'fa-volume-up', 'color': '#17a2b8'},
-    'speaker': {'emoji': '🔊', 'fa': 'fa-volume-up', 'color': '#17a2b8'},
-    'alexa': {'emoji': '🔊', 'fa': 'fa-amazon', 'color': '#00a8e1'},
-    'echo': {'emoji': '🔊', 'fa': 'fa-amazon', 'color': '#00a8e1'},
-    'google home': {'emoji': '🔊', 'fa': 'fa-google', 'color': '#4285f4'},
-    'homepod': {'emoji': '🔊', 'fa': 'fa-volume-up', 'color': '#000000'},
-
-    # Gaming
-    'gaming console': {'emoji': '🎮', 'fa': 'fa-gamepad', 'color': '#20c997'},
-    'playstation': {'emoji': '🎮', 'fa': 'fa-playstation', 'color': '#003087'},
-    'xbox': {'emoji': '🎮', 'fa': 'fa-xbox', 'color': '#107c10'},
-    'nintendo': {'emoji': '🎮', 'fa': 'fa-gamepad', 'color': '#e60012'},
-    'switch': {'emoji': '🎮', 'fa': 'fa-gamepad', 'color': '#e60012'},
-
-    # Network Equipment
-    'router': {'emoji': '🌐', 'fa': 'fa-wifi', 'color': '#007bff'},
-    'access point': {'emoji': '📡', 'fa': 'fa-broadcast-tower', 'color': '#6c757d'},
-    'switch': {'emoji': '🔀', 'fa': 'fa-network-wired', 'color': '#6c757d'},
-    'gateway': {'emoji': '🌐', 'fa': 'fa-door-open', 'color': '#007bff'},
-    'modem': {'emoji': '📡', 'fa': 'fa-broadcast-tower', 'color': '#6c757d'},
-
-    # IoT Devices
-    'smart camera': {'emoji': '📷', 'fa': 'fa-camera', 'color': '#dc3545'},
-    'camera': {'emoji': '📷', 'fa': 'fa-video', 'color': '#dc3545'},
-    'security camera': {'emoji': '📹', 'fa': 'fa-video', 'color': '#dc3545'},
-    'doorbell': {'emoji': '🔔', 'fa': 'fa-bell', 'color': '#ffc107'},
-    'smart lock': {'emoji': '🔐', 'fa': 'fa-lock', 'color': '#28a745'},
-    'thermostat': {'emoji': '🌡️', 'fa': 'fa-thermometer-half', 'color': '#fd7e14'},
-    'smart plug': {'emoji': '🔌', 'fa': 'fa-plug', 'color': '#17a2b8'},
-    'light bulb': {'emoji': '💡', 'fa': 'fa-lightbulb', 'color': '#ffc107'},
-    'sensor': {'emoji': '📊', 'fa': 'fa-sensor', 'color': '#6f42c1'},
-
-    # Printers & Peripherals
-    'printer': {'emoji': '🖨️', 'fa': 'fa-print', 'color': '#6c757d'},
-    'scanner': {'emoji': '🖨️', 'fa': 'fa-print', 'color': '#6c757d'},
-    'nas': {'emoji': '💾', 'fa': 'fa-hdd', 'color': '#495057'},
-    'storage': {'emoji': '💾', 'fa': 'fa-database', 'color': '#495057'},
-
-    # Wearables
-    'smartwatch': {'emoji': '⌚', 'fa': 'fa-clock', 'color': '#6f42c1'},
-    'watch': {'emoji': '⌚', 'fa': 'fa-clock', 'color': '#6f42c1'},
-    'fitness tracker': {'emoji': '⌚', 'fa': 'fa-heartbeat', 'color': '#dc3545'},
-
-    # Default/Unknown
-    'unknown': {'emoji': '❓', 'fa': 'fa-question-circle', 'color': '#6c757d'},
-    'other': {'emoji': '📱', 'fa': 'fa-microchip', 'color': '#6c757d'},
 }
 
 # Onboarding Steps
@@ -674,222 +488,6 @@ def create_status_indicator(status: str, size: str = "1.5rem") -> html.Span:
         title=f"Status: {status.capitalize()}"
     )
 
-def get_device_icon_data(device_type: Optional[str]) -> Dict[str, str]:
-    """
-    Get icon data (emoji, font awesome class, color) for a device type.
-    Matches device_type case-insensitively against DEVICE_TYPE_ICONS.
-    """
-    if not device_type:
-        return DEVICE_TYPE_ICONS['unknown']
-
-    # Normalize device type for matching
-    device_type_lower = device_type.lower().strip()
-
-    # Direct match
-    if device_type_lower in DEVICE_TYPE_ICONS:
-        return DEVICE_TYPE_ICONS[device_type_lower]
-
-    # Partial match (e.g., "Samsung Smart TV" matches "smart tv")
-    for key, value in DEVICE_TYPE_ICONS.items():
-        if key in device_type_lower or device_type_lower in key:
-            return value
-
-    # Default to unknown
-    return DEVICE_TYPE_ICONS['unknown']
-
-def create_device_icon(device_type: Optional[str], use_emoji: bool = True,
-                       use_fa: bool = False, size: str = "1.2rem") -> html.Span:
-    """
-    Create device icon component with optional emoji and/or Font Awesome icon.
-
-    Args:
-        device_type: Device type string from database
-        use_emoji: Include emoji icon (default True)
-        use_fa: Include Font Awesome icon (default False)
-        size: Font size for icons
-
-    Returns:
-        html.Span with the appropriate icon(s)
-    """
-    icon_data = get_device_icon_data(device_type)
-
-    children = []
-
-    if use_emoji:
-        children.append(
-            html.Span(
-                icon_data['emoji'],
-                style={'fontSize': size, 'marginRight': '6px'},
-                title=device_type or 'Unknown Device'
-            )
-        )
-
-    if use_fa:
-        children.append(
-            html.I(
-                className=f"fa {icon_data['fa']}",
-                style={'color': icon_data['color'], 'fontSize': size, 'marginRight': '6px'},
-                title=device_type or 'Unknown Device'
-            )
-        )
-
-    if not children:
-        # Fallback if both are False
-        children.append(
-            html.Span(
-                icon_data['emoji'],
-                style={'fontSize': size, 'marginRight': '6px'}
-            )
-        )
-
-    return html.Span(children)
-
-def create_threat_intel_badge(reputation_data: Dict[str, Any]) -> html.Div:
-    """
-    Create a visual badge/alert for IP reputation data.
-
-    Args:
-        reputation_data: Threat intelligence data from ThreatIntelligence.get_ip_reputation()
-
-    Returns:
-        html.Div with formatted threat intelligence display
-    """
-    level = reputation_data.get('reputation_level', 'unknown')
-    score = reputation_data.get('abuse_confidence_score', 0)
-    ip = reputation_data.get('ip_address', 'Unknown')
-
-    # Color and icon based on reputation level
-    level_config = {
-        'malicious': {'color': 'danger', 'icon': 'fa-skull-crossbones', 'emoji': '⛔', 'text': 'MALICIOUS'},
-        'suspicious': {'color': 'warning', 'icon': 'fa-exclamation-triangle', 'emoji': '⚠️', 'text': 'SUSPICIOUS'},
-        'low_risk': {'color': 'info', 'icon': 'fa-info-circle', 'emoji': 'ℹ️', 'text': 'LOW RISK'},
-        'safe': {'color': 'success', 'icon': 'fa-check-circle', 'emoji': '✅', 'text': 'SAFE'},
-        'private': {'color': 'secondary', 'icon': 'fa-home', 'emoji': '🏠', 'text': 'PRIVATE'},
-        'unknown': {'color': 'secondary', 'icon': 'fa-question-circle', 'emoji': '❓', 'text': 'UNKNOWN'}
-    }
-
-    config_data = level_config.get(level, level_config['unknown'])
-
-    # Build the display
-    children = []
-
-    # Header with reputation level
-    children.append(
-        html.Div([
-            html.Span(config_data['emoji'], style={'fontSize': '1.5rem', 'marginRight': '10px'}),
-            html.Strong(f"Threat Intelligence: {config_data['text']}", className="me-2"),
-            dbc.Badge(f"Score: {score}/100", color=config_data['color'], className="ms-2")
-        ], className="d-flex align-items-center mb-3")
-    )
-
-    # Details
-    if level not in ['private', 'unknown']:
-        details = [
-            html.P([html.Strong("IP Address: "), ip]),
-            html.P([html.Strong("Country: "), reputation_data.get('country_code', 'Unknown')]),
-            html.P([html.Strong("ISP: "), reputation_data.get('isp', 'Unknown')]),
-            html.P([html.Strong("Total Reports: "), str(reputation_data.get('total_reports', 0))]),
-        ]
-
-        # Categories
-        categories = reputation_data.get('categories', [])
-        if categories:
-            category_badges = [dbc.Badge(cat, color="dark", className="me-1 mb-1") for cat in categories[:5]]
-            details.append(
-                html.Div([
-                    html.Strong("Threat Categories: "),
-                    html.Div(category_badges, className="d-inline")
-                ], className="mb-2")
-            )
-
-        # Last reported
-        last_reported = reputation_data.get('last_reported_at', '')
-        if last_reported:
-            details.append(html.P([html.Strong("Last Reported: "), last_reported], className="small text-muted"))
-
-        children.append(html.Div(details))
-
-    # Recommendation
-    recommendation = reputation_data.get('recommendation', '')
-    if recommendation:
-        children.append(
-            dbc.Alert([
-                html.I(className=f"fa {config_data['icon']} me-2"),
-                recommendation
-            ], color=config_data['color'], className="mt-3 mb-0")
-        )
-
-    # Cached indicator
-    if reputation_data.get('is_cached', False):
-        children.append(
-            html.Small("🔄 Cached result", className="text-muted d-block mt-2")
-        )
-
-    return html.Div(children, className="threat-intel-display")
-
-def create_device_skeleton(count: int = 8) -> html.Div:
-    """Create skeleton placeholders for device cards"""
-    skeletons = []
-    for _ in range(count):
-        skeletons.append(
-            html.Div([
-                html.Div(className="skeleton skeleton-device-indicator"),
-                html.Div(className="skeleton skeleton-device-name"),
-                html.Div(className="skeleton skeleton-device-ip")
-            ], className="skeleton-device-item")
-        )
-    return html.Div(skeletons, className="skeleton-container")
-
-def create_alert_skeleton(count: int = 5) -> html.Div:
-    """Create skeleton placeholders for alert cards"""
-    skeletons = []
-    for _ in range(count):
-        skeletons.append(
-            html.Div([
-                html.Div([
-                    html.Div(className="skeleton skeleton-alert-icon"),
-                    html.Div(className="skeleton skeleton-alert-title")
-                ], className="skeleton-alert-header"),
-                html.Div(className="skeleton skeleton-alert-description"),
-                html.Div(className="skeleton skeleton-alert-description", style={'width': '60%'}),
-                html.Div(className="skeleton skeleton-alert-metadata")
-            ], className="skeleton-alert-card")
-        )
-    return html.Div(skeletons, className="skeleton-container")
-
-def create_graph_skeleton() -> html.Div:
-    """Create skeleton placeholder for network graph"""
-    return html.Div([
-        html.Div([
-            html.Div(className="skeleton skeleton-graph-inner")
-        ], className="skeleton-graph"),
-        html.P("Loading network visualization...", className="skeleton-loading-text")
-    ], className="skeleton-container")
-
-def create_stat_skeleton() -> html.Div:
-    """Create skeleton placeholder for stat card"""
-    return html.Div([
-        html.Div(className="skeleton skeleton-stat-icon"),
-        html.Div(className="skeleton skeleton-stat-number"),
-        html.Div(className="skeleton skeleton-stat-label")
-    ], className="skeleton-stat-card")
-
-def create_device_list_skeleton(count: int = 10) -> html.Div:
-    """Create skeleton placeholders for device list (expanded view)"""
-    skeletons = []
-    for _ in range(count):
-        skeletons.append(
-            html.Div([
-                html.Div([
-                    html.Div(className="skeleton skeleton-device-indicator"),
-                    html.Div(className="skeleton skeleton-device-name"),
-                    html.Div(className="skeleton skeleton-device-badge")
-                ], className="skeleton-device-list-header"),
-                html.Div(className="skeleton skeleton-device-ip", style={'width': '60%'})
-            ], className="skeleton-device-list-item")
-        )
-    return html.Div(skeletons, className="skeleton-container")
-
 def create_baseline_comparison_chart(baseline: Dict, today_stats: Dict, metric_name: str,
                                      baseline_key: str, today_key: str, title: str) -> go.Figure:
     baseline_value = baseline.get(baseline_key, 0)
@@ -1020,36 +618,6 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                 html.P(mitre_info['user_explanation'], className="mb-0")
             ], color="warning", className="mb-3")
         )
-
-    # Add Threat Intelligence for connection-based alerts
-    if threat_intel.enabled and explanation_type in ["Connection to Known Malicious IP", "Unusual Port Activity"]:
-        # Try to extract destination IP from alert features
-        top_features = alert.get('top_features', '{}')
-        try:
-            features = json.loads(top_features) if isinstance(top_features, str) else top_features
-            dest_ip = None
-
-            # Look for dest_ip in features
-            for key in features.keys():
-                if 'dest_ip' in key.lower() or 'destination' in key.lower():
-                    # Extract IP from feature name (e.g., "dest_ip_45.142.213.111")
-                    parts = key.split('_')
-                    for part in parts:
-                        if '.' in part and len(part.split('.')) == 4:
-                            dest_ip = part
-                            break
-                    if dest_ip:
-                        break
-
-            if dest_ip:
-                logger.info(f"Checking threat intelligence for destination IP: {dest_ip}")
-                reputation = threat_intel.get_ip_reputation(dest_ip)
-
-                sections.append(html.H5("🌐 Threat Intelligence", className="mt-4 mb-3"))
-                sections.append(create_threat_intel_badge(reputation))
-
-        except (json.JSONDecodeError, Exception) as e:
-            logger.error(f"Error extracting dest_ip from alert features: {e}")
 
     sections.append(html.H5("🛡️ Recommended Actions", className="mt-4 mb-3"))
     severity = alert.get('severity', 'medium')
@@ -1336,94 +904,25 @@ app.layout = dbc.Container([
                 dbc.AccordionItem([
                     dbc.Row([
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader([
-                                html.Div([
-                                    html.Span("📧 Email Notifications"),
-                                    dbc.Badge("", id="email-status-badge", className="ms-2")
-                                ], className="d-flex align-items-center justify-content-between")
-                            ]),
+                            dbc.CardHeader("Email Settings"),
                             dbc.CardBody([
-                                # Enable/Disable Toggle
                                 dbc.Row([
-                                    dbc.Col([
-                                        dbc.Switch(
-                                            id='email-enabled-switch',
-                                            label="Enable Email Notifications",
-                                            value=False
-                                        )
-                                    ])
+                                    dbc.Col(dbc.Label("Recipient Email"), width=3),
+                                    dbc.Col(dbc.Input(id='setting-recipient-email', type='email', value='', className="cyber-input"), width=9)
                                 ], className="mb-3"),
-
-                                html.Hr(),
-
-                                # SMTP Settings
-                                html.H6("SMTP Server Settings", className="text-muted mb-3"),
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("SMTP Host", className="small"),
-                                        dbc.Input(id='email-smtp-host', type='text', placeholder='smtp.gmail.com', className="cyber-input")
-                                    ], width=8),
-                                    dbc.Col([
-                                        dbc.Label("Port", className="small"),
-                                        dbc.Input(id='email-smtp-port', type='number', placeholder='587', className="cyber-input")
-                                    ], width=4)
-                                ], className="mb-3"),
-
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("SMTP Username", className="small"),
-                                        dbc.Input(id='email-smtp-user', type='text', placeholder='your-email@gmail.com', className="cyber-input")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Label("SMTP Password", className="small"),
-                                        dbc.Input(id='email-smtp-password', type='password', placeholder='••••••••', className="cyber-input")
-                                    ], width=6)
-                                ], className="mb-3"),
-
-                                html.Hr(),
-
-                                # Email Addresses
-                                html.H6("Email Addresses", className="text-muted mb-3"),
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("Sender Email", className="small"),
-                                        dbc.Input(id='email-sender', type='email', placeholder='iotsentinel@gmail.com', className="cyber-input")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Label("Recipient Email", className="small"),
-                                        dbc.Input(id='email-recipient', type='email', placeholder='your-email@gmail.com', className="cyber-input")
-                                    ], width=6)
-                                ], className="mb-3"),
-
-                                html.Hr(),
-
-                                # Action Buttons
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Button([html.I(className="fa fa-save me-2"), "Save Settings"],
-                                                  id="save-email-settings-btn", color="primary", className="cyber-button w-100")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Button([html.I(className="fa fa-envelope me-2"), "Send Test Email"],
-                                                  id="test-email-btn", color="success", outline=True, className="cyber-button w-100")
-                                    ], width=6)
-                                ]),
-
-                                # Status Messages
-                                html.Div(id="email-settings-status", className="mt-3")
+                                dbc.Button("Save Settings", id="save-settings-button", color="primary", className="cyber-button"),
+                                html.Div(id="settings-saved-status", className="mt-3")
                             ])
-                        ], className="cyber-card")], width=12)
-                    ]),
-                    dbc.Row([
+                        ], className="cyber-card")], width=6),
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader("🔥 Firewall Control"),
+                            dbc.CardHeader("Firewall Control"),
                             dbc.CardBody([
                                 dbc.Switch(id='lockdown-switch', label="Enable Lockdown Mode", value=False),
                                 html.P("When enabled, only trusted devices can access the network.", className="small text-muted mt-2"),
                                 html.Div(id='lockdown-status', className="mt-2")
                             ])
-                        ], className="cyber-card")], width=12)
-                    ], className="mt-3"),
+                        ], className="cyber-card")], width=6)
+                    ]),
                     dbc.Row([
                         dbc.Col([
                             dbc.Button([html.I(className="fa fa-question-circle me-2"), "Restart Tour"],
@@ -1536,8 +1035,7 @@ app.layout = dbc.Container([
 )
 def update_header_stats(ws_message):
     if ws_message is None:
-        # Show loading placeholders
-        return "—", "—", "—"
+        raise dash.exceptions.PreventUpdate
     return str(ws_message.get('device_count', 0)), str(ws_message.get('alert_count', 0)), str(ws_message.get('connection_count', 0))
 
 @app.callback(
@@ -1546,8 +1044,7 @@ def update_header_stats(ws_message):
 )
 def update_notifications(ws_message):
     if ws_message is None:
-        # Show empty state during initial load
-        return "", [dbc.Alert("Loading...", color="info")]
+        raise dash.exceptions.PreventUpdate
     alert_count = ws_message.get('alert_count', 0)
     recent_alerts = ws_message.get('recent_alerts', [])
     badge_count = "" if alert_count == 0 else str(alert_count)
@@ -1589,11 +1086,10 @@ def toggle_notification_drawer(n_clicks, is_open):
 )
 def update_network_graph(ws_message):
     if ws_message is None:
-        # Return empty elements during initial load
-        return []
+        raise dash.exceptions.PreventUpdate
     elements = ws_message.get('network_graph_elements', [])
     if not elements:
-        return []
+        raise dash.exceptions.PreventUpdate
     return elements
 
 @app.callback(
@@ -1612,8 +1108,7 @@ def toggle_graph_view(is_3d_view):
 def update_network_graph_3d(ws_message):
     """Enhanced 3D graph with force-directed layout and better visuals"""
     if ws_message is None:
-        # Return empty figure during initial load
-        return go.Figure()
+        raise dash.exceptions.PreventUpdate
 
     devices = ws_message.get('all_devices_with_status', [])
     connections = ws_message.get('recent_connections_feed', [])
@@ -1776,8 +1271,7 @@ def update_network_graph_3d(ws_message):
 )
 def update_traffic_timeline(ws_message):
     if ws_message is None:
-        # Return empty figure during initial load
-        return go.Figure()
+        raise dash.exceptions.PreventUpdate
     traffic_data = ws_message.get('traffic_timeline', [])
     if not traffic_data:
         fig = go.Figure()
@@ -1816,8 +1310,7 @@ def update_protocol_pie(ws_message):
 )
 def update_devices_status_compact(ws_message):
     if ws_message is None:
-        # Show skeleton loader during initial load
-        return create_device_skeleton(count=8)
+        raise dash.exceptions.PreventUpdate
     devices = ws_message.get('all_devices_with_status', [])[:8]
     if not devices:
         return dbc.Alert("No devices found.", color="info", className="compact-alert")
@@ -1826,20 +1319,18 @@ def update_devices_status_compact(ws_message):
         status = device.get('status', 'normal')
         device_name = device.get('device_name') or device['device_ip'].split('.')[-1]
         device_ip = device['device_ip']
-        device_type = device.get('device_type')
 
-        # Make clickable with device icon
+        # Make clickable
         cards.append(
             html.Div([
                 create_status_indicator(status, "0.8rem"),
-                create_device_icon(device_type, use_emoji=True, use_fa=False, size="1rem"),
                 html.Span(device_name, className="device-name-compact"),
                 html.Span(device['device_ip'], className="device-ip-compact ms-auto")
             ], className="device-item-compact clickable-device",
                id={'type': 'device-card', 'ip': device_ip},
                n_clicks=0)
         )
-    return html.Div(cards, className="fade-in")
+    return html.Div(cards)
 
 @app.callback(
     Output('active-devices-list', 'children'),
@@ -1847,8 +1338,7 @@ def update_devices_status_compact(ws_message):
 )
 def update_active_devices_list(ws_message):
     if ws_message is None:
-        # Show skeleton loader during initial load
-        return create_device_list_skeleton(count=10)
+        raise dash.exceptions.PreventUpdate
     devices = ws_message.get('all_devices_with_status', [])
     if not devices:
         return dbc.Alert("No active devices.", color="info", className="compact-alert")
@@ -1858,30 +1348,21 @@ def update_active_devices_list(ws_message):
         status_text = device.get('status_text', 'Unknown')
         device_name = device.get('device_name') or device['device_ip']
         device_ip = device['device_ip']
-        device_type = device.get('device_type')
         badge_color = 'danger' if status == 'alert' else ('warning' if status == 'warning' else 'success')
-
-        # Check if device is blocked
-        is_blocked = bool(device.get('is_blocked', False))
 
         items.append(
             html.Div([
                 html.Div([
                     create_status_indicator(status, "0.9rem"),
-                    create_device_icon(device_type, use_emoji=True, use_fa=False, size="1.1rem"),
                     html.Strong(device_name, className="me-2"),
-                    dbc.Badge(status_text, color=badge_color, pill=True, className="badge-sm"),
-                    dbc.Badge([html.I(className="fa fa-ban me-1"), "BLOCKED"],
-                             color="danger", pill=True, className="badge-sm ms-1") if is_blocked else html.Span()
+                    dbc.Badge(status_text, color=badge_color, pill=True, className="badge-sm")
                 ], className="d-flex align-items-center mb-1"),
                 html.Small([html.I(className="fa fa-network-wired me-1"), device['device_ip']], className="text-muted")
-            ], className="active-device-item clickable-device" + (" border-danger" if is_blocked else ""),
+            ], className="active-device-item clickable-device",
                id={'type': 'device-list-item', 'ip': device_ip},
-               n_clicks=0,
-               style={"borderLeft": "4px solid #dc3545" if is_blocked else ""}
+               n_clicks=0)
         )
-        )
-    return html.Div(items, className="fade-in")
+    return html.Div(items)
 
 # Device Details Modal Callback
 @app.callback(
@@ -1932,13 +1413,7 @@ def toggle_device_details(card_clicks, list_clicks, tap_data, close_click, is_op
         return True, "Device Not Found", html.P("Could not load device details."), None
 
     device_name = device.get('device_name') or device_ip
-    device_type = device.get('device_type')
-
-    # Create title with device icon (both emoji and FA for modal)
-    title = html.Div([
-        create_device_icon(device_type, use_emoji=True, use_fa=True, size="1.5rem"),
-        html.Span(f"Device Details: {device_name}", className="ms-2")
-    ], className="d-flex align-items-center")
+    title = f"🖥️ Device Details: {device_name}"
 
     # Build device details body
     baseline = device.get('baseline', {})
@@ -1976,28 +1451,7 @@ def toggle_device_details(card_clicks, list_clicks, tap_data, close_click, is_op
                         className="d-inline-block ms-2"
                     )
                 ], className="mb-2"),
-                html.Small("Trusted devices have different alert thresholds", className="text-muted"),
-                html.Hr(),
-                html.Div([
-                    html.Strong("Network Access: ", className="mb-2"),
-                    html.Div([
-                        dbc.Button(
-                            [html.I(className="fa fa-ban me-2"), "Block Device"] if not device.get('is_blocked', False) else [html.I(className="fa fa-check-circle me-2"), "Unblock Device"],
-                            id={'type': 'device-block-btn', 'ip': device_ip},
-                            color="danger" if not device.get('is_blocked', False) else "success",
-                            outline=True,
-                            size="sm",
-                            className="w-100 mt-2"
-                        ),
-                        html.Div(id={'type': 'block-status', 'ip': device_ip}, className="mt-2")
-                    ])
-                ], className="mb-2"),
-                dbc.Alert(
-                    [html.I(className="fa fa-exclamation-triangle me-2"), "This device is currently BLOCKED from network access"],
-                    color="danger",
-                    className="mt-2"
-                ) if device.get('is_blocked', False) else html.Div(),
-                html.Small("Blocking requires firewall integration to be enabled", className="text-muted")
+                html.Small("Trusted devices have different alert thresholds", className="text-muted")
             ], width=6)
         ]),
 
@@ -2074,94 +1528,6 @@ def toggle_device_trust(values, ids):
             duration=3000,
         )
 
-# Block Device Callback
-@app.callback(
-    Output({'type': 'block-status', 'ip': dash.dependencies.MATCH}, 'children'),
-    Input({'type': 'device-block-btn', 'ip': dash.dependencies.MATCH}, 'n_clicks'),
-    State({'type': 'device-block-btn', 'ip': dash.dependencies.MATCH}, 'id'),
-    prevent_initial_call=True
-)
-def toggle_device_block(n_clicks, button_id):
-    """Handle device blocking/unblocking via firewall"""
-    if n_clicks is None:
-        raise dash.exceptions.PreventUpdate
-
-    device_ip = button_id['ip']
-
-    try:
-        # Get device details including MAC address and current blocked status
-        device = get_device_details(device_ip)
-        if not device:
-            return dbc.Alert("Device not found", color="danger", dismissable=True)
-
-        mac_address = device.get('mac_address')
-        if not mac_address:
-            return dbc.Alert("Cannot block device: MAC address unknown", color="warning", dismissable=True)
-
-        current_blocked = bool(device.get('is_blocked', False))
-        new_blocked_status = not current_blocked
-
-        # Update database first
-        db = DatabaseManager()
-        db.set_device_blocked(device_ip, new_blocked_status)
-
-        # Call firewall manager to apply/remove block
-        import subprocess
-        from pathlib import Path
-
-        project_root = Path(__file__).parent.parent
-        firewall_script = project_root / 'scripts' / 'firewall_manager.py'
-
-        if new_blocked_status:
-            # Block the device
-            command = [sys.executable, str(firewall_script), '--block', mac_address]
-            action_text = "blocked"
-            alert_color = "danger"
-        else:
-            # Unblock the device
-            command = [sys.executable, str(firewall_script), '--unblock', mac_address]
-            action_text = "unblocked"
-            alert_color = "success"
-
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=10)
-            logger.info(f"Device {device_ip} ({mac_address}) {action_text}: {result.stdout}")
-
-            return dbc.Alert([
-                html.I(className=f"fa fa-check-circle me-2"),
-                f"Device successfully {action_text}! Refresh page to see updated status."
-            ], color=alert_color, dismissable=True)
-
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else str(e)
-            logger.error(f"Failed to {action_text} device {device_ip}: {error_msg}")
-
-            # Check if firewall is disabled
-            if not config.get('firewall', 'enabled', default=False):
-                return dbc.Alert([
-                    html.I(className="fa fa-exclamation-triangle me-2"),
-                    "Firewall integration is disabled in config. Enable it to block devices."
-                ], color="warning", dismissable=True)
-
-            return dbc.Alert([
-                html.I(className="fa fa-times-circle me-2"),
-                f"Failed to {action_text} device: {error_msg}"
-            ], color="danger", dismissable=True)
-
-        except subprocess.TimeoutExpired:
-            logger.error(f"Timeout while trying to {action_text} device {device_ip}")
-            return dbc.Alert([
-                html.I(className="fa fa-clock me-2"),
-                f"Operation timed out. Check firewall configuration."
-            ], color="warning", dismissable=True)
-
-    except Exception as e:
-        logger.error(f"Error toggling block for device {device_ip}: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            f"Error: {str(e)}"
-        ], color="danger", dismissable=True)
-
 # ============================================================================
 # CALLBACKS - ALERTS
 # ============================================================================
@@ -2172,8 +1538,7 @@ def toggle_device_block(n_clicks, button_id):
 )
 def update_alerts_compact(ws_message, filter_severity):
     if ws_message is None:
-        # Show skeleton loader during initial load
-        return create_alert_skeleton(count=5)
+        raise dash.exceptions.PreventUpdate
     recent_alerts_raw = ws_message.get('recent_alerts', [])
     df = pd.DataFrame(recent_alerts_raw)
 
@@ -2226,7 +1591,7 @@ def update_alerts_compact(ws_message, filter_severity):
                 ], className="p-2")
             ], className=f"alert-card-compact mb-2 border-{config['color']}")
         )
-    return html.Div(alert_items, className="fade-in")
+    return html.Div(alert_items)
 
 @app.callback(
     [Output('alert-details-modal', 'is_open'),
@@ -2462,257 +1827,6 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
     raise dash.exceptions.PreventUpdate
 
 # ============================================================================
-# CALLBACKS - EMAIL SETTINGS
-# ============================================================================
-
-@app.callback(
-    [Output('email-enabled-switch', 'value'),
-     Output('email-smtp-host', 'value'),
-     Output('email-smtp-port', 'value'),
-     Output('email-smtp-user', 'value'),
-     Output('email-sender', 'value'),
-     Output('email-recipient', 'value'),
-     Output('email-status-badge', 'children'),
-     Output('email-status-badge', 'color')],
-    Input('url', 'pathname')
-)
-def load_email_settings(pathname):
-    """Load email settings from config file on page load"""
-    try:
-        import json
-        from pathlib import Path
-
-        config_path = Path(__file__).parent.parent / 'config' / 'default_config.json'
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-
-        email_config = config.get('email', {})
-        enabled = email_config.get('enabled', False)
-        smtp_host = email_config.get('smtp_host', 'smtp.gmail.com')
-        smtp_port = email_config.get('smtp_port', 587)
-        smtp_user = email_config.get('smtp_user', '')
-        sender_email = email_config.get('sender_email', '')
-        recipient_email = email_config.get('recipient_email', '')
-
-        # Determine status
-        if enabled and all([smtp_host, smtp_user, sender_email, recipient_email]):
-            badge_text = "ENABLED"
-            badge_color = "success"
-        elif enabled:
-            badge_text = "INCOMPLETE"
-            badge_color = "warning"
-        else:
-            badge_text = "DISABLED"
-            badge_color = "secondary"
-
-        return enabled, smtp_host, smtp_port, smtp_user, sender_email, recipient_email, badge_text, badge_color
-
-    except Exception as e:
-        logger.error(f"Error loading email settings: {e}")
-        return False, 'smtp.gmail.com', 587, '', '', '', "ERROR", "danger"
-
-
-@app.callback(
-    [Output('email-settings-status', 'children'),
-     Output('email-status-badge', 'children', allow_duplicate=True),
-     Output('email-status-badge', 'color', allow_duplicate=True)],
-    Input('save-email-settings-btn', 'n_clicks'),
-    [State('email-enabled-switch', 'value'),
-     State('email-smtp-host', 'value'),
-     State('email-smtp-port', 'value'),
-     State('email-smtp-user', 'value'),
-     State('email-smtp-password', 'value'),
-     State('email-sender', 'value'),
-     State('email-recipient', 'value')],
-    prevent_initial_call=True
-)
-def save_email_settings(n_clicks, enabled, smtp_host, smtp_port, smtp_user, smtp_password, sender_email, recipient_email):
-    """Save email settings to config file"""
-    if n_clicks is None:
-        raise dash.exceptions.PreventUpdate
-
-    try:
-        import json
-        from pathlib import Path
-
-        config_path = Path(__file__).parent.parent / 'config' / 'default_config.json'
-
-        # Load current config
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-
-        # Update email settings
-        if 'email' not in config:
-            config['email'] = {}
-
-        config['email']['enabled'] = enabled
-        config['email']['smtp_host'] = smtp_host or 'smtp.gmail.com'
-        config['email']['smtp_port'] = int(smtp_port) if smtp_port else 587
-        config['email']['smtp_user'] = smtp_user or ''
-        # Only update password if it's provided (not just placeholder dots)
-        if smtp_password and not all(c == '•' for c in smtp_password):
-            config['email']['smtp_password'] = smtp_password
-        config['email']['sender_email'] = sender_email or ''
-        config['email']['recipient_email'] = recipient_email or ''
-
-        # Save config
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
-
-        # Determine status
-        if enabled and all([smtp_host, smtp_user, sender_email, recipient_email]):
-            badge_text = "ENABLED"
-            badge_color = "success"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-check-circle me-2"),
-                "Email settings saved successfully!"
-            ], color="success", dismissable=True)
-        elif enabled:
-            badge_text = "INCOMPLETE"
-            badge_color = "warning"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Settings saved, but some required fields are missing."
-            ], color="warning", dismissable=True)
-        else:
-            badge_text = "DISABLED"
-            badge_color = "secondary"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-info-circle me-2"),
-                "Email notifications disabled."
-            ], color="info", dismissable=True)
-
-        logger.info(f"Email settings saved: enabled={enabled}")
-        return status_msg, badge_text, badge_color
-
-    except Exception as e:
-        logger.error(f"Error saving email settings: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            f"Error saving settings: {str(e)}"
-        ], color="danger", dismissable=True), "ERROR", "danger"
-
-
-@app.callback(
-    Output('email-settings-status', 'children', allow_duplicate=True),
-    Input('test-email-btn', 'n_clicks'),
-    [State('email-smtp-host', 'value'),
-     State('email-smtp-port', 'value'),
-     State('email-smtp-user', 'value'),
-     State('email-smtp-password', 'value'),
-     State('email-sender', 'value'),
-     State('email-recipient', 'value')],
-    prevent_initial_call=True
-)
-def send_test_email(n_clicks, smtp_host, smtp_port, smtp_user, smtp_password, sender_email, recipient_email):
-    """Send a test email to verify configuration"""
-    if n_clicks is None:
-        raise dash.exceptions.PreventUpdate
-
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        from datetime import datetime
-
-        # Validate inputs
-        if not all([smtp_host, smtp_user, smtp_password, sender_email, recipient_email]):
-            return dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Please fill in all required fields before sending test email."
-            ], color="warning", dismissable=True)
-
-        # Don't send if password is placeholder
-        if all(c == '•' for c in smtp_password):
-            return dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Please enter your actual SMTP password (not placeholder)."
-            ], color="warning", dismissable=True)
-
-        # Create test email
-        message = MIMEMultipart("alternative")
-        message["Subject"] = "🛡️ IoTSentinel Test Email"
-        message["From"] = sender_email
-        message["To"] = recipient_email
-
-        text_content = f"""
-IoTSentinel Test Email
-======================
-
-This is a test email from your IoTSentinel dashboard.
-
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-If you received this email, your email notification settings are configured correctly!
-
----
-IoTSentinel Network Security Monitor
-"""
-
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
-    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-        <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #667eea; margin: 0;">🛡️ IoTSentinel</h1>
-            <p style="color: #666; margin: 10px 0;">Test Email Successful</p>
-        </div>
-
-        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #4caf50;">
-            <p style="margin: 0; color: #2e7d32;"><strong>✅ Configuration Verified</strong></p>
-            <p style="margin: 10px 0 0 0; color: #555;">Your email notification settings are working correctly!</p>
-        </div>
-
-        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-            <p style="margin: 0; font-size: 14px; color: #666;">
-                <strong>Timestamp:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            </p>
-        </div>
-
-        <div style="margin-top: 20px; text-align: center; color: #999; font-size: 12px;">
-            <p style="margin: 0;">IoTSentinel Network Security Monitor</p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-        message.attach(MIMEText(text_content, "plain"))
-        message.attach(MIMEText(html_content, "html"))
-
-        # Send email
-        server = smtplib.SMTP(smtp_host, int(smtp_port), timeout=30)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(smtp_user, smtp_password)
-        server.send_message(message)
-        server.quit()
-
-        logger.info(f"Test email sent successfully to {recipient_email}")
-        return dbc.Alert([
-            html.I(className="fa fa-check-circle me-2"),
-            html.Strong("Test email sent successfully!"),
-            html.P(f"Check {recipient_email} for the test message.", className="mb-0 small mt-1")
-        ], color="success", dismissable=True)
-
-    except smtplib.SMTPAuthenticationError:
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            html.Strong("Authentication failed"),
-            html.P("Check your SMTP username and password. For Gmail, you may need an App Password.", className="mb-0 small mt-1")
-        ], color="danger", dismissable=True)
-    except Exception as e:
-        logger.error(f"Error sending test email: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            html.Strong("Failed to send test email"),
-            html.P(str(e), className="mb-0 small mt-1")
-        ], color="danger", dismissable=True)
-
-# ============================================================================
 # CALLBACKS - ANALYTICS
 # ============================================================================
 
@@ -2722,8 +1836,7 @@ IoTSentinel Network Security Monitor
 )
 def update_alert_timeline(ws_message):
     if ws_message is None:
-        # Return empty figure during initial load
-        return go.Figure()
+        raise dash.exceptions.PreventUpdate
     alert_timeline_data = ws_message.get('alert_timeline', [])
     if not alert_timeline_data:
         fig = go.Figure()
@@ -2990,11 +2103,11 @@ def toggle_chat_modal(n, is_open):
     prevent_initial_call=True
 )
 def handle_chat_message(send_clicks, input_submit, message, chat_data, ws_message):
-    """AI Chat Assistant with Ollama LLM integration and rule-based fallback"""
+    """AI Chat Assistant with network context"""
     if not message or not message.strip():
         raise dash.exceptions.PreventUpdate
 
-    history = chat_data.get('history', []) if chat_data else []
+    history = chat_data.get('history', [])
 
     # Add user message
     history.append({'role': 'user', 'content': message})
@@ -3005,8 +2118,7 @@ def handle_chat_message(send_clicks, input_submit, message, chat_data, ws_messag
     recent_alerts = ws_message.get('recent_alerts', [])[:3] if ws_message else []
 
     # Build context for AI
-    context = f"""You are IoTSentinel AI Assistant, a helpful and concise network security expert.
-
+    context = f"""You are IoTSentinel AI Assistant, helping users understand their home network security.
 Current Network Status:
 - Active Devices: {device_count}
 - Active Alerts: {alert_count}"""
@@ -3016,25 +2128,47 @@ Current Network Status:
         for alert in recent_alerts:
             context += f"- {alert.get('severity', 'unknown').upper()}: {alert.get('explanation', 'Unknown')} on {alert.get('device_name') or alert.get('device_ip', 'Unknown')}\n"
 
-    context += """\n
-Your role:
-- Answer questions about network security, IoTSentinel features, and device behavior
-- Be concise (2-4 sentences max unless explaining complex topics)
-- Use emojis sparingly (only when relevant)
-- If asked about features, explain: Lockdown Mode, Trust Management, Voice Alerts, Baseline Statistics, MITRE ATT&CK mapping
-- Always prioritize user security and privacy
+    # Simple rule-based responses (can be replaced with Claude API)
+    user_msg_lower = message.lower()
 
-Keep responses helpful, accurate, and actionable."""
+    # Security-related queries
+    if any(word in user_msg_lower for word in ['safe', 'secure', 'protected', 'risk']):
+        if alert_count == 0:
+            ai_response = f"✅ Your network appears secure! All {device_count} devices are behaving normally with no active alerts. Keep monitoring enabled for continuous protection."
+        else:
+            ai_response = f"⚠️ I've detected {alert_count} security alert(s) requiring attention. Click on any alert in the right panel to see detailed explanations and recommended actions."
 
-    # Try Ollama first, fall back to rule-based
-    ai_response = call_ollama_api(message, context)
+    # Device queries
+    elif any(word in user_msg_lower for word in ['device', 'connected', 'what is']):
+        ai_response = f"📱 You have {device_count} devices currently connected to your network. You can click on any device in the left panel to see detailed information, activity statistics, and trust settings."
 
-    if ai_response is None:
-        # Ollama unavailable - use rule-based fallback
-        ai_response = get_rule_based_response(message, device_count, alert_count, recent_alerts)
-        # Add indicator that this is fallback mode
-        if OLLAMA_ENABLED:
-            ai_response = "⚠️ *[AI mode unavailable - using basic responses]*\n\n" + ai_response
+    # Alert explanation queries
+    elif any(word in user_msg_lower for word in ['alert', 'warning', 'unusual', 'detected']):
+        if alert_count > 0:
+            alert = recent_alerts[0]
+            ai_response = f"🚨 Most recent alert: {alert.get('explanation', 'Unknown activity')} on device {alert.get('device_name') or alert.get('device_ip', 'Unknown')}. Click the 'Details' button to see educational breakdown with baseline comparisons."
+        else:
+            ai_response = "✅ No active alerts! Your network has been quiet. IoTSentinel uses ML models (Autoencoder + Isolation Forest) to detect anomalies in real-time."
+
+    # How-to queries
+    elif any(word in user_msg_lower for word in ['how', 'what does', 'explain']):
+        ai_response = "📚 IoTSentinel monitors your network using Zeek for traffic analysis and dual ML models for anomaly detection. When unusual activity is detected, you'll see color-coded alerts with plain English explanations and visual baseline comparisons showing 'Normal vs Today'."
+
+    # Lockdown mode queries
+    elif any(word in user_msg_lower for word in ['lockdown', 'block', 'emergency']):
+        ai_response = "🔐 Lockdown Mode is available in Settings → Firewall Control. When enabled, it blocks ALL untrusted devices from accessing your network. Mark important devices as 'Trusted' first by clicking on them and toggling the trust switch."
+
+    # Voice alerts
+    elif any(word in user_msg_lower for word in ['voice', 'speak', 'audio', 'sound']):
+        ai_response = "🔊 Voice Alerts can be enabled using the toggle in the header. When turned on, critical and high-severity alerts will be announced using text-to-speech, so you'll hear about security issues even if you're not watching the dashboard."
+
+    # General greeting
+    elif any(word in user_msg_lower for word in ['hello', 'hi', 'hey']):
+        ai_response = f"👋 Hello! I'm your IoTSentinel AI Assistant. Your network has {device_count} active devices and {alert_count} alert(s). How can I help you today?"
+
+    # Default response
+    else:
+        ai_response = f"I can help you understand your network security! Try asking about:\n\n• Current security status\n• Device information\n• Alert explanations\n• How IoTSentinel works\n• Lockdown mode\n• Voice alerts\n\nYour network: {device_count} devices, {alert_count} active alert(s)."
 
     # Add AI response
     history.append({'role': 'assistant', 'content': ai_response})
@@ -3312,32 +2446,6 @@ def main():
     logger.info("=" * 70)
     logger.info(f"Dashboard URL: http://{host}:{port}")
     logger.info("")
-
-    # Check AI Assistant status
-    ai_status = "🤖 AI Chat: "
-    if OLLAMA_ENABLED:
-        try:
-            # Quick check if Ollama is available
-            test_response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if test_response.status_code == 200:
-                ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
-            else:
-                ai_status += "⚠️ ENABLED but Ollama not responding"
-        except:
-            ai_status += "⚠️ ENABLED but Ollama not running (will use fallback)"
-    else:
-        ai_status += "❌ DISABLED (rule-based only)"
-    logger.info(ai_status)
-
-    # Check Threat Intelligence status
-    threat_status = "🌐 Threat Intelligence: "
-    if threat_intel.enabled:
-        threat_status += f"✅ ENABLED (AbuseIPDB with {THREAT_INTEL_CACHE_HOURS}h cache)"
-    else:
-        threat_status += "❌ DISABLED (Configure AbuseIPDB API key to enable)"
-    logger.info(threat_status)
-    logger.info("")
-
     logger.info("✨ NEW FEATURES:")
     logger.info("  ✓ Interactive onboarding wizard (6 steps)")
     logger.info("  ✓ Device details modal with trust management")
