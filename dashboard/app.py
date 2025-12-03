@@ -3353,7 +3353,13 @@ def main():
     logger.info("  ✓ Visual 'Normal vs Today' comparison charts")
     logger.info("=" * 70)
 
-    socketio.run(app.server, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+# Try running with SocketIO, fall back if needed
+    try:
+        socketio.run(app.server, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+    except Exception as e:
+        logger.error(f"SocketIO failed to start: {e}")
+        logger.info("Falling back to standard Dash server (WebSockets disabled)...")
+        app.run(host=host, port=port, debug=debug)
 
 if __name__ == '__main__':
     main()
