@@ -111,20 +111,98 @@ def clear_rules():
     finally:
         client.close()
 
+def block_device(mac_address: str):
+    """
+    Block a specific device by MAC address.
+
+    Args:
+        mac_address: MAC address to block (e.g., "AA:BB:CC:DD:EE:FF")
+    """
+    client = get_ssh_client()
+    if not client:
+        logger.error("Cannot block device: SSH client unavailable")
+        return False
+
+    try:
+        # Ensure our chain exists
+        client.exec_command(f"iptables -N {IPTABLES_CHAIN} 2>/dev/null || true")
+
+        # Add DROP rule for this specific MAC address
+        command = f"iptables -A {IPTABLES_CHAIN} -m mac --mac-source {mac_address} -j DROP"
+        stdin, stdout, stderr = client.exec_command(command)
+        error = stderr.read().decode()
+
+        if error and "already exists" not in error.lower():
+            logger.error(f"Error blocking MAC {mac_address}: {error}")
+            return False
+
+        # Ensure our chain is active in FORWARD chain
+        client.exec_command(f"iptables -C FORWARD -j {IPTABLES_CHAIN} 2>/dev/null || iptables -I FORWARD 1 -j {IPTABLES_CHAIN}")
+
+        logger.info(f"Blocked device: {mac_address}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Exception while blocking device {mac_address}: {e}")
+        return False
+    finally:
+        client.close()
+
+def unblock_device(mac_address: str):
+    """
+    Unblock a specific device by MAC address.
+
+    Args:
+        mac_address: MAC address to unblock
+    """
+    client = get_ssh_client()
+    if not client:
+        logger.error("Cannot unblock device: SSH client unavailable")
+        return False
+
+    try:
+        # Remove the DROP rule for this MAC address
+        command = f"iptables -D {IPTABLES_CHAIN} -m mac --mac-source {mac_address} -j DROP"
+        stdin, stdout, stderr = client.exec_command(command)
+        error = stderr.read().decode()
+
+        if error and "does not exist" not in error.lower():
+            logger.error(f"Error unblocking MAC {mac_address}: {error}")
+            return False
+
+        logger.info(f"Unblocked device: {mac_address}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Exception while unblocking device {mac_address}: {e}")
+        return False
+    finally:
+        client.close()
+
 if __name__ == '__main__':
     # Example usage (for testing)
     import argparse
     parser = argparse.ArgumentParser(description="IoTSentinel Firewall Manager")
-    parser.add_argument('--apply', nargs='+', help='List of trusted MAC addresses to apply')
+    parser.add_argument('--apply', nargs='+', help='List of trusted MAC addresses to apply (lockdown mode)')
     parser.add_argument('--clear', action='store_true', help='Clear all rules')
+    parser.add_argument('--block', type=str, help='Block a specific MAC address')
+    parser.add_argument('--unblock', type=str, help='Unblock a specific MAC address')
 
     args = parser.parse_args()
 
     if args.apply:
-        print(f"Applying rules for: {args.apply}")
+        print(f"Applying lockdown rules for: {args.apply}")
         apply_rules(args.apply)
     elif args.clear:
         print("Clearing all rules...")
         clear_rules()
+    elif args.block:
+        print(f"Blocking device: {args.block}")
+        success = block_device(args.block)
+        sys.exit(0 if success else 1)
+    elif args.unblock:
+        print(f"Unblocking device: {args.unblock}")
+        success = unblock_device(args.unblock)
+        sys.exit(0 if success else 1)
     else:
-        print("Use --apply [MACs...] or --clear")
+        print("Use --apply [MACs...], --clear, --block [MAC], or --unblock [MAC]")

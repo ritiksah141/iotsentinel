@@ -433,6 +433,32 @@ class DatabaseManager:
             logger.error(f"Error setting trust for device {device_ip}: {e}")
             return False
 
+    def set_device_blocked(self, device_ip: str, is_blocked: bool) -> bool:
+        """Set the blocked status for a device."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE devices
+                SET is_blocked = ?
+                WHERE device_ip = ?
+            """, (int(is_blocked), device_ip))
+            self.conn.commit()
+            logger.info(f"Set device {device_ip} blocked to {is_blocked}")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error setting blocked status for device {device_ip}: {e}")
+            return False
+
+    def get_blocked_devices(self):
+        """Get all blocked devices with their MAC addresses."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM devices WHERE is_blocked = 1")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching blocked devices: {e}")
+            return []
+
     def get_trusted_devices(self) -> List[Dict]:
         """Get all trusted devices."""
         try:

@@ -1,218 +1,591 @@
-/* Make the layout more mobile-friendly */
-@media (max-width: 768px) {
-    /* Stack columns on smaller screens */
-    .row {
-        flex-direction: column;
-    }
+/*
+ * IoTSentinel Dashboard - Futuristic Cyberpunk Theme
+ * Enhanced styling matching the reference images
+ */
 
-    /* Adjust header font sizes */
-    h1 {
-        font-size: 1.5rem;
-    }
+/* ============================================================================
+ * BASE & LAYOUT IMPROVEMENTS
+ * ============================================================================ */
 
-    h2 {
-        font-size: 1.2rem;
-    }
-
-    /* Reduce padding on the main container */
-    .p-4 {
-        padding: 1rem !important;
-    }
-
-    /* Make graph heights smaller */
-    .card .graph {
-        height: 250px !important;
-    }
-}
-
-/* Base theme styles */
 body {
-    transition: background-color 0.3s ease, color 0.3s ease;
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); /* Subtle light gradient */
+    font-family: 'Rajdhani', 'Roboto', sans-serif;
+    transition: all 0.3s ease;
+    background: #0a0e27;
+    background-image:
+        linear-gradient(rgba(10, 14, 39, 0.9), rgba(10, 14, 39, 0.9)),
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 204, 0.03) 2px, rgba(0, 255, 204, 0.03) 4px);
+    color: #e0e0e0;
+    overflow-x: hidden;
 }
 
-/* Glassmorphism Effect for Cards */
-.card {
-    background-color: rgba(255, 255, 255, 0.6) !important; /* Semi-transparent white */
-    backdrop-filter: blur(10px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37) !important;
+.dashboard-container {
+    max-width: 100%;
+    padding: 15px !important;
+}
+
+/* ============================================================================
+ * HEADER STYLING
+ * ============================================================================ */
+
+.header-row {
+    background: linear-gradient(135deg, rgba(10, 20, 50, 0.9), rgba(20, 30, 60, 0.9));
+    border-radius: 8px;
+    padding: 15px 20px !important;
+    border: 1px solid rgba(0, 255, 204, 0.2);
+    box-shadow: 0 4px 20px rgba(0, 255, 204, 0.1);
+}
+
+.dashboard-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.gradient-text {
+    background: linear-gradient(90deg, #00ffcc 0%, #ff00ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradient-shift 3s ease infinite;
+}
+
+@keyframes gradient-shift {
+    0%, 100% { filter: hue-rotate(0deg); }
+    50% { filter: hue-rotate(20deg); }
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    color: #00ffcc;
+    font-weight: 300;
+    letter-spacing: 0.5px;
+}
+
+.glow-icon {
+    animation: icon-glow 2s ease-in-out infinite;
+}
+
+@keyframes icon-glow {
+    0%, 100% { text-shadow: 0 0 5px #00ffcc, 0 0 10px #00ffcc; }
+    50% { text-shadow: 0 0 10px #00ffcc, 0 0 20px #00ffcc, 0 0 30px #00ffcc; }
+}
+
+/* ============================================================================
+ * STATUS BAR
+ * ============================================================================ */
+
+.status-bar {
+    background: rgba(15, 25, 45, 0.6);
+    border-radius: 8px;
+    padding: 12px 15px !important;
+    border: 1px solid rgba(0, 255, 204, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+.status-metric-card {
+    background: linear-gradient(135deg, rgba(0, 255, 204, 0.1), rgba(0, 200, 255, 0.05));
+    border-radius: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid #00ffcc;
+    display: flex;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+.status-metric-card:hover {
+    background: linear-gradient(135deg, rgba(0, 255, 204, 0.15), rgba(0, 200, 255, 0.1));
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 255, 204, 0.2);
+}
+
+.status-icon {
+    font-size: 1.2rem;
+    color: #00ffcc;
+}
+
+.metric-label {
+    font-size: 0.85rem;
+    color: #888;
+    font-weight: 500;
+}
+
+.metric-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #00ffcc;
+}
+
+.cyber-glow {
+    text-shadow: 0 0 10px currentColor;
+}
+
+/* ============================================================================
+ * CARD STYLING - CYBERPUNK GLASSMORPHISM
+ * ============================================================================ */
+
+.cyber-card {
+    background: linear-gradient(135deg,
+        rgba(15, 25, 45, 0.85) 0%,
+        rgba(10, 20, 40, 0.9) 100%) !important;
+    backdrop-filter: blur(15px) !important;
+    border: 1px solid rgba(0, 255, 204, 0.3) !important;
     border-radius: 10px !important;
-    transition: all 0.2s ease-in-out;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 0 20px rgba(0, 255, 204, 0.1) !important;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
-.card:hover {
-    box-shadow: 0 10px 40px 0 rgba(31, 38, 135, 0.45) !important;
+.cyber-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00ffcc, transparent);
+    animation: scan-line 3s linear infinite;
+}
+
+@keyframes scan-line {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+.cyber-card:hover {
+    border-color: rgba(0, 255, 204, 0.5) !important;
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(0, 255, 204, 0.2) !important;
     transform: translateY(-2px);
 }
 
-.card-header {
-    background-color: rgba(255, 255, 255, 0.3) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+.cyber-card-header {
+    background: linear-gradient(135deg,
+        rgba(0, 255, 204, 0.15),
+        rgba(0, 200, 255, 0.1)) !important;
+    border-bottom: 1px solid rgba(0, 255, 204, 0.3) !important;
+    color: #00ffcc !important;
+    font-weight: 600;
+    font-size: 1rem;
+    padding: 12px 15px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-/* Dark Theme Styles */
-body.dark-theme {
-    background: linear-gradient(135deg, #1a1a2e 0%, #2e2e4a 100%); /* Dark gradient */
-    color: #e0e0e0; /* Light text */
+.cyber-card-header-sm {
+    background: linear-gradient(135deg,
+        rgba(0, 255, 204, 0.1),
+        rgba(0, 200, 255, 0.05)) !important;
+    border-bottom: 1px solid rgba(0, 255, 204, 0.2) !important;
+    color: #00ffcc !important;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 8px 12px !important;
 }
 
-body.dark-theme .card {
-    background-color: rgba(30, 30, 46, 0.7) !important; /* Semi-transparent dark blue */
-    backdrop-filter: blur(10px) !important;
-    border-color: rgba(74, 74, 110, 0.5) !important;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
+/* ============================================================================
+ * BUTTONS - CYBERPUNK STYLE
+ * ============================================================================ */
+
+.cyber-button {
+    background: transparent !important;
+    border: 1px solid #00ffcc !important;
+    color: #00ffcc !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
-body.dark-theme .card:hover {
-    box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.6) !important;
+.cyber-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 255, 204, 0.3), transparent);
+    transition: left 0.5s ease;
 }
 
-body.dark-theme .card-header {
-    background-color: rgba(50, 50, 80, 0.5) !important;
-    border-bottom: 1px solid rgba(74, 74, 110, 0.3) !important;
+.cyber-button:hover::before {
+    left: 100%;
 }
 
-body.dark-theme .form-control,
-body.dark-theme .form-select {
-    background-color: #2e2e4a;
+.cyber-button:hover {
+    background: rgba(0, 255, 204, 0.2) !important;
+    border-color: #00ffcc !important;
+    color: #fff !important;
+    box-shadow: 0 0 20px rgba(0, 255, 204, 0.4);
+    transform: translateY(-2px);
+}
+
+.cyber-button:active {
+    transform: translateY(0);
+}
+
+.pill-btn {
+    border-radius: 20px !important;
+    padding: 4px 12px !important;
+    font-size: 0.85rem !important;
+}
+
+.pill-btn.active {
+    background: rgba(0, 255, 204, 0.2) !important;
+    border-color: #00ffcc !important;
+    box-shadow: 0 0 15px rgba(0, 255, 204, 0.3);
+}
+
+/* ============================================================================
+ * DEVICE STATUS INDICATORS
+ * ============================================================================ */
+
+.device-grid-compact {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.device-item-compact {
+    background: rgba(20, 30, 50, 0.6);
+    border-radius: 6px;
+    padding: 10px 12px;
+    border-left: 3px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.2s ease;
+}
+
+.device-item-compact:hover {
+    background: rgba(30, 40, 60, 0.8);
+    border-left-color: #00ffcc;
+    transform: translateX(3px);
+}
+
+.device-name-compact {
+    font-weight: 600;
+    font-size: 0.9rem;
     color: #e0e0e0;
-    border-color: #4a4a6e;
 }
 
-body.dark-theme .form-control::placeholder {
-    color: #a0a0a0;
+.device-ip-compact {
+    font-size: 0.75rem;
+    color: #888;
+    font-family: 'Courier New', monospace;
 }
 
-body.dark-theme .alert-info {
-    background-color: #1a3a5f;
-    color: #8ed1f4;
-    border-color: #1a3a5f;
-}
-
-body.dark-theme .alert-warning {
-    background-color: #4a3a10;
-    color: #fce293;
-    border-color: #4a3a10;
-}
-
-body.dark-theme .alert-danger {
-    background-color: #5a2a2a;
-    color: #ff9999;
-    border-color: #5a2a2a;
-}
-
-body.dark-theme .alert-success {
-    background-color: #2a5a2a;
-    color: #99ff99;
-    border-color: #2a5a2a;
-}
-
-body.dark-theme .text-muted {
-    color: #a0a0a0 !important;
-}
-
-/* Cytoscape graph dark theme adjustments */
-body.dark-theme #network-graph {
-    background-color: #1a1a2e;
-}
-
-body.dark-theme .cy-node-label {
-    color: #e0e0e0 !important; /* Adjust node label color for dark theme */
-}
-
-body.dark-theme .cy-edge-line {
-    color: #6a6a8a !important; /* Adjust edge color for dark theme */
-}
-
-/* Dash Bootstrap Components overrides for dark theme */
-body.dark-theme .btn-outline-primary {
-    color: #8ed1f4;
-    border-color: #8ed1f4;
-}
-body.dark-theme .btn-outline-primary:hover {
-    background-color: #8ed1f4;
-    color: #1a1a2e;
-}
-
-body.dark-theme .btn-outline-warning {
-    color: #fce293;
-    border-color: #fce293;
-}
-body.dark-theme .btn-outline-warning:hover {
-    background-color: #fce293;
-    color: #1a1a2e;
-}
-
-body.dark-theme .btn-primary {
-    background-color: #8ed1f4;
-    border-color: #8ed1f4;
-    color: #1a1a2e;
-}
-
-body.dark-theme .nav-tabs .nav-link {
-    color: #a0a0a0;
-    background-color: transparent;
-    border-color: transparent;
-}
-body.dark-theme .nav-tabs .nav-link.active {
-    color: #e0e0e0;
-    background-color: #2e2e4a;
-    border-color: #4a4a6e;
-    border-bottom-color: #2e2e4a;
-}
-
-/* Cyberpunk Theme Styles */
-body.cyberpunk-theme {
-    background: #0d0221;
-    background-image: linear-gradient(160deg, #0d0221 0%, #0c164f 100%);
+.badge-count {
+    background: rgba(0, 255, 204, 0.2);
     color: #00ffcc;
-    font-family: 'Courier New', Courier, monospace;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 1.1rem;
 }
 
-body.cyberpunk-theme .card {
-    background-color: rgba(10, 2, 40, 0.65) !important;
-    backdrop-filter: blur(8px) !important;
-    border: 1px solid rgba(0, 255, 204, 0.5) !important;
-    border-radius: 0 !important;
+/* Active Devices List */
+.active-device-item {
+    background: rgba(20, 30, 50, 0.5);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.active-device-item:hover {
+    background: rgba(30, 40, 60, 0.7);
+    border-left-color: #00ffcc;
+    transform: translateX(3px);
+}
+
+.badge-sm {
+    font-size: 0.7rem !important;
+    padding: 3px 8px !important;
+}
+
+/* ============================================================================
+ * ALERTS - COMPACT CARDS
+ * ============================================================================ */
+
+.alert-card-compact {
+    background: rgba(20, 30, 50, 0.7) !important;
+    border-radius: 8px !important;
+    border-left: 4px solid !important;
+    transition: all 0.2s ease;
+}
+
+.alert-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.alert-text-compact {
+    font-size: 0.85rem;
+    color: #ccc;
+    line-height: 1.4;
+}
+
+.compact-alert {
+    padding: 10px 15px !important;
+    margin-bottom: 10px !important;
+    font-size: 0.9rem !important;
+}
+
+/* ============================================================================
+ * TRAFFIC STATS
+ * ============================================================================ */
+
+.traffic-stats-row {
+    background: rgba(15, 25, 45, 0.5);
+    border-radius: 8px;
+    padding: 15px 10px;
+    border: 1px solid rgba(0, 255, 204, 0.2);
+}
+
+.traffic-metric {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #00ffcc;
+}
+
+/* ============================================================================
+ * SCROLLBAR CUSTOMIZATION
+ * ============================================================================ */
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(20, 30, 50, 0.5);
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #00ffcc, #0088aa);
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #00ffcc, #00aacc);
+}
+
+/* ============================================================================
+ * ACCORDION - EXPANDABLE SECTIONS
+ * ============================================================================ */
+
+.cyber-accordion .accordion-item {
+    background: rgba(15, 25, 45, 0.8) !important;
+    border: 1px solid rgba(0, 255, 204, 0.2) !important;
+    margin-bottom: 10px;
+    border-radius: 8px !important;
+}
+
+.cyber-accordion .accordion-button {
+    background: rgba(0, 255, 204, 0.1) !important;
+    color: #00ffcc !important;
+    font-weight: 600;
+    border: none !important;
+    padding: 15px 20px !important;
+}
+
+.cyber-accordion .accordion-button:not(.collapsed) {
+    background: rgba(0, 255, 204, 0.2) !important;
+    box-shadow: none !important;
+}
+
+.cyber-accordion .accordion-button::after {
+    filter: brightness(0) saturate(100%) invert(79%) sepia(57%) saturate(2878%) hue-rotate(130deg);
+}
+
+.cyber-accordion .accordion-body {
+    background: rgba(10, 20, 40, 0.6) !important;
+    padding: 20px !important;
+}
+
+/* ============================================================================
+ * INPUTS & FORMS
+ * ============================================================================ */
+
+.cyber-input {
+    background: rgba(20, 30, 50, 0.8) !important;
+    border: 1px solid rgba(0, 255, 204, 0.3) !important;
+    color: #e0e0e0 !important;
+    border-radius: 6px !important;
+    padding: 10px 15px !important;
+    transition: all 0.3s ease;
+}
+
+.cyber-input:focus {
+    background: rgba(30, 40, 60, 0.9) !important;
+    border-color: #00ffcc !important;
     box-shadow: 0 0 15px rgba(0, 255, 204, 0.3) !important;
+    color: #fff !important;
 }
 
-body.cyberpunk-theme .card-header {
-    background-color: transparent !important;
-    border-bottom: 1px solid rgba(0, 255, 204, 0.5) !important;
-    color: #f0f; /* Neon pink for headers */
-    text-shadow: 0 0 5px #f0f;
+.cyber-input::placeholder {
+    color: #666 !important;
 }
 
-body.cyberpunk-theme .text-primary {
+.compact-switch {
+    font-size: 0.9rem;
+}
+
+.compact-switch .form-check-input {
+    background-color: rgba(20, 30, 50, 0.8);
+    border-color: rgba(0, 255, 204, 0.3);
+}
+
+.compact-switch .form-check-input:checked {
+    background-color: #00ffcc;
+    border-color: #00ffcc;
+}
+
+/* ============================================================================
+ * THEME SELECTOR
+ * ============================================================================ */
+
+.theme-selector-compact .form-check-input {
+    width: 2rem;
+    height: 2rem;
+    cursor: pointer;
+}
+
+.theme-selector-compact .form-check-label {
+    font-size: 1.2rem;
+    cursor: pointer;
+    margin-left: 5px;
+}
+
+/* ============================================================================
+ * NETWORK GRAPH ENHANCEMENTS
+ * ============================================================================ */
+
+#network-graph {
+    background: radial-gradient(circle at center, rgba(0, 50, 100, 0.3), rgba(0, 20, 40, 0.8));
+    border-radius: 8px;
+}
+
+/* ============================================================================
+ * SECTION DIVIDERS
+ * ============================================================================ */
+
+.cyber-hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(0, 255, 204, 0.5),
+        transparent);
+    margin: 15px 0;
+}
+
+.section-title {
+    color: #00ffcc;
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+/* ============================================================================
+ * RESPONSIVE ADJUSTMENTS
+ * ============================================================================ */
+
+@media (max-width: 1400px) {
+    .dashboard-title {
+        font-size: 1.5rem;
+    }
+
+    .subtitle {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .left-panel, .center-panel, .right-panel {
+        width: 100% !important;
+        margin-bottom: 15px;
+    }
+
+    .main-content-row {
+        flex-direction: column;
+    }
+}
+
+/* ============================================================================
+ * LIGHT THEME ADJUSTMENTS
+ * ============================================================================ */
+
+body:not(.cyberpunk-theme):not(.dark-theme) {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    color: #333;
+}
+
+body:not(.cyberpunk-theme):not(.dark-theme) .cyber-card {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-color: rgba(0, 123, 255, 0.3) !important;
+}
+
+body:not(.cyberpunk-theme):not(.dark-theme) .metric-value {
+    color: #007bff;
+}
+
+body:not(.cyberpunk-theme):not(.dark-theme) .gradient-text {
+    background: linear-gradient(90deg, #007bff 0%, #6610f2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================================
+ * DARK THEME (Non-Cyberpunk)
+ * ============================================================================ */
+
+body.dark-theme:not(.cyberpunk-theme) {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2e2e4a 100%);
+}
+
+body.dark-theme:not(.cyberpunk-theme) .cyber-card {
+    background: rgba(30, 30, 46, 0.9) !important;
+    border-color: rgba(74, 74, 110, 0.5) !important;
+}
+
+/* ============================================================================
+ * ANIMATIONS
+ * ============================================================================ */
+
+@keyframes pulse-animation {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.pulse-animation {
+    animation: pulse-animation 1.5s infinite;
+}
+
+/* ============================================================================
+ * UTILITY CLASSES
+ * ============================================================================ */
+
+.text-cyber {
     color: #00ffcc !important;
 }
 
-body.cyberpunk-theme .text-muted {
-    color: #9a9a9a !important;
+.bg-cyber {
+    background: rgba(0, 255, 204, 0.1) !important;
 }
 
-body.cyberpunk-theme .btn-primary {
-    background-color: transparent;
-    border: 1px solid #f0f;
-    color: #f0f;
-    box-shadow: 0 0 5px #f0f;
-}
-
-body.cyberpunk-theme .btn-primary:hover {
-    background-color: #f0f;
-    color: #0d0221;
-    box-shadow: 0 0 15px #f0f;
-}
-
-body.cyberpunk-theme .nav-tabs .nav-link {
-    color: #00ffcc;
-}
-
-body.cyberpunk-theme .nav-tabs .nav-link.active {
-    color: #f0f;
-    border: 1px solid #f0f;
-    border-bottom-color: transparent;
-    background-color: rgba(10, 2, 40, 0.65) !important;
+.border-cyber {
+    border-color: rgba(0, 255, 204, 0.3) !important;
 }

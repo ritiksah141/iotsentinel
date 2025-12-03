@@ -25,7 +25,7 @@ seaborn==0.12.2
 python-dateutil==2.8.2
 requests==2.31.0
 paramiko==3.4.0
-manuf==1.2.3
+manuf==1.1.5
 
 # Development
 pytest==7.4.3
