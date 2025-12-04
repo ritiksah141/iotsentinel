@@ -13,7 +13,10 @@ import math
 import time
 import threading
 import subprocess
+from dash import dcc, html, Input, Output, State, callback_context, ALL
 import requests
+import os
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -36,6 +39,9 @@ sys.path.insert(0, str(project_root))
 from config.config_manager import config
 from database.db_manager import DatabaseManager
 from utils.threat_intel import ThreatIntelligence
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from utils.auth import AuthManager, User
+from utils.rate_limiter import LoginRateLimiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,6 +59,101 @@ socketio = SocketIO(app.server, cors_allowed_origins="*")
 # Database setup
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
+
+# Authentication setup
+auth_manager = AuthManager(DB_PATH)
+
+# Rate limiting for login attempts (5 attempts, 5-minute lockout)
+login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
+
+server = app.server
+
+# Set Flask secret key for sessions (required for Flask-Login)
+# Read from environment variable or generate a random one
+secret_key = os.getenv('FLASK_SECRET_KEY')
+if not secret_key or secret_key == 'your-secret-key-change-this-in-production-please-use-at-least-32-characters': # pragma: allowlist secret
+    logger.warning("Using auto-generated SECRET_KEY. Set FLASK_SECRET_KEY in .env for production!")
+    secret_key = secrets.token_hex(32)
+server.config['SECRET_KEY'] = secret_key
+
+login_manager = LoginManager()
+login_manager.init_app(server)
+login_manager.login_view = '/login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user by ID for Flask-Login"""
+    return auth_manager.get_user_by_id(int(user_id))
+
+# Health check endpoint for monitoring
+@server.route('/health')
+def health_check():
+    """
+    Health check endpoint for monitoring and deployment verification.
+    Returns JSON with status of various system components.
+    """
+    from flask import jsonify
+
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "components": {}
+    }
+
+    # Check database connectivity
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM devices")
+        device_count = cursor.fetchone()[0]
+        conn.close()
+        health_status["components"]["database"] = {
+            "status": "healthy",
+            "device_count": device_count
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    # Check authentication system
+    try:
+        users = auth_manager.get_all_users()
+        health_status["components"]["authentication"] = {
+            "status": "healthy",
+            "user_count": len(users)
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["components"]["authentication"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    # Check if .env file exists
+    env_path = Path(__file__).parent.parent / '.env'
+    health_status["components"]["configuration"] = {
+        "status": "healthy" if env_path.exists() else "warning",
+        "env_file_exists": env_path.exists()
+    }
+
+    # Overall health determination
+    component_statuses = [c.get("status") for c in health_status["components"].values()]
+    if "unhealthy" in component_statuses:
+        health_status["status"] = "unhealthy"
+    elif "warning" in component_statuses:
+        health_status["status"] = "degraded"
+
+    # Set HTTP status code based on health
+    status_code = 200
+    if health_status["status"] == "degraded":
+        status_code = 200  # Still return 200 but indicate degraded state
+    elif health_status["status"] == "unhealthy":
+        status_code = 503  # Service Unavailable
+
+    return jsonify(health_status), status_code
 
 # Threat Intelligence setup
 THREAT_INTEL_ENABLED = config.get('threat_intelligence', 'enabled', default=False)
@@ -274,11 +375,19 @@ DEVICE_TYPE_ICONS = {
     'camera': {'emoji': '📷', 'fa': 'fa-video', 'color': '#dc3545'},
     'security camera': {'emoji': '📹', 'fa': 'fa-video', 'color': '#dc3545'},
     'doorbell': {'emoji': '🔔', 'fa': 'fa-bell', 'color': '#ffc107'},
-    'smart lock': {'emoji': '🔐', 'fa': 'fa-lock', 'color': '#28a745'},
+    'smart lock': {'emoji': '🔒', 'fa': 'fa-lock', 'color': '#28a745'},
+    'smart_lock': {'emoji': '🔒', 'fa': 'fa-lock', 'color': '#28a745'},
     'thermostat': {'emoji': '🌡️', 'fa': 'fa-thermometer-half', 'color': '#fd7e14'},
     'smart plug': {'emoji': '🔌', 'fa': 'fa-plug', 'color': '#17a2b8'},
+    'smart_plug': {'emoji': '🔌', 'fa': 'fa-plug', 'color': '#17a2b8'},
+    'smart bulb': {'emoji': '💡', 'fa': 'fa-lightbulb', 'color': '#ffc107'},
+    'smart_bulb': {'emoji': '💡', 'fa': 'fa-lightbulb', 'color': '#ffc107'},
     'light bulb': {'emoji': '💡', 'fa': 'fa-lightbulb', 'color': '#ffc107'},
     'sensor': {'emoji': '📊', 'fa': 'fa-sensor', 'color': '#6f42c1'},
+    'smart_speaker': {'emoji': '🔊', 'fa': 'fa-volume-up', 'color': '#17a2b8'},
+    'streaming_device': {'emoji': '📱', 'fa': 'fa-tv', 'color': '#fd7e14'},
+    'iot_hub': {'emoji': '🏠', 'fa': 'fa-home', 'color': '#6f42c1'},
+    'raspberry_pi': {'emoji': '🥧', 'fa': 'fa-microchip', 'color': '#c51a4a'},
 
     # Printers & Peripherals
     'printer': {'emoji': '🖨️', 'fa': 'fa-print', 'color': '#6c757d'},
@@ -1097,10 +1206,173 @@ def create_educational_explanation(alert: Dict) -> html.Div:
     return html.Div(sections)
 
 # ============================================================================
-# LAYOUT
+# LOGIN PAGE LAYOUT
 # ============================================================================
 
-app.layout = dbc.Container([
+login_layout = dbc.Container([
+    dbc.Row([
+        dbc.Col([
+            # Login/Register Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.Div([
+                        html.I(className="fa fa-shield-alt fa-3x mb-3", style={"color": "var(--accent-color)"}),
+                        html.H2("IoTSentinel", className="mb-1", style={"color": "var(--accent-color)", "fontWeight": "700"}),
+                        html.P("Network Security Dashboard", className="text-muted mb-0")
+                    ], className="text-center")
+                ], style={"backgroundColor": "var(--bg-secondary)", "border": "none", "padding": "2rem 1rem 1rem"}),
+
+                dbc.CardBody([
+                    # Tabs for Login/Register
+                    dbc.Tabs([
+                        # Login Tab
+                        dbc.Tab([
+                            html.Div([
+                                dbc.Alert(id="login-alert", is_open=False, duration=4000, className="mt-3"),
+
+                                # Username Input
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-user"), style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"}),
+                                    dbc.Input(
+                                        id="login-username",
+                                        type="text",
+                                        placeholder="Username",
+                                        autocomplete="username",
+                                        style={"border": "1px solid var(--border-color)"}
+                                    )
+                                ], className="mb-3 mt-3"),
+
+                                # Password Input with Eye Icon
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-lock"), style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"}),
+                                    dbc.Input(
+                                        id="login-password",
+                                        type="password",
+                                        placeholder="Password",
+                                        autocomplete="current-password",
+                                        n_submit=0,
+                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                    ),
+                                    dbc.Button(
+                                        html.I(id="login-password-toggle", className="fa fa-eye"),
+                                        id="login-password-toggle-btn",
+                                        color="light",
+                                        outline=False,
+                                        style={"border": "1px solid var(--border-color)", "backgroundColor": "var(--bg-tertiary)"}
+                                    )
+                                ], className="mb-3"),
+
+                                # Login Button
+                                dbc.Button(
+                                    [html.I(className="fa fa-sign-in-alt me-2"), "Sign In"],
+                                    id="login-button",
+                                    color="primary",
+                                    className="w-100 mt-2",
+                                    size="lg",
+                                    style={"fontWeight": "600"}
+                                ),
+
+                                # Default Credentials Hint
+                                html.Div([
+                                    html.Small([
+                                        html.I(className="fa fa-info-circle me-1"),
+                                        "First time? Use: ",
+                                        html.Code("admin / admin", style={"color": "var(--accent-color)"})
+                                    ], className="text-muted")
+                                ], className="text-center mt-3")
+                            ])
+                        ], label="Login", tab_id="login-tab", activeTabClassName="fw-bold"),
+
+                        # Register Tab
+                        dbc.Tab([
+                            html.Div([
+                                dbc.Alert(id="register-alert", is_open=False, duration=4000, className="mt-3"),
+
+                                # New Username Input
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-user"), style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"}),
+                                    dbc.Input(
+                                        id="register-username",
+                                        type="text",
+                                        placeholder="Choose username",
+                                        autocomplete="off",
+                                        style={"border": "1px solid var(--border-color)"}
+                                    )
+                                ], className="mb-3 mt-3"),
+
+                                # New Password Input
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-lock"), style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"}),
+                                    dbc.Input(
+                                        id="register-password",
+                                        type="password",
+                                        placeholder="Choose password",
+                                        autocomplete="new-password",
+                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                    ),
+                                    dbc.Button(
+                                        html.I(id="register-password-toggle", className="fa fa-eye"),
+                                        id="register-password-toggle-btn",
+                                        color="light",
+                                        outline=False,
+                                        style={"border": "1px solid var(--border-color)", "backgroundColor": "var(--bg-tertiary)"}
+                                    )
+                                ], className="mb-3"),
+
+                                # Confirm Password Input
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-lock"), style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"}),
+                                    dbc.Input(
+                                        id="register-password-confirm",
+                                        type="password",
+                                        placeholder="Confirm password",
+                                        autocomplete="new-password",
+                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                    ),
+                                    dbc.Button(
+                                        html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
+                                        id="register-password-confirm-toggle-btn",
+                                        color="light",
+                                        outline=False,
+                                        style={"border": "1px solid var(--border-color)", "backgroundColor": "var(--bg-tertiary)"}
+                                    )
+                                ], className="mb-3"),
+
+                                # Role Selection
+                                dbc.Label("Account Type", className="small text-muted mb-1"),
+                                dbc.RadioItems(
+                                    id="register-role",
+                                    options=[
+                                        {"label": "Admin (Full access)", "value": "admin"},
+                                        {"label": "Viewer (Read-only)", "value": "viewer"}
+                                    ],
+                                    value="viewer",
+                                    className="mb-3"
+                                ),
+
+                                # Register Button
+                                dbc.Button(
+                                    [html.I(className="fa fa-user-plus me-2"), "Create Account"],
+                                    id="register-button",
+                                    color="success",
+                                    className="w-100 mt-2",
+                                    size="lg",
+                                    style={"fontWeight": "600"}
+                                )
+                            ])
+                        ], label="Register", tab_id="register-tab", activeTabClassName="fw-bold")
+                    ], id="auth-tabs", active_tab="login-tab", className="mb-0")
+                ], style={"padding": "1.5rem"})
+            ], className="cyber-card shadow-lg", style={"maxWidth": "480px", "width": "100%"})
+        ], width=12, className="d-flex justify-content-center align-items-center", style={"minHeight": "100vh", "padding": "2rem"})
+    ], className="min-vh-100", style={"background": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"})
+], fluid=True)
+
+# ============================================================================
+# DASHBOARD LAYOUT
+# ============================================================================
+
+dashboard_layout = dbc.Container([
     # Header
     dbc.Row([
         dbc.Col([
@@ -1122,52 +1394,97 @@ app.layout = dbc.Container([
                     dbc.Button([html.I(className="fa fa-robot")], id="open-chat-button",
                               color="secondary", outline=True, size="sm", className="cyber-button ms-1"),
                     dbc.Button([html.I(className="fa fa-pause me-1"), "Pause"],
-                              id="pause-button", color="warning", outline=True, size="sm", className="cyber-button ms-1")
+                              id="pause-button", color="warning", outline=True, size="sm", className="cyber-button ms-1"),
+                    dbc.Button([html.I(className="fa fa-sign-out-alt me-1"), "Logout"],
+                              color="danger", outline=True, size="sm", className="cyber-button ms-1", href="/logout", external_link=True)
                 ], size="sm")
             ], className="float-end")
         ], width=5, className="text-end")
     ], className="header-row mb-2 align-items-center"),
 
     # Status Bar
-    dbc.Row([
-        dbc.Col([
-            html.Div([
-                html.I(className="fa fa-microchip me-2 status-icon"),
-                html.Span("Pi 5 CPU: ", className="metric-label"),
-                html.Span("35%", id="cpu-usage", className="metric-value cyber-glow")
-            ], className="status-metric-card")
-        ], width=2),
-        dbc.Col([
-            html.Div([
-                html.I(className="fa fa-memory me-2 status-icon"),
-                html.Span("RAM: ", className="metric-label"),
-                html.Span("2.5GB/8GB", id="ram-usage", className="metric-value cyber-glow")
-            ], className="status-metric-card")
-        ], width=2),
-        dbc.Col([
-            html.Div([
-                html.I(className="fa fa-wifi me-2 status-icon"),
-                html.Span("Network Health: ", className="metric-label"),
-                html.Span("STABLE", id="network-health", className="metric-value text-success")
-            ], className="status-metric-card")
-        ], width=3),
-        dbc.Col([
-            dbc.RadioItems(
-                id="theme-selector",
-                options=[
-                    {"label": "💡", "value": "light"},
-                    {"label": "🌙", "value": "dark"},
-                    {"label": "⚡", "value": "cyberpunk"},
-                ],
-                value="cyberpunk",
-                inline=True,
-                className="theme-selector-compact"
-            )
-        ], width=3, className="text-center"),
-        dbc.Col([
-            dbc.Switch(id="voice-alert-toggle", label="🔊 Voice", value=False, className="compact-switch")
-        ], width=2, className="text-end")
-    ], className="status-bar mb-3"),
+    # System Status Bar - Improved Layout
+    dbc.Card([
+        dbc.CardBody([
+            dbc.Row([
+                # Pi5 System Stats - Better Organized
+                dbc.Col([
+                    html.Div([
+                        html.H6([
+                            html.I(className="fa fa-server me-2", style={"color": "var(--accent-color)"}),
+                            "System Status"
+                        ], className="mb-2", style={"fontSize": "0.9rem"}),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-microchip me-2"),
+                                            "CPU"
+                                        ], className="small text-muted mb-1"),
+                                        html.H5(id="cpu-usage", className="mb-0", style={"color": "var(--accent-color)"})
+                                    ], className="text-center p-2")
+                                ], style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"})
+                            ], width=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-memory me-2"),
+                                            "RAM"
+                                        ], className="small text-muted mb-1"),
+                                        html.H6(id="ram-usage", className="mb-0", style={"color": "var(--accent-color)", "fontSize": "0.85rem"})
+                                    ], className="text-center p-2")
+                                ], style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"})
+                            ], width=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-wifi me-2"),
+                                            "Network"
+                                        ], className="small text-muted mb-1"),
+                                        html.H6(id="network-health", className="mb-0 text-success", style={"fontSize": "0.75rem"})
+                                    ], className="text-center p-2")
+                                ], style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"})
+                            ], width=4)
+                        ], className="g-2")
+                    ])
+                ], width=5),
+
+                # Voice Alerts - Better Toggle
+                dbc.Col([
+                    html.Div([
+                        html.H6([
+                            html.I(className="fa fa-volume-up me-2", style={"color": "var(--accent-color)"}),
+                            "Voice Alerts"
+                        ], className="mb-2", style={"fontSize": "0.9rem"}),
+                        dbc.Card([
+                            dbc.CardBody([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Div([
+                                            html.I(className="fa fa-bullhorn me-2"),
+                                            "Enable Voice Notifications"
+                                        ], className="small")
+                                    ], width=8, className="d-flex align-items-center"),
+                                    dbc.Col([
+                                        dbc.Switch(
+                                            id="voice-alert-toggle",
+                                            value=False,
+                                            className="float-end"
+                                        )
+                                    ], width=4)
+                                ], className="align-items-center")
+                            ], className="p-2")
+                        ], style={"backgroundColor": "var(--bg-tertiary)", "border": "1px solid var(--border-color)"})
+                    ])
+                ], width=4),
+
+
+            ], className="align-items-center")
+        ], className="p-3")
+    ], className="mb-3", style={"backgroundColor": "var(--bg-secondary)", "border": "1px solid var(--border-color)"}),
 
     # Three Panel Layout
     dbc.Row([
@@ -1198,6 +1515,19 @@ app.layout = dbc.Container([
                     html.I(className="fa fa-chart-area me-2"),
                     "Real-Time Network Traffic",
                     html.Span("(Zeek Analysis)", className="text-muted ms-2"),
+                    html.I(
+                        className="fa fa-question-circle ms-2",
+                        id="network-graph-help",
+                        style={"cursor": "pointer", "fontSize": "14px"}
+                    ),
+                    dbc.Tooltip(
+                        "This network graph shows all devices connected to your network and how they communicate. "
+                        "Each circle (node) represents a device, and lines (edges) show connections between devices. "
+                        "The router is shown as a diamond in the center. Watch for unusual connections between devices "
+                        "that normally don't talk to each other - this could indicate suspicious activity!",
+                        target="network-graph-help",
+                        placement="bottom"
+                    ),
                     dbc.Switch(id="graph-view-toggle", label="3D", value=False, className="float-end compact-switch")
                 ], className="cyber-card-header"),
                 dbc.CardBody([
@@ -1255,13 +1585,41 @@ app.layout = dbc.Container([
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
-                        dbc.CardHeader("Protocol Distribution", className="cyber-card-header-sm"),
+                        dbc.CardHeader([
+                            "Protocol Distribution",
+                            html.I(
+                                className="fa fa-question-circle ms-2",
+                                id="protocol-help",
+                                style={"cursor": "pointer", "fontSize": "12px"}
+                            ),
+                            dbc.Tooltip(
+                                "This pie chart shows what types of network protocols your devices are using. "
+                                "TCP is for reliable connections (like web browsing), UDP is for faster but less reliable traffic (like video calls), "
+                                "and ICMP is for network diagnostics (like ping). If you see unusual protocol activity, it might indicate scanning or attacks.",
+                                target="protocol-help",
+                                placement="top"
+                            )
+                        ], className="cyber-card-header-sm"),
                         dbc.CardBody(dcc.Graph(id='protocol-pie', style={'height': '200px'}, config={'displayModeBar': False}), className="p-2")
                     ], className="cyber-card")
                 ], width=6),
                 dbc.Col([
                     dbc.Card([
-                        dbc.CardHeader("Traffic Timeline (24h)", className="cyber-card-header-sm"),
+                        dbc.CardHeader([
+                            "Traffic Timeline (24h)",
+                            html.I(
+                                className="fa fa-question-circle ms-2",
+                                id="timeline-help",
+                                style={"cursor": "pointer", "fontSize": "12px"}
+                            ),
+                            dbc.Tooltip(
+                                "This timeline shows your network traffic over the past 24 hours. "
+                                "Look for unusual spikes in activity - high traffic at odd hours (like 3 AM) could indicate "
+                                "malware, data exfiltration, or unauthorized access. Normal patterns usually show activity during business hours.",
+                                target="timeline-help",
+                                placement="top"
+                            )
+                        ], className="cyber-card-header-sm"),
                         dbc.CardBody(dcc.Graph(id='traffic-timeline', style={'height': '200px'}, config={'displayModeBar': False}), className="p-2")
                     ], className="cyber-card")
                 ], width=6)
@@ -1300,23 +1658,98 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Accordion([
                 dbc.AccordionItem([
+                    # IoT Security Status Widget - NEW
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader([
+                                    html.I(className="fa fa-shield-alt me-2"),
+                                    "IoT Security Status"
+                                ]),
+                                dbc.CardBody([
+                                    html.Div(id='iot-security-widget')
+                                ])
+                            ], className="cyber-card mb-3", style={"borderLeft": "4px solid var(--accent-color)"})
+                        ], width=12)
+                    ]),
                     dbc.Row([
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader("Alert Timeline (7 Days)"),
+                            dbc.CardHeader([
+                                "Alert Timeline (7 Days)",
+                                html.I(
+                                    className="fa fa-question-circle ms-2",
+                                    id="alert-timeline-help",
+                                    style={"cursor": "pointer", "fontSize": "14px"}
+                                ),
+                                dbc.Tooltip(
+                                    "This timeline shows when security alerts were triggered over the past week. "
+                                    "Look for patterns - if you see many alerts at similar times each day, it could indicate "
+                                    "automated attacks or scheduled malicious activity. A sudden spike in alerts "
+                                    "might mean an active attack is happening now!",
+                                    target="alert-timeline-help",
+                                    placement="top"
+                                )
+                            ]),
                             dbc.CardBody(dcc.Graph(id='alert-timeline', style={'height': '300px'}))
                         ], className="cyber-card")], width=6),
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader("Anomaly Score Distribution"),
+                            dbc.CardHeader([
+                                "Anomaly Score Distribution",
+                                html.I(
+                                    className="fa fa-question-circle ms-2",
+                                    id="anomaly-help",
+                                    style={"cursor": "pointer", "fontSize": "14px"}
+                                ),
+                                dbc.Tooltip(
+                                    "This chart shows how unusual each device's behavior is compared to normal patterns. "
+                                    "The Anomaly Score is calculated by our AI model - higher scores mean more unusual behavior. "
+                                    "Most devices should have low scores (near 0). If you see devices with high scores, "
+                                    "they might be acting suspiciously and should be investigated further.",
+                                    target="anomaly-help",
+                                    placement="top"
+                                )
+                            ]),
                             dbc.CardBody(dcc.Graph(id='anomaly-distribution', style={'height': '300px'}))
                         ], className="cyber-card")], width=6)
                     ]),
                     dbc.Row([
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader("Top Devices by Bandwidth"),
+                            dbc.CardHeader([
+                                "Top Devices by Bandwidth",
+                                html.I(
+                                    className="fa fa-question-circle ms-2",
+                                    id="bandwidth-help",
+                                    style={"cursor": "pointer", "fontSize": "14px"}
+                                ),
+                                dbc.Tooltip(
+                                    "This chart ranks your devices by how much data they're using. "
+                                    "Normally, computers and streaming devices use the most bandwidth. "
+                                    "If a device you rarely use suddenly appears at the top, or if a simple IoT device "
+                                    "(like a smart bulb) is using a lot of data, it could be compromised and sending data to attackers.",
+                                    target="bandwidth-help",
+                                    placement="top"
+                                )
+                            ]),
                             dbc.CardBody(dcc.Graph(id='bandwidth-chart', style={'height': '300px'}))
                         ], className="cyber-card")], width=6),
                         dbc.Col([dbc.Card([
-                            dbc.CardHeader("Device Activity Heatmap"),
+                            dbc.CardHeader([
+                                "Device Activity Heatmap",
+                                html.I(
+                                    className="fa fa-question-circle ms-2",
+                                    id="heatmap-help",
+                                    style={"cursor": "pointer", "fontSize": "14px"}
+                                ),
+                                dbc.Tooltip(
+                                    "This heatmap shows when each device is most active throughout the day. "
+                                    "Darker colors mean more network activity during that hour. "
+                                    "Look for unusual patterns - for example, if a security camera is very active at 3 AM when nobody's home, "
+                                    "or if an IoT device shows activity at times when it shouldn't be in use. "
+                                    "These could be signs of compromise or malware.",
+                                    target="heatmap-help",
+                                    placement="top"
+                                )
+                            ]),
                             dbc.CardBody(dcc.Graph(id='device-heatmap', style={'height': '300px'}))
                         ], className="cyber-card")], width=6)
                     ], className="mt-3")
@@ -1333,104 +1766,311 @@ app.layout = dbc.Container([
                         ], className="cyber-card")], width=6)
                     ])
                 ], title="⚙️ System & ML Models", class_name="cyber-accordion-item"),
+
+                # Email Notifications - Separate Section
                 dbc.AccordionItem([
-                    dbc.Row([
-                        dbc.Col([dbc.Card([
-                            dbc.CardHeader([
-                                html.Div([
-                                    html.Span("📧 Email Notifications"),
-                                    dbc.Badge("", id="email-status-badge", className="ms-2")
-                                ], className="d-flex align-items-center justify-content-between")
+                    dbc.Card([
+                        dbc.CardHeader([
+                            html.Div([
+                                html.Span("📧 Email Notifications"),
+                                dbc.Badge("", id="email-status-badge", className="ms-2")
+                            ], className="d-flex align-items-center justify-content-between")
+                        ]),
+                        dbc.CardBody([
+                            dbc.Switch(
+                                id='email-enabled-switch',
+                                label="Enable Email Notifications",
+                                value=False,
+                                className="mb-3"
+                            ),
+
+                            html.Hr(),
+
+                            html.H6("SMTP Server Settings", className="text-muted mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("SMTP Host", className="small"),
+                                    dbc.Input(id='email-smtp-host', type='text', placeholder='smtp.gmail.com')
+                                ], width=8),
+                                dbc.Col([
+                                    dbc.Label("Port", className="small"),
+                                    dbc.Input(id='email-smtp-port', type='number', placeholder='587')
+                                ], width=4)
+                            ], className="mb-3"),
+
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("SMTP Username", className="small"),
+                                    dbc.Input(id='email-smtp-user', type='text', placeholder='your-email@gmail.com')
+                                ], width=6),
+                                dbc.Col([
+                                    dbc.Label("SMTP Password", className="small"),
+                                    dbc.Input(id='email-smtp-password', type='password', placeholder='••••••••')
+                                ], width=6)
+                            ], className="mb-3"),
+
+                            html.Hr(),
+
+                            html.H6("Email Addresses", className="text-muted mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("Sender Email", className="small"),
+                                    dbc.Input(id='email-sender', type='email', placeholder='iotsentinel@gmail.com')
+                                ], width=6),
+                                dbc.Col([
+                                    dbc.Label("Recipient Email", className="small"),
+                                    dbc.Input(id='email-recipient', type='email', placeholder='your-email@gmail.com')
+                                ], width=6)
+                            ], className="mb-3"),
+
+                            html.Hr(),
+
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Button([html.I(className="fa fa-save me-2"), "Save Settings"],
+                                              id="save-email-settings-btn", color="primary", className="w-100")
+                                ], width=6),
+                                dbc.Col([
+                                    dbc.Button([html.I(className="fa fa-envelope me-2"), "Send Test Email"],
+                                              id="test-email-btn", color="success", outline=True, className="w-100")
+                                ], width=6)
                             ]),
-                            dbc.CardBody([
-                                # Enable/Disable Toggle
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Switch(
-                                            id='email-enabled-switch',
-                                            label="Enable Email Notifications",
-                                            value=False
-                                        )
-                                    ])
-                                ], className="mb-3"),
 
-                                html.Hr(),
-
-                                # SMTP Settings
-                                html.H6("SMTP Server Settings", className="text-muted mb-3"),
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("SMTP Host", className="small"),
-                                        dbc.Input(id='email-smtp-host', type='text', placeholder='smtp.gmail.com', className="cyber-input")
-                                    ], width=8),
-                                    dbc.Col([
-                                        dbc.Label("Port", className="small"),
-                                        dbc.Input(id='email-smtp-port', type='number', placeholder='587', className="cyber-input")
-                                    ], width=4)
-                                ], className="mb-3"),
-
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("SMTP Username", className="small"),
-                                        dbc.Input(id='email-smtp-user', type='text', placeholder='your-email@gmail.com', className="cyber-input")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Label("SMTP Password", className="small"),
-                                        dbc.Input(id='email-smtp-password', type='password', placeholder='••••••••', className="cyber-input")
-                                    ], width=6)
-                                ], className="mb-3"),
-
-                                html.Hr(),
-
-                                # Email Addresses
-                                html.H6("Email Addresses", className="text-muted mb-3"),
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Label("Sender Email", className="small"),
-                                        dbc.Input(id='email-sender', type='email', placeholder='iotsentinel@gmail.com', className="cyber-input")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Label("Recipient Email", className="small"),
-                                        dbc.Input(id='email-recipient', type='email', placeholder='your-email@gmail.com', className="cyber-input")
-                                    ], width=6)
-                                ], className="mb-3"),
-
-                                html.Hr(),
-
-                                # Action Buttons
-                                dbc.Row([
-                                    dbc.Col([
-                                        dbc.Button([html.I(className="fa fa-save me-2"), "Save Settings"],
-                                                  id="save-email-settings-btn", color="primary", className="cyber-button w-100")
-                                    ], width=6),
-                                    dbc.Col([
-                                        dbc.Button([html.I(className="fa fa-envelope me-2"), "Send Test Email"],
-                                                  id="test-email-btn", color="success", outline=True, className="cyber-button w-100")
-                                    ], width=6)
-                                ]),
-
-                                # Status Messages
-                                html.Div(id="email-settings-status", className="mt-3")
-                            ])
-                        ], className="cyber-card")], width=12)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([dbc.Card([
-                            dbc.CardHeader("🔥 Firewall Control"),
-                            dbc.CardBody([
-                                dbc.Switch(id='lockdown-switch', label="Enable Lockdown Mode", value=False),
-                                html.P("When enabled, only trusted devices can access the network.", className="small text-muted mt-2"),
-                                html.Div(id='lockdown-status', className="mt-2")
-                            ])
-                        ], className="cyber-card")], width=12)
-                    ], className="mt-3"),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Button([html.I(className="fa fa-question-circle me-2"), "Restart Tour"],
-                                       id="restart-tour-button", color="info", outline=True, className="cyber-button mt-3")
+                            html.Div(id="email-settings-status", className="mt-3")
                         ])
-                    ])
-                ], title="⚙️ Settings & Controls", class_name="cyber-accordion-item")
+                    ], className="cyber-card")
+                ], title="📧 Email Notifications", class_name="cyber-accordion-item"),
+
+                # Firewall Control - Separate Section
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("🔥 Firewall & Security"),
+                        dbc.CardBody([
+                            html.H6("Lockdown Mode", className="mb-3"),
+                            dbc.Switch(
+                                id='lockdown-switch',
+                                label="Enable Lockdown Mode",
+                                value=False,
+                                className="mb-2"
+                            ),
+                            dbc.Alert([
+                                html.I(className="fa fa-info-circle me-2"),
+                                "When enabled, only trusted devices can access the network. Mark devices as trusted before enabling."
+                            ], color="info", className="mt-3"),
+                            html.Div(id='lockdown-status', className="mt-3")
+                        ])
+                    ], className="cyber-card")
+                ], title="🔥 Firewall Control", class_name="cyber-accordion-item"),
+
+                # User Management - New Section
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("👤 User Management"),
+                        dbc.CardBody([
+                            # Change Password Section
+                            html.H6("Change Password", className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("Current Password", className="small"),
+                                    dbc.Input(id='current-password', type='password', placeholder='Enter current password')
+                                ], width=12)
+                            ], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("New Password", className="small"),
+                                    dbc.Input(id='new-password', type='password', placeholder='Enter new password')
+                                ], width=6),
+                                dbc.Col([
+                                    dbc.Label("Confirm New Password", className="small"),
+                                    dbc.Input(id='new-password-confirm', type='password', placeholder='Confirm new password')
+                                ], width=6)
+                            ], className="mb-3"),
+                            dbc.Button([html.I(className="fa fa-key me-2"), "Change Password"],
+                                      id="change-password-btn", color="warning", className="w-100"),
+                            html.Div(id="change-password-status", className="mt-3"),
+
+                            html.Hr(className="my-4"),
+
+                            # User List Section (Admin only)
+                            html.H6("Active Users", className="mb-3"),
+                            html.Div(id="user-list-container"),
+                            html.Small("Only administrators can view all users", className="text-muted")
+                        ])
+                    ], className="cyber-card")
+                ], title="👤 User Management", class_name="cyber-accordion-item"),
+
+                # Device Management - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("📱 Device Management"),
+                        dbc.CardBody([
+                            html.Div(id='device-management-container', children=[
+                                # Load and Bulk Action Buttons
+                                dbc.Row([
+                                    dbc.Col([
+                                        dbc.Button([html.I(className="fa fa-sync me-2"), "Load Devices"],
+                                                  id="load-devices-btn", color="primary", className="mb-3")
+                                    ], width=3),
+                                    dbc.Col([
+                                        html.Div(id='bulk-actions-container', children=[
+                                            dbc.ButtonGroup([
+                                                dbc.Button([html.I(className="fa fa-check me-1"), "Trust Selected"],
+                                                          id="bulk-trust-btn", color="success", size="sm", disabled=True),
+                                                dbc.Button([html.I(className="fa fa-ban me-1"), "Block Selected"],
+                                                          id="bulk-block-btn", color="danger", size="sm", disabled=True),
+                                                dbc.Button([html.I(className="fa fa-trash me-1"), "Delete Selected"],
+                                                          id="bulk-delete-btn", color="warning", size="sm", disabled=True)
+                                            ])
+                                        ])
+                                    ], width=9, className="text-end")
+                                ], className="mb-2"),
+
+                                # Status message
+                                html.Div(id='bulk-action-status'),
+
+                                # Device table
+                                html.Div(id='device-management-table'),
+
+                                # Store for selected devices
+                                dcc.Store(id='selected-devices-store', data=[])
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="📱 Device Management", class_name="cyber-accordion-item"),
+
+                # General Settings - Enhanced
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("⚙️ Dashboard Preferences"),
+                        dbc.CardBody([
+                            # Auto-refresh interval
+                            html.Div([
+                                html.Label("Auto-refresh Interval", className="form-label"),
+                                dcc.Dropdown(
+                                    id='refresh-interval-dropdown',
+                                    options=[
+                                        {'label': '5 seconds', 'value': 5000},
+                                        {'label': '10 seconds (default)', 'value': 10000},
+                                        {'label': '30 seconds', 'value': 30000},
+                                        {'label': '1 minute', 'value': 60000},
+                                        {'label': 'Manual only', 'value': -1}
+                                    ],
+                                    value=10000,
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            # Data retention
+                            html.Div([
+                                html.Label("Data Retention Period", className="form-label"),
+                                dcc.Dropdown(
+                                    id='retention-dropdown',
+                                    options=[
+                                        {'label': '7 days', 'value': 7},
+                                        {'label': '30 days (default)', 'value': 30},
+                                        {'label': '90 days', 'value': 90}
+                                    ],
+                                    value=30,
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            # Alert threshold
+                            html.Div([
+                                html.Label("Anomaly Score Threshold", className="form-label"),
+                                html.P("Adjust sensitivity of anomaly detection", className="small text-muted mb-2"),
+                                dcc.Slider(
+                                    id='anomaly-threshold-slider',
+                                    min=0.5,
+                                    max=0.95,
+                                    step=0.05,
+                                    value=0.7,
+                                    marks={
+                                        0.5: 'Low (More alerts)',
+                                        0.7: 'Medium',
+                                        0.9: 'High (Fewer alerts)'
+                                    },
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            # Display density - NEW
+                            html.Div([
+                                html.Label("Display Density", className="form-label"),
+                                html.P("Adjust information density on dashboard", className="small text-muted mb-2"),
+                                dcc.Dropdown(
+                                    id='display-density-dropdown',
+                                    options=[
+                                        {'label': 'Compact - More data per screen', 'value': 'compact'},
+                                        {'label': 'Comfortable (default) - Balanced', 'value': 'comfortable'},
+                                        {'label': 'Spacious - Easier to read', 'value': 'spacious'}
+                                    ],
+                                    value='comfortable',
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            # Timezone configuration - NEW
+                            html.Div([
+                                html.Label("Timezone", className="form-label"),
+                                html.P("Select your local timezone for accurate timestamps", className="small text-muted mb-2"),
+                                dcc.Dropdown(
+                                    id='timezone-dropdown',
+                                    options=[
+                                        {'label': 'UTC', 'value': 'UTC'},
+                                        {'label': 'America/New_York (EST/EDT)', 'value': 'America/New_York'},
+                                        {'label': 'America/Chicago (CST/CDT)', 'value': 'America/Chicago'},
+                                        {'label': 'America/Denver (MST/MDT)', 'value': 'America/Denver'},
+                                        {'label': 'America/Los_Angeles (PST/PDT)', 'value': 'America/Los_Angeles'},
+                                        {'label': 'Europe/London (GMT/BST)', 'value': 'Europe/London'},
+                                        {'label': 'Europe/Paris (CET/CEST)', 'value': 'Europe/Paris'},
+                                        {'label': 'Asia/Tokyo (JST)', 'value': 'Asia/Tokyo'},
+                                        {'label': 'Asia/Shanghai (CST)', 'value': 'Asia/Shanghai'},
+                                        {'label': 'Australia/Sydney (AEDT/AEST)', 'value': 'Australia/Sydney'}
+                                    ],
+                                    value='UTC',
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            # Per-alert notification preferences - NEW
+                            html.Div([
+                                html.Label("Alert Notification Preferences", className="form-label"),
+                                html.P("Choose which alert types trigger notifications", className="small text-muted mb-2"),
+                                dbc.Checklist(
+                                    id='alert-notification-prefs',
+                                    options=[
+                                        {'label': ' High Severity Alerts (Critical threats)', 'value': 'high'},
+                                        {'label': ' Medium Severity Alerts (Warnings)', 'value': 'medium'},
+                                        {'label': ' Low Severity Alerts (Info)', 'value': 'low'},
+                                        {'label': ' IoT Security Alerts (Vulnerable devices)', 'value': 'iot_security'},
+                                        {'label': ' New Device Discovered', 'value': 'new_device'},
+                                        {'label': ' Excessive Traffic Alerts', 'value': 'traffic'},
+                                        {'label': ' Suspicious Port Activity', 'value': 'port'}
+                                    ],
+                                    value=['high', 'medium', 'iot_security', 'new_device'],
+                                    inline=False,
+                                    className="mb-3"
+                                ),
+                            ]),
+
+                            html.Hr(),
+
+                            # Dashboard Tour
+                            html.Div([
+                                html.H6("Dashboard Tour", className="mb-2"),
+                                html.P("Restart the interactive tour to learn about dashboard features.", className="small text-muted"),
+                                dbc.Button([html.I(className="fa fa-question-circle me-2"), "Restart Tour"],
+                                          id="restart-tour-button", color="info", outline=True, className="w-100 mb-3")
+                            ]),
+
+                            # Save preferences
+                            dbc.Button([html.I(className="fa fa-save me-2"), "Save Preferences"],
+                                      id="save-preferences-btn", color="success", className="w-100"),
+                            html.Div(id='preferences-status', className="mt-2")
+                        ])
+                    ], className="cyber-card")
+                ], title="⚙️ Dashboard Preferences", class_name="cyber-accordion-item")
             ], start_collapsed=True, className="mt-3 cyber-accordion")
         ])
     ]),
@@ -1445,7 +2085,6 @@ app.layout = dbc.Container([
     dcc.Store(id='onboarding-store', storage_type='local'),
     dcc.Store(id='onboarding-step-store', data=0),
     dcc.Store(id='keyboard-shortcut-store', data=None),
-    dcc.Location(id='url', refresh=False),
 
     # Onboarding Modal
     dbc.Modal([
@@ -1523,6 +2162,16 @@ app.layout = dbc.Container([
     dcc.Store(id='chat-history-store', storage_type='session', data={'history': []})
 
 ], fluid=True, className="dashboard-container p-3")
+
+# ============================================================================
+# MAIN APP LAYOUT - WITH AUTHENTICATION
+# ============================================================================
+
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    dcc.Store(id='user-session', storage_type='session'),
+    html.Div(id='page-content')
+])
 
 # ============================================================================
 # CALLBACKS - HEADER & NOTIFICATIONS
@@ -2594,6 +3243,20 @@ def save_email_settings(n_clicks, enabled, smtp_host, smtp_port, smtp_user, smtp
 
 
 @app.callback(
+    [Output('email-status-badge', 'children', allow_duplicate=True),
+     Output('email-status-badge', 'color', allow_duplicate=True)],
+    Input('email-enabled-switch', 'value'),
+    prevent_initial_call=True
+)
+def update_email_badge_on_toggle(enabled):
+    """Show UNSAVED badge when switch is toggled"""
+    if enabled:
+        return "UNSAVED", "warning"
+    else:
+        return "UNSAVED", "warning"
+
+
+@app.callback(
     Output('email-settings-status', 'children', allow_duplicate=True),
     Input('test-email-btn', 'n_clicks'),
     [State('email-smtp-host', 'value'),
@@ -3297,6 +3960,592 @@ def test_connect(auth):
 @socketio.on('disconnect')
 def test_disconnect():
     logger.info("Client disconnected from WebSocket.")
+
+# ============================================================================
+# AUTHENTICATION CALLBACKS
+# ============================================================================
+
+@app.callback(
+    Output('page-content', 'children'),
+    [Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def display_page(pathname):
+    """Route to login or dashboard based on authentication"""
+    # Check if user is authenticated
+    if current_user.is_authenticated:
+        # User is logged in
+        if pathname == '/logout':
+            logout_user()
+            return login_layout
+        # Show dashboard for any other path when authenticated
+        return dashboard_layout
+    else:
+        # User not logged in, show login page
+        return login_layout
+
+
+@app.callback(
+    [Output('login-alert', 'children'),
+     Output('login-alert', 'is_open'),
+     Output('login-alert', 'color'),
+     Output('url', 'pathname', allow_duplicate=True)],
+    [Input('login-button', 'n_clicks'),
+     Input('login-password', 'n_submit')],
+    [State('login-username', 'value'),
+     State('login-password', 'value')],
+    prevent_initial_call=True
+)
+def handle_login(n_clicks, n_submit, username, password):
+    """Handle login button click or Enter key"""
+    if n_clicks is None and n_submit is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Validate inputs
+    if not username or not password:
+        return "Please enter both username and password", True, "warning", dash.no_update
+
+    # Check if username is locked out due to too many failed attempts
+    is_locked, remaining_time = login_rate_limiter.is_locked_out(username)
+    if is_locked:
+        minutes = remaining_time // 60
+        seconds = remaining_time % 60
+        logger.warning(f"Login attempt for locked account '{username}' (locked for {minutes}m {seconds}s)")
+        return (
+            f"Too many failed attempts. Account locked for {minutes} minute(s) and {seconds} second(s).",
+            True,
+            "danger",
+            dash.no_update
+        )
+
+    # Verify credentials
+    user = auth_manager.verify_user(username, password)
+
+    if user:
+        # Login successful - reset rate limiter for this username
+        login_rate_limiter.record_successful_login(username)
+        login_user(user)
+        logger.info(f"User '{username}' logged in successfully")
+        return "Login successful! Loading dashboard...", True, "success", "/"
+    else:
+        # Login failed - record failed attempt
+        is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
+
+        if is_now_locked:
+            logger.warning(f"Account '{username}' locked due to too many failed attempts")
+            return (
+                "Too many failed attempts. Account locked for 5 minutes.",
+                True,
+                "danger",
+                dash.no_update
+            )
+        else:
+            logger.warning(f"Failed login attempt for username '{username}' ({remaining_attempts} attempts remaining)")
+            return (
+                f"Invalid username or password. {remaining_attempts} attempt(s) remaining before lockout.",
+                True,
+                "danger",
+                dash.no_update
+            )
+
+
+# Password toggle callbacks for login page
+@app.callback(
+    [Output('login-password', 'type'),
+     Output('login-password-toggle', 'className')],
+    Input('login-password-toggle-btn', 'n_clicks'),
+    State('login-password', 'type'),
+    prevent_initial_call=True
+)
+def toggle_login_password(n_clicks, current_type):
+    """Toggle password visibility on login page"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
+@app.callback(
+    [Output('register-password', 'type'),
+     Output('register-password-toggle', 'className')],
+    Input('register-password-toggle-btn', 'n_clicks'),
+    State('register-password', 'type'),
+    prevent_initial_call=True
+)
+def toggle_register_password(n_clicks, current_type):
+    """Toggle password visibility on register page"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
+@app.callback(
+    [Output('register-password-confirm', 'type'),
+     Output('register-password-confirm-toggle', 'className')],
+    Input('register-password-confirm-toggle-btn', 'n_clicks'),
+    State('register-password-confirm', 'type'),
+    prevent_initial_call=True
+)
+def toggle_register_confirm_password(n_clicks, current_type):
+    """Toggle confirm password visibility"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
+# Registration callback
+@app.callback(
+    [Output('register-alert', 'children'),
+     Output('register-alert', 'is_open'),
+     Output('register-alert', 'color'),
+     Output('auth-tabs', 'active_tab', allow_duplicate=True)],
+    Input('register-button', 'n_clicks'),
+    [State('register-username', 'value'),
+     State('register-password', 'value'),
+     State('register-password-confirm', 'value'),
+     State('register-role', 'value')],
+    prevent_initial_call=True
+)
+def handle_registration(n_clicks, username, password, password_confirm, role):
+    """Handle user registration"""
+    if n_clicks is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Validation
+    if not username or not password or not password_confirm:
+        return "Please fill in all fields", True, "warning", dash.no_update
+
+    if len(username) < 3:
+        return "Username must be at least 3 characters", True, "warning", dash.no_update
+
+    if len(password) < 4:
+        return "Password must be at least 4 characters", True, "warning", dash.no_update
+
+    if password != password_confirm:
+        return "Passwords do not match", True, "danger", dash.no_update
+
+    # Attempt to create user
+    success = auth_manager.create_user(username, password, role)
+
+    if success:
+        logger.info(f"New user registered: {username} (role: {role})")
+        return "Account created successfully! Please login.", True, "success", "login-tab"
+    else:
+        return "Username already exists", True, "danger", dash.no_update
+
+
+# Change Password callback
+@app.callback(
+    [Output('change-password-status', 'children'),
+     Output('current-password', 'value'),
+     Output('new-password', 'value'),
+     Output('new-password-confirm', 'value')],
+    Input('change-password-btn', 'n_clicks'),
+    [State('current-password', 'value'),
+     State('new-password', 'value'),
+     State('new-password-confirm', 'value')],
+    prevent_initial_call=True
+)
+def change_password(n_clicks, current_pwd, new_pwd, new_pwd_confirm):
+    """Handle password change for logged-in user"""
+    if n_clicks is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Check if user is authenticated
+    if not current_user.is_authenticated:
+        return dbc.Alert("You must be logged in to change password", color="danger"), dash.no_update, dash.no_update, dash.no_update
+
+    # Validation
+    if not current_pwd or not new_pwd or not new_pwd_confirm:
+        return dbc.Alert("Please fill in all fields", color="warning"), dash.no_update, dash.no_update, dash.no_update
+
+    if len(new_pwd) < 4:
+        return dbc.Alert("New password must be at least 4 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update
+
+    if new_pwd != new_pwd_confirm:
+        return dbc.Alert("New passwords do not match", color="danger"), dash.no_update, dash.no_update, dash.no_update
+
+    # Verify current password
+    user = auth_manager.verify_user(current_user.username, current_pwd)
+    if not user:
+        return dbc.Alert("Current password is incorrect", color="danger"), dash.no_update, dash.no_update, dash.no_update
+
+    # Change password
+    success = auth_manager.change_password(current_user.id, new_pwd)
+
+    if success:
+        logger.info(f"Password changed for user: {current_user.username}")
+        return dbc.Alert([
+            html.I(className="fa fa-check-circle me-2"),
+            "Password changed successfully!"
+        ], color="success"), "", "", ""
+    else:
+        return dbc.Alert("Error changing password. Please try again.", color="danger"), dash.no_update, dash.no_update, dash.no_update
+
+
+# User list callback (Admin only)
+@app.callback(
+    Output('user-list-container', 'children'),
+    Input('url', 'pathname'),
+    prevent_initial_call=False
+)
+def display_user_list(pathname):
+    """Display list of active users (admin only)"""
+    if not current_user.is_authenticated:
+        return html.Div()
+
+    # Check if user is admin
+    if not current_user.is_admin():
+        return dbc.Alert("Only administrators can view user list", color="info", className="mt-3")
+
+    # Get all users
+    users = auth_manager.get_all_users()
+
+    if not users:
+        return html.P("No users found", className="text-muted")
+
+    # Create user cards
+    user_cards = []
+    for user in users:
+        user_cards.append(
+            dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6([
+                                html.I(className="fa fa-user me-2"),
+                                user['username']
+                            ]),
+                            html.Small(f"Role: {user['role'].title()}", className="text-muted")
+                        ], width=8),
+                        dbc.Col([
+                            dbc.Badge(
+                                "Active" if user['is_active'] else "Inactive",
+                                color="success" if user['is_active'] else "secondary",
+                                className="float-end"
+                            )
+                        ], width=4)
+                    ])
+                ])
+            ], className="mb-2", style={"backgroundColor": "var(--bg-tertiary)"})
+        )
+
+    return html.Div(user_cards)
+
+# ============================================================================
+# DEVICE MANAGEMENT & PREFERENCES CALLBACKS
+# ============================================================================
+
+@app.callback(
+    Output('device-management-table', 'children'),
+    Input('load-devices-btn', 'n_clicks'),
+    prevent_initial_call=False
+)
+def load_device_management_table(n_clicks):
+    """Load all devices for management"""
+    devices = db_manager.get_all_devices()
+
+    if not devices:
+        return dbc.Alert("No devices found", color="info")
+
+    # Create device management table
+    rows = []
+    for device in devices:
+        device_ip = device['device_ip']
+        device_type = device.get('device_type', 'unknown')
+        manufacturer = device.get('manufacturer', 'Unknown')
+        custom_name = device.get('custom_name') or device.get('device_name') or device_ip
+        category = device.get('category', 'other')
+        icon = device.get('icon', '❓')
+
+        # Get device groups
+        groups = db_manager.get_device_groups(device_ip)
+        group_names = ', '.join([g['name'] for g in groups]) if groups else 'None'
+
+        row = dbc.Card([
+            dbc.CardBody([
+                dbc.Row([
+                    # Checkbox - NEW
+                    dbc.Col([
+                        dbc.Checkbox(
+                            id={'type': 'device-checkbox', 'ip': device_ip},
+                            className="device-select-checkbox"
+                        )
+                    ], width=1, className="d-flex align-items-center justify-content-center"),
+
+                    # Icon & Name
+                    dbc.Col([
+                        html.Div([
+                            html.Span(icon, style={'fontSize': '1.5rem', 'marginRight': '10px'}),
+                            html.Div([
+                                html.Strong(custom_name),
+                                html.Br(),
+                                html.Small(f"{manufacturer} • {device_type}", className="text-muted")
+                            ])
+                        ], className="d-flex align-items-center")
+                    ], width=3),
+
+                    # IP & Category
+                    dbc.Col([
+                        html.Div([
+                            html.Small("IP Address", className="text-muted d-block"),
+                            html.Span(device_ip),
+                            html.Br(),
+                            html.Small("Category", className="text-muted d-block"),
+                            dbc.Badge(category, color="info", className="mt-1")
+                        ])
+                    ], width=3),
+
+                    # Groups
+                    dbc.Col([
+                        html.Div([
+                            html.Small("Groups", className="text-muted d-block"),
+                            html.Span(group_names)
+                        ])
+                    ], width=3),
+
+                    # Actions
+                    dbc.Col([
+                        dbc.ButtonGroup([
+                            dbc.Button([html.I(className="fa fa-edit")],
+                                      id={'type': 'edit-device-btn', 'ip': device_ip},
+                                      color="primary", size="sm", outline=True,
+                                      title="Edit device"),
+                            dbc.Button([html.I(className="fa fa-info-circle")],
+                                      id={'type': 'view-device-btn', 'ip': device_ip},
+                                      color="info", size="sm", outline=True,
+                                      title="View details")
+                        ], size="sm")
+                    ], width=2, className="text-end")
+                ])
+            ])
+        ], className="mb-2")
+
+        rows.append(row)
+
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                html.H6(f"Total Devices: {len(devices)}", className="mb-0")
+            ], width=6),
+            dbc.Col([
+                dbc.Checkbox(
+                    id='select-all-devices-checkbox',
+                    label="Select All",
+                    className="text-end"
+                )
+            ], width=6, className="text-end")
+        ], className="mb-3"),
+        html.Div(rows, id='device-rows-container')
+    ])
+
+
+@app.callback(
+    [Output('preferences-status', 'children'),
+     Output('ws', 'message', allow_duplicate=True)],
+    Input('save-preferences-btn', 'n_clicks'),
+    [State('refresh-interval-dropdown', 'value'),
+     State('retention-dropdown', 'value'),
+     State('anomaly-threshold-slider', 'value'),
+     State('display-density-dropdown', 'value'),
+     State('timezone-dropdown', 'value'),
+     State('alert-notification-prefs', 'value')],
+    prevent_initial_call=True
+)
+def save_preferences(n_clicks, refresh_interval, retention, threshold, display_density, timezone, alert_prefs):
+    """Save user preferences to database"""
+    if not current_user.is_authenticated:
+        return dbc.Alert("Please login to save preferences", color="warning"), dash.no_update
+
+    # Save to user_preferences table
+    user_id = current_user.id
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Insert or update preferences
+        preferences = {
+            'refresh_interval': str(refresh_interval),
+            'data_retention': str(retention),
+            'anomaly_threshold': str(threshold),
+            'display_density': display_density,
+            'timezone': timezone,
+            'alert_notifications': ','.join(alert_prefs) if alert_prefs else ''
+        }
+
+        for key, value in preferences.items():
+            cursor.execute("""
+                INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, preference_key) DO UPDATE SET preference_value = excluded.preference_value
+            """, (user_id, key, value))
+
+        conn.commit()
+        conn.close()
+
+        return dbc.Alert([
+            html.I(className="fa fa-check-circle me-2"),
+            "Preferences saved successfully! Alert notifications and other settings will apply on next refresh."
+        ], color="success", dismissable=True), dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error saving preferences: {e}")
+        return dbc.Alert(f"Error saving preferences: {e}", color="danger", dismissable=True), dash.no_update
+
+
+@app.callback(
+    Output('iot-security-widget', 'children'),
+    Input('ws', 'message')
+)
+def update_iot_security_widget(ws_message):
+    """Update IoT Security Status widget"""
+    from utils.iot_security_checker import security_checker
+
+    # Get all devices
+    devices = db_manager.get_all_devices()
+
+    if not devices:
+        return dbc.Alert("No devices to analyze", color="info")
+
+    # Get security assessment
+    security_summary = security_checker.get_network_security_score(devices)
+
+    # Determine color based on risk level
+    risk_level = security_summary['risk_level']
+    if risk_level == 'low':
+        score_color = 'success'
+        badge_color = 'success'
+    elif risk_level == 'medium':
+        score_color = 'warning'
+        badge_color = 'warning'
+    elif risk_level == 'high':
+        score_color = 'danger'
+        badge_color = 'warning'
+    else:  # critical
+        score_color = 'danger'
+        badge_color = 'danger'
+
+    return html.Div([
+        dbc.Row([
+            # Security Score
+            dbc.Col([
+                html.Div([
+                    html.H2(f"{security_summary['security_score']}", className=f"text-{score_color} mb-0",
+                           style={'fontSize': '3rem', 'fontWeight': 'bold'}),
+                    html.P("Security Score", className="text-muted mb-2"),
+                    dbc.Badge(f"{risk_level.upper()} RISK", color=badge_color, className="mt-1")
+                ], className="text-center")
+            ], width=3),
+
+            # Metrics
+            dbc.Col([
+                dbc.Row([
+                    dbc.Col([
+                        html.Div([
+                            html.H4(security_summary['iot_devices_count'], className="text-primary mb-0"),
+                            html.Small("IoT Devices", className="text-muted")
+                        ], className="text-center")
+                    ], width=4),
+                    dbc.Col([
+                        html.Div([
+                            html.H4(security_summary['vulnerable_count'], className="text-danger mb-0"),
+                            html.Small("Vulnerable", className="text-muted")
+                        ], className="text-center")
+                    ], width=4),
+                    dbc.Col([
+                        html.Div([
+                            html.H4(security_summary['total_devices'], className="text-info mb-0"),
+                            html.Small("Total Devices", className="text-muted")
+                        ], className="text-center")
+                    ], width=4)
+                ])
+            ], width=5),
+
+            # Recommendations
+            dbc.Col([
+                html.Div([
+                    html.H6([html.I(className="fa fa-lightbulb me-2"), "Top Recommendations"], className="mb-2"),
+                    html.Ul([
+                        html.Li(rec, className="small") for rec in security_summary['top_recommendations'][:3]
+                    ], className="mb-0", style={'paddingLeft': '20px'})
+                ])
+            ], width=4)
+        ], className="align-items-center")
+    ])
+
+
+# Bulk Device Operations Callbacks - NEW
+@app.callback(
+    Output('bulk-action-status', 'children'),
+    [Input('bulk-trust-btn', 'n_clicks'),
+     Input('bulk-block-btn', 'n_clicks'),
+     Input('bulk-delete-btn', 'n_clicks')],
+    [State({'type': 'device-checkbox', 'ip': ALL}, 'value'),
+     State({'type': 'device-checkbox', 'ip': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_values, checkbox_ids):
+    """Handle bulk device operations"""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # Get selected device IPs
+    selected_ips = [
+        checkbox_ids[i]['ip']
+        for i, checked in enumerate(checkbox_values)
+        if checked
+    ]
+
+    if not selected_ips:
+        return dbc.Alert("No devices selected", color="warning", duration=3000)
+
+    try:
+        count = len(selected_ips)
+
+        if 'bulk-trust-btn' in button_id:
+            # Trust selected devices
+            for ip in selected_ips:
+                db_manager.update_device_trust(ip, is_trusted=True)
+            return dbc.Alert(f"✅ Trusted {count} device(s)", color="success", duration=3000)
+
+        elif 'bulk-block-btn' in button_id:
+            # Block selected devices
+            for ip in selected_ips:
+                db_manager.update_device_trust(ip, is_blocked=True)
+            return dbc.Alert(f"🚫 Blocked {count} device(s)", color="danger", duration=3000)
+
+        elif 'bulk-delete-btn' in button_id:
+            # Delete selected devices
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            for ip in selected_ips:
+                cursor.execute("DELETE FROM devices WHERE device_ip = ?", (ip,))
+            conn.commit()
+            conn.close()
+            return dbc.Alert(f"🗑️ Deleted {count} device(s)", color="warning", duration=3000)
+
+    except Exception as e:
+        logger.error(f"Bulk operation error: {e}")
+        return dbc.Alert(f"Error: {e}", color="danger", duration=5000)
+
+    return dash.no_update
+
+
+@app.callback(
+    [Output('bulk-trust-btn', 'disabled'),
+     Output('bulk-block-btn', 'disabled'),
+     Output('bulk-delete-btn', 'disabled')],
+    Input({'type': 'device-checkbox', 'ip': ALL}, 'value')
+)
+def toggle_bulk_buttons(checkbox_values):
+    """Enable/disable bulk action buttons based on selections"""
+    has_selection = any(checkbox_values) if checkbox_values else False
+    # Disabled = NOT has_selection
+    return not has_selection, not has_selection, not has_selection
+
 
 # ============================================================================
 # MAIN

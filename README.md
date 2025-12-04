@@ -23,6 +23,51 @@ The project's unique value proposition is **educational transparency**: it doesn
 - ✅ **Low Power**: Optimized for a Raspberry Pi 5, consuming significantly less power than a traditional desktop-based solution.
 - ✅ **Comprehensive Testing**: Includes 59 unit and integration tests, achieving 84% code coverage.
 
+### 🤖 IoT-Specific Features
+
+**Intelligent Device Classification**
+- 📷🔊💡🔌 Automatic device type detection with visual icons
+- 80+ manufacturer database (Nest, Ring, Philips Hue, Amazon, Google, etc.)
+- Smart categorization: cameras, speakers, bulbs, plugs, thermostats, locks, and more
+- Confidence scoring for classification accuracy
+
+**IoT Security Assessment**
+- 🛡️ Real-time security scoring (0-100) for your IoT network
+- Vulnerability detection and security recommendations
+- Device-specific security advice (e.g., "Disable remote access on cameras")
+- Risk level indicators (Low/Medium/High/Critical)
+
+**Enhanced Device Management**
+- Custom device naming and notes
+- Device grouping (Living Room, Kitchen, Security, etc.)
+- First seen / Last seen timestamps
+- Connection statistics and activity tracking
+
+**Educational Transparency**
+- Interactive tooltips explaining each chart in simple English
+- "Why is this suspicious?" explanations for alerts
+- Learning resources for understanding network security
+
+### 🔐 Security Features
+
+**Login Protection**
+- Rate limiting: 5 failed attempts = 5-minute lockout
+- Persistent SECRET_KEY from environment
+- Bcrypt password hashing with salt
+- Role-based access control (Admin/Viewer)
+
+**Deployment Security**
+- Automatic backups before every deployment
+- Rollback capability with timestamped backups
+- Health check endpoint (`/health`) for monitoring
+- .env template with security best practices
+
+**Network Security**
+- Threat intelligence integration (AbuseIPDB)
+- Firewall control and device blocking
+- Lockdown mode for emergency isolation
+- Email alerts for critical events
+
 ## 🏗️ Architecture
 
 The system follows a modular, pipeline-based architecture:

@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from utils.device_classifier import classifier
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,11 @@ class DatabaseManager:
 
     def add_device(self, device_ip: str, **kwargs) -> bool:
         """
-        Add or update device.
+        Add or update device with automatic classification.
 
         Args:
             device_ip: Device IP address (PRIMARY KEY)
-            **kwargs: Optional fields (device_name, device_type, mac_address, manufacturer)
+            **kwargs: Optional fields (device_name, device_type, mac_address, manufacturer, hostname)
 
         Returns:
             True if successful, False otherwise
@@ -58,19 +59,55 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
 
+            # Auto-classify device if we have MAC address
+            mac_address = kwargs.get('mac_address')
+            hostname = kwargs.get('device_name') or kwargs.get('hostname')
+
+            device_type = kwargs.get('device_type')
+            manufacturer = kwargs.get('manufacturer')
+            icon = kwargs.get('icon')
+            category = kwargs.get('category')
+            confidence = kwargs.get('confidence')
+
+            # Automatically classify if not already classified
+            if mac_address and (not device_type or device_type == 'unknown'):
+                classification = classifier.classify_device(
+                    mac_address=mac_address,
+                    hostname=hostname,
+                    ip_address=device_ip
+                )
+
+                device_type = classification['device_type']
+                manufacturer = classification['manufacturer'] or manufacturer
+                icon = classification['icon']
+                category = classification['category']
+                confidence = classification['confidence']
+
             cursor.execute("""
-                INSERT INTO devices (device_ip, device_name, mac_address, manufacturer, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO devices (
+                    device_ip, device_name, mac_address, manufacturer,
+                    device_type, icon, category, confidence,
+                    first_seen, last_seen
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(device_ip) DO UPDATE SET
                     device_name = COALESCE(excluded.device_name, devices.device_name),
                     mac_address = COALESCE(excluded.mac_address, devices.mac_address),
                     manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer),
+                    device_type = COALESCE(excluded.device_type, devices.device_type),
+                    icon = COALESCE(excluded.icon, devices.icon),
+                    category = COALESCE(excluded.category, devices.category),
+                    confidence = COALESCE(excluded.confidence, devices.confidence),
                     last_seen = CURRENT_TIMESTAMP
             """, (
                 device_ip,
-                kwargs.get('device_name'),
-                kwargs.get('mac_address'),
-                kwargs.get('manufacturer')
+                hostname,
+                mac_address,
+                manufacturer,
+                device_type,
+                icon,
+                category,
+                confidence
             ))
 
             self.conn.commit()
@@ -339,6 +376,97 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Error updating device name: {e}")
             return False
+
+    def update_device_metadata(self, device_ip: str, **kwargs) -> bool:
+        """
+        Update device metadata fields.
+
+        Args:
+            device_ip: Device IP address
+            **kwargs: Fields to update (custom_name, notes, firmware_version, model, etc.)
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Build dynamic UPDATE query
+            fields = []
+            values = []
+
+            allowed_fields = ['custom_name', 'notes', 'firmware_version', 'model',
+                            'device_type', 'manufacturer', 'category']
+
+            for field, value in kwargs.items():
+                if field in allowed_fields:
+                    fields.append(f"{field} = ?")
+                    values.append(value)
+
+            if not fields:
+                return True
+
+            values.append(device_ip)
+
+            cursor = self.conn.cursor()
+            query = f"UPDATE devices SET {', '.join(fields)} WHERE device_ip = ?"
+            cursor.execute(query, values)
+            self.conn.commit()
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error updating device metadata: {e}")
+            return False
+
+    def add_device_to_group(self, device_ip: str, group_id: int, added_by: int = None) -> bool:
+        """Add device to a group."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO device_group_members (device_ip, group_id, added_by)
+                VALUES (?, ?, ?)
+            """, (device_ip, group_id, added_by))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error adding device to group: {e}")
+            return False
+
+    def remove_device_from_group(self, device_ip: str, group_id: int) -> bool:
+        """Remove device from a group."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                DELETE FROM device_group_members
+                WHERE device_ip = ? AND group_id = ?
+            """, (device_ip, group_id))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error removing device from group: {e}")
+            return False
+
+    def get_device_groups(self, device_ip: str) -> List[Dict]:
+        """Get all groups a device belongs to."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT g.* FROM device_groups g
+                JOIN device_group_members m ON g.id = m.group_id
+                WHERE m.device_ip = ?
+            """, (device_ip,))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching device groups: {e}")
+            return []
+
+    def get_all_groups(self) -> List[Dict]:
+        """Get all device groups."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM device_groups ORDER BY name")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching all groups: {e}")
+            return []
 
     def acknowledge_alert(self, alert_id: int) -> bool:
         """Mark alert as acknowledged."""

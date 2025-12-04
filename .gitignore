@@ -32,13 +32,28 @@ Thumbs.db
 .idea/
 *.code-workspace
 
-# Secrets
+# Secrets and Credentials
 .env
+!.env.template
 config/config.json
 *.key
 *.pem
+*.crt
+*.p12
+*.pfx
+credentials.json
+secrets.yaml
+.secrets/
 
-# Temp
+# Temp and Backups
 *.tmp
 *.bak
+*.backup
 .pytest_cache/
+backups/
+*.sql.gz
+*.db.backup
+
+# Deployment
+.deploy.env
+deploy_*.log
