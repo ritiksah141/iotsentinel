@@ -9,7 +9,9 @@
     },
     "network": {
         "interface": "wlan0",
-        "local_networks": ["192.168.1.0/24"],
+        "local_networks": [
+            "192.168.1.0/24"
+        ],
         "zeek_enabled": true,
         "zeek_bin_path": "/opt/zeek/bin",
         "zeek_log_path": "/opt/zeek/logs",
@@ -17,7 +19,11 @@
     },
     "zeek": {
         "parse_interval_seconds": 60,
-        "log_types": ["conn", "http", "dns"],
+        "log_types": [
+            "conn",
+            "http",
+            "dns"
+        ],
         "json_format": true
     },
     "ml": {
@@ -60,7 +66,7 @@
             "critical": 0.98,
             "high": 0.95,
             "medium": 0.85,
-            "low": 0.70
+            "low": 0.7
         },
         "reports": {
             "weekly_enabled": true,
