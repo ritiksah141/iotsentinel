@@ -10,6 +10,7 @@ import logging
 import sys
 from pathlib import Path
 import paramiko
+import os
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,7 +32,7 @@ def get_ssh_client():
 
     router_ip = config.get('firewall', 'router_ip')
     router_user = config.get('firewall', 'router_user')
-    private_key_path = config.get('firewall', 'router_private_key_path')
+    private_key_path = os.path.expanduser(config.get('firewall', 'router_private_key_path'))
 
     if not all([router_ip, router_user, private_key_path]):
         logger.error("Firewall configuration is incomplete.")

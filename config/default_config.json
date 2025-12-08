@@ -48,15 +48,6 @@
         "level": "INFO",
         "log_dir": "data/logs"
     },
-    "email": {
-        "enabled": false,
-        "smtp_host": "smtp.gmail.com",
-        "smtp_port": 587,
-        "smtp_user": "",
-        "smtp_password": "",
-        "sender_email": "",
-        "recipient_email": ""
-    },
     "alerting": {
         "enabled": true,
         "max_per_device_per_hour": 5,

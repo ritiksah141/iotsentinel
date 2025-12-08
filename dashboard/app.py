@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import sys
+from dotenv import load_dotenv
 
 import dash
 import dash_bootstrap_components as dbc
@@ -43,6 +44,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from utils.auth import AuthManager, User
 from utils.rate_limiter import LoginRateLimiter
 
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,12 @@ socketio = SocketIO(app.server, cors_allowed_origins="*")
 # Database setup
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
+
+# Device group manager import
+from utils.device_group_manager import DeviceGroupManager
+
+# Initialize device group manager
+group_manager = DeviceGroupManager(DB_PATH)
 
 # Authentication setup
 auth_manager = AuthManager(DB_PATH)
@@ -584,6 +592,9 @@ def get_device_baseline(device_ip: str, days: int = 7) -> Dict[str, Any]:
     conn = get_db_connection()
     if not conn:
         return {'has_baseline': False}
+
+    conn.create_function("sqrt", 1, math.sqrt)
+
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -592,9 +603,9 @@ def get_device_baseline(device_ip: str, days: int = 7) -> Dict[str, Any]:
                 AVG(daily_bytes_received) as avg_bytes_received,
                 AVG(daily_connections) as avg_connections,
                 AVG(daily_unique_destinations) as avg_unique_destinations,
-                COALESCE(STDEV(daily_bytes_sent), 0) as std_bytes_sent,
-                COALESCE(STDEV(daily_bytes_received), 0) as std_bytes_received,
-                COALESCE(STDEV(daily_connections), 0) as std_connections
+                COALESCE(sqrt(ABS(AVG(daily_bytes_sent*daily_bytes_sent) - AVG(daily_bytes_sent)*AVG(daily_bytes_sent))), 0) as std_bytes_sent,
+                COALESCE(sqrt(ABS(AVG(daily_bytes_received*daily_bytes_received) - AVG(daily_bytes_received)*AVG(daily_bytes_received))), 0) as std_bytes_received,
+                COALESCE(sqrt(ABS(AVG(daily_connections*daily_connections) - AVG(daily_connections)*AVG(daily_connections))), 0) as std_connections
             FROM (
                 SELECT DATE(timestamp) as day,
                     SUM(bytes_sent) as daily_bytes_sent,
@@ -1632,7 +1643,7 @@ dashboard_layout = dbc.Container([
                 dbc.CardHeader([
                     html.I(className="fa fa-exclamation-triangle me-2"),
                     "Alerts & Insights",
-                    html.Span("(Educational Mode)", className="text-muted ms-2"),
+                    html.Span("(Guidance)", className="text-muted ms-2"),
                     html.Span([dbc.Badge(id='alert-count', color="danger", pill=True, className="ms-2")], className="float-end")
                 ], className="cyber-card-header"),
                 dbc.CardBody([
@@ -1790,22 +1801,22 @@ dashboard_layout = dbc.Container([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("SMTP Host", className="small"),
-                                    dbc.Input(id='email-smtp-host', type='text', placeholder='smtp.gmail.com')
+                                    dbc.Input(id='email-smtp-host', type='text', placeholder='smtp.gmail.com', disabled=True)
                                 ], width=8),
                                 dbc.Col([
                                     dbc.Label("Port", className="small"),
-                                    dbc.Input(id='email-smtp-port', type='number', placeholder='587')
+                                    dbc.Input(id='email-smtp-port', type='number', placeholder='587', disabled=True)
                                 ], width=4)
                             ], className="mb-3"),
 
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("SMTP Username", className="small"),
-                                    dbc.Input(id='email-smtp-user', type='text', placeholder='your-email@gmail.com')
+                                    dbc.Input(id='email-smtp-user', type='text', placeholder='your-email@gmail.com', disabled=True)
                                 ], width=6),
                                 dbc.Col([
                                     dbc.Label("SMTP Password", className="small"),
-                                    dbc.Input(id='email-smtp-password', type='password', placeholder='••••••••')
+                                    dbc.Input(id='email-smtp-password', type='password', placeholder='••••••••', disabled=True)
                                 ], width=6)
                             ], className="mb-3"),
 
@@ -1815,29 +1826,28 @@ dashboard_layout = dbc.Container([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("Sender Email", className="small"),
-                                    dbc.Input(id='email-sender', type='email', placeholder='iotsentinel@gmail.com')
+                                    dbc.Input(id='email-sender', type='email', placeholder='iotsentinel@gmail.com', disabled=True)
                                 ], width=6),
                                 dbc.Col([
                                     dbc.Label("Recipient Email", className="small"),
-                                    dbc.Input(id='email-recipient', type='email', placeholder='your-email@gmail.com')
+                                    dbc.Input(id='email-recipient', type='email', placeholder='your-email@gmail.com', disabled=False)
                                 ], width=6)
                             ], className="mb-3"),
 
                             html.Hr(),
-
-                            dbc.Row([
+                                dbc.Row([
                                 dbc.Col([
                                     dbc.Button([html.I(className="fa fa-save me-2"), "Save Settings"],
                                               id="save-email-settings-btn", color="primary", className="w-100")
                                 ], width=6),
                                 dbc.Col([
                                     dbc.Button([html.I(className="fa fa-envelope me-2"), "Send Test Email"],
-                                              id="test-email-btn", color="success", outline=True, className="w-100")
+                                                id="test-email-btn", color="success", outline=True, className="w-100")
                                 ], width=6)
                             ]),
-
                             html.Div(id="email-settings-status", className="mt-3")
                         ])
+
                     ], className="cyber-card")
                 ], title="📧 Email Notifications", class_name="cyber-accordion-item"),
 
@@ -1982,14 +1992,15 @@ dashboard_layout = dbc.Container([
                                 dcc.Slider(
                                     id='anomaly-threshold-slider',
                                     min=0.5,
-                                    max=0.95,
-                                    step=0.05,
+                                    max=0.9,
+                                    step=0.01,
                                     value=0.7,
                                     marks={
-                                        0.5: 'Low (More alerts)',
-                                        0.7: 'Medium',
-                                        0.9: 'High (Fewer alerts)'
+                                        0.5: {'label': 'Low', 'style': {'color': '#77b0b1'}},
+                                        0.7: {'label': 'Medium', 'style': {'color': '#ffc107'}},
+                                        0.9: {'label': 'High', 'style': {'color': '#dc3545'}}
                                     },
+                                    tooltip={"placement": "bottom", "always_visible": False},
                                     className="mb-3"
                                 ),
                             ]),
@@ -2096,6 +2107,16 @@ dashboard_layout = dbc.Container([
         ]),
     ], id="onboarding-modal", is_open=False, backdrop="static", size="lg"),
 
+    # Edit Device Modal - NEW
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("Edit Device")),
+        dbc.ModalBody(id="edit-device-modal-body"),
+        dbc.ModalFooter([
+            dbc.Button("Save Changes", id="save-device-changes-btn", color="primary"),
+            dbc.Button("Cancel", id="cancel-edit-device-btn", color="secondary"),
+        ]),
+    ], id="edit-device-modal", is_open=False, size="lg"),
+
     # Device Details Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="device-details-title")),
@@ -2140,13 +2161,25 @@ dashboard_layout = dbc.Container([
         ]),
     ], id="lockdown-modal", is_open=False),
 
+    # Edit Device Modal - NEW
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("Edit Device")),
+        dbc.ModalBody(id="edit-device-modal-body"),
+        dbc.ModalFooter([
+            dbc.Button("Save Changes", id="save-device-changes-btn", color="primary"),
+            dbc.Button("Cancel", id="cancel-edit-device-btn", color="secondary"),
+        ]),
+    ], id="edit-device-modal", is_open=False, size="lg"),
+
     html.Div(id="toast-container", style={"position": "fixed", "top": 66, "right": 10, "width": 350, "zIndex": 9999}),
 
     dbc.Offcanvas([
-        html.H5("Recent Alerts"),
-        html.Hr(),
-        html.Div(id="notification-drawer-body")
-    ], id="notification-drawer", title="Notifications", is_open=False, placement="end", backdrop=False, scrollable=True),
+        dcc.Loading(id="notification-loader", type="default", children=html.Div(id="notification-drawer-body"))
+    ], id="notification-drawer", title="Notifications", is_open=False, placement="end", backdrop=True, scrollable=True,
+       className="notification-drawer-custom"),
+
+    html.Div(id='backdrop-overlay', style={'position': 'fixed', 'top': 0, 'left': 0, 'width': '100%', 'height': '100%', 'backgroundColor': 'rgba(0,0,0,0.5)', 'display': 'none', 'zIndex': 1040}),
+
 
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle("🤖 AI Assistant")),
@@ -2174,8 +2207,193 @@ app.layout = html.Div([
 ])
 
 # ============================================================================
+# EDIT DEVICE CALLBACKS
+# ============================================================================
+
+@app.callback(
+    [Output('edit-device-modal', 'is_open'),
+     Output('edit-device-modal-body', 'children')],
+    [Input({'type': 'edit-device-btn', 'ip': ALL}, 'n_clicks'),
+     Input('cancel-edit-device-btn', 'n_clicks')],
+    [State('edit-device-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def open_edit_device_modal(n_clicks, cancel_clicks, is_open):
+    ctx = callback_context
+    if not ctx.triggered or (all(c is None for c in n_clicks) and cancel_clicks is None):
+        raise dash.exceptions.PreventUpdate
+
+    triggered_id = ctx.triggered_id
+
+    if triggered_id == 'cancel-edit-device-btn':
+        return False, None
+
+    if not isinstance(triggered_id, dict):
+        return False, None
+
+    try:
+        ip = triggered_id['ip']
+        logger.info(f"Editing device with IP: {ip}")
+
+        device = db_manager.get_device(ip)
+        if not device:
+            logger.error(f"Device not found for IP: {ip}")
+            return True, dbc.Alert("Device not found.", color="danger")
+        logger.info(f"Device details fetched for {ip}")
+
+        all_groups = group_manager.get_all_groups()
+        group_options = [{'label': g['name'], 'value': g['id']} for g in all_groups]
+        logger.info(f"All groups fetched: {len(all_groups)} groups")
+
+        device_groups = group_manager.get_device_groups(ip)
+        current_group_id = device_groups[0]['id'] if device_groups else None
+        logger.info(f"Current group for {ip}: {current_group_id}")
+
+        form = dbc.Form([
+            dcc.Store(id='edit-device-ip', data=ip),
+            dbc.Row([
+                dbc.Label("Custom Name", width=2),
+                dbc.Col(
+                    dbc.Input(
+                        id='edit-device-name',
+                        value=device.get('custom_name') or device.get('device_name') or ip
+                    ),
+                    width=10,
+                ),
+            ], className="mb-3"),
+            dbc.Row([
+                dbc.Label("Device Type", width=2),
+                dbc.Col(
+                    dcc.Dropdown(
+                        id='edit-device-type',
+                        options=[{'label': k.replace('_', ' ').title(), 'value': k} for k in DEVICE_TYPE_ICONS.keys()],
+                        value=device.get('device_type', 'unknown')
+                    ),
+                    width=10,
+                ),
+            ], className="mb-3"),
+            dbc.Row([
+                dbc.Label("Device Group", width=2),
+                dbc.Col(
+                    dcc.Dropdown(
+                        id='edit-device-group',
+                        options=group_options,
+                        value=current_group_id
+                    ),
+                    width=10,
+                ),
+            ], className="mb-3"),
+            dbc.Row([
+                dbc.Label("Notes", width=2),
+                dbc.Col(
+                    dbc.Textarea(
+                        id='edit-device-notes',
+                        value=device.get('notes', ''),
+                        style={'height': '100px'}
+                    ),
+                    width=10,
+                ),
+            ]),
+        ])
+
+        logger.info(f"Form created for {ip}. Opening modal.")
+        return True, form
+
+    except Exception as e:
+        logger.error(f"Error in open_edit_device_modal: {e}", exc_info=True)
+        return True, dbc.Alert(f"An error occurred: {e}", color="danger")
+
+
+@app.callback(
+    [Output('edit-device-modal', 'is_open', allow_duplicate=True),
+     Output('device-management-table', 'children', allow_duplicate=True)],
+    [Input('save-device-changes-btn', 'n_clicks')],
+    [State('edit-device-ip', 'data'),
+     State('edit-device-name', 'value'),
+     State('edit-device-type', 'value'),
+     State('edit-device-group', 'value'),
+     State('edit-device-notes', 'value')],
+    prevent_initial_call=True
+)
+def save_device_changes(n_clicks, ip, name, device_type, group_id, notes):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    db_manager.update_device_metadata(device_ip=ip, custom_name=name, device_type=device_type, notes=notes)
+
+    if group_id:
+        current_groups = group_manager.get_device_groups(ip)
+        for group in current_groups:
+            group_manager.remove_device_from_group(ip, group['id'])
+        group_manager.add_device_to_group(ip, group_id)
+
+    return False, load_device_management_table(1)
+
+# ============================================================================
 # CALLBACKS - HEADER & NOTIFICATIONS
 # ============================================================================
+
+def get_latest_alerts_content():
+    """Helper function to fetch and format recent alerts for the notification drawer."""
+    conn = get_db_connection()
+    recent_alerts_raw = []
+    if conn:
+        try:
+            query = """
+                SELECT a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
+                    a.anomaly_score, a.explanation, a.top_features, a.acknowledged, d.is_trusted
+                FROM alerts a LEFT JOIN devices d ON a.device_ip = d.device_ip
+                WHERE a.timestamp > datetime('now', '-24 hours') AND a.acknowledged = 0
+                ORDER BY a.timestamp DESC
+                LIMIT 10
+            """
+            df_alerts = pd.read_sql_query(query, conn)
+            recent_alerts_raw = df_alerts.to_dict('records')
+        except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
+            logger.error(f"Error fetching alerts for notification drawer: {e}")
+        finally:
+            conn.close()
+
+    if not recent_alerts_raw:
+        return [dbc.Alert("No new alerts.", color="info")]
+    else:
+        drawer_content = []
+        for alert in recent_alerts_raw:
+            device_name = alert.get('device_name') or alert.get('device_ip')
+            severity = alert.get('severity', 'medium')
+            config = SEVERITY_CONFIG.get(severity, SEVERITY_CONFIG['medium'])
+
+            time_ago = "just now"
+            try:
+                alert_time = datetime.fromisoformat(alert['timestamp'])
+                now = datetime.now()
+                diff = now - alert_time
+                if diff.seconds < 60:
+                    time_ago = f"{diff.seconds} seconds ago"
+                elif diff.days == 0:
+                    minutes = diff.seconds // 60
+                    time_ago = f"{minutes} minutes ago"
+                elif diff.days < 7:
+                    time_ago = f"{diff.days} days ago"
+                else:
+                    time_ago = alert_time.strftime('%Y-%m-%d %H:%M')
+            except ValueError:
+                pass # Invalid timestamp format
+
+            drawer_content.append(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.Strong(device_name),
+                            html.Small(time_ago, className="text-muted ms-auto")
+                        ], className="d-flex justify-content-between mb-1"),
+                        html.P(alert.get('explanation'), className="small mb-0 text-truncate"),
+                        dbc.Button("View Details", size="sm", color=config['color'], outline=True,
+                                   className="mt-2", id={'type': 'alert-detail-btn', 'index': int(alert['id'])})
+                    ])
+                ], color=config['color'], inverse=True, className="mb-2 shadow-sm notification-card")
+            )
+    return drawer_content
 
 @app.callback(
     [Output('device-count', 'children'),
@@ -2190,43 +2408,68 @@ def update_header_stats(ws_message):
     return str(ws_message.get('device_count', 0)), str(ws_message.get('alert_count', 0)), str(ws_message.get('connection_count', 0))
 
 @app.callback(
-    [Output('notification-badge', 'children'), Output('notification-drawer-body', 'children')],
-    Input('ws', 'message')
+    [Output('notification-badge', 'children'),
+     Output('notification-drawer-body', 'children', allow_duplicate=True)],
+    Input('ws', 'message'),
+    prevent_initial_call=True
 )
-def update_notifications(ws_message):
+def update_notifications_from_ws(ws_message):
     if ws_message is None:
-        # Show empty state during initial load
-        return "", [dbc.Alert("Loading...", color="info")]
+        return dash.no_update, dash.no_update
     alert_count = ws_message.get('alert_count', 0)
-    recent_alerts = ws_message.get('recent_alerts', [])
     badge_count = "" if alert_count == 0 else str(alert_count)
 
-    if not recent_alerts:
-        drawer_content = [dbc.Alert("No new alerts.", color="info")]
-    else:
-        drawer_content = []
-        for alert in recent_alerts[:10]:
-            device_name = alert.get('device_name') or alert.get('device_ip')
-            severity = alert.get('severity', 'medium')
-            config = SEVERITY_CONFIG.get(severity, SEVERITY_CONFIG['medium'])
-            drawer_content.append(
-                dbc.Card(dbc.CardBody([
-                    html.Strong(device_name),
-                    html.P(alert.get('explanation'), className="small mb-0")
-                ]), color=config['color'], inverse=True, className="mb-2")
-            )
-    return badge_count, drawer_content
+    # This callback only updates the badge and does not re-render the drawer content
+    # unless a fresh open is triggered via the bell button or a click outside.
+    return badge_count, dash.no_update
 
 @app.callback(
-    Output("notification-drawer", "is_open"),
-    Input("notification-bell-button", "n_clicks"),
+    [Output("notification-drawer", "is_open"),
+     Output("notification-drawer-body", "children", allow_duplicate=True)],
+    [Input("notification-bell-button", "n_clicks")],
     [State("notification-drawer", "is_open")],
     prevent_initial_call=True,
 )
 def toggle_notification_drawer(n_clicks, is_open):
     if n_clicks:
-        return not is_open
-    return is_open
+        if not is_open:
+            # If opening, load fresh alerts
+            return not is_open, get_latest_alerts_content()
+        # If closing, no need to update content
+        return not is_open, dash.no_update
+    return is_open, dash.no_update
+
+# Clientside callback to close offcanvas on outside click
+app.clientside_callback(
+    """
+    function(pathname) {
+        // This is a dummy output that is never used.
+        // It's here because clientside callbacks must have at least one output.
+        // The real work is done in the event listener.
+        const offcanvas = document.getElementById('notification-drawer');
+        const bellButton = document.getElementById('notification-bell-button');
+
+        document.addEventListener('click', function(event) {
+            // Check if the offcanvas is open
+            if (offcanvas && offcanvas.classList.contains('show')) {
+                // Check if the click is outside the offcanvas and not on the bell button
+                if (!offcanvas.contains(event.target) && !bellButton.contains(event.target)) {
+                    // Trigger a click on the backdrop to close the offcanvas
+                    const backdrop = document.querySelector('.offcanvas-backdrop');
+                    if (backdrop) {
+                        backdrop.click();
+                    }
+                }
+            }
+        });
+
+        return window.dash_clientside.no_update; // Return no_update
+    }
+    """,
+    Output('dummy-output-clientside-callback', 'children'), # Output to dummy div
+    Input('url', 'pathname'),
+    prevent_initial_call=False
+)
 
 # ============================================================================
 # CALLBACKS - NETWORK GRAPH
@@ -2538,36 +2781,32 @@ def update_active_devices_list(ws_message):
      Output('device-details-title', 'children'),
      Output('device-details-body', 'children'),
      Output('selected-device-ip', 'data')],
-    [Input({'type': 'device-card', 'ip': dash.dependencies.ALL}, 'n_clicks'),
-     Input({'type': 'device-list-item', 'ip': dash.dependencies.ALL}, 'n_clicks'),
+    [Input({'type': 'device-card', 'ip': ALL}, 'n_clicks'),
+     Input({'type': 'device-list-item', 'ip': ALL}, 'n_clicks'),
+     Input({'type': 'view-device-btn', 'ip': ALL}, 'n_clicks'),
      Input('network-graph', 'tapNodeData'),
      Input('device-details-close-btn', 'n_clicks')],
     [State('device-details-modal', 'is_open'),
      State('selected-device-ip', 'data')],
     prevent_initial_call=True
 )
-def toggle_device_details(card_clicks, list_clicks, tap_data, close_click, is_open, current_ip):
+def toggle_device_details(card_clicks, list_clicks, view_clicks, tap_data, close_click, is_open, current_ip):
     ctx = callback_context
-    if not ctx.triggered:
+    if not ctx.triggered or not ctx.triggered[0].get('value'):
         return False, "", "", None
 
-    trigger_id = ctx.triggered[0]['prop_id']
+    triggered_id = ctx.triggered_id
 
     # Handle close button
-    if 'device-details-close-btn' in trigger_id:
+    if triggered_id == 'device-details-close-btn':
         return False, "", "", None
 
     # Determine which device was clicked
     device_ip = None
 
-    if 'device-card' in trigger_id or 'device-list-item' in trigger_id:
-        try:
-            trigger_data = json.loads(trigger_id.split('.')[0])
-            device_ip = trigger_data['ip']
-        except (json.JSONDecodeError, KeyError):
-            return False, "", "", None
-    elif 'network-graph' in trigger_id and tap_data:
-        # Clicked on graph node
+    if isinstance(triggered_id, dict):
+        device_ip = triggered_id.get('ip')
+    elif triggered_id == 'network-graph.tapNodeData' and tap_data:
         device_ip = tap_data.get('id')
         if device_ip == 'router':
             return False, "", "", None
@@ -2681,29 +2920,24 @@ def toggle_device_details(card_clicks, list_clicks, tap_data, close_click, is_op
 # Trust Switch Callback
 @app.callback(
     Output('toast-container', 'children'),
-    Input({'type': 'device-trust-switch', 'ip': dash.dependencies.ALL}, 'value'),
-    State({'type': 'device-trust-switch', 'ip': dash.dependencies.ALL}, 'id'),
+    Input({'type': 'device-trust-switch', 'ip': ALL}, 'value'),
     prevent_initial_call=True
 )
-def toggle_device_trust(values, ids):
+def toggle_device_trust(value):
     ctx = callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
 
-    trigger_id = ctx.triggered[0]['prop_id']
+    triggered_id = ctx.triggered_id
+    if not isinstance(triggered_id, dict):
+        return dbc.Toast("Invalid trigger for trust switch.", header="Error", icon="danger", duration=3000)
 
     try:
-        id_dict = json.loads(trigger_id.split('.')[0])
-        device_ip = id_dict['ip']
+        device_ip = triggered_id['ip']
         is_trusted = ctx.triggered[0]['value']
-    except (json.JSONDecodeError, KeyError) as e:
+    except (TypeError, KeyError) as e:
         logger.error(f"Error parsing trust switch ID or value: {e}")
-        return dbc.Toast(
-            "Error processing request.",
-            header="Error",
-            icon="danger",
-            duration=3000,
-        )
+        return dbc.Toast("Error processing request.", header="Error", icon="danger", duration=3000)
 
     success = db_manager.set_device_trust(device_ip, is_trusted)
 
@@ -2751,8 +2985,7 @@ def toggle_device_block(n_clicks, button_id):
         new_blocked_status = not current_blocked
 
         # Update database first
-        db = DatabaseManager()
-        db.set_device_blocked(device_ip, new_blocked_status)
+        db_manager.set_device_blocked(device_ip, new_blocked_status)
 
         # Call firewall manager to apply/remove block
         import subprocess
@@ -3123,152 +3356,100 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
      Output('email-recipient', 'value'),
      Output('email-status-badge', 'children'),
      Output('email-status-badge', 'color')],
-    Input('url', 'pathname')
+    Input('url', 'pathname'),
+    prevent_initial_call=True
 )
 def load_email_settings(pathname):
-    """Load email settings from config file on page load"""
+    """Load email settings for the current user."""
+    if not current_user.is_authenticated:
+        return False, '', '', '', '', '', "DISABLED", "secondary"
+
+    # Fetch user preference for email enabled
     try:
-        import json
-        from pathlib import Path
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'email_enabled'", (current_user.id,))
+        result = cursor.fetchone()
+        conn.close()
 
-        config_path = Path(__file__).parent.parent / 'config' / 'default_config.json'
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-
-        email_config = config.get('email', {})
-        enabled = email_config.get('enabled', False)
-        smtp_host = email_config.get('smtp_host', 'smtp.gmail.com')
-        smtp_port = email_config.get('smtp_port', 587)
-        smtp_user = email_config.get('smtp_user', '')
-        sender_email = email_config.get('sender_email', '')
-        recipient_email = email_config.get('recipient_email', '')
-
-        # Determine status
-        if enabled and all([smtp_host, smtp_user, sender_email, recipient_email]):
-            badge_text = "ENABLED"
-            badge_color = "success"
-        elif enabled:
-            badge_text = "INCOMPLETE"
-            badge_color = "warning"
+        # If preference is stored, use it. Otherwise, use env var as default.
+        if result:
+            enabled = result[0].lower() == 'true'
         else:
-            badge_text = "DISABLED"
-            badge_color = "secondary"
-
-        return enabled, smtp_host, smtp_port, smtp_user, sender_email, recipient_email, badge_text, badge_color
+            enabled = os.environ.get('EMAIL_ENABLED', 'false').lower() == 'true'
 
     except Exception as e:
-        logger.error(f"Error loading email settings: {e}")
-        return False, 'smtp.gmail.com', 587, '', '', '', "ERROR", "danger"
+        logger.error(f"Error loading email preference from DB: {e}")
+        enabled = os.environ.get('EMAIL_ENABLED', 'false').lower() == 'true'
 
+    # Load other settings from environment variables for display
+    smtp_host = os.environ.get('EMAIL_SMTP_HOST', '')
+    smtp_port = os.environ.get('EMAIL_SMTP_PORT', '')
+    smtp_user = os.environ.get('EMAIL_SMTP_USER', '')
+    sender_email = os.environ.get('EMAIL_SENDER_EMAIL', 'iotsentinel908@gmail.com')
+    recipient_email = os.environ.get('EMAIL_RECIPIENT_EMAIL', '')
+
+    # Determine status badge
+    if enabled and all([smtp_host, smtp_port, smtp_user, sender_email, recipient_email]):
+        badge_text = "ENABLED"
+        badge_color = "success"
+    elif enabled:
+        badge_text = "INCOMPLETE"
+        badge_color = "warning"
+    else:
+        badge_text = "DISABLED"
+        badge_color = "danger"
+
+    return enabled, smtp_host, smtp_port, smtp_user, sender_email, recipient_email, badge_text, badge_color
 
 @app.callback(
     [Output('email-settings-status', 'children'),
      Output('email-status-badge', 'children', allow_duplicate=True),
      Output('email-status-badge', 'color', allow_duplicate=True)],
     Input('save-email-settings-btn', 'n_clicks'),
-    [State('email-enabled-switch', 'value'),
-     State('email-smtp-host', 'value'),
-     State('email-smtp-port', 'value'),
-     State('email-smtp-user', 'value'),
-     State('email-smtp-password', 'value'),
-     State('email-sender', 'value'),
-     State('email-recipient', 'value')],
+    [State('email-enabled-switch', 'value')],
     prevent_initial_call=True
 )
-def save_email_settings(n_clicks, enabled, smtp_host, smtp_port, smtp_user, smtp_password, sender_email, recipient_email):
-    """Save email settings to config file"""
-    if n_clicks is None:
+def save_email_settings(n_clicks, enabled):
+    """Save the enabled state of email notifications for the current user."""
+    if n_clicks is None or not current_user.is_authenticated:
         raise dash.exceptions.PreventUpdate
 
     try:
-        import json
-        from pathlib import Path
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_preferences (user_id, preference_key, preference_value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, preference_key) DO UPDATE SET preference_value = excluded.preference_value
+        """, (current_user.id, 'email_enabled', str(enabled)))
+        conn.commit()
+        conn.close()
 
-        config_path = Path(__file__).parent.parent / 'config' / 'default_config.json'
+        logger.info(f"Email 'enabled' preference for user {current_user.id} set to {enabled}")
 
-        # Load current config
-        with open(config_path, 'r') as f:
-            config = json.load(f)
+        status_msg = dbc.Alert("✅ Email notification setting saved!", color="success", dismissable=True)
 
-        # Update email settings
-        if 'email' not in config:
-            config['email'] = {}
-
-        config['email']['enabled'] = enabled
-        config['email']['smtp_host'] = smtp_host or 'smtp.gmail.com'
-        config['email']['smtp_port'] = int(smtp_port) if smtp_port else 587
-        config['email']['smtp_user'] = smtp_user or ''
-        # Only update password if it's provided (not just placeholder dots)
-        if smtp_password and not all(c == '•' for c in smtp_password):
-            config['email']['smtp_password'] = smtp_password
-        config['email']['sender_email'] = sender_email or ''
-        config['email']['recipient_email'] = recipient_email or ''
-
-        # Save config
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
-
-        # Determine status
-        if enabled and all([smtp_host, smtp_user, sender_email, recipient_email]):
+        # Update badge based on new state
+        if enabled:
             badge_text = "ENABLED"
             badge_color = "success"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-check-circle me-2"),
-                "Email settings saved successfully!"
-            ], color="success", dismissable=True)
-        elif enabled:
-            badge_text = "INCOMPLETE"
-            badge_color = "warning"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Settings saved, but some required fields are missing."
-            ], color="warning", dismissable=True)
         else:
             badge_text = "DISABLED"
-            badge_color = "secondary"
-            status_msg = dbc.Alert([
-                html.I(className="fa fa-info-circle me-2"),
-                "Email notifications disabled."
-            ], color="info", dismissable=True)
+            badge_color = "danger"
 
-        logger.info(f"Email settings saved: enabled={enabled}")
         return status_msg, badge_text, badge_color
 
     except Exception as e:
-        logger.error(f"Error saving email settings: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            f"Error saving settings: {str(e)}"
-        ], color="danger", dismissable=True), "ERROR", "danger"
-
-
-@app.callback(
-    [Output('email-status-badge', 'children', allow_duplicate=True),
-     Output('email-status-badge', 'color', allow_duplicate=True)],
-    Input('email-enabled-switch', 'value'),
-    prevent_initial_call=True
-)
-def update_email_badge_on_toggle(enabled):
-    """Show UNSAVED badge when switch is toggled"""
-    if enabled:
-        return "UNSAVED", "warning"
-    else:
-        return "UNSAVED", "warning"
-
-
+        logger.error(f"Error saving email preference: {e}")
+        return dbc.Alert(f"❌ Error saving setting: {e}", color="danger", dismissable=True), "ERROR", "danger"
 @app.callback(
     Output('email-settings-status', 'children', allow_duplicate=True),
     Input('test-email-btn', 'n_clicks'),
-    [State('email-smtp-host', 'value'),
-     State('email-smtp-port', 'value'),
-     State('email-smtp-user', 'value'),
-     State('email-smtp-password', 'value'),
-     State('email-sender', 'value'),
-     State('email-recipient', 'value')],
     prevent_initial_call=True
 )
-def send_test_email(n_clicks, smtp_host, smtp_port, smtp_user, smtp_password, sender_email, recipient_email):
-    """Send a test email to verify configuration"""
+def send_test_email(n_clicks):
+    """Send a test email to verify configuration from environment variables"""
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
 
@@ -3278,18 +3459,19 @@ def send_test_email(n_clicks, smtp_host, smtp_port, smtp_user, smtp_password, se
         from email.mime.multipart import MIMEMultipart
         from datetime import datetime
 
-        # Validate inputs
-        if not all([smtp_host, smtp_user, smtp_password, sender_email, recipient_email]):
-            return dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Please fill in all required fields before sending test email."
-            ], color="warning", dismissable=True)
+        # Load from environment variables
+        smtp_host = os.environ.get('EMAIL_SMTP_HOST')
+        smtp_port = os.environ.get('EMAIL_SMTP_PORT')
+        smtp_user = os.environ.get('EMAIL_SMTP_USER')
+        smtp_password = os.environ.get('EMAIL_SMTP_PASSWORD')
+        sender_email = os.environ.get('EMAIL_SENDER_EMAIL', 'iotsentinel908@gmail.com')
+        recipient_email = os.environ.get('EMAIL_RECIPIENT_EMAIL')
 
-        # Don't send if password is placeholder
-        if all(c == '•' for c in smtp_password):
+        # Validate inputs
+        if not all([smtp_host, smtp_port, smtp_user, smtp_password, sender_email, recipient_email]):
             return dbc.Alert([
                 html.I(className="fa fa-exclamation-triangle me-2"),
-                "Please enter your actual SMTP password (not placeholder)."
+                "Please ensure all email-related environment variables are set in your .env file."
             ], color="warning", dismissable=True)
 
         # Create test email
@@ -3346,7 +3528,7 @@ IoTSentinel Network Security Monitor
         message.attach(MIMEText(html_content, "html"))
 
         # Send email
-        server = smtplib.SMTP(smtp_host, int(smtp_port), timeout=30)
+        server = smtplib.SMTP(smtp_host, int(smtp_port), timeout=60)
         server.ehlo()
         server.starttls()
         server.ehlo()
@@ -4238,7 +4420,7 @@ def display_user_list(pathname):
 @app.callback(
     Output('device-management-table', 'children'),
     Input('load-devices-btn', 'n_clicks'),
-    prevent_initial_call=False
+    prevent_initial_call=True
 )
 def load_device_management_table(n_clicks):
     """Load all devices for management"""
@@ -4327,13 +4509,6 @@ def load_device_management_table(n_clicks):
             dbc.Col([
                 html.H6(f"Total Devices: {len(devices)}", className="mb-0")
             ], width=6),
-            dbc.Col([
-                dbc.Checkbox(
-                    id='select-all-devices-checkbox',
-                    label="Select All",
-                    className="text-end"
-                )
-            ], width=6, className="text-end")
         ], className="mb-3"),
         html.Div(rows, id='device-rows-container')
     ])
@@ -4508,13 +4683,13 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
         if 'bulk-trust-btn' in button_id:
             # Trust selected devices
             for ip in selected_ips:
-                db_manager.update_device_trust(ip, is_trusted=True)
+                db_manager.set_device_trust(ip, is_trusted=True)
             return dbc.Alert(f"✅ Trusted {count} device(s)", color="success", duration=3000)
 
         elif 'bulk-block-btn' in button_id:
             # Block selected devices
             for ip in selected_ips:
-                db_manager.update_device_trust(ip, is_blocked=True)
+                db_manager.set_device_blocked(ip, is_blocked=True)
             return dbc.Alert(f"🚫 Blocked {count} device(s)", color="danger", duration=3000)
 
         elif 'bulk-delete-btn' in button_id:
@@ -4545,6 +4720,25 @@ def toggle_bulk_buttons(checkbox_values):
     has_selection = any(checkbox_values) if checkbox_values else False
     # Disabled = NOT has_selection
     return not has_selection, not has_selection, not has_selection
+
+
+
+@app.callback(
+    Output({'type': 'device-checkbox', 'ip': ALL}, 'checked'),
+    Input('select-all-devices-checkbox', 'checked'),
+    prevent_initial_call=True
+)
+def select_all_devices(select_all):
+    """Select or deselect all device checkboxes"""
+    if select_all is None:
+        return dash.no_update
+
+    # Get all device checkbox IDs
+    all_checkbox_ids = callback_context.outputs_list[0]['id']
+
+    # Return a list of True or False values for each checkbox
+    return [select_all] * len(all_checkbox_ids)
+
 
 
 # ============================================================================
