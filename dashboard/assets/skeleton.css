@@ -1,29 +1,40 @@
 /*
- * Skeleton Loading Styles - Shimmer Animation Edition
+ * Enhanced Skeleton Loading Styles - Modern Shimmer Animation
+ * Features: Smooth gradients, glassmorphism, wave effects
  */
 
-/* Base style for skeleton loader with shimmer effect */
+/* ============================================================================
+ * BASE SKELETON WITH ENHANCED SHIMMER
+ * ============================================================================ */
+
 .skeleton {
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background: linear-gradient(
+        110deg,
+        rgba(200, 210, 220, 0.4) 8%,
+        rgba(220, 230, 240, 0.6) 18%,
+        rgba(200, 210, 220, 0.4) 33%
+    );
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: 4px;
+    animation: shimmerWave 2s linear infinite;
+    border-radius: 8px;
     position: relative;
     overflow: hidden;
+    backdrop-filter: blur(4px);
 }
 
-body.dark-theme .skeleton {
-    background: linear-gradient(90deg, #2a2a3e 25%, #3a3a4e 50%, #2a2a3e 75%);
+/* Dark theme skeleton */
+body.dark-mode .skeleton {
+    background: linear-gradient(
+        110deg,
+        rgba(51, 65, 85, 0.4) 8%,
+        rgba(71, 85, 105, 0.6) 18%,
+        rgba(51, 65, 85, 0.4) 33%
+    );
     background-size: 200% 100%;
 }
 
-body.cyberpunk-theme .skeleton {
-    background: linear-gradient(90deg, #1a1a2e 25%, #2a2a4e 50%, #1a1a2e 75%);
-    background-size: 200% 100%;
-}
-
-/* Shimmer animation - moves gradient across */
-@keyframes shimmer {
+/* Enhanced shimmer animation with wave effect */
+@keyframes shimmerWave {
     0% {
         background-position: 200% 0;
     }
@@ -32,226 +43,106 @@ body.cyberpunk-theme .skeleton {
     }
 }
 
-/* For text lines */
+/* Alternative pulse effect for variety */
+.skeleton-pulse {
+    animation: shimmerWave 2s linear infinite, skeletonPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* ============================================================================
+ * SKELETON VARIATIONS
+ * ============================================================================ */
+
+/* Text line skeleton */
 .skeleton-text {
-    height: 1em; /* Approximate line height */
+    height: 1em;
+    margin-bottom: 0.75em;
+    border-radius: 6px;
+}
+
+.skeleton-text:last-child {
+    width: 70%; /* Last line usually shorter */
+}
+
+.skeleton-text-sm {
+    height: 0.875em;
     margin-bottom: 0.5em;
 }
 
-/* For larger blocks like cards or images */
-.skeleton-block {
-    width: 100%;
-    height: 150px; /* Example height, adjust as needed */
-    margin-bottom: 1rem;
+.skeleton-text-lg {
+    height: 1.25em;
+    margin-bottom: 1em;
 }
 
-/* For avatars or circular elements */
+/* Block elements (cards, images) */
+.skeleton-block {
+    width: 100%;
+    height: 150px;
+    margin-bottom: 1.5rem;
+    border-radius: 12px;
+}
+
+.skeleton-block-sm {
+    height: 100px;
+}
+
+.skeleton-block-lg {
+    height: 250px;
+}
+
+/* Circular elements (avatars, icons) */
 .skeleton-circle {
     width: 50px;
     height: 50px;
     border-radius: 50%;
 }
 
-/* Animation for the pulsating effect */
-@keyframes pulse-bg {
-    0% {
-        background-color: #e0e0e0;
-    }
-    50% {
-        background-color: #f0f0f0;
-    }
-    100% {
-        background-color: #e0e0e0;
-    }
-}
-@keyframes pulse-bg-dark {
-    0% {
-        background-color: #3e3e5a;
-    }
-    50% {
-        background-color: #4a4a6e;
-    }
-    100% {
-        background-color: #3e3e5a;
-    }
+.skeleton-circle-sm {
+    width: 32px;
+    height: 32px;
 }
 
-/* Example usage within a card */
-.skeleton-card-body {
-    padding: 1rem;
+.skeleton-circle-lg {
+    width: 80px;
+    height: 80px;
 }
 
-.skeleton-card-body .skeleton-text:last-child {
-    width: 60%; /* Last line usually shorter */
-}
-
-/* Specific skeleton for the device grid */
-.skeleton-device-card {
-    height: 120px;
-    margin-bottom: 1rem;
-}
-
-/* Clickable device items */
-.clickable-device {
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.clickable-device:hover {
-    transform: translateX(5px);
-    background: rgba(0, 255, 204, 0.1) !important;
-}
-
-/* Keyboard shortcuts display */
-kbd {
-    background: rgba(0, 255, 204, 0.2);
-    border: 1px solid #00ffcc;
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-family: monospace;
-    font-size: 0.9em;
-    color: #00ffcc;
+/* Rectangle with specific aspect ratios */
+.skeleton-rect-16-9 {
+    width: 100%;
+    padding-top: 56.25%; /* 16:9 aspect ratio */
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 /* ============================================================================
- * COMPONENT-SPECIFIC SKELETONS
+ * COMPONENT-SPECIFIC SKELETONS - GLASSMORPHIC STYLE
  * ============================================================================ */
 
-/* Skeleton for device card (compact view) */
+/* Device card skeleton (compact view) */
 .skeleton-device-item {
     display: flex;
     align-items: center;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-}
-
-.skeleton-device-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-
-.skeleton-device-name {
-    width: 120px;
-    height: 16px;
-    margin-right: auto;
-}
-
-.skeleton-device-ip {
-    width: 100px;
-    height: 14px;
-}
-
-/* Skeleton for alert card */
-.skeleton-alert-card {
-    padding: 1rem;
-    margin-bottom: 1rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    border-left: 4px solid rgba(220, 53, 69, 0.3);
-}
-
-.skeleton-alert-header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.75rem;
-}
-
-.skeleton-alert-icon {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-
-.skeleton-alert-title {
-    width: 70%;
-    height: 18px;
-}
-
-.skeleton-alert-description {
-    width: 90%;
-    height: 14px;
-    margin-bottom: 0.5rem;
-}
-
-.skeleton-alert-metadata {
-    width: 50%;
-    height: 12px;
-}
-
-/* Skeleton for stat card */
-.skeleton-stat-card {
-    text-align: center;
-    padding: 1.5rem;
-}
-
-.skeleton-stat-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    margin: 0 auto 1rem;
-}
-
-.skeleton-stat-number {
-    width: 80px;
-    height: 32px;
-    margin: 0 auto 0.5rem;
-}
-
-.skeleton-stat-label {
-    width: 100px;
-    height: 14px;
-    margin: 0 auto;
-}
-
-/* Skeleton for graph placeholder */
-.skeleton-graph {
-    width: 100%;
-    height: 400px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.skeleton-graph-inner {
-    width: 200px;
-    height: 200px;
-    border-radius: 50%;
-}
-
-/* Skeleton for device list item (expanded view) */
-.skeleton-device-list-item {
     padding: 1rem;
     margin-bottom: 0.75rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-}
-
-.skeleton-device-list-header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-
-.skeleton-device-badge {
-    width: 60px;
-    height: 20px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
     border-radius: 12px;
-    margin-left: 10px;
+    animation: fadeInSkeleton 0.4s ease;
 }
 
-/* Fade-in animation for content */
-.fade-in {
-    animation: fadeIn 0.4s ease-in;
-}
-
-@keyframes fadeIn {
+@keyframes fadeInSkeleton {
     from {
         opacity: 0;
         transform: translateY(10px);
@@ -262,15 +153,542 @@ kbd {
     }
 }
 
-/* Skeleton container - prevents layout shift */
-.skeleton-container {
-    min-height: 200px;
+.skeleton-device-indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    margin-right: 12px;
+    flex-shrink: 0;
 }
 
-/* Loading indicator text */
+.skeleton-device-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-device-name {
+    width: 140px;
+    height: 18px;
+    border-radius: 6px;
+}
+
+.skeleton-device-ip {
+    width: 110px;
+    height: 14px;
+    border-radius: 4px;
+}
+
+.skeleton-device-badge {
+    width: 70px;
+    height: 22px;
+    border-radius: 12px;
+    margin-left: auto;
+}
+
+/* Alert card skeleton */
+.skeleton-alert-card {
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    border-radius: 12px;
+    border-left: 4px solid rgba(239, 68, 68, 0.4);
+    animation: fadeInSkeleton 0.4s ease;
+}
+
+.skeleton-alert-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+    gap: 12px;
+}
+
+.skeleton-alert-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.skeleton-alert-title {
+    flex: 1;
+    height: 20px;
+    border-radius: 6px;
+}
+
+.skeleton-alert-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-alert-description {
+    width: 95%;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.skeleton-alert-metadata {
+    width: 60%;
+    height: 14px;
+    border-radius: 4px;
+}
+
+/* Stat card skeleton */
+.skeleton-stat-card {
+    text-align: center;
+    padding: 2rem 1.5rem;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    border-radius: 12px;
+    animation: fadeInSkeleton 0.4s ease;
+}
+
+.skeleton-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    margin: 0 auto 1.25rem;
+}
+
+.skeleton-stat-number {
+    width: 100px;
+    height: 36px;
+    margin: 0 auto 0.75rem;
+    border-radius: 8px;
+}
+
+.skeleton-stat-label {
+    width: 120px;
+    height: 16px;
+    margin: 0 auto;
+    border-radius: 4px;
+}
+
+/* Graph/Chart placeholder skeleton */
+.skeleton-graph {
+    width: 100%;
+    height: 400px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-graph::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        110deg,
+        transparent 8%,
+        rgba(255, 255, 255, 0.1) 18%,
+        transparent 33%
+    );
+    background-size: 200% 100%;
+    animation: shimmerWave 2s linear infinite;
+}
+
+.skeleton-graph-inner {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    position: relative;
+    z-index: 1;
+}
+
+/* Device list item skeleton (expanded view) */
+.skeleton-device-list-item {
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    border-radius: 12px;
+    animation: fadeInSkeleton 0.4s ease;
+}
+
+.skeleton-device-list-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+    gap: 12px;
+}
+
+.skeleton-device-list-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.skeleton-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-detail-label {
+    width: 80px;
+    height: 14px;
+    border-radius: 4px;
+}
+
+.skeleton-detail-value {
+    width: 120px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+/* ============================================================================
+ * TABLE SKELETON
+ * ============================================================================ */
+
+.skeleton-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.skeleton-table-header {
+    background: var(--bg-tertiary);
+    backdrop-filter: blur(4px);
+}
+
+.skeleton-table-header th {
+    padding: 1rem;
+}
+
+.skeleton-table-header-cell {
+    height: 16px;
+    border-radius: 4px;
+}
+
+.skeleton-table-row {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.skeleton-table-row td {
+    padding: 1rem;
+}
+
+.skeleton-table-cell {
+    height: 14px;
+    border-radius: 4px;
+}
+
+/* ============================================================================
+ * CARD SKELETON
+ * ============================================================================ */
+
+.skeleton-card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeInSkeleton 0.4s ease;
+}
+
+.skeleton-card-header {
+    padding: 1rem 1.25rem;
+    background: var(--bg-tertiary);
+    backdrop-filter: blur(4px);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.skeleton-card-title {
+    width: 60%;
+    height: 20px;
+    border-radius: 6px;
+}
+
+.skeleton-card-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* ============================================================================
+ * BUTTON SKELETON
+ * ============================================================================ */
+
+.skeleton-button {
+    height: 40px;
+    width: 120px;
+    border-radius: 10px;
+}
+
+.skeleton-button-sm {
+    height: 32px;
+    width: 90px;
+    border-radius: 8px;
+}
+
+.skeleton-button-lg {
+    height: 48px;
+    width: 150px;
+    border-radius: 12px;
+}
+
+/* ============================================================================
+ * BADGE SKELETON
+ * ============================================================================ */
+
+.skeleton-badge {
+    width: 70px;
+    height: 24px;
+    border-radius: 8px;
+    display: inline-block;
+}
+
+.skeleton-badge-sm {
+    width: 50px;
+    height: 20px;
+    border-radius: 6px;
+}
+
+/* ============================================================================
+ * NOTIFICATION SKELETON
+ * ============================================================================ */
+
+.skeleton-notification {
+    display: flex;
+    align-items: start;
+    gap: 12px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    border: var(--glass-border);
+    border-radius: 12px;
+    animation: fadeInSkeleton 0.4s ease;
+}
+
+.skeleton-notification-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.skeleton-notification-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-notification-title {
+    width: 70%;
+    height: 18px;
+    border-radius: 6px;
+}
+
+.skeleton-notification-text {
+    width: 90%;
+    height: 14px;
+    border-radius: 4px;
+}
+
+.skeleton-notification-time {
+    width: 40%;
+    height: 12px;
+    border-radius: 4px;
+}
+
+/* ============================================================================
+ * LOADING INDICATORS
+ * ============================================================================ */
+
+.skeleton-container {
+    min-height: 200px;
+    position: relative;
+}
+
+.skeleton-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-radius: 12px;
+    z-index: 10;
+}
+
+.skeleton-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .skeleton-loading-text {
     text-align: center;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.9rem;
-    margin-top: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin-top: 1.5rem;
+    animation: loadingTextPulse 2s ease-in-out infinite;
+}
+
+@keyframes loadingTextPulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* ============================================================================
+ * STAGGERED ANIMATION FOR MULTIPLE SKELETONS
+ * ============================================================================ */
+
+.skeleton-list > *:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.skeleton-list > *:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.skeleton-list > *:nth-child(3) {
+    animation-delay: 0.2s;
+}
+
+.skeleton-list > *:nth-child(4) {
+    animation-delay: 0.3s;
+}
+
+.skeleton-list > *:nth-child(5) {
+    animation-delay: 0.4s;
+}
+
+/* ============================================================================
+ * TRANSITION OUT ANIMATION
+ * ============================================================================ */
+
+.skeleton-fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+/* Content fade in after skeleton */
+.content-fade-in {
+    animation: contentFadeIn 0.5s ease;
+}
+
+@keyframes contentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================================
+ * RESPONSIVE SKELETON ADJUSTMENTS
+ * ============================================================================ */
+
+@media (max-width: 768px) {
+    .skeleton-device-item {
+        padding: 0.75rem;
+    }
+
+    .skeleton-stat-card {
+        padding: 1.5rem 1rem;
+    }
+
+    .skeleton-graph {
+        height: 300px;
+    }
+
+    .skeleton-graph-inner {
+        width: 150px;
+        height: 150px;
+    }
+}
+
+@media (max-width: 576px) {
+    .skeleton-alert-card,
+    .skeleton-device-list-item {
+        padding: 1rem;
+    }
+
+    .skeleton-graph {
+        height: 250px;
+    }
+}
+
+/* ============================================================================
+ * ACCESSIBILITY - REDUCED MOTION
+ * ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton,
+    .skeleton-pulse,
+    .skeleton-graph::before {
+        animation: none;
+    }
+
+    .skeleton {
+        background: var(--bg-tertiary);
+    }
+}
+
+/* ============================================================================
+ * DARK MODE SPECIFIC ADJUSTMENTS
+ * ============================================================================ */
+
+body.dark-mode .skeleton-graph::before {
+    background: linear-gradient(
+        110deg,
+        transparent 8%,
+        rgba(96, 165, 250, 0.1) 18%,
+        transparent 33%
+    );
 }
