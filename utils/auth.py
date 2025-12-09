@@ -154,7 +154,39 @@ class AuthManager:
         except sqlite3.Error as e:
             logger.error(f"Error updating last login for user {user_id}: {e}")
 
-    def create_user(self, username: str, password: str, role: str = 'viewer') -> bool:
+    def get_user_data(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get user data as dictionary including email.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Dictionary with user data if found, None otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, created_at
+                FROM users
+                WHERE id = ?
+            """, (user_id,))
+
+            user_row = cursor.fetchone()
+            conn.close()
+
+            if user_row:
+                return dict(user_row)
+            return None
+
+        except sqlite3.Error as e:
+            logger.error(f"Error getting user data {user_id}: {e}")
+            return None
+
+    def create_user(self, username: str, password: str, role: str = 'viewer', email: str = None) -> bool:
         """
         Create a new user.
 
@@ -162,6 +194,7 @@ class AuthManager:
             username: Username (must be unique)
             password: Plain text password
             role: User role ('admin' or 'viewer')
+            email: Email address (optional)
 
         Returns:
             True if user created successfully, False otherwise
@@ -174,9 +207,9 @@ class AuthManager:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO users (username, password_hash, role)
-                VALUES (?, ?, ?)
-            """, (username, password_hash, role))
+                INSERT INTO users (username, password_hash, role, email)
+                VALUES (?, ?, ?, ?)
+            """, (username, password_hash, role, email))
 
             conn.commit()
             conn.close()
@@ -225,17 +258,58 @@ class AuthManager:
             logger.error(f"Error changing password for user {user_id}: {e}")
             return False
 
-    def delete_user(self, user_id: int) -> bool:
+    def update_user_profile(self, user_id: int, username: str, email: str) -> bool:
+        """
+        Update user's profile information (username and email).
+
+        Args:
+            user_id: User ID
+            username: New username
+            email: New email address
+
+        Returns:
+            True if profile updated successfully, False otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE users
+                SET username = ?, email = ?
+                WHERE id = ?
+            """, (username, email, user_id))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Profile updated for user ID: {user_id}")
+            return True
+
+        except sqlite3.IntegrityError:
+            logger.warning(f"Username {username} already exists")
+            return False
+        except sqlite3.Error as e:
+            logger.error(f"Error updating profile for user {user_id}: {e}")
+            return False
+
+    def delete_user(self, user_id: int, current_user_id: int = None) -> bool:
         """
         Soft delete user (set is_active = 0).
 
         Args:
-            user_id: User ID
+            user_id: User ID to delete
+            current_user_id: Current logged-in user ID (to prevent self-deletion)
 
         Returns:
             True if user deactivated successfully, False otherwise
         """
         try:
+            # Prevent self-deletion
+            if current_user_id and user_id == current_user_id:
+                logger.warning(f"Attempted self-deletion prevented for user ID: {user_id}")
+                return False
+
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
