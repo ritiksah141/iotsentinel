@@ -88,6 +88,7 @@ users (
     id PRIMARY KEY,
     username UNIQUE,
     password_hash,
+    email,                          -- User email address
     role,                           -- admin/viewer
     created_at TIMESTAMP,
     last_login TIMESTAMP,
