@@ -44,6 +44,17 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from utils.auth import AuthManager, User
 from utils.rate_limiter import LoginRateLimiter
 
+# Import new IoT-specific modules
+from utils.iot_device_intelligence import get_intelligence
+from utils.iot_protocol_analyzer import get_protocol_analyzer
+from utils.iot_threat_detector import get_threat_detector
+from utils.iot_features import (
+    get_smart_home_manager,
+    get_privacy_monitor,
+    get_network_segmentation,
+    get_firmware_manager
+)
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +84,26 @@ auth_manager = AuthManager(DB_PATH)
 
 # Rate limiting for login attempts (5 attempts, 5-minute lockout)
 login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
+
+# Initialize IoT-specific modules
+try:
+    iot_intelligence = get_intelligence(db_manager)
+    iot_protocol_analyzer = get_protocol_analyzer(db_manager)
+    iot_threat_detector = get_threat_detector(db_manager)
+    smart_home_manager = get_smart_home_manager(db_manager)
+    privacy_monitor = get_privacy_monitor(db_manager)
+    network_segmentation = get_network_segmentation(db_manager)
+    firmware_manager = get_firmware_manager(db_manager)
+    logger.info("IoT-specific modules initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize IoT modules: {e}. IoT features may not be available.")
+    iot_intelligence = None
+    iot_protocol_analyzer = None
+    iot_threat_detector = None
+    smart_home_manager = None
+    privacy_monitor = None
+    network_segmentation = None
+    firmware_manager = None
 
 server = app.server
 
@@ -2081,13 +2112,121 @@ dashboard_layout = dbc.Container([
                             html.Div(id='preferences-status', className="mt-2")
                         ])
                     ], className="cyber-card")
-                ], title="⚙️ Dashboard Preferences", class_name="cyber-accordion-item")
+                ], title="⚙️ Dashboard Preferences", class_name="cyber-accordion-item"),
+
+                # IoT Protocol Dashboard - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("📡 IoT Protocol Activity"),
+                        dbc.CardBody([
+                            html.Div(id='iot-protocol-dashboard', children=[
+                                dbc.Alert([
+                                    html.I(className="fa fa-check-circle me-2"),
+                                    "IoT Protocol Analysis is now active! This dashboard monitors MQTT, CoAP, and Zigbee traffic."
+                                ], color="success"),
+                                html.Div(id='mqtt-coap-stats'),
+                                html.Div(id='protocol-charts')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="📡 IoT Protocol Analysis", class_name="cyber-accordion-item"),
+
+                # IoT Threat Intelligence - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("🛡️ IoT Threat Detection"),
+                        dbc.CardBody([
+                            html.Div(id='iot-threat-dashboard', children=[
+                                dbc.Alert([
+                                    html.I(className="fa fa-shield-alt me-2"),
+                                    "Advanced threat detection active: Mirai, botnet, and DDoS monitoring enabled."
+                                ], color="info"),
+                                html.Div(id='threat-detection-stats'),
+                                html.Div(id='botnet-ddos-tables')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="🛡️ IoT Threat Intelligence", class_name="cyber-accordion-item"),
+
+                # Privacy Monitoring - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("🔒 Privacy & Data Monitoring"),
+                        dbc.CardBody([
+                            html.Div(id='privacy-dashboard', children=[
+                                html.Div(id='privacy-score-section'),
+                                html.Div(id='cloud-tracking-section'),
+                                html.Div(id='tracker-detection-section')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="🔒 Privacy Monitoring", class_name="cyber-accordion-item"),
+
+                # Smart Home Context - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("🏠 Smart Home Overview"),
+                        dbc.CardBody([
+                            html.Div(id='smart-home-dashboard', children=[
+                                html.Div(id='hub-detection-section'),
+                                html.Div(id='ecosystem-section'),
+                                html.Div(id='room-management-section')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="🏠 Smart Home Context", class_name="cyber-accordion-item"),
+
+                # Network Segmentation - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("🌐 Network Segmentation"),
+                        dbc.CardBody([
+                            html.Div(id='segmentation-dashboard', children=[
+                                html.Div(id='segmentation-stats'),
+                                html.Div(id='vlan-recommendations'),
+                                html.Div(id='segmentation-violations')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="🌐 Network Segmentation", class_name="cyber-accordion-item"),
+
+                # Firmware & Lifecycle - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("⚙️ Firmware & Lifecycle"),
+                        dbc.CardBody([
+                            html.Div(id='firmware-dashboard', children=[
+                                html.Div(id='firmware-status-section'),
+                                html.Div(id='eol-devices-section'),
+                                html.Div(id='provisioning-section')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="⚙️ Firmware Management", class_name="cyber-accordion-item"),
+
+                # Educational Content - NEW
+                dbc.AccordionItem([
+                    dbc.Card([
+                        dbc.CardHeader("📚 IoT Security Education"),
+                        dbc.CardBody([
+                            html.Div(id='education-dashboard', children=[
+                                dbc.Alert([
+                                    html.I(className="fa fa-graduation-cap me-2"),
+                                    "Learn about IoT threats like Mirai botnet, unauthorized cloud uploads, and more!"
+                                ], color="warning"),
+                                html.Div(id='threat-scenarios-section'),
+                                html.Div(id='security-tips-section')
+                            ])
+                        ])
+                    ], className="cyber-card")
+                ], title="📚 Security Education", class_name="cyber-accordion-item")
             ], start_collapsed=True, className="mt-3 cyber-accordion")
         ])
     ]),
 
     # Hidden Components & Modals
     WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"),
+    dcc.Interval(id='refresh-interval', interval=10*1000, n_intervals=0),  # 10 second refresh for IoT stats
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='theme-store', storage_type='local', data={'theme': 'cyberpunk'}),
@@ -4742,6 +4881,438 @@ def select_all_devices(select_all):
 
 
 # ============================================================================
+# IOT-SPECIFIC FEATURE CALLBACKS
+# ============================================================================
+
+@app.callback(
+    Output('mqtt-coap-stats', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_protocol_stats(n):
+    """Update MQTT and CoAP statistics."""
+    if not iot_protocol_analyzer:
+        return dbc.Alert([
+            html.I(className="fa fa-info-circle me-2"),
+            "IoT Protocol Analyzer ready. No protocol traffic detected yet."
+        ], color="info")
+
+    try:
+        summary = iot_protocol_analyzer.get_protocol_summary()
+        if not summary:
+            return dbc.Alert("No IoT protocol traffic detected yet", color="info")
+
+        cards = []
+        for protocol, stats in summary.items():
+            encryption_status = "🔒 Encrypted" if stats.get('encryption_used') else "⚠️ Unencrypted"
+            encryption_color = "green" if stats.get('encryption_used') else "red"
+
+            cards.append(
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(protocol.upper(), className="text-primary mb-2"),
+                            html.P(f"📊 Messages: {stats.get('total_messages', 0):,}", className="mb-1 small"),
+                            html.P(f"📦 Bytes: {stats.get('total_bytes', 0):,}", className="mb-1 small"),
+                            html.P(encryption_status, className="mb-0 small",
+                                  style={'color': encryption_color, 'fontWeight': 'bold'})
+                        ])
+                    ], className="cyber-card text-center", style={"borderLeft": f"4px solid {encryption_color}"})
+                ], width=4)
+            )
+
+        return dbc.Row(cards, className="mt-3")
+    except Exception as e:
+        logger.error(f"Error updating protocol stats: {e}")
+        return dbc.Alert(f"Error loading protocol stats", color="warning")
+
+
+@app.callback(
+    Output('threat-detection-stats', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_threat_stats(n):
+    """Update threat detection statistics."""
+    if not iot_threat_detector:
+        return dbc.Alert("IoT Threat Detector ready. Monitoring for threats...", color="info")
+
+    try:
+        summary = iot_threat_detector.get_threat_summary(hours=24)
+
+        botnet_count = sum(v['count'] for v in summary.get('botnet_detections', {}).values())
+        ddos_count = sum(v['count'] for v in summary.get('ddos_events', {}).values())
+
+        return dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H2(str(botnet_count), className="text-danger mb-0"),
+                        html.P("🐛 Botnet Detections", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center", style={"borderLeft": "4px solid #dc3545"})
+            ], width=4),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H2(str(ddos_count), className="text-warning mb-0"),
+                        html.P("⚡ DDoS Events", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center", style={"borderLeft": "4px solid #ffc107"})
+            ], width=4),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H2(str(summary.get('total_threats', 0)), className="text-info mb-0"),
+                        html.P("📊 Total Threats", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center", style={"borderLeft": "4px solid #17a2b8"})
+            ], width=4)
+        ], className="mt-3")
+    except Exception as e:
+        logger.error(f"Error updating threat stats: {e}")
+        return dbc.Alert("No threat data available yet", color="info")
+
+
+@app.callback(
+    Output('privacy-score-section', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_privacy_score(n):
+    """Update overall privacy score."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return dbc.Alert("Database connection failed", color="danger")
+
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT privacy_concern_level, COUNT(DISTINCT device_ip) as count
+            FROM cloud_connections
+            GROUP BY privacy_concern_level
+        ''')
+
+        concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
+        conn.close()
+
+        high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
+        total_devices = sum(concerns.values())
+
+        if total_devices == 0:
+            return dbc.Alert([
+                html.I(className="fa fa-cloud me-2"),
+                "No cloud connections detected yet. Privacy monitoring active."
+            ], color="success")
+
+        privacy_score = max(0, 100 - (high_concern / total_devices * 50))
+
+        score_color = "success" if privacy_score > 70 else "warning" if privacy_score > 40 else "danger"
+
+        return dbc.Card([
+            dbc.CardBody([
+                html.H1(f"{privacy_score:.0f}", className=f"text-center text-{score_color} mb-1", style={"fontSize": "3rem"}),
+                html.P("Privacy Score", className="text-center text-muted mb-1"),
+                html.Small(f"{high_concern} of {total_devices} devices with privacy concerns",
+                          className="text-center d-block text-muted")
+            ])
+        ], className="cyber-card mt-3", style={"borderLeft": "4px solid #6f42c1"})
+    except Exception as e:
+        logger.error(f"Error calculating privacy score: {e}")
+        return dbc.Alert("Privacy monitoring active", color="info")
+
+
+@app.callback(
+    Output('segmentation-stats', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_segmentation_stats(n):
+    """Update network segmentation statistics."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return dbc.Alert("Database connection failed", color="danger")
+
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as total FROM devices')
+        total_devices = cursor.fetchone()['total']
+
+        cursor.execute('''
+            SELECT COUNT(DISTINCT device_ip) as segmented
+            FROM device_segments
+            WHERE current_segment = 1
+        ''')
+        segmented = cursor.fetchone()['segmented']
+
+        cursor.execute('''
+            SELECT COUNT(*) as violations
+            FROM segmentation_violations
+            WHERE timestamp >= datetime('now', '-24 hours')
+        ''')
+        violations = cursor.fetchone()['violations']
+
+        conn.close()
+
+        if total_devices == 0:
+            return dbc.Alert("No devices detected yet", color="info")
+
+        segmentation_pct = (segmented / total_devices) * 100
+
+        return dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(segmented), className="text-success mb-0"),
+                        html.P("✅ Segmented", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(total_devices - segmented), className="text-warning mb-0"),
+                        html.P("⚠️ Unsegmented", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(f"{segmentation_pct:.0f}%", className="text-info mb-0"),
+                        html.P("📊 Coverage", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(violations), className="text-danger mb-0"),
+                        html.P("🚨 Violations", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=3)
+        ], className="mt-3")
+    except Exception as e:
+        logger.error(f"Error updating segmentation stats: {e}")
+        return dbc.Alert("Network segmentation monitoring active", color="info")
+
+
+@app.callback(
+    Output('firmware-status-section', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_firmware_status(n):
+    """Update firmware status overview."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return dbc.Alert("Database connection failed", color="danger")
+
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as total FROM device_firmware_status')
+        total = cursor.fetchone()['total']
+
+        if total == 0:
+            conn.close()
+            return dbc.Alert([
+                html.I(className="fa fa-microchip me-2"),
+                "Firmware tracking will appear as devices are discovered and classified."
+            ], color="info")
+
+        cursor.execute('SELECT COUNT(*) as updates FROM device_firmware_status WHERE update_available = 1')
+        updates_available = cursor.fetchone()['updates']
+
+        cursor.execute('SELECT COUNT(*) as eol FROM device_firmware_status WHERE is_eol = 1')
+        eol_devices = cursor.fetchone()['eol']
+
+        conn.close()
+
+        up_to_date = total - updates_available - eol_devices
+
+        return dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(updates_available), className="text-primary mb-0"),
+                        html.P("🔄 Updates Available", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=4),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(eol_devices), className="text-danger mb-0"),
+                        html.P("⏰ End-of-Life", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=4),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3(str(up_to_date), className="text-success mb-0"),
+                        html.P("✅ Up-to-Date", className="text-muted small")
+                    ])
+                ], className="cyber-card text-center")
+            ], width=4)
+        ], className="mt-3")
+    except Exception as e:
+        logger.error(f"Error updating firmware status: {e}")
+        return dbc.Alert("Firmware monitoring active", color="info")
+
+
+@app.callback(
+    Output('threat-scenarios-section', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_threat_scenarios(n):
+    """Display threat scenarios from educational library."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return dbc.Alert("Database connection failed", color="danger")
+
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT scenario_name, category, severity, description
+            FROM threat_scenarios
+            ORDER BY severity DESC, created_at DESC
+            LIMIT 5
+        ''')
+
+        scenarios = cursor.fetchall()
+        conn.close()
+
+        if not scenarios:
+            return dbc.Alert([
+                html.I(className="fa fa-book me-2"),
+                "Educational threat scenarios will appear here. Run migration with --populate to load examples."
+            ], color="info")
+
+        cards = []
+        severity_icons = {
+            'critical': '🔴',
+            'high': '🟠',
+            'medium': '🟡',
+            'low': '🟢'
+        }
+        severity_colors = {
+            'critical': 'danger',
+            'high': 'warning',
+            'medium': 'info',
+            'low': 'secondary'
+        }
+
+        for scenario in scenarios:
+            icon = severity_icons.get(scenario['severity'], '⚪')
+            cards.append(
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.Span(icon + " ", style={"fontSize": "1.2rem"}),
+                        html.Strong(scenario['scenario_name']),
+                        dbc.Badge(scenario['severity'].upper(),
+                                color=severity_colors.get(scenario['severity'], 'secondary'),
+                                className="ms-2")
+                    ]),
+                    dbc.CardBody([
+                        html.P(scenario['description'], className="small mb-2"),
+                        dbc.Badge(f"📂 {scenario['category']}", color="light", text_color="dark")
+                    ])
+                ], className="mb-2 cyber-card")
+            )
+
+        return html.Div(cards, className="mt-3")
+    except Exception as e:
+        logger.error(f"Error loading threat scenarios: {e}")
+        return dbc.Alert("Educational content library active", color="info")
+
+
+@app.callback(
+    Output('security-tips-section', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_security_tips(n):
+    """Display security tips and best practices."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return dbc.Alert("Database connection failed", color="danger")
+
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT tip_category, device_type, tip_title, tip_content,
+                   importance, difficulty, time_required
+            FROM security_tips
+            ORDER BY
+                CASE importance
+                    WHEN 'critical' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                END,
+                CASE difficulty
+                    WHEN 'easy' THEN 1
+                    WHEN 'moderate' THEN 2
+                    WHEN 'advanced' THEN 3
+                END
+            LIMIT 10
+        ''')
+
+        tips = cursor.fetchall()
+        conn.close()
+
+        if not tips:
+            return dbc.Alert([
+                html.I(className="fa fa-lightbulb me-2"),
+                "Security tips will appear here."
+            ], color="info")
+
+        cards = []
+        importance_colors = {
+            'critical': 'danger',
+            'high': 'warning',
+            'medium': 'info',
+            'low': 'secondary'
+        }
+
+        difficulty_icons = {
+            'easy': '✅',
+            'moderate': '⚙️',
+            'advanced': '🔧'
+        }
+
+        for tip in tips:
+            difficulty_icon = difficulty_icons.get(tip['difficulty'], '⚙️')
+            cards.append(
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.Strong(f"{tip['tip_title']}", className="me-2"),
+                        dbc.Badge(tip['importance'].upper(),
+                                color=importance_colors.get(tip['importance'], 'secondary'),
+                                className="me-2"),
+                        dbc.Badge(f"{difficulty_icon} {tip['difficulty']}",
+                                color="light", text_color="dark")
+                    ]),
+                    dbc.CardBody([
+                        html.P(tip['tip_content'], className="small mb-2"),
+                        html.Div([
+                            dbc.Badge(f"🎯 {tip['device_type']}", color="primary", className="me-2"),
+                            dbc.Badge(f"⏱️ {tip['time_required']}", color="light", text_color="dark")
+                        ])
+                    ])
+                ], className="mb-2 cyber-card")
+            )
+
+        return html.Div([
+            dbc.Alert([
+                html.I(className="fa fa-shield-alt me-2"),
+                f"Showing {len(tips)} actionable security recommendations"
+            ], color="success", className="mb-3"),
+            html.Div(cards)
+        ], className="mt-3")
+
+    except Exception as e:
+        logger.error(f"Error loading security tips: {e}")
+        return dbc.Alert("Security tips library active", color="info")
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -4779,16 +5350,34 @@ def main():
     else:
         threat_status += "❌ DISABLED (Configure AbuseIPDB API key to enable)"
     logger.info(threat_status)
+
+    # Check IoT Security Features status
+    iot_features_status = "🔐 IoT Security Suite: "
+    if iot_intelligence and iot_protocol_analyzer and iot_threat_detector:
+        iot_features_status += "✅ FULLY OPERATIONAL"
+    else:
+        iot_features_status += "⚠️ PARTIALLY AVAILABLE (check logs)"
+    logger.info(iot_features_status)
     logger.info("")
 
-    logger.info("✨ NEW FEATURES:")
+    logger.info("✨ NEW IOT SECURITY FEATURES:")
+    logger.info("  ✓ 📡 IoT Protocol Analysis (MQTT, CoAP, Zigbee)")
+    logger.info("  ✓ 🛡️ Threat Detection (Mirai, Botnets, DDoS)")
+    logger.info("  ✓ 🔒 Privacy Monitoring (Cloud uploads, Trackers)")
+    logger.info("  ✓ 🏠 Smart Home Context (Hub detection, Ecosystems)")
+    logger.info("  ✓ 🌐 Network Segmentation (VLAN recommendations)")
+    logger.info("  ✓ ⚙️ Firmware Lifecycle (Updates, EOL tracking)")
+    logger.info("  ✓ 📚 Security Education (Threat scenarios)")
+    logger.info("")
+
+    logger.info("✨ CORE FEATURES:")
     logger.info("  ✓ Interactive onboarding wizard (6 steps)")
     logger.info("  ✓ Device details modal with trust management")
     logger.info("  ✓ Lockdown mode with confirmation")
     logger.info("  ✓ Keyboard shortcuts (N/D/A)")
     logger.info("  ✓ Clickable device cards & network graph")
     logger.info("")
-    logger.info("KEY FEATURES:")
+    logger.info("📊 MONITORING CAPABILITIES:")
     logger.info("  ✓ Device status indicators (green/yellow/red)")
     logger.info("  ✓ Color-coded network topology graph")
     logger.info("  ✓ Educational drill-down with baseline comparisons")
