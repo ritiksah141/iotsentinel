@@ -26,103 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from database.db_manager import DatabaseManager
 
 
-def create_test_schema(db_manager: DatabaseManager):
-    """
-    Helper function to create the database schema for testing.
-    This is necessary because :memory: databases are empty by default.
-    """
-    try:
-        cursor = db_manager.conn.cursor()
 
-        # 1. Devices Table (Updated to match current schema)
-        cursor.execute("""
-        CREATE TABLE devices (
-            device_ip TEXT PRIMARY KEY,
-            device_name TEXT,
-            device_type TEXT,
-            mac_address TEXT,
-            manufacturer TEXT,
-            model TEXT,
-            firmware_version TEXT,
-            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP,
-            is_trusted INTEGER DEFAULT 0,
-            is_blocked INTEGER DEFAULT 0,
-            custom_name TEXT,
-            notes TEXT,
-            icon TEXT DEFAULT '❓',
-            category TEXT DEFAULT 'other',
-            confidence TEXT DEFAULT 'low',
-            total_connections INTEGER DEFAULT 0
-        );
-        """)
-
-        # 2. Connections Table
-        cursor.execute("""
-        CREATE TABLE connections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_ip TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            dest_ip TEXT,
-            dest_port INTEGER,
-            protocol TEXT,
-            service TEXT,
-            duration REAL,
-            bytes_sent INTEGER,
-            bytes_received INTEGER,
-            packets_sent INTEGER,
-            packets_received INTEGER,
-            conn_state TEXT,
-            processed INTEGER DEFAULT 0,
-            FOREIGN KEY (device_ip) REFERENCES devices (device_ip)
-        );
-        """)
-
-        # 3. ML Predictions Table
-        cursor.execute("""
-        CREATE TABLE ml_predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            connection_id INTEGER NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_anomaly INTEGER,
-            anomaly_score REAL,
-            model_type TEXT,
-            model_version TEXT,
-            FOREIGN KEY (connection_id) REFERENCES connections (id)
-        );
-        """)
-
-        # 4. Alerts Table
-        cursor.execute("""
-        CREATE TABLE alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_ip TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            severity TEXT CHECK (severity IN ('low', 'medium', 'high', 'critical')),
-            anomaly_score REAL,
-            explanation TEXT,
-            top_features TEXT,
-            acknowledged INTEGER DEFAULT 0,
-            acknowledged_at TIMESTAMP,
-            FOREIGN KEY (device_ip) REFERENCES devices (device_ip)
-        );
-        """)
-
-        db_manager.conn.commit()
-    except sqlite3.Error as e:
-        print(f"Error creating test schema: {e}")
-        raise
-
-
-@pytest.fixture
-def db():
-    """Create in-memory database for testing."""
-    db_manager = DatabaseManager(':memory:')
-    # Create the schema right after connecting
-    create_test_schema(db_manager)
-    yield db_manager
-    db_manager.close()
 
 
 @pytest.fixture
@@ -523,6 +427,24 @@ class TestAlertOperations:
 
         # Assert
         assert len(alerts) == 3
+
+    def test_acknowledge_non_existent_alert(self, db):
+        """Test acknowledging an alert ID that does not exist."""
+        # Arrange
+        non_existent_alert_id = 999
+
+        # Act
+        result = db.acknowledge_alert(non_existent_alert_id)
+
+        # Assert
+        # The operation should be "successful" as no error is raised
+        assert result is True
+
+        # And verify no alert was created or modified
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT * FROM alerts WHERE id = ?", (non_existent_alert_id,))
+        alert = cursor.fetchone()
+        assert alert is None
 
 
 class TestMLPredictionOperations:

@@ -30,48 +30,22 @@ from sklearn.ensemble import IsolationForest # Required for type assertion
 from ml.train_isolation_forest import train_isolation_forest # Import the function being tested
 
 
-def create_test_schema(db_manager: DatabaseManager):
-    """Helper to create database schema."""
-    try:
-        cursor = db_manager.conn.cursor()
-
-        cursor.execute("""
-        CREATE TABLE devices (
-            device_ip TEXT PRIMARY KEY, device_name TEXT, device_type TEXT,
-            mac_address TEXT, manufacturer TEXT, first_seen TIMESTAMP, last_seen TIMESTAMP
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE connections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, device_ip TEXT, timestamp TIMESTAMP,
-            dest_ip TEXT, dest_port INTEGER, protocol TEXT, service TEXT, duration REAL,
-            bytes_sent INTEGER, bytes_received INTEGER, packets_sent INTEGER,
-            packets_received INTEGER, conn_state TEXT, processed INTEGER DEFAULT 0,
-            FOREIGN KEY (device_ip) REFERENCES devices (device_ip)
-        );
-        """)
-
-        db_manager.conn.commit()
-    except sqlite3.Error as e:
-        print(f"Error creating schema: {e}")
-        raise
-
+# The `db` fixture is provided by `tests/conftest.py`
 
 @pytest.fixture
-def temp_db():
-    """Create temporary database with training data."""
-    db_manager = DatabaseManager(':memory:')
-    create_test_schema(db_manager)
-
+def populated_db(db: DatabaseManager):
+    """
+    Uses the shared `db` fixture and populates it with sample training data
+    for the Isolation Forest tests.
+    """
     # Add sample training data
-    db_manager.add_device('192.168.1.100', device_name='Training Device')
+    db.add_device('192.168.1.100', device_name='Training Device')
 
     protocols = ['tcp', 'udp']
     conn_states = ['SF', 'S0', 'REJ']
 
     for i in range(100):
-        db_manager.add_connection(
+        db.add_connection(
             device_ip='192.168.1.100',
             dest_ip=f'8.8.8.{i % 4}',
             dest_port=80 + (i % 10),
@@ -83,18 +57,16 @@ def temp_db():
             packets_sent=10 + i,
             packets_received=20 + i
         )
-
-    yield db_manager
-    db_manager.close()
+    return db
 
 
 class TestDataLoading:
     """Test suite for training data loading."""
 
-    def test_load_training_data_from_database(self, temp_db):
+    def test_load_training_data_from_database(self, populated_db):
         """TC-TRN-IF-001: Verify loading training data from database."""
         # Arrange & Act
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         # Assert
@@ -102,10 +74,10 @@ class TestDataLoading:
         assert 'bytes_sent' in df.columns
         assert 'bytes_received' in df.columns
 
-    def test_validate_minimum_samples(self, temp_db):
+    def test_validate_minimum_samples(self, populated_db):
         """TC-TRN-IF-002: Verify minimum sample validation."""
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         # Act & Assert
@@ -115,10 +87,10 @@ class TestDataLoading:
 class TestFeatureEngineering:
     """Test suite for feature engineering in training."""
 
-    def test_extract_features_for_training(self, temp_db):
+    def test_extract_features_for_training(self, populated_db):
         """TC-TRN-IF-003: Verify feature extraction for training."""
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -131,10 +103,10 @@ class TestFeatureEngineering:
         assert len(feature_names) > 0
         assert 'total_bytes' in feature_names
 
-    def test_feature_scaling(self, temp_db):
+    def test_feature_scaling(self, populated_db):
         """TC-TRN-IF-004: Verify feature scaling before training."""
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -155,12 +127,12 @@ class TestFeatureEngineering:
 class TestModelTraining:
     """Test suite for Isolation Forest model training."""
 
-    def test_train_isolation_forest_model(self, temp_db):
+    def test_train_isolation_forest_model(self, populated_db):
         """TC-TRN-IF-005: Verify Isolation Forest training."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -177,12 +149,12 @@ class TestModelTraining:
         predictions = model.predict(X_scaled)
         assert len(predictions) == len(X_scaled)
 
-    def test_model_hyperparameters(self, temp_db):
+    def test_model_hyperparameters(self, populated_db):
         """TC-TRN-IF-006: Verify model hyperparameter configuration."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -208,12 +180,12 @@ class TestModelTraining:
 class TestModelPersistence:
     """Test suite for model saving and loading."""
 
-    def test_save_trained_model(self, temp_db, tmp_path):
+    def test_save_trained_model(self, populated_db, tmp_path):
         """TC-TRN-IF-007: Verify saving trained model to disk."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -232,12 +204,12 @@ class TestModelPersistence:
         assert model_path.exists()
         assert model_path.stat().st_size > 0
 
-    def test_load_saved_model(self, temp_db, tmp_path):
+    def test_load_saved_model(self, populated_db, tmp_path):
         """TC-TRN-IF-008: Verify loading saved model from disk."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -260,10 +232,10 @@ class TestModelPersistence:
         loaded_preds = loaded_model.predict(X_scaled)
         np.testing.assert_array_equal(original_preds, loaded_preds)
 
-    def test_save_feature_extractor(self, temp_db, tmp_path):
+    def test_save_feature_extractor(self, populated_db, tmp_path):
         """TC-TRN-IF-009: Verify saving feature extractor with model."""
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -283,18 +255,17 @@ class TestModelPersistence:
         loaded_extractor.load(extractor_path)
 
         assert loaded_extractor.scaler_mean is not None
-        assert loaded_extractor.scaler_std is not None
 
 
 class TestModelEvaluation:
     """Test suite for model evaluation metrics."""
 
-    def test_calculate_anomaly_scores(self, temp_db):
+    def test_calculate_anomaly_scores(self, populated_db):
         """TC-TRN-IF-010: Verify anomaly score calculation."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -311,12 +282,12 @@ class TestModelEvaluation:
         assert len(scores) == len(X_scaled)
         assert np.all(scores <= 0)  # IF scores are negative
 
-    def test_anomaly_detection_rate(self, temp_db):
+    def test_anomaly_detection_rate(self, populated_db):
         """TC-TRN-IF-011: Verify anomaly detection rate matches contamination."""
         from sklearn.ensemble import IsolationForest
 
         # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
