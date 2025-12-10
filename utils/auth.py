@@ -356,3 +356,156 @@ class AuthManager:
         except sqlite3.Error as e:
             logger.error(f"Error fetching users: {e}")
             return []
+
+    def get_user_preference(self, user_id: int, preference_key: str, default=None):
+        """
+        Get a user preference value.
+
+        Args:
+            user_id: User ID
+            preference_key: Preference key (e.g., 'display_density', 'timezone')
+            default: Default value if preference not found
+
+        Returns:
+            Preference value or default
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT preference_value FROM user_preferences
+                WHERE user_id = ? AND preference_key = ?
+            """, (user_id, preference_key))
+
+            result = cursor.fetchone()
+            conn.close()
+
+            if result:
+                return result['preference_value']
+            return default
+
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching preference {preference_key} for user {user_id}: {e}")
+            return default
+
+    def set_user_preference(self, user_id: int, preference_key: str, preference_value: str) -> bool:
+        """
+        Set a user preference.
+
+        Args:
+            user_id: User ID
+            preference_key: Preference key
+            preference_value: Preference value
+
+        Returns:
+            True if preference set successfully, False otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, preference_key) DO UPDATE SET
+                    preference_value = excluded.preference_value,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (user_id, preference_key, preference_value))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Set preference {preference_key} for user {user_id}")
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error setting preference {preference_key} for user {user_id}: {e}")
+            return False
+
+    def get_all_user_preferences(self, user_id: int) -> Dict[str, str]:
+        """
+        Get all preferences for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Dictionary mapping preference keys to values
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT preference_key, preference_value
+                FROM user_preferences
+                WHERE user_id = ?
+            """, (user_id,))
+
+            preferences = {row['preference_key']: row['preference_value'] for row in cursor.fetchall()}
+            conn.close()
+
+            # Apply defaults for missing preferences
+            defaults = self._get_default_preferences()
+            for key, value in defaults.items():
+                if key not in preferences:
+                    preferences[key] = value
+
+            return preferences
+
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching preferences for user {user_id}: {e}")
+            return self._get_default_preferences()
+
+    def _get_default_preferences(self) -> Dict[str, str]:
+        """Get default user preferences."""
+        return {
+            'display_density': 'comfortable',  # comfortable, compact, spacious
+            'timezone': 'UTC',  # User's timezone
+            'date_format': 'YYYY-MM-DD HH:mm:ss',
+            'auto_backup': 'enabled',  # enabled, disabled
+            'backup_schedule': 'daily',  # daily, weekly, monthly
+            'backup_retention_days': '30',
+            'language': 'en',
+            'theme': 'dark',  # dark, light, auto
+            'notifications_enabled': 'true',
+            'alert_email_enabled': 'false',
+            'dashboard_refresh_interval': '10',  # seconds
+        }
+
+    def update_user_settings(self, user_id: int, settings: Dict[str, str]) -> bool:
+        """
+        Update multiple user settings at once.
+
+        Args:
+            user_id: User ID
+            settings: Dictionary of setting key-value pairs
+
+        Returns:
+            True if all settings updated successfully, False otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            for key, value in settings.items():
+                cursor.execute("""
+                    INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(user_id, preference_key) DO UPDATE SET
+                        preference_value = excluded.preference_value,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (user_id, key, value))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Updated {len(settings)} settings for user {user_id}")
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error updating settings for user {user_id}: {e}")
+            return False

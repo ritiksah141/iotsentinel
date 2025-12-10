@@ -161,22 +161,46 @@ class IoTFeaturesOrchestrator:
         for device in devices:
             device_ip = device['device_ip']
 
-            # 1. Check for Mirai infection
+            # 1. Check for default credentials (critical security risk)
+            default_creds = self.threat_detector.check_default_credentials(device_ip)
+            if default_creds:
+                logger.critical(f"DEFAULT CREDENTIALS RISK on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 2. Check for Mirai infection
             mirai = self.threat_detector.detect_mirai_infection(device_ip)
             if mirai:
                 logger.critical(f"MIRAI DETECTED on {device['device_name']} ({device_ip})")
                 threat_count += 1
 
-            # 2. Check for DDoS participation
+            # 3. Check for DDoS participation
             ddos = self.threat_detector.detect_ddos_participation(device_ip)
             if ddos:
                 logger.critical(f"DDoS ATTACK from {device['device_name']} ({device_ip})")
                 threat_count += 1
 
-            # 3. Check for C2 communication
+            # 4. Check for C2 communication
             c2 = self.threat_detector.detect_c2_communication(device_ip)
             if c2:
                 logger.critical(f"C2 COMMUNICATION detected on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 5. Check for UPnP exploitation
+            upnp_exploit = self.threat_detector.detect_upnp_exploitation(device_ip)
+            if upnp_exploit:
+                logger.critical(
+                    f"UPnP EXPLOITATION on {device['device_name']} ({device_ip}): "
+                    f"CallStranger or similar exploit detected"
+                )
+                threat_count += 1
+
+            # 6. Check for behavioral anomalies (if baselines exist)
+            behavioral_anomaly = self.threat_detector.detect_behavioral_anomaly(device_ip)
+            if behavioral_anomaly:
+                logger.warning(
+                    f"BEHAVIORAL ANOMALY on {device['device_name']} ({device_ip}): "
+                    f"{len(behavioral_anomaly['anomalies'])} metrics deviated"
+                )
                 threat_count += 1
 
         logger.info(f"Threat scan complete. Found {threat_count} threats.")
@@ -233,6 +257,63 @@ class IoTFeaturesOrchestrator:
 
         logger.info(f"Firmware check complete. {updates_available} updates available.")
         return updates_available
+
+    def run_baseline_learning(self, learning_period_days: int = 7, force_relearn: bool = False):
+        """
+        Learn behavioral baselines for all devices.
+        Should be run once after 7 days of monitoring, then weekly to update.
+
+        Args:
+            learning_period_days: Days of historical data to analyze
+            force_relearn: Force relearning even if baselines exist
+        """
+        logger.info(f"Starting baseline learning ({learning_period_days} day period)...")
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("SELECT device_ip, device_name FROM devices")
+        devices = cursor.fetchall()
+
+        learned_count = 0
+        insufficient_data_count = 0
+        skipped_count = 0
+
+        for device in devices:
+            # Check if baselines already exist (unless force_relearn)
+            if not force_relearn:
+                cursor.execute("""
+                    SELECT COUNT(*) as baseline_count
+                    FROM device_behavior_baselines
+                    WHERE device_ip = ?
+                """, (device['device_ip'],))
+
+                if cursor.fetchone()['baseline_count'] > 0:
+                    logger.debug(f"Skipping {device['device_ip']} - baselines already exist")
+                    skipped_count += 1
+                    continue
+
+            result = self.intelligence.learn_baseline(
+                device_ip=device['device_ip'],
+                learning_period_days=learning_period_days
+            )
+
+            if result.get('status') == 'success':
+                logger.info(
+                    f"Learned baselines for {device['device_name']} ({device['device_ip']}): "
+                    f"{len(result['baselines'])} metrics"
+                )
+                learned_count += 1
+            elif result.get('status') == 'insufficient_data':
+                insufficient_data_count += 1
+
+        logger.info(
+            f"Baseline learning complete. Learned: {learned_count}, "
+            f"Skipped: {skipped_count}, Insufficient data: {insufficient_data_count}"
+        )
+        return {
+            'learned': learned_count,
+            'skipped': skipped_count,
+            'insufficient_data': insufficient_data_count
+        }
 
     def get_dashboard_summary(self) -> dict:
         """

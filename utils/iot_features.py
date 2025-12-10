@@ -219,29 +219,207 @@ class NetworkSegmentation:
         self.db = db_manager
 
     def recommend_segment(self, device_ip: str, device_type: str) -> Dict:
-        """Recommend network segment for device based on type and risk."""
-        recommendations = {
-            'Camera': {'segment': 'isolated', 'vlan_id': 40, 'reason': 'Cameras pose privacy risks'},
-            'Speaker': {'segment': 'isolated', 'vlan_id': 40, 'reason': 'Voice assistants record audio'},
-            'Bulb': {'segment': 'iot', 'vlan_id': 10, 'reason': 'Low risk IoT device'},
-            'Plug': {'segment': 'iot', 'vlan_id': 10, 'reason': 'Low risk IoT device'},
-            'Thermostat': {'segment': 'iot', 'vlan_id': 10, 'reason': 'Standard IoT device'},
-            'Lock': {'segment': 'isolated', 'vlan_id': 40, 'reason': 'Critical security device'},
-            'Router': {'segment': 'trusted', 'vlan_id': 20, 'reason': 'Network infrastructure'},
-            'Computer': {'segment': 'trusted', 'vlan_id': 20, 'reason': 'Trusted computing device'},
-            'Mobile': {'segment': 'trusted', 'vlan_id': 20, 'reason': 'Personal device'}
-        }
+        """
+        AI-based network segment recommendation.
 
-        recommendation = recommendations.get(device_type, {
-            'segment': 'iot',
-            'vlan_id': 10,
-            'reason': 'Default IoT segmentation'
-        })
+        Uses multiple factors:
+        - Device type and sensitivity
+        - Vulnerability count
+        - Recent anomaly detections
+        - Privacy concerns
+        - Security compliance score
 
-        # Save recommendation
-        self._save_segment_recommendation(device_ip, recommendation)
+        Args:
+            device_ip: Device IP address
+            device_type: Type of device
 
-        return recommendation
+        Returns:
+            Dict with segment recommendation and AI confidence score
+        """
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Calculate risk score (0-100, higher = more risky)
+            risk_score = 0
+            risk_factors = []
+
+            # Factor 1: Device type inherent risk
+            high_risk_types = {'IP Camera', 'Smart Lock', 'Router', 'DVR/NVR', 'Security System'}
+            medium_risk_types = {'Smart Speaker', 'Smart TV', 'Smart Hub'}
+
+            if device_type in high_risk_types:
+                risk_score += 40
+                risk_factors.append('High-risk device type')
+            elif device_type in medium_risk_types:
+                risk_score += 20
+                risk_factors.append('Medium-risk device type')
+            else:
+                risk_score += 10
+
+            # Factor 2: Active vulnerabilities
+            cursor.execute("""
+                SELECT COUNT(*) as vuln_count
+                FROM device_vulnerabilities_detected
+                WHERE device_ip = ? AND status = 'active'
+            """, (device_ip,))
+
+            vuln_count = cursor.fetchone()['vuln_count']
+            if vuln_count > 0:
+                risk_score += min(vuln_count * 15, 30)
+                risk_factors.append(f'{vuln_count} active vulnerabilities')
+
+            # Factor 3: Recent anomalies/threats
+            cursor.execute("""
+                SELECT COUNT(*) as alert_count
+                FROM alerts
+                WHERE device_ip = ?
+                AND timestamp >= datetime('now', '-7 days')
+                AND severity IN ('high', 'critical')
+                AND acknowledged = 0
+            """, (device_ip,))
+
+            alert_count = cursor.fetchone()['alert_count']
+            if alert_count > 0:
+                risk_score += min(alert_count * 10, 20)
+                risk_factors.append(f'{alert_count} recent critical alerts')
+
+            # Factor 4: Privacy concerns
+            cursor.execute("""
+                SELECT COUNT(*) as privacy_count
+                FROM cloud_connections
+                WHERE device_ip = ?
+                AND privacy_concern_level IN ('high', 'critical')
+            """, (device_ip,))
+
+            privacy_count = cursor.fetchone()['privacy_count']
+            if privacy_count > 0:
+                risk_score += 10
+                risk_factors.append('High privacy concerns')
+
+            # Determine segment based on risk score
+            if risk_score >= 60:
+                # Critical isolation needed
+                segment_name = 'Critical IoT'
+                vlan_id = 40
+                reason = f"High risk ({risk_score}/100): {'; '.join(risk_factors)}"
+                confidence = 0.95
+            elif risk_score >= 35:
+                # Moderate isolation
+                segment_name = 'IoT Isolated'
+                vlan_id = 20
+                reason = f"Moderate risk ({risk_score}/100): {'; '.join(risk_factors)}"
+                confidence = 0.85
+            elif risk_score >= 15:
+                # Standard IoT segment
+                segment_name = 'Smart Home'
+                vlan_id = 30
+                reason = f"Standard IoT ({risk_score}/100)"
+                confidence = 0.75
+            else:
+                # Trusted segment
+                segment_name = 'IoT Isolated'  # Still isolate by default
+                vlan_id = 20
+                reason = f"Low risk ({risk_score}/100), isolated for best practice"
+                confidence = 0.70
+
+            recommendation = {
+                'segment': segment_name,
+                'vlan_id': vlan_id,
+                'reason': reason,
+                'risk_score': risk_score,
+                'risk_factors': risk_factors,
+                'confidence': confidence,
+                'ai_recommended': True
+            }
+
+            # Save recommendation
+            self._save_segment_recommendation(device_ip, recommendation)
+
+            logger.info(
+                f"AI recommendation for {device_ip} ({device_type}): "
+                f"{segment_name} (risk: {risk_score}, confidence: {confidence:.2f})"
+            )
+
+            return recommendation
+
+        except Exception as e:
+            logger.error(f"Error generating AI recommendation: {e}")
+            # Fallback to safe default
+            return {
+                'segment': 'IoT Isolated',
+                'vlan_id': 20,
+                'reason': 'Default isolation (AI recommendation failed)',
+                'risk_score': 50,
+                'confidence': 0.5,
+                'ai_recommended': False
+            }
+
+    def get_ai_segmentation_plan(self) -> Dict:
+        """
+        Generate comprehensive AI-based segmentation plan for entire network.
+
+        Returns:
+            Dict with segmentation plan and statistics
+        """
+        try:
+            cursor = self.db.conn.cursor()
+            cursor.execute("SELECT device_ip, device_type, device_name FROM devices")
+            devices = cursor.fetchall()
+
+            plan = {
+                'total_devices': len(devices),
+                'segments': {},
+                'high_priority_moves': [],
+                'estimated_security_improvement': 0
+            }
+
+            for device in devices:
+                recommendation = self.recommend_segment(
+                    device['device_ip'],
+                    device['device_type']
+                )
+
+                segment = recommendation['segment']
+                if segment not in plan['segments']:
+                    plan['segments'][segment] = {
+                        'vlan_id': recommendation['vlan_id'],
+                        'devices': [],
+                        'avg_risk': 0
+                    }
+
+                plan['segments'][segment]['devices'].append({
+                    'ip': device['device_ip'],
+                    'name': device['device_name'],
+                    'type': device['device_type'],
+                    'risk_score': recommendation['risk_score']
+                })
+
+                # Track high-priority moves
+                if recommendation['risk_score'] >= 60:
+                    plan['high_priority_moves'].append({
+                        'device': device['device_name'],
+                        'ip': device['device_ip'],
+                        'to_segment': segment,
+                        'reason': recommendation['reason']
+                    })
+
+            # Calculate average risk per segment
+            for segment_name, segment_data in plan['segments'].items():
+                if segment_data['devices']:
+                    avg_risk = sum(d['risk_score'] for d in segment_data['devices']) / len(segment_data['devices'])
+                    segment_data['avg_risk'] = round(avg_risk, 1)
+
+            # Estimate security improvement
+            plan['estimated_security_improvement'] = min(
+                len(plan['high_priority_moves']) * 15,
+                100
+            )
+
+            return plan
+
+        except Exception as e:
+            logger.error(f"Error generating segmentation plan: {e}")
+            return {}
 
     def _save_segment_recommendation(self, device_ip: str, recommendation: Dict):
         """Save segment recommendation to database."""
@@ -293,14 +471,26 @@ class FirmwareLifecycleManager:
         self.db = db_manager
 
     def check_firmware_status(self, device_ip: str, current_firmware: str,
-                              vendor: str, model: str) -> Dict:
-        """Check firmware status against database."""
+                              vendor: str, model: str, generate_alerts: bool = True) -> Dict:
+        """
+        Check firmware status against database and optionally generate alerts.
+
+        Args:
+            device_ip: Device IP address
+            current_firmware: Current firmware version
+            vendor: Device vendor/manufacturer
+            model: Device model
+            generate_alerts: Whether to generate alerts for outdated/EOL firmware
+
+        Returns:
+            Dict with firmware status information
+        """
         try:
             cursor = self.db.conn.cursor()
 
             # Check if latest firmware exists
             cursor.execute("""
-                SELECT firmware_version, is_latest, is_eol
+                SELECT firmware_version, is_latest, is_eol, eol_date, security_fixes
                 FROM firmware_database
                 WHERE vendor = ? AND model = ?
                 ORDER BY release_date DESC
@@ -313,22 +503,74 @@ class FirmwareLifecycleManager:
                 update_available = (current_firmware != latest['firmware_version'])
                 is_eol = latest['is_eol']
 
+                # Calculate firmware age (days)
+                cursor.execute("""
+                    SELECT julianday('now') - julianday(release_date) as age_days
+                    FROM firmware_database
+                    WHERE vendor = ? AND model = ? AND firmware_version = ?
+                """, (vendor, model, current_firmware))
+
+                age_result = cursor.fetchone()
+                firmware_age_days = int(age_result['age_days']) if age_result else 0
+
                 # Update device firmware status
                 cursor.execute("""
                     INSERT OR REPLACE INTO device_firmware_status (
                         device_ip, current_firmware, latest_firmware,
-                        update_available, is_eol, last_update_check
-                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        firmware_age_days, update_available, is_eol,
+                        last_update_check
+                    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (device_ip, current_firmware, latest['firmware_version'],
-                      update_available, is_eol))
+                      firmware_age_days, update_available, is_eol))
 
                 self.db.conn.commit()
+
+                # Generate alerts if enabled
+                if generate_alerts:
+                    # Critical alert for EOL firmware
+                    if is_eol:
+                        explanation = (
+                            f"Device running end-of-life firmware {current_firmware}. "
+                            f"No security updates available. "
+                            f"Latest version: {latest['firmware_version']}"
+                        )
+                        self._generate_firmware_alert(
+                            device_ip, 'critical', explanation,
+                            {'firmware_status': 'eol', 'current': current_firmware}
+                        )
+
+                    # High alert for outdated firmware with security fixes
+                    elif update_available and latest.get('security_fixes'):
+                        security_fixes = latest['security_fixes']
+                        explanation = (
+                            f"Security update available: {latest['firmware_version']} "
+                            f"(currently running {current_firmware}). "
+                            f"Fixes: {security_fixes}"
+                        )
+                        self._generate_firmware_alert(
+                            device_ip, 'high', explanation,
+                            {'firmware_status': 'outdated_with_security_fixes',
+                             'current': current_firmware,
+                             'latest': latest['firmware_version']}
+                        )
+
+                    # Medium alert for outdated firmware (no critical fixes)
+                    elif update_available and firmware_age_days > 180:
+                        explanation = (
+                            f"Firmware outdated ({firmware_age_days} days old). "
+                            f"Update available: {latest['firmware_version']}"
+                        )
+                        self._generate_firmware_alert(
+                            device_ip, 'medium', explanation,
+                            {'firmware_status': 'outdated', 'age_days': firmware_age_days}
+                        )
 
                 return {
                     'current': current_firmware,
                     'latest': latest['firmware_version'],
                     'update_available': update_available,
-                    'is_eol': is_eol
+                    'is_eol': is_eol,
+                    'firmware_age_days': firmware_age_days
                 }
 
             return {'current': current_firmware, 'latest': None, 'update_available': False}
@@ -336,6 +578,44 @@ class FirmwareLifecycleManager:
         except Exception as e:
             logger.error(f"Failed to check firmware: {e}")
             return {}
+
+    def _generate_firmware_alert(self, device_ip: str, severity: str,
+                                  explanation: str, indicators: Dict):
+        """Generate firmware-related alert."""
+        try:
+            import json
+            cursor = self.db.conn.cursor()
+
+            # Check if similar alert already exists (avoid duplicates)
+            cursor.execute("""
+                SELECT id FROM alerts
+                WHERE device_ip = ?
+                AND explanation LIKE 'Device running end-of-life firmware%'
+                OR explanation LIKE 'Security update available%'
+                OR explanation LIKE 'Firmware outdated%'
+                AND timestamp >= datetime('now', '-7 days')
+                AND acknowledged = 0
+            """, (device_ip,))
+
+            if cursor.fetchone():
+                # Alert already exists, don't create duplicate
+                return
+
+            # Calculate anomaly score based on severity
+            anomaly_scores = {'critical': 0.95, 'high': 0.75, 'medium': 0.50, 'low': 0.25}
+            anomaly_score = anomaly_scores.get(severity, 0.5)
+
+            cursor.execute("""
+                INSERT INTO alerts (
+                    device_ip, severity, anomaly_score, explanation, top_features
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (device_ip, severity, anomaly_score, explanation, json.dumps(indicators)))
+
+            self.db.conn.commit()
+            logger.warning(f"Firmware alert generated for {device_ip}: {explanation}")
+
+        except Exception as e:
+            logger.error(f"Failed to generate firmware alert: {e}")
 
     def track_provisioning(self, device_ip: str, mac_address: str) -> int:
         """Track new device provisioning workflow."""
