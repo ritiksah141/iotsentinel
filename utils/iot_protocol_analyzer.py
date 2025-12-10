@@ -40,6 +40,10 @@ class IoTProtocolAnalyzer:
 
         # Zigbee/Z-Wave typical gateway ports
         self.zigbee_ports = {17754, 17755}  # Typical Zigbee coordinator ports
+        self.zwave_ports = {4123, 8888, 9090}  # Z-Wave gateway HTTP/WebSocket ports
+
+        # mDNS/Bonjour port
+        self.mdns_port = 5353
 
     def analyze_packet(self, packet) -> Optional[Dict]:
         """
@@ -61,11 +65,19 @@ class IoTProtocolAnalyzer:
                 if tcp_layer.dport in self.mqtt_ports or tcp_layer.sport in self.mqtt_ports:
                     return self._analyze_mqtt(packet)
 
+                # Check for Z-Wave gateway traffic
+                if tcp_layer.dport in self.zwave_ports or tcp_layer.sport in self.zwave_ports:
+                    return self._analyze_zwave(packet)
+
             # Check for CoAP
             if packet.haslayer(UDP):
                 udp_layer = packet[UDP]
                 if udp_layer.dport in self.coap_ports or udp_layer.sport in self.coap_ports:
                     return self._analyze_coap(packet)
+
+                # Check for mDNS/Bonjour
+                if udp_layer.dport == self.mdns_port or udp_layer.sport == self.mdns_port:
+                    return self._analyze_mdns(packet)
 
         except Exception as e:
             logger.error(f"Error analyzing packet: {e}")
@@ -290,6 +302,199 @@ class IoTProtocolAnalyzer:
             self.db.conn.commit()
         except Exception as e:
             logger.error(f"Failed to save CoAP traffic: {e}")
+
+    def _analyze_zwave(self, packet) -> Optional[Dict]:
+        """
+        Analyze Z-Wave gateway traffic.
+
+        Z-Wave uses proprietary protocol over serial/USB, but we can detect
+        gateway HTTP/WebSocket control traffic.
+
+        Returns:
+            Dict with Z-Wave gateway traffic details
+        """
+        try:
+            ip_layer = packet[IP]
+            tcp_layer = packet[TCP]
+
+            # Determine device IP (source if initiating Z-Wave commands)
+            device_ip = ip_layer.src if tcp_layer.dport in self.zwave_ports else ip_layer.dst
+
+            payload_size = len(packet[Raw].load) if packet.haslayer(Raw) else 0
+
+            zwave_info = {
+                'protocol': 'Z-Wave',
+                'timestamp': datetime.now(),
+                'device_ip': device_ip,
+                'gateway_ip': ip_layer.dst if tcp_layer.dport in self.zwave_ports else ip_layer.src,
+                'gateway_port': tcp_layer.dport if tcp_layer.dport in self.zwave_ports else tcp_layer.sport,
+                'payload_size': payload_size,
+                'is_encrypted': tcp_layer.dport == 8883  # HTTPS
+            }
+
+            # Try to detect Z-Wave command types from payload
+            if packet.haslayer(Raw):
+                payload = bytes(packet[Raw].load)
+                zwave_info['command_type'] = self._detect_zwave_command(payload)
+
+            self._save_zwave_traffic(zwave_info)
+            self._update_protocol_stats(device_ip, 'zwave', payload_size, zwave_info['is_encrypted'])
+
+            return zwave_info
+
+        except Exception as e:
+            logger.error(f"Error analyzing Z-Wave packet: {e}")
+            return None
+
+    def _detect_zwave_command(self, payload: bytes) -> str:
+        """Detect Z-Wave command type from payload patterns."""
+        try:
+            payload_str = payload.decode('utf-8', errors='ignore').lower()
+
+            # Common Z-Wave API patterns
+            if 'switch' in payload_str:
+                return 'SWITCH_CONTROL'
+            elif 'sensor' in payload_str or 'binary' in payload_str:
+                return 'SENSOR_READ'
+            elif 'thermostat' in payload_str or 'temperature' in payload_str:
+                return 'THERMOSTAT_CONTROL'
+            elif 'lock' in payload_str or 'unlock' in payload_str:
+                return 'LOCK_CONTROL'
+            elif 'add' in payload_str or 'include' in payload_str:
+                return 'DEVICE_INCLUSION'
+            elif 'remove' in payload_str or 'exclude' in payload_str:
+                return 'DEVICE_EXCLUSION'
+            else:
+                return 'GENERIC'
+        except:
+            return 'UNKNOWN'
+
+    def _save_zwave_traffic(self, zwave_info: Dict):
+        """Save Z-Wave traffic to database."""
+        try:
+            cursor = self.db.conn.cursor()
+            cursor.execute("""
+                INSERT INTO zigbee_traffic (
+                    device_ip, zigbee_address, device_type, command, manufacturer_code
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (
+                zwave_info['device_ip'],
+                zwave_info['gateway_ip'],  # Use gateway IP as identifier
+                'Z-Wave Gateway',
+                zwave_info.get('command_type', 'UNKNOWN'),
+                'Z-Wave'
+            ))
+            self.db.conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save Z-Wave traffic: {e}")
+
+    def _analyze_mdns(self, packet) -> Optional[Dict]:
+        """
+        Analyze mDNS/Bonjour packets.
+
+        mDNS is used for local network service discovery.
+        Port 5353, multicast address 224.0.0.251
+
+        Returns:
+            Dict with mDNS packet details
+        """
+        try:
+            if not packet.haslayer(Raw):
+                return None
+
+            ip_layer = packet[IP]
+            udp_layer = packet[UDP]
+            payload = bytes(packet[Raw].load)
+
+            if len(payload) < 12:  # Minimum DNS header size
+                return None
+
+            # Parse basic DNS header
+            transaction_id = struct.unpack('!H', payload[0:2])[0]
+            flags = struct.unpack('!H', payload[2:4])[0]
+            is_query = (flags & 0x8000) == 0
+            question_count = struct.unpack('!H', payload[4:6])[0]
+            answer_count = struct.unpack('!H', payload[6:8])[0]
+
+            # Extract service names from DNS questions
+            services = self._extract_mdns_services(payload[12:])
+
+            mdns_info = {
+                'protocol': 'mDNS',
+                'timestamp': datetime.now(),
+                'device_ip': ip_layer.src,
+                'is_query': is_query,
+                'services': services,
+                'question_count': question_count,
+                'answer_count': answer_count,
+                'is_multicast': ip_layer.dst.startswith('224.0.0.')
+            }
+
+            self._save_mdns_discovery(mdns_info)
+            self._update_protocol_stats(ip_layer.src, 'mdns', len(payload), False)
+
+            return mdns_info
+
+        except Exception as e:
+            logger.error(f"Error analyzing mDNS packet: {e}")
+            return None
+
+    def _extract_mdns_services(self, dns_data: bytes) -> List[str]:
+        """Extract service names from mDNS DNS data."""
+        services = []
+        try:
+            # Look for common mDNS service patterns
+            data_str = dns_data.decode('utf-8', errors='ignore')
+
+            # Common service types
+            service_patterns = [
+                '_http._tcp', '_https._tcp', '_ssh._tcp',
+                '_airplay._tcp', '_homekit._tcp', '_hap._tcp',
+                '_googlecast._tcp', '_spotify-connect._tcp',
+                '_smb._tcp', '_afpovertcp._tcp',
+                '_printer._tcp', '_ipp._tcp',
+                '_raop._tcp'  # AirPlay audio
+            ]
+
+            for pattern in service_patterns:
+                if pattern in data_str:
+                    services.append(pattern)
+
+        except:
+            pass
+
+        return services if services else ['unknown']
+
+    def _save_mdns_discovery(self, mdns_info: Dict):
+        """Save mDNS discovery to device fingerprints."""
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Update device fingerprint with discovered mDNS services
+            cursor.execute("""
+                SELECT mdns_services FROM device_fingerprints
+                WHERE device_ip = ?
+            """, (mdns_info['device_ip'],))
+
+            result = cursor.fetchone()
+            existing_services = json.loads(result['mdns_services']) if result and result['mdns_services'] else []
+
+            # Merge with new services
+            all_services = list(set(existing_services + mdns_info['services']))
+
+            cursor.execute("""
+                INSERT INTO device_fingerprints (device_ip, mdns_services, last_fingerprint_update)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(device_ip) DO UPDATE SET
+                    mdns_services = excluded.mdns_services,
+                    last_fingerprint_update = CURRENT_TIMESTAMP
+            """, (mdns_info['device_ip'], json.dumps(all_services)))
+
+            self.db.conn.commit()
+            logger.info(f"mDNS discovery saved for {mdns_info['device_ip']}: {mdns_info['services']}")
+
+        except Exception as e:
+            logger.error(f"Failed to save mDNS discovery: {e}")
 
     def _update_protocol_stats(self, device_ip: str, protocol: str,
                                 bytes_count: int, encrypted: bool):

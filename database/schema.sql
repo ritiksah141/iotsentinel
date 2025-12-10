@@ -316,6 +316,21 @@ ddos_activity (
     mitigation_action
 )
 
+default_credentials (
+    id PRIMARY KEY,
+    device_type,                    -- Type of device (IP Camera, Router, etc.)
+    manufacturer,                   -- Device manufacturer
+    model,                          -- Specific model
+    username,                       -- Default username
+    password,                       -- Default password
+    service,                        -- web, telnet, ssh, general, etc.
+    severity,                       -- low/medium/high/critical
+    notes,                          -- Additional context
+    source,                         -- Where this credential is documented (Mirai, Vendor, etc.)
+    last_updated TIMESTAMP,
+    UNIQUE(device_type, manufacturer, username, password)
+)
+
 -- ====================================================================================
 -- SMART HOME CONTEXT
 -- ====================================================================================

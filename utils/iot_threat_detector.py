@@ -391,6 +391,118 @@ class IoTThreatDetector:
 
         return None
 
+    def check_default_credentials(self, device_ip: str) -> Optional[Dict]:
+        """
+        Check if device may be using default credentials.
+
+        This checks against a database of known default credentials commonly
+        exploited by botnets like Mirai. Generates critical alerts for devices
+        that match vulnerable configurations.
+
+        Args:
+            device_ip: Device IP to check
+
+        Returns:
+            Dict with detection results if vulnerable credentials found, None otherwise
+        """
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Get device information
+            cursor.execute("""
+                SELECT device_type, manufacturer, model, device_name
+                FROM devices
+                WHERE device_ip = ?
+            """, (device_ip,))
+
+            device = cursor.fetchone()
+
+            if not device:
+                return None
+
+            device_type = device['device_type'] or 'Generic'
+            manufacturer = device['manufacturer'] or 'Generic'
+
+            # Find matching default credentials
+            cursor.execute("""
+                SELECT username, password, service, severity, notes
+                FROM default_credentials
+                WHERE (device_type = ? OR device_type = 'Generic')
+                AND (manufacturer = ? OR manufacturer = 'Generic')
+                ORDER BY severity DESC
+                LIMIT 10
+            """, (device_type, manufacturer))
+
+            credentials = cursor.fetchall()
+
+            if not credentials:
+                return None
+
+            # Build indicators
+            credential_list = []
+            highest_severity = 'low'
+            severity_priority = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+
+            for cred in credentials:
+                credential_list.append({
+                    'username': cred['username'],
+                    'password': cred['password'] if cred['password'] else '(empty)',
+                    'service': cred['service'],
+                    'notes': cred['notes']
+                })
+
+                # Track highest severity
+                cred_severity = cred['severity']
+                if severity_priority.get(cred_severity, 0) > severity_priority.get(highest_severity, 0):
+                    highest_severity = cred_severity
+
+            indicators = {
+                'device_type': device_type,
+                'manufacturer': manufacturer,
+                'model': device['model'],
+                'vulnerable_credentials_count': len(credential_list),
+                'credentials': credential_list[:5],  # Show top 5 most critical
+                'warning': 'Device may be using factory default credentials'
+            }
+
+            # Calculate confidence based on device age and type
+            # Newer devices less likely to have defaults, high-risk types more likely
+            high_risk_types = {'IP Camera', 'DVR/NVR', 'Router', 'Smart Hub'}
+            confidence = 0.6  # Base confidence
+
+            if device_type in high_risk_types:
+                confidence += 0.2
+
+            if len(credential_list) >= 5:
+                confidence += 0.1
+
+            confidence = min(confidence, 0.95)
+
+            detection = {
+                'device_ip': device_ip,
+                'botnet_name': 'Default Credentials Risk',
+                'detection_method': 'signature',
+                'confidence_score': confidence,
+                'severity': highest_severity,
+                'indicators': json.dumps(indicators),
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # Save as botnet detection (since default creds are primary botnet infection vector)
+            self._save_botnet_detection(detection)
+
+            logger.warning(
+                f"Default credentials risk detected for {device_ip} ({device_type}): "
+                f"{len(credential_list)} vulnerable credential combinations"
+            )
+
+            return detection
+
+        except Exception as e:
+            logger.error(f"Error checking default credentials: {e}")
+
+        return None
+
     def check_botnet_signatures(self, device_ip: str) -> List[Dict]:
         """
         Check device against known botnet signatures.
@@ -511,6 +623,322 @@ class IoTThreatDetector:
             logger.warning(f"DDoS activity saved: {ddos_event['attack_type']} - Device: {ddos_event['device_ip']}")
         except Exception as e:
             logger.error(f"Failed to save DDoS activity: {e}")
+
+    def detect_upnp_exploitation(self, device_ip: str, time_window_minutes: int = 10) -> Optional[Dict]:
+        """
+        Detect UPnP exploitation attempts including CallStranger (CVE-2020-12695).
+
+        Indicators:
+        1. UPnP SUBSCRIBE requests to external destinations
+        2. High volume of UPnP traffic (>50 requests/minute)
+        3. UPnP traffic patterns matching known exploits
+
+        Args:
+            device_ip: Device IP to analyze
+            time_window_minutes: Analysis time window
+
+        Returns:
+            Dict with UPnP exploitation detection if found, None otherwise
+        """
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Check for UPnP traffic patterns (port 1900)
+            cursor.execute("""
+                SELECT
+                    dest_ip,
+                    COUNT(*) as request_count,
+                    SUM(bytes_sent) as total_bytes
+                FROM connections
+                WHERE device_ip = ?
+                AND dest_port = 1900
+                AND timestamp >= datetime('now', '-{} minutes')
+                GROUP BY dest_ip
+            """.format(time_window_minutes), (device_ip,))
+
+            upnp_traffic = cursor.fetchall()
+
+            if not upnp_traffic:
+                return None
+
+            indicators = []
+            total_requests = sum(row['request_count'] for row in upnp_traffic)
+            requests_per_minute = total_requests / time_window_minutes
+
+            # Check 1: High volume UPnP traffic
+            if requests_per_minute > 50:
+                indicators.append({
+                    'type': 'high_volume_upnp',
+                    'requests_per_minute': round(requests_per_minute, 2),
+                    'total_requests': total_requests,
+                    'severity': 'high'
+                })
+
+            # Check 2: UPnP traffic to external/non-local destinations
+            external_upnp = []
+            for row in upnp_traffic:
+                dest_ip = row['dest_ip']
+                # Check if destination is external (not 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+                is_external = not (
+                    dest_ip.startswith('192.168.') or
+                    dest_ip.startswith('10.') or
+                    dest_ip.startswith('172.16.') or
+                    dest_ip.startswith('172.17.') or
+                    dest_ip.startswith('172.18.') or
+                    dest_ip.startswith('172.19.') or
+                    dest_ip.startswith('172.2') or
+                    dest_ip.startswith('172.30.') or
+                    dest_ip.startswith('172.31.')
+                )
+
+                if is_external:
+                    external_upnp.append({
+                        'dest_ip': dest_ip,
+                        'request_count': row['request_count']
+                    })
+
+            if external_upnp:
+                indicators.append({
+                    'type': 'external_upnp_traffic',
+                    'external_destinations': external_upnp,
+                    'count': len(external_upnp),
+                    'severity': 'critical'
+                })
+
+            # Check 3: Multiple UPnP destinations (scanning behavior)
+            if len(upnp_traffic) > 10:
+                indicators.append({
+                    'type': 'upnp_scanning',
+                    'unique_destinations': len(upnp_traffic),
+                    'severity': 'high'
+                })
+
+            if not indicators:
+                return None
+
+            # Determine overall severity
+            has_critical = any(i['severity'] == 'critical' for i in indicators)
+            overall_severity = 'critical' if has_critical else 'high'
+
+            # Calculate confidence score
+            confidence = 0.5  # Base confidence
+            if has_critical:
+                confidence = 0.9
+            elif len(indicators) >= 2:
+                confidence = 0.75
+
+            # Build explanation
+            explanation_parts = []
+            if any(i['type'] == 'external_upnp_traffic' for i in indicators):
+                explanation_parts.append("UPnP traffic to external IPs (CallStranger exploit)")
+            if any(i['type'] == 'high_volume_upnp' for i in indicators):
+                explanation_parts.append(f"High UPnP request rate ({requests_per_minute:.0f}/min)")
+            if any(i['type'] == 'upnp_scanning' for i in indicators):
+                explanation_parts.append(f"UPnP scanning ({len(upnp_traffic)} destinations)")
+
+            explanation = "UPnP exploitation detected: " + "; ".join(explanation_parts)
+
+            detection = {
+                'device_ip': device_ip,
+                'botnet_name': 'UPnP Exploit (CallStranger)',
+                'detection_method': 'behavior',
+                'confidence_score': confidence,
+                'severity': overall_severity,
+                'indicators': json.dumps({
+                    'upnp_patterns': indicators,
+                    'total_upnp_requests': total_requests,
+                    'time_window_minutes': time_window_minutes
+                }),
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # Save as botnet detection
+            self._save_botnet_detection(detection)
+
+            logger.critical(
+                f"UPnP exploitation detected on {device_ip}: "
+                f"{len(indicators)} suspicious patterns ({overall_severity} severity)"
+            )
+
+            return detection
+
+        except Exception as e:
+            logger.error(f"Error detecting UPnP exploitation: {e}")
+
+        return None
+
+    def detect_behavioral_anomaly(self, device_ip: str, time_window_hours: int = 1) -> Optional[Dict]:
+        """
+        Detect behavioral anomalies by comparing current behavior against learned baselines.
+
+        Triggers alerts when current metrics deviate significantly (>2 std deviations)
+        from learned baselines.
+
+        Args:
+            device_ip: Device IP to analyze
+            time_window_hours: Time window for current behavior analysis
+
+        Returns:
+            Dict with anomaly detection results if anomaly found, None otherwise
+        """
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Get learned baselines
+            cursor.execute("""
+                SELECT metric_name, baseline_value, std_deviation
+                FROM device_behavior_baselines
+                WHERE device_ip = ?
+                AND std_deviation > 0
+            """, (device_ip,))
+
+            baselines = {row['metric_name']: dict(row) for row in cursor.fetchall()}
+
+            if not baselines:
+                # No baselines learned yet
+                return None
+
+            anomalies = []
+
+            # Check 1: Current hourly connections vs baseline
+            if 'hourly_connections' in baselines:
+                cursor.execute("""
+                    SELECT COUNT(*) as current_count
+                    FROM connections
+                    WHERE device_ip = ?
+                    AND timestamp >= datetime('now', '-{} hours')
+                """.format(time_window_hours), (device_ip,))
+
+                current_count = cursor.fetchone()['current_count']
+                baseline = baselines['hourly_connections']
+
+                deviation = abs(current_count - baseline['baseline_value'])
+                if deviation > (2 * baseline['std_deviation']):
+                    anomalies.append({
+                        'metric': 'hourly_connections',
+                        'current_value': current_count,
+                        'baseline_value': baseline['baseline_value'],
+                        'std_deviation': baseline['std_deviation'],
+                        'deviation_factor': round(deviation / baseline['std_deviation'], 2),
+                        'severity': 'high' if deviation > (3 * baseline['std_deviation']) else 'medium'
+                    })
+
+            # Check 2: Current average bytes sent vs baseline
+            if 'bytes_sent_per_connection' in baselines:
+                cursor.execute("""
+                    SELECT AVG(bytes_sent) as avg_sent
+                    FROM connections
+                    WHERE device_ip = ?
+                    AND timestamp >= datetime('now', '-{} hours')
+                    AND bytes_sent IS NOT NULL
+                """.format(time_window_hours), (device_ip,))
+
+                result = cursor.fetchone()
+                if result and result['avg_sent']:
+                    avg_sent = result['avg_sent']
+                    baseline = baselines['bytes_sent_per_connection']
+
+                    deviation = abs(avg_sent - baseline['baseline_value'])
+                    if deviation > (2 * baseline['std_deviation']):
+                        anomalies.append({
+                            'metric': 'bytes_sent_per_connection',
+                            'current_value': round(avg_sent, 2),
+                            'baseline_value': baseline['baseline_value'],
+                            'std_deviation': baseline['std_deviation'],
+                            'deviation_factor': round(deviation / baseline['std_deviation'], 2),
+                            'severity': 'critical' if deviation > (4 * baseline['std_deviation']) else 'high'
+                        })
+
+            # Check 3: Unique destinations per hour vs baseline
+            if 'unique_destinations_per_hour' in baselines:
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT dest_ip) as unique_dests
+                    FROM connections
+                    WHERE device_ip = ?
+                    AND timestamp >= datetime('now', '-{} hours')
+                """.format(time_window_hours), (device_ip,))
+
+                unique_dests = cursor.fetchone()['unique_dests']
+                baseline = baselines['unique_destinations_per_hour']
+
+                deviation = abs(unique_dests - baseline['baseline_value'])
+                if deviation > (2 * baseline['std_deviation']):
+                    anomalies.append({
+                        'metric': 'unique_destinations_per_hour',
+                        'current_value': unique_dests,
+                        'baseline_value': baseline['baseline_value'],
+                        'std_deviation': baseline['std_deviation'],
+                        'deviation_factor': round(deviation / baseline['std_deviation'], 2),
+                        'severity': 'high'
+                    })
+
+            if not anomalies:
+                return None
+
+            # Calculate overall anomaly score
+            max_deviation = max(a['deviation_factor'] for a in anomalies)
+            anomaly_score = min(max_deviation / 5.0, 1.0)  # Normalize to 0-1
+
+            # Determine overall severity
+            severity_counts = {'critical': 0, 'high': 0, 'medium': 0}
+            for a in anomalies:
+                severity_counts[a['severity']] += 1
+
+            if severity_counts['critical'] > 0:
+                overall_severity = 'critical'
+            elif severity_counts['high'] >= 2:
+                overall_severity = 'high'
+            elif severity_counts['high'] >= 1:
+                overall_severity = 'medium'
+            else:
+                overall_severity = 'low'
+
+            # Create alert explanation
+            explanation_parts = []
+            for a in anomalies:
+                metric_display = a['metric'].replace('_', ' ').title()
+                explanation_parts.append(
+                    f"{metric_display}: {a['current_value']} "
+                    f"(baseline: {a['baseline_value']}, {a['deviation_factor']}x deviation)"
+                )
+
+            explanation = "Behavioral anomaly detected: " + "; ".join(explanation_parts)
+
+            # Save alert
+            cursor.execute("""
+                INSERT INTO alerts (
+                    device_ip, severity, anomaly_score, explanation, top_features
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (
+                device_ip,
+                overall_severity,
+                anomaly_score,
+                explanation,
+                json.dumps(anomalies)
+            ))
+            self.db.conn.commit()
+
+            detection = {
+                'device_ip': device_ip,
+                'anomaly_type': 'behavioral_deviation',
+                'severity': overall_severity,
+                'anomaly_score': anomaly_score,
+                'anomalies': anomalies,
+                'explanation': explanation,
+                'timestamp': datetime.now().isoformat()
+            }
+
+            logger.warning(
+                f"Behavioral anomaly detected on {device_ip}: "
+                f"{len(anomalies)} metrics deviated ({overall_severity} severity)"
+            )
+
+            return detection
+
+        except Exception as e:
+            logger.error(f"Error detecting behavioral anomaly: {e}")
+
+        return None
 
     def get_threat_summary(self, hours: int = 24) -> Dict:
         """

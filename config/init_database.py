@@ -350,6 +350,24 @@ def init_database():
     );
     CREATE INDEX IF NOT EXISTS idx_ddos_device ON ddos_activity(device_ip);
 
+    -- Default Credentials Database (for credential-based threat detection)
+    CREATE TABLE IF NOT EXISTS default_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_type TEXT NOT NULL,
+        manufacturer TEXT,
+        model TEXT,
+        username TEXT NOT NULL,
+        password TEXT NOT NULL,
+        service TEXT DEFAULT 'general',
+        severity TEXT DEFAULT 'critical' CHECK(severity IN ('low', 'medium', 'high', 'critical')),
+        notes TEXT,
+        source TEXT,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(device_type, manufacturer, username, password)
+    );
+    CREATE INDEX IF NOT EXISTS idx_default_creds_type ON default_credentials(device_type);
+    CREATE INDEX IF NOT EXISTS idx_default_creds_mfr ON default_credentials(manufacturer);
+
     -- Smart Home Features
     CREATE TABLE IF NOT EXISTS smart_home_hubs (
         device_ip TEXT PRIMARY KEY, hub_type TEXT, hub_name TEXT, firmware_version TEXT,
@@ -507,6 +525,46 @@ def init_database():
     VALUES
     ('Mirai', 'Mirai', 'Infamous IoT botnet using default credentials', '["23", "2323", "80", "8080"]', 'critical'),
     ('Gafgyt', 'Gafgyt/Bashlite', 'IoT botnet targeting weak telnet passwords', '["23", "22", "80"]', 'critical');
+
+    -- Common IoT Default Credentials (used by Mirai and other botnets)
+    INSERT OR IGNORE INTO default_credentials (device_type, manufacturer, username, password, service, severity, notes, source)
+    VALUES
+    ('IP Camera', 'Generic', 'admin', 'admin', 'web/telnet', 'critical', 'Most common default', 'Mirai'),
+    ('IP Camera', 'Generic', 'admin', '12345', 'web/telnet', 'critical', 'Common numeric password', 'Mirai'),
+    ('IP Camera', 'Generic', 'admin', 'password', 'web/telnet', 'critical', 'Default password', 'Common'),
+    ('IP Camera', 'Generic', 'root', 'root', 'telnet', 'critical', 'Root access default', 'Mirai'),
+    ('IP Camera', 'Generic', 'root', '12345', 'telnet', 'critical', 'Numeric root password', 'Mirai'),
+    ('IP Camera', 'Generic', 'root', 'pass', 'telnet', 'critical', 'Short password', 'Mirai'),
+    ('IP Camera', 'Generic', 'admin', '', 'web/telnet', 'critical', 'Empty password', 'Mirai'),
+    ('IP Camera', 'Generic', 'root', '', 'telnet', 'critical', 'Empty root password', 'Mirai'),
+    ('DVR/NVR', 'Generic', 'admin', 'admin', 'web/telnet', 'critical', 'Default DVR credentials', 'Mirai'),
+    ('DVR/NVR', 'Generic', 'admin', '12345', 'web/telnet', 'critical', 'Common DVR password', 'Mirai'),
+    ('DVR/NVR', 'Generic', 'root', 'root', 'telnet', 'critical', 'Root DVR access', 'Mirai'),
+    ('DVR/NVR', 'Generic', 'admin', '1234', 'web/telnet', 'critical', '4-digit password', 'Common'),
+    ('Router', 'Generic', 'admin', 'admin', 'web/telnet', 'critical', 'Default router login', 'Mirai'),
+    ('Router', 'Generic', 'admin', 'password', 'web', 'critical', 'Common router password', 'Common'),
+    ('Router', 'Generic', 'root', 'root', 'telnet', 'critical', 'Root router access', 'Mirai'),
+    ('Router', 'TP-Link', 'admin', 'admin', 'web', 'critical', 'TP-Link default', 'Vendor'),
+    ('Router', 'Linksys', 'admin', 'admin', 'web', 'critical', 'Linksys default', 'Vendor'),
+    ('Router', 'Netgear', 'admin', 'password', 'web', 'critical', 'Netgear default', 'Vendor'),
+    ('Router', 'D-Link', 'admin', 'admin', 'web', 'critical', 'D-Link default', 'Vendor'),
+    ('Router', 'ASUS', 'admin', 'admin', 'web', 'critical', 'ASUS default', 'Vendor'),
+    ('Smart Speaker', 'Generic', 'admin', 'admin', 'web', 'high', 'Smart speaker default', 'Common'),
+    ('Smart Hub', 'Generic', 'admin', 'admin', 'web', 'critical', 'Hub default login', 'Common'),
+    ('Smart Lock', 'Generic', 'admin', '0000', 'app', 'critical', 'Numeric PIN default', 'Common'),
+    ('Smart Lock', 'Generic', 'admin', '1234', 'app', 'critical', '4-digit PIN', 'Common'),
+    ('Printer', 'Generic', 'admin', 'admin', 'web', 'medium', 'Printer default', 'Common'),
+    ('Printer', 'HP', 'admin', '', 'web', 'medium', 'HP empty password', 'Vendor'),
+    ('Thermostat', 'Generic', 'admin', 'admin', 'web', 'high', 'Smart thermostat', 'Common'),
+    ('Security System', 'Generic', 'admin', '1234', 'app/web', 'critical', 'Security panel PIN', 'Common'),
+    ('Security System', 'Generic', 'admin', '0000', 'app/web', 'critical', 'Default security PIN', 'Common'),
+    ('Generic', 'Generic', 'user', 'user', 'general', 'high', 'Generic user account', 'Mirai'),
+    ('Generic', 'Generic', 'support', 'support', 'telnet', 'high', 'Support account default', 'Mirai'),
+    ('Generic', 'Generic', 'admin', '888888', 'telnet', 'critical', 'Repeated digit password', 'Mirai'),
+    ('Generic', 'Generic', 'admin', '123456', 'telnet', 'critical', '6-digit sequential', 'Mirai'),
+    ('Generic', 'Generic', 'root', '123456', 'telnet', 'critical', 'Root sequential password', 'Mirai'),
+    ('Generic', 'Generic', 'default', 'default', 'general', 'high', 'Default/default combo', 'Common'),
+    ('Generic', 'Generic', 'guest', 'guest', 'general', 'medium', 'Guest account', 'Common');
 
     INSERT OR IGNORE INTO network_segments (segment_name, vlan_id, purpose, security_level, recommended)
     VALUES

@@ -34,7 +34,7 @@ def create_test_schema(db_manager: DatabaseManager):
     try:
         cursor = db_manager.conn.cursor()
 
-        # 1. Devices Table
+        # 1. Devices Table (Updated to match current schema)
         cursor.execute("""
         CREATE TABLE devices (
             device_ip TEXT PRIMARY KEY,
@@ -42,8 +42,19 @@ def create_test_schema(db_manager: DatabaseManager):
             device_type TEXT,
             mac_address TEXT,
             manufacturer TEXT,
+            model TEXT,
+            firmware_version TEXT,
             first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP,
+            is_trusted INTEGER DEFAULT 0,
+            is_blocked INTEGER DEFAULT 0,
+            custom_name TEXT,
+            notes TEXT,
+            icon TEXT DEFAULT '❓',
+            category TEXT DEFAULT 'other',
+            confidence TEXT DEFAULT 'low',
+            total_connections INTEGER DEFAULT 0
         );
         """)
 

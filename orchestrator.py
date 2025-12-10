@@ -32,6 +32,17 @@ from config.init_database import init_database as init_db
 from services.hardware_monitor import HardwareMonitor, IS_RPI
 from utils.arp_scanner import ARPScanner, SCAPY_AVAILABLE
 
+# Import IoT-specific feature modules
+from utils.iot_device_intelligence import get_intelligence
+from utils.iot_protocol_analyzer import get_protocol_analyzer
+from utils.iot_threat_detector import get_threat_detector
+from utils.iot_features import (
+    get_smart_home_manager,
+    get_privacy_monitor,
+    get_network_segmentation,
+    get_firmware_manager
+)
+
 # Configure logging
 log_dir = Path(config.get('logging', 'log_dir'))
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -52,13 +63,25 @@ class IoTSentinelOrchestrator:
     Main system orchestrator for IoTSentinel.
 
     Coordinates all system components in a multi-threaded architecture:
-    - Thread 1: Zeek log monitoring and parsing.
-    - Thread 2: ML inference pipeline.
-    - Thread 3: Daily database cleanup.
-    - Thread 4: System health watchdog.
-    - Thread 5: Hardware monitor (Pi only).
-    - Thread 6: ARP network scanner (if available).
-    - Background: Alerting system with scheduled reports.
+    - Thread 1: Zeek log monitoring and parsing
+    - Thread 2: ML inference pipeline
+    - Thread 3: Daily database cleanup
+    - Thread 4: System health watchdog
+    - Thread 5: Hardware monitor (Pi only)
+    - Thread 6: ARP network scanner (if available)
+    - Thread 7: IoT threat detection (every 10 minutes)
+    - Thread 8: IoT vulnerability scanning (daily)
+    - Thread 9: IoT firmware checking (weekly)
+    - Background: Alerting system with scheduled reports
+
+    IoT-specific features:
+    - Device intelligence (fingerprinting, baseline learning, vulnerabilities)
+    - Protocol analysis (MQTT, CoAP, Zigbee, Z-Wave, mDNS)
+    - Threat detection (Mirai, C2, DDoS, default credentials, behavioral anomalies)
+    - Smart home integration (hub detection, ecosystem identification)
+    - Privacy monitoring (cloud connections tracking)
+    - Network segmentation (AI-based recommendations)
+    - Firmware management (update tracking, EOL detection)
     """
 
     def __init__(self):
@@ -89,6 +112,27 @@ class IoTSentinelOrchestrator:
         else:
             logger.warning("ARP scanner disabled (scapy not available)")
             logger.info("Install scapy for device discovery: pip install scapy")
+
+        # Initialize IoT-specific feature modules
+        try:
+            self.intelligence = get_intelligence(self.db)
+            self.protocol_analyzer = get_protocol_analyzer(self.db)
+            self.threat_detector = get_threat_detector(self.db)
+            self.smart_home = get_smart_home_manager(self.db)
+            self.privacy_monitor = get_privacy_monitor(self.db)
+            self.segmentation = get_network_segmentation(self.db)
+            self.firmware_manager = get_firmware_manager(self.db)
+            logger.info("IoT feature modules initialized (intelligence, protocols, threats, smart home, privacy, segmentation, firmware)")
+        except Exception as e:
+            logger.error(f"Failed to initialize IoT feature modules: {e}")
+            # Continue without IoT features
+            self.intelligence = None
+            self.protocol_analyzer = None
+            self.threat_detector = None
+            self.smart_home = None
+            self.privacy_monitor = None
+            self.segmentation = None
+            self.firmware_manager = None
 
         # Threading control
         self.running = False
@@ -208,6 +252,39 @@ class IoTSentinelOrchestrator:
         else:
             logger.info("Hardware monitor disabled (not running on Pi).")
 
+        # Start IoT threat detection loop (if available)
+        if self.threat_detector:
+            threat_thread = threading.Thread(
+                target=self._iot_threat_scan_loop,
+                name="IoTThreatScanThread",
+                daemon=True
+            )
+            threat_thread.start()
+            self.threads.append(threat_thread)
+            logger.info("IoT threat detection started (scanning every 10 minutes).")
+
+        # Start IoT vulnerability scan loop (if available)
+        if self.intelligence:
+            vuln_thread = threading.Thread(
+                target=self._iot_vulnerability_scan_loop,
+                name="IoTVulnerabilityScanThread",
+                daemon=True
+            )
+            vuln_thread.start()
+            self.threads.append(vuln_thread)
+            logger.info("IoT vulnerability scanning started (daily scans).")
+
+        # Start IoT firmware check loop (if available)
+        if self.firmware_manager:
+            firmware_thread = threading.Thread(
+                target=self._iot_firmware_check_loop,
+                name="IoTFirmwareCheckThread",
+                daemon=True
+            )
+            firmware_thread.start()
+            self.threads.append(firmware_thread)
+            logger.info("IoT firmware checking started (weekly checks).")
+
         logger.info("All components started. Orchestrator is running.")
         self._print_status()
 
@@ -226,6 +303,20 @@ class IoTSentinelOrchestrator:
             logger.info(f"    - Reports: {'✓' if status['running'] else '✗'}")
         else:
             logger.info(f"  Alerting: DISABLED")
+
+        # IoT features status
+        iot_enabled = all([
+            self.intelligence, self.protocol_analyzer, self.threat_detector,
+            self.smart_home, self.privacy_monitor, self.segmentation, self.firmware_manager
+        ])
+        logger.info(f"  IoT Features: {'ENABLED' if iot_enabled else 'DISABLED'}")
+        if iot_enabled:
+            logger.info(f"    - Threat Detection: ✓ (every 10 min)")
+            logger.info(f"    - Vulnerability Scan: ✓ (daily)")
+            logger.info(f"    - Firmware Check: ✓ (weekly)")
+            logger.info(f"    - Protocol Analysis: ✓")
+            logger.info(f"    - Privacy Monitoring: ✓")
+            logger.info(f"    - Smart Home Integration: ✓")
 
         logger.info("=" * 60)
 
@@ -378,6 +469,237 @@ class IoTSentinelOrchestrator:
                 time.sleep(1)
 
         logger.info("Health check loop stopped.")
+
+    def _iot_threat_scan_loop(self):
+        """Periodically scan all devices for IoT-specific threats."""
+        if not self.threat_detector:
+            logger.warning("IoT threat detector not available, loop exiting")
+            return
+
+        logger.info("IoT threat scan loop started.")
+        try:
+            # Scan every 10 minutes
+            interval = config.get('iot', 'threat_scan_interval', default=600)
+
+            # Perform initial scan after 30 seconds (let system stabilize)
+            time.sleep(30)
+            if not self.running:
+                return
+
+            logger.info("Performing initial IoT threat scan...")
+            try:
+                threat_count = self._run_iot_threat_scan()
+                logger.info(f"Initial IoT threat scan complete: {threat_count} threats detected")
+            except Exception as e:
+                logger.error(f"Error in initial IoT threat scan: {e}")
+
+            # Continue with periodic scans
+            while self.running:
+                # Sleep first, then scan
+                for _ in range(interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+                if not self.running:
+                    break
+
+                try:
+                    logger.info("Running periodic IoT threat scan...")
+                    threat_count = self._run_iot_threat_scan()
+                    if threat_count > 0:
+                        logger.warning(f"IoT threat scan complete: {threat_count} threats detected")
+                    else:
+                        logger.info("IoT threat scan complete: No threats detected")
+                except Exception as e:
+                    logger.error(f"Error in periodic IoT threat scan: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in IoT threat scan loop: {e}", exc_info=True)
+
+        logger.info("IoT threat scan loop stopped.")
+
+    def _run_iot_threat_scan(self) -> int:
+        """Execute comprehensive threat scan on all devices."""
+        cursor = self.db.conn.cursor()
+        cursor.execute("SELECT device_ip, device_name FROM devices")
+        devices = cursor.fetchall()
+
+        threat_count = 0
+
+        for device in devices:
+            device_ip = device['device_ip']
+
+            # 1. Check for default credentials
+            if self.threat_detector.check_default_credentials(device_ip):
+                logger.critical(f"DEFAULT CREDENTIALS RISK on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 2. Check for Mirai infection
+            if self.threat_detector.detect_mirai_infection(device_ip):
+                logger.critical(f"MIRAI DETECTED on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 3. Check for DDoS participation
+            if self.threat_detector.detect_ddos_participation(device_ip):
+                logger.critical(f"DDoS ATTACK from {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 4. Check for C2 communication
+            if self.threat_detector.detect_c2_communication(device_ip):
+                logger.critical(f"C2 COMMUNICATION detected on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 5. Check for UPnP exploitation
+            if self.threat_detector.detect_upnp_exploitation(device_ip):
+                logger.critical(f"UPnP EXPLOITATION on {device['device_name']} ({device_ip})")
+                threat_count += 1
+
+            # 6. Check for behavioral anomalies
+            behavioral_anomaly = self.threat_detector.detect_behavioral_anomaly(device_ip)
+            if behavioral_anomaly:
+                logger.warning(
+                    f"BEHAVIORAL ANOMALY on {device['device_name']} ({device_ip}): "
+                    f"{len(behavioral_anomaly['anomalies'])} metrics deviated"
+                )
+                threat_count += 1
+
+        return threat_count
+
+    def _iot_vulnerability_scan_loop(self):
+        """Periodically scan all devices for known vulnerabilities."""
+        if not self.intelligence:
+            logger.warning("IoT intelligence module not available, loop exiting")
+            return
+
+        logger.info("IoT vulnerability scan loop started.")
+        try:
+            # Scan daily
+            interval = config.get('iot', 'vulnerability_scan_interval', default=86400)  # 24 hours
+
+            # Perform initial scan after 5 minutes
+            time.sleep(300)
+            if not self.running:
+                return
+
+            logger.info("Performing initial IoT vulnerability scan...")
+            try:
+                vuln_count = self._run_iot_vulnerability_scan()
+                logger.info(f"Initial IoT vulnerability scan complete: {vuln_count} vulnerabilities found")
+            except Exception as e:
+                logger.error(f"Error in initial IoT vulnerability scan: {e}")
+
+            # Continue with periodic scans
+            while self.running:
+                for _ in range(interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+                if not self.running:
+                    break
+
+                try:
+                    logger.info("Running daily IoT vulnerability scan...")
+                    vuln_count = self._run_iot_vulnerability_scan()
+                    if vuln_count > 0:
+                        logger.warning(f"IoT vulnerability scan complete: {vuln_count} vulnerabilities found")
+                    else:
+                        logger.info("IoT vulnerability scan complete: No vulnerabilities found")
+                except Exception as e:
+                    logger.error(f"Error in daily IoT vulnerability scan: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in IoT vulnerability scan loop: {e}", exc_info=True)
+
+        logger.info("IoT vulnerability scan loop stopped.")
+
+    def _run_iot_vulnerability_scan(self) -> int:
+        """Execute vulnerability scan on all devices."""
+        cursor = self.db.conn.cursor()
+        cursor.execute("SELECT device_ip FROM devices")
+        devices = cursor.fetchall()
+
+        vuln_count = 0
+        for device in devices:
+            vulnerabilities = self.intelligence.check_vulnerabilities(device['device_ip'])
+            vuln_count += len(vulnerabilities)
+
+        return vuln_count
+
+    def _iot_firmware_check_loop(self):
+        """Periodically check for firmware updates on all devices."""
+        if not self.firmware_manager:
+            logger.warning("IoT firmware manager not available, loop exiting")
+            return
+
+        logger.info("IoT firmware check loop started.")
+        try:
+            # Check weekly
+            interval = config.get('iot', 'firmware_check_interval', default=604800)  # 7 days
+
+            # Perform initial check after 10 minutes
+            time.sleep(600)
+            if not self.running:
+                return
+
+            logger.info("Performing initial IoT firmware check...")
+            try:
+                updates_available = self._run_iot_firmware_check()
+                logger.info(f"Initial IoT firmware check complete: {updates_available} updates available")
+            except Exception as e:
+                logger.error(f"Error in initial IoT firmware check: {e}")
+
+            # Continue with periodic checks
+            while self.running:
+                for _ in range(interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+                if not self.running:
+                    break
+
+                try:
+                    logger.info("Running weekly IoT firmware check...")
+                    updates_available = self._run_iot_firmware_check()
+                    if updates_available > 0:
+                        logger.warning(f"IoT firmware check complete: {updates_available} updates available")
+                    else:
+                        logger.info("IoT firmware check complete: All devices up to date")
+                except Exception as e:
+                    logger.error(f"Error in weekly IoT firmware check: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in IoT firmware check loop: {e}", exc_info=True)
+
+        logger.info("IoT firmware check loop stopped.")
+
+    def _run_iot_firmware_check(self) -> int:
+        """Execute firmware update check on all devices."""
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT d.device_ip, d.firmware_version, d.manufacturer, d.model
+            FROM devices d
+            WHERE d.firmware_version IS NOT NULL
+        """)
+        devices = cursor.fetchall()
+
+        updates_available = 0
+
+        for device in devices:
+            status = self.firmware_manager.check_firmware_status(
+                device_ip=device['device_ip'],
+                current_firmware=device['firmware_version'],
+                vendor=device['manufacturer'],
+                model=device['model']
+            )
+
+            if status.get('update_available'):
+                logger.info(f"Update available for {device['device_ip']}: {status['latest']}")
+                updates_available += 1
+
+        return updates_available
 
     def stop(self):
         """Stop all system components gracefully."""
