@@ -21,58 +21,29 @@ import sys
 import sqlite3
 import pickle
 from unittest.mock import patch, MagicMock
-from datetime import datetime # <-- FIXED: Added missing import
+from datetime import datetime
+import importlib
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database.db_manager import DatabaseManager
 from ml.feature_extractor import FeatureExtractor
-# Import the actual training function to execute it in the integration test
 from ml.train_autoencoder import train_autoencoder
 
-
-def create_test_schema(db_manager: DatabaseManager):
-    """Helper to create database schema."""
-    try:
-        cursor = db_manager.conn.cursor()
-
-        cursor.execute("""
-        CREATE TABLE devices (
-            device_ip TEXT PRIMARY KEY, device_name TEXT, device_type TEXT,
-            mac_address TEXT, manufacturer TEXT, first_seen TIMESTAMP, last_seen TIMESTAMP
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE connections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, device_ip TEXT, timestamp TIMESTAMP,
-            dest_ip TEXT, dest_port INTEGER, protocol TEXT, service TEXT, duration REAL,
-            bytes_sent INTEGER, bytes_received INTEGER, packets_sent INTEGER,
-            packets_received INTEGER, conn_state TEXT, processed INTEGER DEFAULT 0,
-            FOREIGN KEY (device_ip) REFERENCES devices (device_ip)
-        );
-        """)
-
-        db_manager.conn.commit()
-    except sqlite3.Error as e:
-        print(f"Error creating schema: {e}")
-        raise
-
+# The `db` fixture is now provided by `tests/conftest.py`
 
 @pytest.fixture
-def temp_db():
-    """Create temporary database with training data."""
-    db_manager = DatabaseManager(':memory:')
-    create_test_schema(db_manager)
-
-    # Add sample training data
-    db_manager.add_device('192.168.1.100')
+def populated_db(db: DatabaseManager):
+    """
+    Uses the shared `db` fixture and populates it with sample training data.
+    """
+    db.add_device('192.168.1.100')
 
     protocols = ['tcp', 'udp']
     conn_states = ['SF', 'S0']
 
     for i in range(200):
-        db_manager.add_connection(
+        db.add_connection(
             device_ip='192.168.1.100',
             dest_ip=f'8.8.8.{i % 4}',
             dest_port=80 + (i % 10),
@@ -84,39 +55,32 @@ def temp_db():
             packets_sent=10 + i,
             packets_received=20 + i
         )
-
-    yield db_manager
-    db_manager.close()
+    return db
 
 
 class TestDataPreparation:
     """Test suite for training data preparation."""
 
-    def test_load_training_data(self, temp_db):
+    def test_load_training_data(self, populated_db):
         """TC-TRN-AE-001: Verify loading training data."""
-        # Arrange & Act
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
-        # Assert
         assert len(df) == 200
         assert 'duration' in df.columns
 
-    def test_train_test_split(self, temp_db):
+    def test_train_test_split(self, populated_db):
         """TC-TRN-AE-002: Verify train/test split."""
         from sklearn.model_selection import train_test_split
 
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
         X, _ = extractor.extract_features(df)
 
-        # Act
         X_train, X_test = train_test_split(X, test_size=0.2, random_state=42)
 
-        # Assert
         assert len(X_train) == int(0.8 * len(X))
         assert len(X_test) == int(0.2 * len(X))
 
@@ -128,17 +92,14 @@ class TestModelArchitecture:
         """TC-TRN-AE-003: Verify Autoencoder model creation."""
         from tensorflow import keras
 
-        # Arrange
         input_dim = 15
         encoding_dim = 7
 
-        # Act
         model = keras.Sequential([
             keras.layers.Dense(encoding_dim, activation='relu', input_shape=(input_dim,)),
             keras.layers.Dense(input_dim, activation='linear')
         ])
 
-        # Assert
         assert model is not None
         assert len(model.layers) == 2
         assert model.layers[0].output_shape == (None, encoding_dim)
@@ -148,16 +109,13 @@ class TestModelArchitecture:
         """TC-TRN-AE-004: Verify model compilation."""
         from tensorflow import keras
 
-        # Arrange
         model = keras.Sequential([
             keras.layers.Dense(7, activation='relu', input_shape=(15,)),
             keras.layers.Dense(15, activation='linear')
         ])
 
-        # Act
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
-        # Assert
         assert model.optimizer is not None
         assert model.loss == 'mse'
 
@@ -165,13 +123,13 @@ class TestModelArchitecture:
 class TestModelTraining:
     """Test suite for Autoencoder training."""
 
-    def test_train_autoencoder(self, temp_db):
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
+    def test_train_autoencoder(self, populated_db):
         """TC-TRN-AE-005: Verify Autoencoder training."""
         from tensorflow import keras
         from sklearn.model_selection import train_test_split
 
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -189,7 +147,6 @@ class TestModelTraining:
         ])
         model.compile(optimizer='adam', loss='mse')
 
-        # Act
         history = model.fit(
             X_train, X_train,
             epochs=5,
@@ -198,17 +155,16 @@ class TestModelTraining:
             verbose=0
         )
 
-        # Assert
         assert history is not None
         assert 'loss' in history.history
         assert len(history.history['loss']) == 5
 
-    def test_training_loss_decreases(self, temp_db):
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
+    def test_training_loss_decreases(self, populated_db):
         """TC-TRN-AE-006: Verify training loss decreases."""
         from tensorflow import keras
 
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -222,24 +178,22 @@ class TestModelTraining:
         ])
         model.compile(optimizer='adam', loss='mse')
 
-        # Act
         history = model.fit(X_scaled, X_scaled, epochs=10, batch_size=32, verbose=0)
 
-        # Assert
         initial_loss = history.history['loss'][0]
         final_loss = history.history['loss'][-1]
-        assert final_loss < initial_loss  # Loss should decrease
+        assert final_loss < initial_loss
 
 
 class TestModelEvaluation:
     """Test suite for model evaluation."""
 
-    def test_calculate_reconstruction_error(self, temp_db):
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
+    def test_calculate_reconstruction_error(self, populated_db):
         """TC-TRN-AE-007: Verify reconstruction error calculation."""
         from tensorflow import keras
 
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -254,20 +208,18 @@ class TestModelEvaluation:
         model.compile(optimizer='adam', loss='mse')
         model.fit(X_scaled, X_scaled, epochs=5, verbose=0)
 
-        # Act
         reconstructed = model.predict(X_scaled, verbose=0)
         mse = np.mean(np.square(X_scaled - reconstructed), axis=1)
 
-        # Assert
         assert len(mse) == len(X_scaled)
-        assert np.all(mse >= 0)  # MSE is always non-negative
+        assert np.all(mse >= 0)
 
-    def test_calculate_threshold(self, temp_db):
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
+    def test_calculate_threshold(self, populated_db):
         """TC-TRN-AE-008: Verify anomaly threshold calculation."""
         from tensorflow import keras
 
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
 
         extractor = FeatureExtractor()
@@ -285,13 +237,10 @@ class TestModelEvaluation:
         reconstructed = model.predict(X_scaled, verbose=0)
         mse = np.mean(np.square(X_scaled - reconstructed), axis=1)
 
-        # Act
-        # Calculate threshold as mean + 3 * std
         mean_error = np.mean(mse)
         std_error = np.std(mse)
         threshold = mean_error + 3 * std_error
 
-        # Assert
         assert threshold > 0
         assert threshold > mean_error
 
@@ -302,47 +251,29 @@ class TestModelPersistence:
     def test_save_autoencoder_model(self, tmp_path):
         """TC-TRN-AE-009: Verify saving Autoencoder model."""
         from tensorflow import keras
-
-        # Arrange
         model = keras.Sequential([
             keras.layers.Dense(7, activation='relu', input_shape=(15,)),
             keras.layers.Dense(15, activation='linear')
         ])
         model.compile(optimizer='adam', loss='mse')
-
         model_path = tmp_path / 'test_autoencoder.h5'
-
-        # Act
         model.save(model_path)
-
-        # Assert
         assert model_path.exists()
 
     def test_load_saved_model(self, tmp_path):
         """TC-TRN-AE-010: Verify loading saved model."""
         from tensorflow import keras
-
-        # Arrange
         model = keras.Sequential([
             keras.layers.Dense(7, activation='relu', input_shape=(15,)),
             keras.layers.Dense(15, activation='linear')
         ])
         model.compile(optimizer='adam', loss='mse')
-
-        # Train briefly
         X_dummy = np.random.randn(100, 15)
         model.fit(X_dummy, X_dummy, epochs=1, verbose=0)
-
         model_path = tmp_path / 'test_autoencoder.h5'
         model.save(model_path)
-
-        # Act
         loaded_model = keras.models.load_model(model_path)
-
-        # Assert
         assert loaded_model is not None
-
-        # Verify loaded model produces same predictions
         original_preds = model.predict(X_dummy, verbose=0)
         loaded_preds = loaded_model.predict(X_dummy, verbose=0)
         np.testing.assert_array_almost_equal(original_preds, loaded_preds, decimal=5)
@@ -350,28 +281,14 @@ class TestModelPersistence:
     def test_save_threshold_value(self, tmp_path):
         """TC-TRN-AE-011: Verify saving threshold value."""
         import json
-
-        # Arrange
         threshold = 0.025
-        metadata = {
-            'threshold': threshold,
-            'mean_error': 0.01,
-            'std_error': 0.005
-        }
-
+        metadata = {'threshold': threshold, 'mean_error': 0.01, 'std_error': 0.005}
         metadata_path = tmp_path / 'ae_metadata.json'
-
-        # Act
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f)
-
-        # Assert
         assert metadata_path.exists()
-
-        # Verify can load
         with open(metadata_path, 'r') as f:
             loaded_metadata = json.load(f)
-
         assert loaded_metadata['threshold'] == threshold
 
 
@@ -381,49 +298,33 @@ class TestHyperparameters:
     def test_encoding_dimension_selection(self):
         """TC-TRN-AE-012: Verify encoding dimension configuration."""
         from tensorflow import keras
-
-        # Arrange
         input_dim = 20
-        encoding_dim = 10  # Half of input
-
-        # Act
+        encoding_dim = 10
         model = keras.Sequential([
             keras.layers.Dense(encoding_dim, activation='relu', input_shape=(input_dim,)),
             keras.layers.Dense(input_dim, activation='linear')
         ])
-
-        # Assert
         assert model.layers[0].output_shape == (None, encoding_dim)
 
-    def test_batch_size_configuration(self, temp_db):
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
+    def test_batch_size_configuration(self, populated_db):
         """TC-TRN-AE-013: Verify batch size configuration."""
         from tensorflow import keras
-
-        # Arrange
-        connections = temp_db.get_unprocessed_connections(limit=1000)
+        connections = populated_db.get_unprocessed_connections(limit=1000)
         df = pd.DataFrame(connections)
-
         extractor = FeatureExtractor()
         X, _ = extractor.extract_features(df)
         X_scaled = extractor.fit_transform(X)
-
         input_dim = X_scaled.shape[1]
         model = keras.Sequential([
             keras.layers.Dense(input_dim // 2, activation='relu', input_shape=(input_dim,)),
             keras.layers.Dense(input_dim, activation='linear')
         ])
         model.compile(optimizer='adam', loss='mse')
-
-        # Act
         batch_size = 64
         history = model.fit(
-            X_scaled, X_scaled,
-            epochs=2,
-            batch_size=batch_size,
-            verbose=0
+            X_scaled, X_scaled, epochs=2, batch_size=batch_size, verbose=0
         )
-
-        # Assert
         assert history is not None
 
 
@@ -433,91 +334,58 @@ class TestErrorHandling:
     def test_handle_insufficient_data(self):
         """TC-TRN-AE-014: Verify handling of insufficient training data."""
         from tensorflow import keras
-
-        # Arrange - Very small dataset
         X_small = np.random.randn(10, 15)
-
         model = keras.Sequential([
             keras.layers.Dense(7, activation='relu', input_shape=(15,)),
             keras.layers.Dense(15, activation='linear')
         ])
         model.compile(optimizer='adam', loss='mse')
-
-        # Act - Should still train but with warnings
         history = model.fit(X_small, X_small, epochs=2, verbose=0)
-
-        # Assert
         assert history is not None
 
     def test_handle_invalid_architecture(self):
         """TC-TRN-AE-015: Verify handling of invalid architecture."""
         from tensorflow import keras
-
-        # Act & Assert - Encoding dim larger than input should still work
-        # but is not recommended
         model = keras.Sequential([
             keras.layers.Dense(20, activation='relu', input_shape=(10,)),
             keras.layers.Dense(10, activation='linear')
         ])
-
         assert model is not None
 
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
     @patch('ml.train_autoencoder.DatabaseManager')
     def test_handle_insufficient_data_exit(self, MockDB, tmp_path):
-        """TC-TRN-AE-016: Verify graceful exit on insufficient connections (<100) (Lines 78-79)."""
-        from ml.train_autoencoder import train_autoencoder
-
-        # Arrange - Mock DB to return only 50 connections
+        """TC-TRN-AE-016: Verify graceful exit on insufficient connections (<100)."""
         mock_db_instance = MockDB.return_value
         mock_db_instance.get_unprocessed_connections.return_value = [
             {'id': i, 'device_ip': '192.168.1.100', 'duration': 5.0} for i in range(50)
         ]
-
-        # Mock the close function to track execution
         mock_db_instance.close = MagicMock()
-
-        # Act
         train_autoencoder()
-
-        # Assert
-        # Should close the DB connection after logging error
         mock_db_instance.close.assert_called_once()
-        # Coverage lines 78-79 should be hit
 
     @patch('ml.train_autoencoder.DatabaseManager')
-    def test_handle_no_tensorflow(self, MockDB):
-        """TC-TRN-AE-017: Verify early exit when TensorFlow is not available (Lines 30-32)."""
-        from ml.train_autoencoder import train_autoencoder
-
-        # Arrange - Patch TensorFlow availability
-        with patch.object(sys, 'modules', new={'tensorflow': None}):
-            # Act
-            train_autoencoder()
-
-        # Assert - Function should exit immediately after logging error
-        # This covers lines 30-32
-        assert True
+    def test_handle_no_tensorflow(self, mock_db_cls):
+        """TC-TRN-AE-017: Verify early exit when TensorFlow is not available."""
+        with patch.dict(sys.modules, {'tensorflow': None}):
+            importlib.reload(sys.modules['ml.train_autoencoder'])
+            from ml.train_autoencoder import train_autoencoder as ta
+            ta()
+        mock_db_cls.assert_not_called()
 
 
-
-# ** ADDED INTEGRATION TEST TO COVER __main__ LOGIC **
 class TestTrainingScriptIntegration:
     """Test the end-to-end execution of the training script logic."""
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
     @patch('time.sleep', return_value=None)
     @patch('ml.train_autoencoder.DatabaseManager')
     def test_training_script_saves_models_and_threshold(self, mock_db_cls, mock_sleep, tmp_path):
         """TC-INT-014: Verify full Autoencoder training script executes and saves model/threshold."""
-        from ml.train_autoencoder import train_autoencoder
-
-        # 1. Arrange: Mock the DB to return valid data (200 records)
         mock_db_instance = mock_db_cls.return_value
-        # 200 samples of mock data
         mock_db_instance.get_unprocessed_connections.return_value = [
             {'id': i, 'device_ip': '192.168.1.100', 'duration': 5.0, 'bytes_sent': 1000, 'bytes_received': 2000, 'packets_sent': 10, 'packets_received': 20, 'protocol': 'tcp', 'conn_state': 'SF', 'dest_port': 443, 'timestamp': datetime.now().isoformat()}
             for i in range(200)
         ]
-
-        # Mock config paths pointing to temp directory
         mock_config = MagicMock()
         mock_config.get.side_effect = lambda section, key, default=None: {
             ('database', 'path'): str(tmp_path / 'test.db'),
@@ -525,78 +393,50 @@ class TestTrainingScriptIntegration:
             ('ml', 'feature_extractor_path'): str(tmp_path / 'ae_extractor.pkl'),
         }.get((section, key), default)
 
-        # 2. Act
         with patch('ml.train_autoencoder.config', mock_config):
-            # Patch the core Keras methods
             with patch('ml.train_autoencoder.keras.Model.fit') as mock_fit, \
                  patch('ml.train_autoencoder.keras.Model.predict') as mock_predict, \
                  patch('ml.train_autoencoder.build_autoencoder') as mock_build, \
                  patch('ml.train_autoencoder.Path.exists', return_value=True):
 
-                # Mock fit history (needed for early stopping logic, even if skipped)
                 mock_fit.return_value = MagicMock(history={'loss': [0.1, 0.05]})
 
-                # --- FIX: Set prediction mock to dynamically match input shape ---
-                # This function runs when model.predict(X_val) is called in the script.
                 def mock_predict_side_effect(X_input, **kwargs):
-                    """Returns a zero array with the exact shape of the input."""
-                    # This ensures X_val - X_val_pred is broadcastable (shape is (40, 13) - (40, 13))
                     return np.zeros(X_input.shape)
 
-                # Assign the side effect
                 mock_predict.side_effect = mock_predict_side_effect
 
-                # Mock the saving process to just ensure the method is called
                 with patch('ml.train_autoencoder.keras.Model.save') as mock_save:
-                    # Ensure the object returned by build_autoencoder behaves like a Keras model
-                    # by delegating its predict/fit/save to the mocks defined above.
                     mock_build.return_value.predict = mock_predict
                     mock_build.return_value.fit = mock_fit
                     mock_build.return_value.save = mock_save
+                    train_autoencoder()
 
-                    train_autoencoder() # Execute the production code
-
-        # 3. Assert
-        # Check that the model save was attempted (covers line 178)
         mock_save.assert_called_once()
-        # Check that the threshold file was created (covers line 185)
         assert (tmp_path / 'ae_model_threshold.pkl').exists()
-        # Check that the feature extractor was created (covers line 190)
         assert (tmp_path / 'ae_extractor.pkl').exists()
 
 
 class TestTrainingErrorExits:
     """Tests the failure modes and early exit logic."""
 
+    @patch('ml.train_autoencoder.TENSORFLOW_AVAILABLE', True)
     @patch('ml.train_autoencoder.DatabaseManager')
     def test_insufficient_data_exit(self, MockDB_cls):
-        """TC-TRN-AE-016: Verify graceful exit when connections < 100 (Lines 78-79)."""
-        from ml.train_autoencoder import train_autoencoder
-
-        # Arrange - Mock DB to return only 50 connections (below 100 minimum)
+        """TC-TRN-AE-016: Verify graceful exit when connections < 100."""
         mock_db = MockDB_cls.return_value
         mock_db.get_unprocessed_connections.return_value = [
             {'id': i, 'device_ip': '192.168.1.100', 'duration': 5.0} for i in range(50)
         ]
-
-        # Mock the close function to track execution
         mock_db.close = MagicMock()
-
-        # Act
         train_autoencoder()
-
-        # Assert - Should hit the error block and call close()
         mock_db.close.assert_called_once()
 
     @patch('ml.train_autoencoder.DatabaseManager')
     def test_no_tensorflow_exit(self, MockDB_cls):
-        """TC-TRN-AE-017: Verify graceful exit when TensorFlow is not available (Lines 30-32)."""
-        from ml.train_autoencoder import train_autoencoder
-
-        # Arrange - Temporarily remove TensorFlow from the environment
-        with patch.object(sys, 'modules', new={'tensorflow': None}):
-            # Act
-            train_autoencoder()
-
-        # Assert - Function should exit immediately after logging error
-        assert True
+        """TC-TRN-AE-017: Verify graceful exit when TensorFlow is not available."""
+        with patch.dict(sys.modules, {'tensorflow': None}):
+            importlib.reload(sys.modules['ml.train_autoencoder'])
+            from ml.train_autoencoder import train_autoencoder as ta
+            ta()
+        MockDB_cls.assert_not_called()
