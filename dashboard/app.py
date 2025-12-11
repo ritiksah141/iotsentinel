@@ -571,10 +571,24 @@ ONBOARDING_STEPS = [
             ]),
             html.Hr(),
             html.H6("Keyboard Shortcuts:", className="mt-3"),
-            html.Ul([
-                html.Li(html.Kbd("N"), " - Toggle notification drawer"),
-                html.Li(html.Kbd("D"), " - Jump to devices"),
-                html.Li(html.Kbd("A"), " - Jump to alerts")
+            html.Div([
+                html.H6("Navigation:", className="small text-muted mt-2"),
+                html.Ul([
+                    html.Li([html.Kbd("N"), " - Toggle notification drawer"]),
+                    html.Li([html.Kbd("D"), " - Jump to devices section"]),
+                    html.Li([html.Kbd("A"), " - Jump to alerts section"])
+                ], className="mb-2"),
+                html.H6("Quick Actions:", className="small text-muted mt-2"),
+                html.Ul([
+                    html.Li([html.Kbd("P"), " - Open preferences"]),
+                    html.Li([html.Kbd("C"), " - Open AI chat assistant"]),
+                    html.Li([html.Kbd("S"), " - Open system info"]),
+                    html.Li([html.Kbd("F"), " - Open firewall settings"]),
+                    html.Li([html.Kbd("U"), " - Open user management"]),
+                    html.Li([html.Kbd("T"), " - Open timeline"]),
+                    html.Li([html.Kbd("H"), " or ", html.Kbd("?"), " - Restart tour/help"]),
+                    html.Li([html.Kbd("Esc"), " - Close any open modal"])
+                ])
             ]),
             html.Hr(),
             html.Div([
@@ -1593,6 +1607,10 @@ dashboard_layout = dbc.Container([
                                 html.I(className="fa fa-user-edit me-2"),
                                 "Edit Profile"
                             ], id="edit-profile-btn"),
+                            dbc.DropdownMenuItem([
+                                html.I(className="fa fa-play-circle me-2"),
+                                "Restart Tour"
+                            ], id="restart-tour-button"),
                             html.Div([
                                 dbc.DropdownMenuItem(divider=True, id="admin-divider", style={"display": "none"}),
                                 dbc.DropdownMenuItem([
@@ -2650,6 +2668,28 @@ dashboard_layout = dbc.Container([
                 value=30,
                 className="form-control mb-3"
             ),
+
+            html.Hr(),
+
+            # Alert Notifications Section
+            html.H5([html.I(className="fa fa-bell me-2"), "Alert Notifications"], className="mb-3 mt-3"),
+
+            dbc.Label("Enable Notifications For:"),
+            dcc.Checklist(
+                id='alert-notification-prefs',
+                options=[
+                    {'label': ' Critical Threats', 'value': 'critical'},
+                    {'label': ' High Priority Alerts', 'value': 'high'},
+                    {'label': ' Medium Priority Alerts', 'value': 'medium'},
+                    {'label': ' System Events', 'value': 'system'},
+                    {'label': ' Device Status Changes', 'value': 'device'}
+                ],
+                value=['critical', 'high'],
+                className="mb-3",
+                labelStyle={'display': 'block', 'margin': '8px 0'}
+            ),
+
+            html.Div(id='preferences-status', className="mb-3"),
 
             dbc.Button(
                 [html.I(className="fa fa-save me-2"), "Save All Preferences"],
@@ -4706,18 +4746,38 @@ app.clientside_callback(
     """
     function(theme_data) {
         if (!theme_data) return window.dash_clientside.no_update;
-        const theme = theme_data.theme;
-        document.body.classList.remove('dark-theme', 'cyberpunk-theme');
+
+        let theme = theme_data.theme;
+
+        // Handle 'auto' mode - detect system preference
+        if (theme === 'auto') {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            theme = prefersDark ? 'dark' : 'light';
+        }
+
+        // Remove all theme classes
+        document.body.classList.remove('dark-mode', 'dark-theme', 'light-mode', 'light-theme', 'cyberpunk-theme');
+
+        // Apply the selected theme
         if (theme === 'dark') {
-            document.body.classList.add('dark-theme');
+            document.body.classList.add('dark-mode');
+            // Save to localStorage for theme-toggle.js compatibility
+            localStorage.setItem('iotsentinel-theme', 'dark');
+        } else if (theme === 'light') {
+            document.body.classList.add('light-mode');
+            localStorage.setItem('iotsentinel-theme', 'light');
         } else if (theme === 'cyberpunk') {
             document.body.classList.add('cyberpunk-theme');
+            localStorage.setItem('iotsentinel-theme', 'cyberpunk');
         }
+
+        console.log('Theme applied:', theme);
         return window.dash_clientside.no_update;
     }
     """,
-    Output('theme-selector', 'className'),
-    Input('theme-store', 'data')
+    Output('keyboard-shortcut-store', 'data', allow_duplicate=True),
+    Input('theme-store', 'data'),
+    prevent_initial_call='initial_duplicate'
 )
 
 @app.callback(
@@ -4733,24 +4793,82 @@ app.clientside_callback(
     """
     function(_) {
         document.addEventListener('keydown', function(event) {
+            // Don't trigger shortcuts when typing in input fields
             if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
                 return;
             }
+
             let action = null;
+
+            // Single key shortcuts
             if (event.key === 'n' || event.key === 'N') {
                 action = 'toggle-notifications';
             } else if (event.key === 'd' || event.key === 'D') {
                 action = 'scroll-to-devices';
             } else if (event.key === 'a' || event.key === 'A') {
                 action = 'scroll-to-alerts';
+            } else if (event.key === 'p' || event.key === 'P') {
+                action = 'open-preferences';
+            } else if (event.key === '?' || event.key === 'h' || event.key === 'H') {
+                action = 'open-help';
+            } else if (event.key === 'c' || event.key === 'C') {
+                action = 'open-chat';
+            } else if (event.key === 's' || event.key === 'S') {
+                action = 'open-system';
+            } else if (event.key === 'f' || event.key === 'F') {
+                action = 'open-firewall';
+            } else if (event.key === 'u' || event.key === 'U') {
+                action = 'open-users';
+            } else if (event.key === 't' || event.key === 'T') {
+                action = 'open-timeline';
+            } else if (event.key === 'Escape') {
+                action = 'close-modals';
             }
+
+            // Execute actions
             if (action) {
+                event.preventDefault();
+
                 if (action === 'toggle-notifications') {
-                    document.getElementById('notification-bell-button').click();
+                    const notifBtn = document.getElementById('notification-bell-button');
+                    if (notifBtn) notifBtn.click();
                 } else if (action === 'scroll-to-devices') {
-                    document.querySelector('.left-panel').scrollIntoView({behavior: 'smooth'});
+                    const devicesEl = document.getElementById('devices-status-compact');
+                    if (devicesEl) devicesEl.scrollIntoView({behavior: 'smooth', block: 'center'});
                 } else if (action === 'scroll-to-alerts') {
-                    document.querySelector('.right-panel').scrollIntoView({behavior: 'smooth'});
+                    const alertsEl = document.getElementById('alerts-container-compact');
+                    if (alertsEl) alertsEl.scrollIntoView({behavior: 'smooth', block: 'center'});
+                } else if (action === 'open-preferences') {
+                    const prefBtn = document.getElementById('preferences-card-btn');
+                    if (prefBtn) prefBtn.click();
+                } else if (action === 'open-help') {
+                    const tourBtn = document.getElementById('restart-tour-button');
+                    if (tourBtn) tourBtn.click();
+                } else if (action === 'open-chat') {
+                    const chatBtn = document.getElementById('open-chat-button');
+                    if (chatBtn) chatBtn.click();
+                } else if (action === 'open-system') {
+                    const sysBtn = document.getElementById('system-card-btn');
+                    if (sysBtn) sysBtn.click();
+                } else if (action === 'open-firewall') {
+                    const fwBtn = document.getElementById('firewall-card-btn');
+                    if (fwBtn) fwBtn.click();
+                } else if (action === 'open-users') {
+                    const userBtn = document.getElementById('user-card-btn');
+                    if (userBtn) userBtn.click();
+                } else if (action === 'open-timeline') {
+                    const timelineBtn = document.getElementById('timeline-card-btn');
+                    if (timelineBtn) timelineBtn.click();
+                } else if (action === 'close-modals') {
+                    // Close any open modals by clicking backdrop
+                    const backdrop = document.querySelector('.modal-backdrop');
+                    if (backdrop) {
+                        const modals = document.querySelectorAll('.modal.show');
+                        modals.forEach(modal => {
+                            const closeBtn = modal.querySelector('[aria-label="Close"]');
+                            if (closeBtn) closeBtn.click();
+                        });
+                    }
                 }
             }
         });
@@ -5686,6 +5804,8 @@ def load_device_management_table(n_clicks):
 
 @app.callback(
     [Output('preferences-status', 'children'),
+     Output('refresh-interval', 'interval'),
+     Output('theme-store', 'data', allow_duplicate=True),
      Output('ws', 'message', allow_duplicate=True)],
     Input('save-preferences-btn', 'n_clicks'),
     [State('refresh-interval-dropdown', 'value'),
@@ -5693,13 +5813,20 @@ def load_device_management_table(n_clicks):
      State('anomaly-threshold-slider', 'value'),
      State('display-density-dropdown', 'value'),
      State('timezone-dropdown', 'value'),
-     State('alert-notification-prefs', 'value')],
+     State('alert-notification-prefs', 'value'),
+     State('theme-dropdown', 'value'),
+     State('language-dropdown', 'value'),
+     State('layout-dropdown', 'value'),
+     State('auto-export-dropdown', 'value'),
+     State('backup-schedule-dropdown', 'value'),
+     State('backup-retention-input', 'value')],
     prevent_initial_call=True
 )
-def save_preferences(n_clicks, refresh_interval, retention, threshold, display_density, timezone, alert_prefs):
-    """Save user preferences to database"""
+def save_preferences(n_clicks, refresh_interval, retention, threshold, display_density, timezone, alert_prefs,
+                     theme, language, layout, auto_export, backup_schedule, backup_retention):
+    """Save user preferences to database and apply them"""
     if not current_user.is_authenticated:
-        return dbc.Alert("Please login to save preferences", color="warning"), dash.no_update
+        return dbc.Alert("Please login to save preferences", color="warning"), dash.no_update, dash.no_update, dash.no_update
 
     # Save to user_preferences table
     user_id = current_user.id
@@ -5715,7 +5842,13 @@ def save_preferences(n_clicks, refresh_interval, retention, threshold, display_d
             'anomaly_threshold': str(threshold),
             'display_density': display_density,
             'timezone': timezone,
-            'alert_notifications': ','.join(alert_prefs) if alert_prefs else ''
+            'alert_notifications': ','.join(alert_prefs) if alert_prefs else '',
+            'theme': theme,
+            'language': language,
+            'layout': layout,
+            'auto_export': auto_export,
+            'backup_schedule': backup_schedule,
+            'backup_retention': str(backup_retention) if backup_retention else '30'
         }
 
         for key, value in preferences.items():
@@ -5728,14 +5861,20 @@ def save_preferences(n_clicks, refresh_interval, retention, threshold, display_d
         conn.commit()
         conn.close()
 
-        return dbc.Alert([
-            html.I(className="fa fa-check-circle me-2"),
-            "Preferences saved successfully! Alert notifications and other settings will apply on next refresh."
-        ], color="success", dismissable=True), dash.no_update
+        # Apply preferences immediately
+        return (
+            dbc.Alert([
+                html.I(className="fa fa-check-circle me-2"),
+                "Preferences saved and applied successfully!"
+            ], color="success", dismissable=True),
+            refresh_interval,  # Update refresh interval
+            {'theme': theme},  # Update theme
+            dash.no_update
+        )
 
     except Exception as e:
         logger.error(f"Error saving preferences: {e}")
-        return dbc.Alert(f"Error saving preferences: {e}", color="danger", dismissable=True), dash.no_update
+        return dbc.Alert(f"Error saving preferences: {e}", color="danger", dismissable=True), dash.no_update, dash.no_update, dash.no_update
 
 
 @app.callback(
@@ -6397,7 +6536,7 @@ def main():
     logger.info("  ✓ Interactive onboarding wizard (6 steps)")
     logger.info("  ✓ Device details modal with trust management")
     logger.info("  ✓ Lockdown mode with confirmation")
-    logger.info("  ✓ Keyboard shortcuts (N/D/A)")
+    logger.info("  ✓ Keyboard shortcuts (N/D/A/P/C/S/F/U/T/H/?/Esc)")
     logger.info("  ✓ Clickable device cards & network graph")
     logger.info("")
     logger.info("📊 MONITORING CAPABILITIES:")
@@ -6479,6 +6618,110 @@ def toggle_device_mgmt_modal(n, is_open):
 )
 def toggle_preferences_modal(n, is_open):
     return not is_open
+
+@app.callback(
+    [Output('refresh-interval-dropdown', 'value'),
+     Output('retention-dropdown', 'value'),
+     Output('anomaly-threshold-slider', 'value'),
+     Output('display-density-dropdown', 'value'),
+     Output('timezone-dropdown', 'value'),
+     Output('alert-notification-prefs', 'value'),
+     Output('theme-dropdown', 'value'),
+     Output('language-dropdown', 'value'),
+     Output('layout-dropdown', 'value'),
+     Output('auto-export-dropdown', 'value'),
+     Output('backup-schedule-dropdown', 'value'),
+     Output('backup-retention-input', 'value')],
+    Input("preferences-modal", "is_open"),
+    prevent_initial_call=True
+)
+def load_preferences(is_open):
+    """Load user preferences from database when modal opens"""
+    if not is_open or not current_user.is_authenticated:
+        raise dash.exceptions.PreventUpdate
+
+    user_id = current_user.id
+
+    # Default values
+    defaults = {
+        'refresh_interval': 10000,
+        'data_retention': 30,
+        'anomaly_threshold': 0.85,
+        'display_density': 'comfortable',
+        'timezone': 'UTC',
+        'alert_notifications': 'critical,high',
+        'theme': 'light',
+        'language': 'en',
+        'layout': 'grid',
+        'auto_export': 'disabled',
+        'backup_schedule': 'daily',
+        'backup_retention': 30
+    }
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Load all preferences for user
+        cursor.execute("""
+            SELECT preference_key, preference_value
+            FROM user_preferences
+            WHERE user_id = ?
+        """, (user_id,))
+
+        results = cursor.fetchall()
+        conn.close()
+
+        # Update defaults with saved preferences
+        for key, value in results:
+            if key in defaults:
+                # Convert string values back to appropriate types
+                if key == 'refresh_interval':
+                    defaults[key] = int(value)
+                elif key == 'data_retention':
+                    defaults[key] = int(value)
+                elif key == 'anomaly_threshold':
+                    defaults[key] = float(value)
+                elif key == 'backup_retention':
+                    defaults[key] = int(value)
+                else:
+                    defaults[key] = value
+
+        # Convert alert_notifications string back to list
+        alert_prefs = defaults['alert_notifications'].split(',') if defaults['alert_notifications'] else []
+
+        return (
+            defaults['refresh_interval'],
+            defaults['data_retention'],
+            defaults['anomaly_threshold'],
+            defaults['display_density'],
+            defaults['timezone'],
+            alert_prefs,
+            defaults['theme'],
+            defaults['language'],
+            defaults['layout'],
+            defaults['auto_export'],
+            defaults['backup_schedule'],
+            defaults['backup_retention']
+        )
+
+    except Exception as e:
+        logger.error(f"Error loading preferences: {e}")
+        # Return defaults on error
+        return (
+            defaults['refresh_interval'],
+            defaults['data_retention'],
+            defaults['anomaly_threshold'],
+            defaults['display_density'],
+            defaults['timezone'],
+            defaults['alert_notifications'].split(','),
+            defaults['theme'],
+            defaults['language'],
+            defaults['layout'],
+            defaults['auto_export'],
+            defaults['backup_schedule'],
+            defaults['backup_retention']
+        )
 
 @app.callback(
     Output("timeline-modal", "is_open"),

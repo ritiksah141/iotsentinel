@@ -53,116 +53,9 @@
  * MODERN GLASSMORPHISM CARDS - LIQUID GLASS DESIGN
  * ============================================================================ */
 
-  .glass-card {
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.15) 0%,
-      rgba(255, 255, 255, 0.05) 100%
-    ) !important;
-    backdrop-filter: blur(60px) saturate(200%) brightness(1.1) !important;
-    -webkit-backdrop-filter: blur(60px) saturate(200%) brightness(1.1) !important;
-    border: 1px solid rgba(255, 255, 255, 0.25) !important;
-    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
-      inset 0 -1px 0 0 rgba(255, 255, 255, 0.1),
-      0 0 30px rgba(59, 130, 246, 0.08) !important;
-    border-radius: 24px !important;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .glass-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.4) 40%,
-      rgba(59, 130, 246, 0.3) 50%,
-      rgba(255, 255, 255, 0.4) 60%,
-      transparent 100%
-    );
-    transition: left 0.6s ease;
-    filter: blur(10px);
-  }
-
-  .glass-card:hover::before {
-    left: 100%;
-  }
-
-  .glass-card:hover {
-    transform: translateY(-8px) scale(1.01);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.2) 0%,
-      rgba(255, 255, 255, 0.08) 100%
-    ) !important;
-    box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.25),
-      inset 0 2px 0 0 rgba(255, 255, 255, 0.5),
-      inset 0 -1px 0 0 rgba(255, 255, 255, 0.2),
-      0 0 60px rgba(59, 130, 246, 0.25), 0 0 100px rgba(59, 130, 246, 0.1) !important;
-    border: 1px solid rgba(255, 255, 255, 0.4) !important;
-  }
-
   /* ============================================================================
  * METRIC CARDS - Modern Dashboard Stats with Liquid Glass
  * ============================================================================ */
-
-  .metric-card {
-    position: relative;
-    overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.18) 0%,
-      rgba(255, 255, 255, 0.08) 100%
-    ) !important;
-    backdrop-filter: blur(50px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(50px) saturate(180%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-  }
-
-  .metric-card::after {
-    content: "";
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(
-      circle,
-      rgba(59, 130, 246, 0.15) 0%,
-      transparent 70%
-    );
-    opacity: 0;
-    transition: opacity 0.4s ease;
-  }
-
-  .metric-card:hover::after {
-    opacity: 1;
-  }
-
-  .metric-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 3px;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(59, 130, 246, 0.8),
-      rgba(139, 92, 246, 0.8),
-      transparent
-    );
-    animation: shimmer 3s infinite;
-  }
 
   @keyframes shimmer {
     0% {
@@ -171,27 +64,6 @@
     100% {
       left: 100%;
     }
-  }
-
-  .metric-card:hover {
-    transform: translateY(-8px) scale(1.03);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.22) 0%,
-      rgba(255, 255, 255, 0.12) 100%
-    ) !important;
-    box-shadow: 0 20px 60px rgba(59, 130, 246, 0.35),
-      0 0 50px rgba(139, 92, 246, 0.25), 0 0 80px rgba(59, 130, 246, 0.15),
-      inset 0 2px 0 rgba(255, 255, 255, 0.4),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.15) !important;
-  }
-
-  .metric-card .fa-2x {
-    transition: all 0.3s ease;
-  }
-
-  .metric-card:hover .fa-2x {
-    transform: scale(1.1) rotate(5deg);
   }
 
   /* ============================================================================
@@ -294,87 +166,6 @@
  * DARK THEME SUPPORT FOR LIQUID GLASS ELEMENTS
  * ============================================================================ */
 
-  body.dark-theme .glass-card {
-    background: linear-gradient(
-      135deg,
-      rgba(30, 41, 59, 0.4) 0%,
-      rgba(15, 23, 42, 0.3) 100%
-    ) !important;
-    backdrop-filter: blur(60px) saturate(200%) brightness(1.2) !important;
-    -webkit-backdrop-filter: blur(60px) saturate(200%) brightness(1.2) !important;
-    border: 1px solid rgba(148, 163, 184, 0.25) !important;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6),
-      inset 0 1px 0 0 rgba(148, 163, 184, 0.3),
-      inset 0 -1px 0 0 rgba(148, 163, 184, 0.1),
-      0 0 30px rgba(96, 165, 250, 0.15) !important;
-  }
-
-  body.dark-theme .glass-card::before {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(148, 163, 184, 0.3) 40%,
-      rgba(96, 165, 250, 0.4) 50%,
-      rgba(148, 163, 184, 0.3) 60%,
-      transparent 100%
-    );
-    filter: blur(10px);
-  }
-
-  body.dark-theme .glass-card:hover {
-    background: linear-gradient(
-      135deg,
-      rgba(30, 41, 59, 0.5) 0%,
-      rgba(15, 23, 42, 0.4) 100%
-    ) !important;
-    box-shadow: 0 20px 60px 0 rgba(0, 0, 0, 0.8),
-      inset 0 2px 0 0 rgba(148, 163, 184, 0.4),
-      inset 0 -1px 0 0 rgba(148, 163, 184, 0.2),
-      0 0 60px rgba(96, 165, 250, 0.4), 0 0 100px rgba(96, 165, 250, 0.2) !important;
-    border: 1px solid rgba(148, 163, 184, 0.4) !important;
-  }
-
-  body.dark-theme .metric-card {
-    background: linear-gradient(
-      135deg,
-      rgba(30, 41, 59, 0.45) 0%,
-      rgba(15, 23, 42, 0.35) 100%
-    ) !important;
-    backdrop-filter: blur(50px) saturate(180%) brightness(1.2) !important;
-    -webkit-backdrop-filter: blur(50px) saturate(180%) brightness(1.2) !important;
-    border: 1px solid rgba(148, 163, 184, 0.2) !important;
-  }
-
-  body.dark-theme .metric-card::after {
-    background: radial-gradient(
-      circle,
-      rgba(96, 165, 250, 0.15) 0%,
-      transparent 70%
-    );
-  }
-
-  body.dark-theme .metric-card::before {
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(96, 165, 250, 0.8),
-      rgba(167, 139, 250, 0.8),
-      transparent
-    );
-  }
-
-  body.dark-theme .metric-card:hover {
-    background: linear-gradient(
-      135deg,
-      rgba(30, 41, 59, 0.55) 0%,
-      rgba(15, 23, 42, 0.45) 100%
-    ) !important;
-    box-shadow: 0 20px 60px rgba(96, 165, 250, 0.4),
-      0 0 50px rgba(167, 139, 250, 0.3), 0 0 80px rgba(96, 165, 250, 0.2),
-      inset 0 2px 0 rgba(148, 163, 184, 0.4),
-      inset 0 -1px 0 rgba(148, 163, 184, 0.15) !important;
-  }
-
   body.dark-theme .hover-lift::after {
     background: linear-gradient(
       135deg,
@@ -410,26 +201,17 @@
  * CYBERPUNK THEME SUPPORT
  * ============================================================================ */
 
-  body.cyberpunk-theme .glass-card {
-    background: rgba(10, 2, 40, 0.75) !important;
-    border: 1px solid rgba(0, 255, 204, 0.4) !important;
-    box-shadow: 0 0 20px rgba(0, 255, 204, 0.2) !important;
-  }
-
-  body.cyberpunk-theme .glass-card:hover {
-    box-shadow: 0 0 30px rgba(0, 255, 204, 0.4) !important;
-  }
-
-  body.cyberpunk-theme .gradient-text {
+  body.cyberpunk-theme
+    body.cyberpunk-theme
+    body.cyberpunk-theme
+    .gradient-text {
     background: linear-gradient(135deg, #00ffcc 0%, #f0f 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
-  body.cyberpunk-theme .metric-card:hover {
-    box-shadow: 0 0 40px rgba(255, 0, 255, 0.4) !important;
-  }
+  body.cyberpunk-theme
 
   /* ============================================================================
  * MODERN CARD ENHANCEMENTS
@@ -2139,15 +1921,9 @@ body.dark-mode .cyber-card:hover {
 }
 
 /* Fix overflow issue on glass-card containing dropdown */
-.glass-card:has(.profile-dropdown) {
-  overflow: visible !important;
-}
 
 /* Alternative: allow overflow for header cards */
-.mb-4.glass-card.border-0.shadow-lg {
-  overflow: visible !important;
-  z-index: 100 !important;
-}
+.mb-4
 
 /* Ensure button group doesn't interfere */
 .btn-group {
@@ -2262,4 +2038,834 @@ body.dark-mode .profile-dropdown .dropdown-item:last-child:hover {
 .profile-dropdown .btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================================================
+   LIGHT MODE THEME
+   ============================================================================ */
+
+/* Light Mode - Base Styles */
+body.light-mode {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  color: #2c3e50;
+}
+
+body.light-mode .text-muted {
+  color: #6c757d !important;
+}
+
+body.light-mode .card,
+body.light-mode .cyber-card {
+  background: rgba(255, 255, 255, 0.9);
+  color: #2c3e50;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .modal-content {
+  background: #ffffff;
+  color: #2c3e50;
+}
+
+body.light-mode .modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .btn-primary {
+  background: #007bff;
+  border-color: #007bff;
+}
+
+body.light-mode .btn-primary:hover {
+  background: #0056b3;
+  border-color: #0056b3;
+}
+
+body.light-mode .alert {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .offcanvas.notification-drawer-custom {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  color: #2c3e50;
+}
+
+body.light-mode .offcanvas-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .form-control,
+body.light-mode .form-select {
+  background: #ffffff;
+  color: #2c3e50;
+  border: 1px solid #ced4da;
+}
+
+body.light-mode .dropdown-menu {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-mode .dropdown-item {
+  color: #2c3e50;
+}
+
+body.light-mode .dropdown-item:hover {
+  background: #f8f9fa;
+}
+
+/* Light mode for tables */
+body.light-mode .table {
+  color: #2c3e50;
+}
+
+body.light-mode .table-striped tbody tr:nth-of-type(odd) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+body.light-mode .table-hover tbody tr:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+/* Light mode for badges */
+body.light-mode .badge {
+  font-weight: 600;
+}
+
+/* Light mode for scrollbars */
+body.light-mode .custom-scrollbar-modern::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .custom-scrollbar-modern::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.light-mode .custom-scrollbar-modern::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================================================
+
+/* Enhanced Liquid Glass Effect - Dark Mode */
+
+/* Enhanced Liquid Glass Effect - Light Mode */
+
+/* ============================================================================
+   APPLE-STYLE LIQUID GLASSMORPHISM - ENHANCED
+   ============================================================================ */
+
+/* Dark Mode - Premium Liquid Glass */
+
+/* Light Mode - Premium Liquid Glass */
+
+/* Metric Cards - Enhanced Glass */
+
+/* ============================================================================
+   DARK MODE TEXT VISIBILITY FIXES
+   ============================================================================ */
+
+/* Ensure all text is visible in dark mode */
+body.dark-mode {
+  color: #e8e8e8;
+}
+
+body.dark-mode .text-muted {
+  color: #b8b8b8 !important;
+}
+
+body.dark-mode .small,
+body.dark-mode small {
+  color: #d0d0d0;
+}
+
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3,
+body.dark-mode h4,
+body.dark-mode h5,
+body.dark-mode h6 {
+  color: #ffffff;
+}
+
+body.dark-mode p {
+  color: #e0e0e0;
+}
+
+body.dark-mode .card-title {
+  color: #ffffff;
+}
+
+body.dark-mode .card-text {
+  color: #e0e0e0;
+}
+
+/* Modal text visibility in dark mode */
+body.dark-mode .modal-content {
+  background: #1a1a1a;
+  color: #e8e8e8;
+}
+
+body.dark-mode .modal-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .modal-title {
+  color: #ffffff;
+}
+
+body.dark-mode .modal-body {
+  color: #e0e0e0;
+}
+
+body.dark-mode .modal-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Onboarding/Tour modal text visibility */
+body.dark-mode #onboarding-modal .modal-content {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+body.dark-mode #onboarding-modal .modal-title {
+  color: #ffffff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode #onboarding-modal .modal-body {
+  color: #e8e8e8;
+}
+
+body.dark-mode #onboarding-modal h6 {
+  color: #ffffff;
+}
+
+body.dark-mode #onboarding-modal .alert {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8e8e8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+body.dark-mode #onboarding-modal ul li {
+  color: #d0d0d0;
+}
+
+body.dark-mode #onboarding-modal kbd {
+  background-color: #2a2a2a;
+  color: #ffffff;
+  border: 1px solid #444;
+}
+
+/* Form elements in dark mode */
+body.dark-mode .form-label {
+  color: #e0e0e0;
+}
+
+body.dark-mode .form-control {
+  background-color: #2a2a2a;
+  color: #e8e8e8;
+  border: 1px solid #444;
+}
+
+body.dark-mode .form-control::placeholder {
+  color: #888;
+}
+
+body.dark-mode .form-select {
+  background-color: #2a2a2a;
+  color: #e8e8e8;
+  border: 1px solid #444;
+}
+
+/* Dropdown menu in dark mode */
+body.dark-mode .dropdown-menu {
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+}
+
+body.dark-mode .dropdown-item {
+  color: #e0e0e0;
+}
+
+body.dark-mode .dropdown-item:hover {
+  background-color: #3a3a3a;
+  color: #ffffff;
+}
+
+body.dark-mode .dropdown-divider {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Alert text in dark mode */
+body.dark-mode .alert {
+  color: #e0e0e0;
+}
+
+body.dark-mode .alert-success {
+  background-color: rgba(40, 167, 69, 0.2);
+  border-color: rgba(40, 167, 69, 0.4);
+  color: #90ee90;
+}
+
+body.dark-mode .alert-danger {
+  background-color: rgba(220, 53, 69, 0.2);
+  border-color: rgba(220, 53, 69, 0.4);
+  color: #ff6b6b;
+}
+
+body.dark-mode .alert-warning {
+  background-color: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.4);
+  color: #ffd93d;
+}
+
+body.dark-mode .alert-info {
+  background-color: rgba(23, 162, 184, 0.2);
+  border-color: rgba(23, 162, 184, 0.4);
+  color: #6dd5ed;
+}
+
+/* Table text in dark mode */
+body.dark-mode .table {
+  color: #e0e0e0;
+}
+
+body.dark-mode .table thead th {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .table td {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Badge text visibility */
+body.dark-mode .badge {
+  color: #ffffff;
+}
+
+/* List group items */
+body.dark-mode .list-group-item {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #e0e0e0;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .list-group-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Glass cards text */
+
+/* Navigation and header text */
+body.dark-mode .navbar,
+body.dark-mode .navbar-dark {
+  color: #ffffff;
+}
+
+body.dark-mode .nav-link {
+  color: #d0d0d0;
+}
+
+body.dark-mode .nav-link:hover {
+  color: #ffffff;
+}
+
+/* Ensure icons are visible */
+body.dark-mode .fa,
+body.dark-mode .fas,
+body.dark-mode .far,
+body.dark-mode .fab {
+  color: inherit;
+}
+
+/* Offcanvas (notification drawer) text */
+body.dark-mode .offcanvas {
+  background-color: #1a1a1a;
+  color: #e8e8e8;
+}
+
+body.dark-mode .offcanvas-header {
+  color: #ffffff;
+}
+
+body.dark-mode .offcanvas-body {
+  color: #e0e0e0;
+}
+
+/* ============================================================================
+   TOUR/ONBOARDING MODAL - VISIBILITY FIXES FOR BOTH MODES
+   ============================================================================ */
+
+/* Light Mode - Tour Modal */
+body.light-mode #onboarding-modal .modal-content {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+}
+
+body.light-mode #onboarding-modal .modal-title {
+  color: #2c3e50;
+}
+
+body.light-mode #onboarding-modal .modal-body {
+  color: #2c3e50;
+}
+
+body.light-mode #onboarding-modal h6 {
+  color: #495057;
+}
+
+body.light-mode #onboarding-modal .text-muted {
+  color: #6c757d !important;
+}
+
+body.light-mode #onboarding-modal .alert {
+  background: rgba(13, 202, 240, 0.1);
+  color: #055160;
+  border: 1px solid rgba(13, 202, 240, 0.3);
+}
+
+body.light-mode #onboarding-modal ul li {
+  color: #495057;
+}
+
+body.light-mode #onboarding-modal kbd {
+  background-color: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+}
+
+/* Ensure buttons are visible in both modes */
+body.dark-mode .btn-primary {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: #ffffff;
+}
+
+body.dark-mode .btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: #ffffff;
+}
+
+body.dark-mode .btn-success {
+  background-color: #198754;
+  border-color: #198754;
+  color: #ffffff;
+}
+
+body.light-mode .btn-primary {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: #ffffff;
+}
+
+body.light-mode .btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: #ffffff;
+}
+
+/* Card headers visibility */
+body.dark-mode .card-header {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.light-mode .card-header {
+  background-color: rgba(0, 0, 0, 0.03);
+  color: #2c3e50;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Fix input placeholders visibility */
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+  color: #888888;
+}
+
+body.light-mode input::placeholder,
+body.light-mode textarea::placeholder {
+  color: #6c757d;
+}
+
+/* Ensure hr elements are visible */
+body.dark-mode hr {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.light-mode hr {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Link visibility */
+body.dark-mode a {
+  color: #6ea8fe;
+}
+
+body.dark-mode a:hover {
+  color: #9ec5fe;
+}
+
+body.light-mode a {
+  color: #0d6efd;
+}
+
+body.light-mode a:hover {
+  color: #0a58ca;
+}
+
+/* ============================================================================
+   ORIGINAL LIQUID GLASS DESIGN - RESTORED
+   ============================================================================ */
+
+/* Base Glass Card - Default/Light Mode */
+.glass-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  ) !important;
+  backdrop-filter: blur(40px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.2),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 0 20px rgba(59, 130, 246, 0.05) !important;
+  border-radius: 20px !important;
+  position: relative;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.2) 50%,
+    transparent 100%
+  );
+  transition: left 0.6s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card:hover::before {
+  left: 100%;
+}
+
+.glass-card:hover {
+  transform: translateY(-8px) scale(1.01);
+  box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3), 0 0 50px rgba(59, 130, 246, 0.2) !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+.glass-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Dark Mode Glass Card */
+body.dark-mode .glass-card,
+body.dark-theme .glass-card {
+  background: linear-gradient(
+    135deg,
+    rgba(30, 41, 59, 0.5) 0%,
+    rgba(15, 23, 42, 0.4) 100%
+  ) !important;
+  backdrop-filter: blur(40px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+  border: 1px solid rgba(71, 85, 105, 0.5) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 0 rgba(148, 163, 184, 0.1), 0 0 20px rgba(96, 165, 250, 0.1) !important;
+}
+
+body.dark-mode .glass-card::before,
+body.dark-theme .glass-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(96, 165, 250, 0.2) 50%,
+    transparent 100%
+  );
+}
+
+body.dark-mode .glass-card:hover,
+body.dark-theme .glass-card:hover {
+  box-shadow: 0 20px 60px 0 rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 0 rgba(148, 163, 184, 0.2), 0 0 50px rgba(96, 165, 250, 0.3) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+}
+
+/* Light Mode Glass Card */
+body.light-mode .glass-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.5) 100%
+  ) !important;
+  backdrop-filter: blur(40px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8), 0 0 20px rgba(59, 130, 246, 0.08) !important;
+}
+
+body.light-mode .glass-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.15) 50%,
+    transparent 100%
+  );
+}
+
+body.light-mode .glass-card:hover {
+  box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.2),
+    inset 0 1px 0 0 rgba(255, 255, 255, 1), 0 0 50px rgba(59, 130, 246, 0.15) !important;
+  border: 1px solid rgba(59, 130, 246, 0.5) !important;
+}
+
+/* Metric Cards */
+.metric-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  ) !important;
+  backdrop-filter: blur(30px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(150%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(31, 38, 135, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  border-radius: 16px !important;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.15) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.metric-card:hover::after {
+  opacity: 1;
+}
+
+.metric-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(59, 130, 246, 0.8),
+    rgba(139, 92, 246, 0.8),
+    transparent
+  );
+  animation: shimmer 3s infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(31, 38, 135, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 30px rgba(59, 130, 246, 0.15) !important;
+}
+
+body.dark-mode .metric-card,
+body.dark-theme .metric-card {
+  background: linear-gradient(
+    135deg,
+    rgba(30, 41, 59, 0.4) 0%,
+    rgba(15, 23, 42, 0.3) 100%
+  ) !important;
+  border: 1px solid rgba(71, 85, 105, 0.4) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+body.dark-mode .metric-card::after,
+body.dark-theme .metric-card::after {
+  background: radial-gradient(
+    circle,
+    rgba(96, 165, 250, 0.15) 0%,
+    transparent 70%
+  );
+}
+
+body.dark-mode .metric-card::before,
+body.dark-theme .metric-card::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(96, 165, 250, 0.8),
+    rgba(167, 139, 250, 0.8),
+    transparent
+  );
+}
+
+body.dark-mode .metric-card:hover,
+body.dark-theme .metric-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(148, 163, 184, 0.12), 0 0 30px rgba(96, 165, 250, 0.2) !important;
+}
+
+body.light-mode .metric-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(248, 250, 252, 0.4) 100%
+  ) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(31, 38, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+body.light-mode .metric-card:hover {
+  box-shadow: 0 12px 32px rgba(31, 38, 135, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 30px rgba(59, 130, 246, 0.12) !important;
+}
+
+/* ============================================================================
+   Z-INDEX FIXES - Prevent glass overlay from blocking clicks
+   ============================================================================ */
+
+/* Ensure header elements are above glass cards */
+.navbar,
+.navbar *,
+.profile-dropdown,
+.dropdown-menu {
+  position: relative;
+  z-index: 1000 !important;
+}
+
+/* Ensure glass card shimmer doesn't block content */
+.glass-card::before {
+  z-index: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Ensure all interactive elements in glass cards are clickable */
+.glass-card button,
+.glass-card a,
+.glass-card input,
+.glass-card select,
+.glass-card textarea,
+.glass-card .dropdown,
+.glass-card .dropdown-toggle {
+  position: relative;
+  z-index: 10 !important;
+}
+
+/* Ensure card content is above shimmer */
+.glass-card .card-body,
+.glass-card .card-header,
+.glass-card .card-footer {
+  position: relative;
+  z-index: 5;
+}
+
+/* Ensure entire header row is clickable */
+.navbar-dark,
+.navbar-light,
+header,
+[role="banner"] {
+  z-index: 1050 !important;
+  position: relative;
+}
+
+/* Profile dropdown specific fix */
+.dropdown-toggle,
+.btn.dropdown-toggle,
+.fa-user-circle {
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  z-index: 1100 !important;
+}
+
+/* Dropdown menu positioning */
+.dropdown-menu.show {
+  z-index: 1200 !important;
+}
+
+/* ============================================================================
+   HEADER GLASS CARD FIX - Allow dropdown to overflow
+   ============================================================================ */
+
+/* Header glass card shouldn't clip dropdown */
+.glass-card.mb-4 {
+  overflow: visible !important;
+}
+
+/* Alternatively, target header specifically */
+.container > .glass-card:first-child,
+.glass-card:has(.gradient-text) {
+  overflow: visible !important;
+  position: relative;
+  z-index: 1100 !important;
+}
+
+/* Remove shimmer from header to avoid interference */
+.container > .glass-card:first-child::before,
+.glass-card:has(.gradient-text)::before {
+  display: none !important;
+}
+
+/* Ensure dropdown components have highest z-index */
+.dbc .dropdown,
+.dbc .dropdown-menu,
+.dbc .dropdown-toggle,
+button.dropdown-toggle {
+  z-index: 2000 !important;
+}
+
+/* Make sure dropdown toggle is always clickable */
+.profile-dropdown,
+.profile-dropdown button,
+.profile-dropdown .dropdown-toggle {
+  z-index: 2100 !important;
+  position: relative;
+  pointer-events: auto !important;
+}
+
+/* Dropdown menu must be above everything */
+.dropdown-menu {
+  z-index: 2200 !important;
+  position: absolute !important;
+}
+
+/* Fix any backdrop or overlay issues */
+.modal-backdrop {
+  z-index: 1040 !important;
 }
