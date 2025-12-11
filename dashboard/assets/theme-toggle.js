@@ -14,9 +14,12 @@
     document.body.classList.add("dark-mode");
   }
 
-  // Create theme toggle button
+  // Create theme toggle button - DISABLED (use preferences instead)
   function createThemeToggle() {
-    // Check if button already exists
+    // Floating button disabled - theme controlled via Dashboard Preferences
+    return;
+
+    /* // Check if button already exists
     if (document.querySelector(".theme-toggle")) {
       return;
     }
@@ -33,7 +36,7 @@
     button.addEventListener("click", toggleTheme);
 
     // Add to page
-    document.body.appendChild(button);
+    document.body.appendChild(button); */
   }
 
   // Toggle between light and dark themes
