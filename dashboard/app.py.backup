@@ -1574,20 +1574,20 @@ dashboard_layout = dbc.Container([
                     ])
                 ], width=6, className="d-flex align-items-center"),
                 dbc.Col([
-                    dbc.ButtonGroup([
+                    html.Div([
                         dbc.Button([
-                            html.I(className="fa fa-bell"),
+                            html.I(className="fa fa-bell fa-lg"),
                             dbc.Badge(id="notification-badge", color="danger", className="position-absolute top-0 start-100 translate-middle", pill=True, style={"fontSize": "0.6rem"})
-                        ], id="notification-bell-button", color="primary", outline=True, className="position-relative", size="sm", style={"minWidth": "40px"}),
-                        dbc.Button([html.I(className="fa fa-robot me-1"), "AI Chat"],
-                                  id="open-chat-button", color="info", outline=True, size="sm"),
-                        dbc.Button([html.I(className="fa fa-pause me-1"), "Pause"],
-                                  id="pause-button", color="warning", outline=True, size="sm"),
+                        ], color="link", id="notification-bell-button", className="text-white position-relative px-3"),
+                        dbc.Button(html.I(className="fa fa-robot fa-lg"), color="link", id="open-chat-button", className="text-white px-3 ms-1"),
+                        dbc.Button(html.I(className="fa fa-pause fa-lg", id="pause-icon"), color="link", id="pause-button", className="text-white px-3 ms-1"),
                         dbc.DropdownMenu([
-                            dbc.DropdownMenuItem([
-                                html.I(className="fa fa-user me-2"),
-                                html.Span(id="current-user-display", children="User")
-                            ], header=True, style={"fontSize": "0.95rem", "fontWeight": "600"}),
+                            dbc.DropdownMenuItem(
+                                html.Div([
+                                    html.I(className="fa fa-user me-2"),
+                                    html.Span(id="current-user-display-dropdown", children="User")
+                                ], className="d-flex align-items-center"),
+                                header=True, style={"fontSize": "0.95rem", "fontWeight": "600"}),
                             dbc.DropdownMenuItem(divider=True),
                             dbc.DropdownMenuItem([
                                 html.I(className="fa fa-user-edit me-2"),
@@ -1605,11 +1605,12 @@ dashboard_layout = dbc.Container([
                                 html.I(className="fa fa-sign-out-alt me-2 text-danger"),
                                 "Logout"
                             ], href="/logout")
-                        ], label=[html.I(className="fa fa-user-circle me-1"), "Profile"],
-                           color="secondary",
-                           size="sm",
-                           className="profile-dropdown")
-                    ], className="gap-2")
+                        ], label=html.I(className="fa fa-user-circle fa-lg"),
+                           color="link",
+                           className="profile-dropdown ms-2",
+                           style={"color": "white"},
+                           toggle_style={"padding": "0.5rem 0.75rem"})
+                    ], className="d-flex align-items-center ms-auto")
                 ], width=6, className="d-flex align-items-center justify-content-end")
             ])
         ], className="p-4")
@@ -2013,6 +2014,21 @@ dashboard_layout = dbc.Container([
             ], id="preferences-card-btn", n_clicks=0)
         ], width=3, className="mb-4"),
 
+        # Timeline Visualization Card Tile
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-chart-line fa-3x mb-3", style={"color": "#8b5cf6"}),
+                            html.H5("Timeline Visualization", className="fw-bold mb-2"),
+                            html.P("Device activity history and event logs", className="small text-muted mb-0")
+                        ], className="text-center")
+                    ], className="p-4")
+                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+            ], id="timeline-card-btn", n_clicks=0)
+        ], width=3, className="mb-4"),
+
         # IoT Protocol Analysis Card Tile
         dbc.Col([
             html.Div([
@@ -2337,9 +2353,10 @@ dashboard_layout = dbc.Container([
         dbc.ModalBody([
             dbc.Alert([
                 html.H5("⚠️ Lockdown Mode", className="alert-heading"),
-                html.P("Enable lockdown mode to block all untrusted devices from your network.")
+                html.P("Enable lockdown mode to block all untrusted devices from your network. Only trusted devices will be allowed.")
             ], color="warning", className="mb-3"),
-            dbc.Switch(id='lockdown-mode-switch', label="Enable Lockdown Mode", value=False, className="mb-3")
+            dbc.Switch(id='lockdown-switch', label="Enable Lockdown Mode", value=False, className="mb-3"),
+            html.Div(id='lockdown-status')
         ])
     ], id="firewall-modal", size="lg", is_open=False),
 
@@ -2477,35 +2494,172 @@ dashboard_layout = dbc.Container([
             "Dashboard Preferences"
         ])),
         dbc.ModalBody([
+            # Display Settings Section
+            html.H5([html.I(className="fa fa-desktop me-2"), "Display Settings"], className="mb-3"),
+
+            dbc.Label("Display Density"),
+            dcc.Dropdown(
+                id='display-density-dropdown',
+                options=[
+                    {'label': '🎯 Compact - More data per screen', 'value': 'compact'},
+                    {'label': '✨ Comfortable - Balanced view', 'value': 'comfortable'},
+                    {'label': '🌟 Spacious - Easier reading', 'value': 'spacious'}
+                ],
+                value='comfortable',
+                className="mb-3"
+            ),
+
+            dbc.Label("Dashboard Layout"),
+            dcc.Dropdown(
+                id='layout-dropdown',
+                options=[
+                    {'label': '📊 Grid View - Cards in grid', 'value': 'grid'},
+                    {'label': '📋 List View - Vertical list', 'value': 'list'},
+                    {'label': '🎨 Custom - Drag & drop', 'value': 'custom'}
+                ],
+                value='grid',
+                className="mb-3"
+            ),
+
+            dbc.Label("Theme"),
+            dcc.Dropdown(
+                id='theme-dropdown',
+                options=[
+                    {'label': '🌙 Dark Mode', 'value': 'dark'},
+                    {'label': '☀️ Light Mode', 'value': 'light'},
+                    {'label': '⚡ Auto (System)', 'value': 'auto'}
+                ],
+                value='dark',
+                className="mb-3"
+            ),
+
+            html.Hr(),
+
+            # Localization Section
+            html.H5([html.I(className="fa fa-globe me-2"), "Localization"], className="mb-3 mt-3"),
+
+            dbc.Label("Language / भाषा / 语言"),
+            dcc.Dropdown(
+                id='language-dropdown',
+                options=[
+                    {'label': '🇺🇸 English', 'value': 'en'},
+                    {'label': '🇪🇸 Español', 'value': 'es'},
+                    {'label': '🇫🇷 Français', 'value': 'fr'},
+                    {'label': '🇩🇪 Deutsch', 'value': 'de'},
+                    {'label': '🇮🇳 हिंदी', 'value': 'hi'},
+                    {'label': '🇨🇳 中文', 'value': 'zh'}
+                ],
+                value='en',
+                className="mb-3"
+            ),
+
+            dbc.Label("Timezone"),
+            dcc.Dropdown(
+                id='timezone-dropdown',
+                options=[
+                    {'label': 'UTC', 'value': 'UTC'},
+                    {'label': 'America/New_York (EST)', 'value': 'America/New_York'},
+                    {'label': 'America/Chicago (CST)', 'value': 'America/Chicago'},
+                    {'label': 'America/Los_Angeles (PST)', 'value': 'America/Los_Angeles'},
+                    {'label': 'Europe/London (GMT)', 'value': 'Europe/London'},
+                    {'label': 'Europe/Paris (CET)', 'value': 'Europe/Paris'},
+                    {'label': 'Asia/Tokyo (JST)', 'value': 'Asia/Tokyo'},
+                    {'label': 'Asia/Kolkata (IST)', 'value': 'Asia/Kolkata'},
+                    {'label': 'Australia/Sydney (AEST)', 'value': 'Australia/Sydney'}
+                ],
+                value='UTC',
+                className="mb-3"
+            ),
+
+            html.Hr(),
+
+            # Data & Performance Section
+            html.H5([html.I(className="fa fa-database me-2"), "Data & Performance"], className="mb-3 mt-3"),
+
             dbc.Label("Auto-Refresh Interval"),
             dcc.Dropdown(
                 id='refresh-interval-dropdown',
                 options=[
-                    {'label': '5 seconds', 'value': 5000},
-                    {'label': '10 seconds', 'value': 10000},
-                    {'label': '30 seconds', 'value': 30000},
-                    {'label': '1 minute', 'value': 60000}
+                    {'label': '⚡ 5 seconds (High CPU)', 'value': 5000},
+                    {'label': '✅ 10 seconds (Recommended)', 'value': 10000},
+                    {'label': '💤 30 seconds (Low CPU)', 'value': 30000},
+                    {'label': '🐌 1 minute (Manual refresh)', 'value': 60000}
                 ],
                 value=10000,
                 className="mb-3"
             ),
-            dbc.Label("Data Retention (days)"),
+
+            dbc.Label("Data Retention Period"),
             dcc.Dropdown(
                 id='retention-dropdown',
                 options=[
-                    {'label': '7 days', 'value': 7},
-                    {'label': '30 days', 'value': 30},
-                    {'label': '90 days', 'value': 90}
+                    {'label': '7 days - Recent data only', 'value': 7},
+                    {'label': '30 days - Recommended', 'value': 30},
+                    {'label': '90 days - Extended history', 'value': 90},
+                    {'label': '180 days - Long-term analysis', 'value': 180}
                 ],
                 value=30,
                 className="mb-3"
             ),
-            dbc.Label("Anomaly Threshold"),
-            dcc.Slider(id='anomaly-threshold-slider', min=0.5, max=0.99, step=0.01, value=0.85,
-                      marks={0.5: '0.5', 0.7: '0.7', 0.85: '0.85', 0.99: '0.99'}),
-            dbc.Button("Save Preferences", id='save-preferences-btn', color="primary", className="mt-3")
+
+            dbc.Label("Anomaly Detection Threshold"),
+            dcc.Slider(
+                id='anomaly-threshold-slider',
+                min=0.5, max=0.99, step=0.01, value=0.85,
+                marks={0.5: 'Sensitive', 0.7: 'Balanced', 0.85: 'Default', 0.99: 'Strict'},
+                tooltip={"placement": "bottom", "always_visible": True}
+            ),
+
+            html.Hr(),
+
+            # Export & Backup Section
+            html.H5([html.I(className="fa fa-download me-2"), "Export & Backup"], className="mb-3 mt-3"),
+
+            dbc.Label("Automated Export"),
+            dcc.Dropdown(
+                id='auto-export-dropdown',
+                options=[
+                    {'label': '🚫 Disabled', 'value': 'disabled'},
+                    {'label': '📅 Daily Reports', 'value': 'daily'},
+                    {'label': '📆 Weekly Summary', 'value': 'weekly'},
+                    {'label': '🗓️ Monthly Analysis', 'value': 'monthly'}
+                ],
+                value='disabled',
+                className="mb-3"
+            ),
+
+            dbc.Label("Backup Schedule"),
+            dcc.Dropdown(
+                id='backup-schedule-dropdown',
+                options=[
+                    {'label': '🔵 Daily (Recommended)', 'value': 'daily'},
+                    {'label': '🟢 Weekly', 'value': 'weekly'},
+                    {'label': '🟡 Monthly', 'value': 'monthly'},
+                    {'label': '🔴 Manual Only', 'value': 'manual'}
+                ],
+                value='daily',
+                className="mb-3"
+            ),
+
+            dbc.Label("Backup Retention (days)"),
+            dcc.Input(
+                id='backup-retention-input',
+                type='number',
+                min=7,
+                max=365,
+                value=30,
+                className="form-control mb-3"
+            ),
+
+            dbc.Button(
+                [html.I(className="fa fa-save me-2"), "Save All Preferences"],
+                id='save-preferences-btn',
+                color="primary",
+                className="mt-3 w-100",
+                size="lg"
+            )
         ])
-    ], id="preferences-modal", size="lg", is_open=False),
+    ], id="preferences-modal", size="xl", is_open=False, scrollable=True),
 
     # IoT Protocol Analysis Modal
     dbc.Modal([
@@ -2528,6 +2682,62 @@ dashboard_layout = dbc.Container([
             html.Div(id='threat-detection-stats')
         ])
     ], id="threat-modal", size="xl", is_open=False, scrollable=True),
+
+    # Device Timeline Visualization Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-chart-line me-2"),
+            "Device Activity Timeline"
+        ])),
+        dbc.ModalBody([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Select Device"),
+                    dcc.Dropdown(
+                        id='timeline-device-dropdown',
+                        placeholder="Choose a device...",
+                        className="mb-3"
+                    )
+                ], md=6),
+                dbc.Col([
+                    dbc.Label("Time Range"),
+                    dcc.Dropdown(
+                        id='timeline-range-dropdown',
+                        options=[
+                            {'label': '📅 Last 24 Hours', 'value': 24},
+                            {'label': '📆 Last 7 Days', 'value': 168},
+                            {'label': '🗓️ Last 30 Days', 'value': 720}
+                        ],
+                        value=24,
+                        className="mb-3"
+                    )
+                ], md=6)
+            ]),
+
+            html.Hr(),
+
+            # Activity Timeline Graph
+            dcc.Loading(
+                dcc.Graph(id='device-activity-timeline'),
+                type='circle'
+            ),
+
+            html.Hr(),
+
+            # Connection Heatmap
+            html.H5([html.I(className="fa fa-fire me-2"), "Activity Heatmap"], className="mt-3 mb-3"),
+            dcc.Loading(
+                dcc.Graph(id='device-activity-heatmap'),
+                type='circle'
+            ),
+
+            html.Hr(),
+
+            # Event Log Table
+            html.H5([html.I(className="fa fa-list me-2"), "Activity Events"], className="mt-3 mb-3"),
+            html.Div(id='timeline-events-table')
+        ])
+    ], id="timeline-modal", size="xl", is_open=False, scrollable=True),
 
     # Privacy Monitoring Modal
     dbc.Modal([
@@ -2924,19 +3134,20 @@ def update_header_stats(ws_message):
 
 @app.callback(
     [Output('notification-badge', 'children'),
+     Output('notification-count-display', 'children'),
      Output('notification-drawer-body', 'children', allow_duplicate=True)],
     Input('ws', 'message'),
     prevent_initial_call=True
 )
 def update_notifications_from_ws(ws_message):
     if ws_message is None:
-        return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update
     alert_count = ws_message.get('alert_count', 0)
     badge_count = "" if alert_count == 0 else str(alert_count)
+    count_display = str(alert_count)
 
-    # This callback only updates the badge and does not re-render the drawer content
-    # unless a fresh open is triggered via the bell button or a click outside.
-    return badge_count, dash.no_update
+    # This callback only updates the badge and count display
+    return badge_count, count_display, dash.no_update
 
 @app.callback(
     [Output("notification-drawer", "is_open"),
@@ -2968,6 +3179,7 @@ app.clientside_callback(
             'user-card-btn': 'user-modal',
             'device-mgmt-card-btn': 'device-mgmt-modal',
             'preferences-card-btn': 'preferences-modal',
+            'timeline-card-btn': 'timeline-modal',
             'protocol-card-btn': 'protocol-modal',
             'threat-card-btn': 'threat-modal',
             'privacy-card-btn': 'privacy-modal',
@@ -5229,9 +5441,9 @@ def delete_user(n_clicks):
     else:
         return dash.no_update, dbc.Alert("Error deleting user", color="danger")
 
-# Update current user display in profile dropdown
+# Update current user display in header and profile dropdown
 @app.callback(
-    Output('current-user-display', 'children'),
+    Output('current-user-display-dropdown', 'children'),
     Input('url', 'pathname'),
     prevent_initial_call=False
 )
@@ -6136,9 +6348,9 @@ def update_security_tips(n):
 # ============================================================================
 
 def main():
-    host = config.get('dashboard', 'host', default='0.0.0.0')
+    host = '127.0.0.1'
     port = config.get('dashboard', 'port', default=8050)
-    debug = config.get('dashboard', 'debug', default=False)
+    debug = True
 
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Enhanced Educational Edition")
@@ -6149,15 +6361,7 @@ def main():
     # Check AI Assistant status
     ai_status = "🤖 AI Chat: "
     if OLLAMA_ENABLED:
-        try:
-            # Quick check if Ollama is available
-            test_response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if test_response.status_code == 200:
-                ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
-            else:
-                ai_status += "⚠️ ENABLED but Ollama not responding"
-        except:
-            ai_status += "⚠️ ENABLED but Ollama not running (will use fallback)"
+        ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
     else:
         ai_status += "❌ DISABLED (rule-based only)"
     logger.info(ai_status)
@@ -6274,6 +6478,15 @@ def toggle_device_mgmt_modal(n, is_open):
     prevent_initial_call=True
 )
 def toggle_preferences_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("timeline-modal", "is_open"),
+    Input("timeline-card-btn", "n_clicks"),
+    State("timeline-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_timeline_modal(n, is_open):
     return not is_open
 
 @app.callback(

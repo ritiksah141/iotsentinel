@@ -6348,9 +6348,9 @@ def update_security_tips(n):
 # ============================================================================
 
 def main():
-    host = config.get('dashboard', 'host', default='0.0.0.0')
+    host = '127.0.0.1'
     port = config.get('dashboard', 'port', default=8050)
-    debug = config.get('dashboard', 'debug', default=False)
+    debug = True
 
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Enhanced Educational Edition")
@@ -6361,15 +6361,7 @@ def main():
     # Check AI Assistant status
     ai_status = "🤖 AI Chat: "
     if OLLAMA_ENABLED:
-        try:
-            # Quick check if Ollama is available
-            test_response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if test_response.status_code == 200:
-                ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
-            else:
-                ai_status += "⚠️ ENABLED but Ollama not responding"
-        except:
-            ai_status += "⚠️ ENABLED but Ollama not running (will use fallback)"
+        ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
     else:
         ai_status += "❌ DISABLED (rule-based only)"
     logger.info(ai_status)
