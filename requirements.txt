@@ -38,3 +38,6 @@ python-dotenv
 apscheduler
 Flask-SocketIO
 dash-extensions
+
+# Academic Evidence Collection (Added 2025-12-12)
+diagrams>=0.23.3
