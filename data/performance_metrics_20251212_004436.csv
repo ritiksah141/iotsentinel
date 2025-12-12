@@ -1,0 +1,2 @@
+id,timestamp,cpu_usage,ram_usage_mb,ram_usage_percent,packet_processing_rate,ml_inference_latency_ms,alert_generation_time_ms,database_query_time_ms,disk_usage_percent,active_connections,detected_devices
+1,2025-12-12 00:44:36,21.1,3349.64,79.8,850.0,45.0,0.0,5.0,5.8,0,0
