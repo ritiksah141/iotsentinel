@@ -120,19 +120,41 @@
 
   .cyber-button-modern:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-  }
 
-  .cyber-button-modern:active {
-    transform: translateY(0);
-  }
-
-  /* ============================================================================
- * HOVER LIFT ANIMATION - Enhanced Liquid Glass Effect
- * ============================================================================ */
-
-  .hover-lift {
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Soft holographic, blurred overlay to emulate the reference image */
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      /* layered subtle lights and color blobs */
+      background-image: radial-gradient(
+          circle at 10% 20%,
+          rgba(255, 255, 255, 0.06) 0%,
+          rgba(255, 255, 255, 0) 25%
+        ),
+        radial-gradient(
+          circle at 80% 80%,
+          rgba(100, 200, 255, 0.06) 0%,
+          rgba(100, 200, 255, 0) 20%
+        ),
+        radial-gradient(
+          circle at 50% 40%,
+          rgba(240, 150, 255, 0.04) 0%,
+          rgba(240, 150, 255, 0) 30%
+        ),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.02));
+      background-repeat: no-repeat;
+      background-size: cover;
+      filter: blur(72px) saturate(150%);
+      -webkit-filter: blur(72px) saturate(150%);
+      opacity: 0.95;
+      z-index: -1;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
     position: relative;
   }
 
@@ -480,7 +502,7 @@ body {
   position: relative;
 }
 
-/* Animated gradient background overlay */
+/* Holographic blurred glass background - vibrant animated gradient */
 body::before {
   content: "";
   position: fixed;
@@ -488,33 +510,34 @@ body::before {
   left: 0;
   right: 0;
   bottom: 0;
-  background: radial-gradient(
-      circle at 20% 50%,
-      rgba(59, 130, 246, 0.08) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      circle at 80% 80%,
-      rgba(139, 92, 246, 0.08) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      circle at 40% 20%,
-      rgba(16, 185, 129, 0.06) 0%,
-      transparent 50%
-    );
-  animation: gradientShift 20s ease infinite;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.4) 0%,
+    rgba(240, 147, 251, 0.4) 33%,
+    rgba(79, 172, 254, 0.4) 66%,
+    rgba(102, 126, 234, 0.4) 100%
+  );
+  background-size: 300% 300%;
+  animation: gradientShift 25s linear infinite;
+  filter: blur(35px);
+  -webkit-filter: blur(35px);
   pointer-events: none;
   z-index: 0;
+  opacity: 0.8;
+  transform: translateZ(0);
+  will-change: background-position;
+  backface-visibility: hidden;
 }
 
 @keyframes gradientShift {
-  0%,
-  100% {
-    opacity: 1;
+  0% {
+    background-position: 0% 50%;
   }
   50% {
-    opacity: 0.7;
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
   }
 }
 
@@ -593,15 +616,22 @@ h2:hover::after,
 
 /* Card headers with gradient */
 .card-header {
-  background: var(--bg-tertiary) !important;
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
   border-bottom: 2px solid transparent !important;
-  border-image: var(--gradient-accent) 1 !important;
+  border-image: linear-gradient(
+      90deg,
+      rgba(102, 126, 234, 0.6),
+      rgba(240, 147, 251, 0.6),
+      rgba(79, 172, 254, 0.6)
+    )
+    1 !important;
   color: var(--text-primary) !important;
   font-weight: 600;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.1);
 }
 
 .card-header::before {
@@ -629,10 +659,13 @@ h2:hover::after,
  * ============================================================================ */
 
 .header-row {
-  background: var(--bg-glass);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   padding: 24px;
   margin-bottom: 24px;
   border: var(--glass-border);
@@ -706,16 +739,21 @@ h2:hover::after,
 
 .card,
 .cyber-card {
-  background: var(--bg-glass);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border);
-  border-radius: 16px;
-  box-shadow: 0 4px 16px var(--shadow-color);
-  transition: all var(--transition-base) cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+    0 4px 16px rgba(102, 126, 234, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
   margin-bottom: 24px;
   position: relative;
   overflow: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+  contain: layout style paint;
 }
 
 .card::before,
@@ -733,8 +771,11 @@ h2:hover::after,
 
 .card:hover,
 .cyber-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px var(--shadow-lg), 0 0 0 1px var(--accent-color) inset;
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(240, 147, 251, 0.4) inset, 0 0 30px rgba(102, 126, 234, 0.2),
+    0 0 0 2px rgba(255, 255, 255, 0.15) inset;
+  border-color: rgba(240, 147, 251, 0.3);
 }
 
 .card:hover::before,
@@ -1437,20 +1478,53 @@ textarea:focus {
  * ============================================================================ */
 
 .modal-content {
-  background: var(--bg-glass);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border);
-  border-radius: 16px;
-  box-shadow: 0 20px 60px var(--shadow-lg);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(15px) saturate(140%);
+  -webkit-backdrop-filter: blur(15px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+.modal-content::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.22) 0%,
+    rgba(240, 147, 251, 0.22) 50%,
+    rgba(79, 172, 254, 0.22) 100%
+  );
+  background-size: 300% 300%;
+  animation: gradientShift 25s linear infinite;
+  filter: blur(20px);
+  -webkit-filter: blur(20px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.65;
+  transform: translateZ(0);
+  will-change: background-position;
+  backface-visibility: hidden;
 }
 
 .modal-header {
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   padding: 20px 24px;
-  border-radius: 16px 16px 0 0;
+  border-radius: 24px 24px 0 0;
+  position: relative;
+  z-index: 1;
 }
 
 .modal-title {
@@ -1462,14 +1536,19 @@ textarea:focus {
   background: transparent;
   padding: 24px;
   color: var(--text-primary);
+  position: relative;
+  z-index: 1;
 }
 
 .modal-footer {
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   padding: 16px 24px;
-  border-radius: 0 0 16px 16px;
+  border-radius: 0 0 24px 24px;
+  position: relative;
+  z-index: 1;
 }
 
 .btn-close {
