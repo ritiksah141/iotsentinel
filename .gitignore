@@ -30,6 +30,18 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Academic Evidence (lives on academic-evidence branch only)
+academic/
+ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md
+IMPLEMENTATION_COMPLETE.md
+scripts/integrate_academic_evidence.py
+data/bcs_evidence_*.json
+data/rtm_*.csv
+data/risk_register_*.json
+data/performance_metrics_*.csv
+data/architecture_docs_*.json
+data/diagrams/
 *.code-workspace
 
 # Secrets and Credentials
