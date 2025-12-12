@@ -203,13 +203,26 @@ The HTML report will be generated in the `htmlcov/` directory.
 
 ## 📚 Documentation
 
-Key project documentation can be found in the `docs/` directory:
+All project documentation is organized in the **[docs/](docs/)** directory.
 
-- **[Comprehensive To-Do List](docs/COMPREHENSIVE_TODO_LIST.md)**: A detailed breakdown of all project tasks.
-- **[Requirements Traceability Matrix](docs/REQUIREMENTS_TRACEABILITY_MATRIX.md)**: Maps requirements to design, code, and tests.
-- **[Risk Register](docs/RISK_REGISTER.md)**: Identifies and mitigates project risks.
-- **[Test Plan](docs/TEST_PLAN.md)**: Outlines the comprehensive testing strategy.
-- **[Generated Docs](docs/generated/)**: Contains auto-generated reports like the Code Manifest and Test Coverage summary.
+### 🚀 Quick Start
+- **[Quick Start Guide](docs/QUICK_START.md)** - Understand the two-branch system (main vs academic-evidence)
+- **[Branch Strategy](docs/BRANCH_STRATEGY.md)** - Complete workflow explanation
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
+
+### 📖 Feature Guides
+- **[IoT Features](docs/IOT_FEATURES_GUIDE.md)** - IoT-specific capabilities
+- **[Authentication](docs/AUTH_INTEGRATION_GUIDE.md)** - User authentication setup
+- **[Device Grouping](docs/DEVICE_GROUPING_GUIDE.md)** - Organize devices
+- **[Push Notifications](docs/PUSH_NOTIFICATIONS_GUIDE.md)** - Mobile alerts
+- **[Email Alerts](docs/EMAIL_SETUP.md)** - Email configuration
+
+### 🏗️ Architecture & Planning
+- **[C4 Architecture](docs/C4_ARCHITECTURE.md)** - System design
+- **[Database Schema](docs/DATABASE_SCHEMA.md)** - Data structure
+- **[Risk Register](docs/RISK_REGISTER.md)** - Risk management
+
+📚 **[Full Documentation Index](docs/README.md)** - Complete list of 20+ guides
 
 ## 🔬 Technology Stack
 
