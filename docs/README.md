@@ -36,7 +36,9 @@ This directory contains all project documentation organized by category.
 - **[DEPLOYMENT_READINESS_REPORT.md](DEPLOYMENT_READINESS_REPORT.md)** - Production readiness
 - **[IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)** - Overall progress
 
-### 📝 Academic Evidence (on academic-evidence branch)
+### 📝 Academic Evidence (academic-evidence branch only)
+- **[ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md](ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md)** - How to use academic features
+- **[IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)** - Complete implementation summary
 - **[REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md)** - RTM overview
 - **[RISK_REGISTER.md](RISK_REGISTER.md)** - Project risks
 - **[COMPREHENSIVE_TODO_LIST.md](COMPREHENSIVE_TODO_LIST.md)** - Complete task list
