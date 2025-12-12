@@ -31,7 +31,7 @@ This project uses a **two-branch strategy** to separate production code from aca
 - System testing
 - Real-world usage
 
-### 📚 `academic-evidence` - Academic Documentation
+### 📚 `academic` - Academic Documentation
 
 **Purpose**: Academic evidence for AT2/AT3 submissions and BCS compliance
 
@@ -75,8 +75,8 @@ git push origin main
 ### For Academic Evidence/Reports
 
 ```bash
-# Switch to academic-evidence branch
-git checkout academic-evidence
+# Switch to academic branch
+git checkout academic
 
 # Now you have access to:
 # - academic/ modules
@@ -96,8 +96,8 @@ python academic/test_academic_modules.py
 ### Updating Academic Evidence
 
 ```bash
-# Switch to academic-evidence branch
-git checkout academic-evidence
+# Switch to academic branch
+git checkout academic
 
 # Make changes to academic modules
 vim academic/bcs_compliance.py
@@ -108,7 +108,7 @@ python academic/test_academic_modules.py
 # Commit
 git add academic/
 git commit -m "Update BCS compliance evidence"
-git push origin academic-evidence
+git push origin academic
 ```
 
 ### Keeping Branches in Sync
@@ -116,10 +116,10 @@ git push origin academic-evidence
 When you make production changes on `main` that you want reflected in academic evidence:
 
 ```bash
-# On academic-evidence branch
-git checkout academic-evidence
+# On academic branch
+git checkout academic
 
-# Merge latest main into academic-evidence
+# Merge latest main into academic
 git merge main
 
 # Resolve any conflicts
@@ -147,7 +147,7 @@ iotsentinel/
 └── orchestrator.py  # Main orchestrator
 ```
 
-### `academic-evidence` Branch Additional Files
+### `academic` Branch Additional Files
 
 ```
 iotsentinel/
@@ -181,7 +181,7 @@ iotsentinel/
 The `.gitignore` on `main` excludes all academic evidence files:
 
 ```gitignore
-# Academic Evidence (lives on academic-evidence branch only)
+# Academic Evidence (lives on academic branch only)
 academic/
 ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md
 IMPLEMENTATION_COMPLETE.md
@@ -218,12 +218,12 @@ Benefits:
 
 ### Academic Evidence Generation (Development Machine)
 
-**Use**: `academic-evidence` branch
+**Use**: `academic` branch
 
 ```bash
 # On development machine
 git clone <repo-url>
-git checkout academic-evidence
+git checkout academic
 pip install -r requirements.txt  # Includes diagrams library
 python dashboard/app.py  # With academic features
 ```
@@ -244,7 +244,7 @@ Benefits:
 - Test system
 - Deploy to Raspberry Pi
 
-**Switch to**: `academic-evidence`
+**Switch to**: `academic`
 - When writing reports
 - To generate evidence
 - To take screenshots
@@ -253,8 +253,8 @@ Benefits:
 ### For AT2 Submission (April 10, 2025)
 
 ```bash
-# Switch to academic-evidence
-git checkout academic-evidence
+# Switch to academic
+git checkout academic
 
 # Generate all evidence
 python academic/test_academic_modules.py
@@ -276,7 +276,7 @@ python dashboard/app.py
 
 ```bash
 # Same process
-git checkout academic-evidence
+git checkout academic
 
 # Export final 24-hour performance metrics
 # Generate complete evidence package
@@ -291,7 +291,7 @@ git checkout academic-evidence
 - Can deploy to new devices
 - Can maintain/enhance
 
-**Archive**: `academic-evidence` branch
+**Archive**: `academic` branch
 - Historical record of academic work
 - Can reference for portfolio
 - Demonstrates academic rigor
@@ -303,11 +303,11 @@ git checkout academic-evidence
 | Deploy to Pi | `main` | `git checkout main` |
 | Develop features | `main` | `git checkout main` |
 | Fix bugs | `main` | `git checkout main` |
-| Write reports | `academic-evidence` | `git checkout academic-evidence` |
-| Generate evidence | `academic-evidence` | `git checkout academic-evidence` |
-| Take screenshots | `academic-evidence` | `git checkout academic-evidence` |
-| Export RTM | `academic-evidence` | `git checkout academic-evidence` |
-| Create diagrams | `academic-evidence` | `git checkout academic-evidence` |
+| Write reports | `academic` | `git checkout academic` |
+| Generate evidence | `academic` | `git checkout academic` |
+| Take screenshots | `academic` | `git checkout academic` |
+| Export RTM | `academic` | `git checkout academic` |
+| Create diagrams | `academic` | `git checkout academic` |
 
 ## Benefits of This Strategy
 
@@ -318,7 +318,7 @@ git checkout academic-evidence
 - Professional production environment
 
 ### ✅ Complete Academic Evidence
-- `academic-evidence` has everything for submissions
+- `academic` has everything for submissions
 - All evidence generation tools
 - Export capabilities
 - Integration guides
@@ -343,7 +343,7 @@ git branch  # Shows current branch with *
 ### Switch Branches
 ```bash
 git checkout main              # Production
-git checkout academic-evidence # Academic
+git checkout academic # Academic
 ```
 
 ### List All Branches
@@ -353,12 +353,12 @@ git branch -a
 
 ### See What's Different Between Branches
 ```bash
-git diff main..academic-evidence
+git diff main..academic
 ```
 
 ## Summary
 
-| | `main` | `academic-evidence` |
+| | `main` | `academic` |
 |---|---|---|
 | **Purpose** | Production system | Academic documentation |
 | **Deployment** | Raspberry Pi | Development only |

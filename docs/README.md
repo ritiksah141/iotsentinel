@@ -5,12 +5,12 @@ This directory contains all project documentation organized by category.
 ## 📚 Quick Navigation
 
 ### 🚀 Getting Started
-- **[QUICK_START.md](QUICK_START.md)** - Quick reference for main vs academic-evidence branches
+- **[QUICK_START.md](QUICK_START.md)** - Quick reference for main vs academic branches
 - **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
 - **[AI_SETUP.md](AI_SETUP.md)** - AI assistant setup
 
 ### 🏗️ Architecture & Planning
-- **[BRANCH_STRATEGY.md](BRANCH_STRATEGY.md)** - Two-branch workflow (main vs academic-evidence)
+- **[BRANCH_STRATEGY.md](BRANCH_STRATEGY.md)** - Two-branch workflow (main vs academic)
 - **[C4_ARCHITECTURE.md](C4_ARCHITECTURE.md)** - System architecture diagrams
 - **[DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)** - Database structure
 - **[FINALIZATION_PLAN.md](FINALIZATION_PLAN.md)** - Project finalization plan
@@ -36,7 +36,7 @@ This directory contains all project documentation organized by category.
 - **[DEPLOYMENT_READINESS_REPORT.md](DEPLOYMENT_READINESS_REPORT.md)** - Production readiness
 - **[IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)** - Overall progress
 
-### 📝 Academic Evidence (academic-evidence branch only)
+### 📝 Academic Evidence (academic branch only)
 - **[ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md](ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md)** - How to use academic features
 - **[IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)** - Complete implementation summary
 - **[REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md)** - RTM overview
@@ -101,7 +101,7 @@ Start here:
 
 ### For Academic Submissions
 Start here:
-1. Switch to `academic-evidence` branch
+1. Switch to `academic` branch
 2. [REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md)
 3. [RISK_REGISTER.md](RISK_REGISTER.md)
 4. Academic evidence dashboard
@@ -118,7 +118,7 @@ All documentation in this directory follows these standards:
 ## 🔗 Quick Links
 
 - [Main README](../README.md) - Project overview
-- [Academic Evidence](../academic/README.md) - Academic modules (on academic-evidence branch)
+- [Academic Evidence](../academic/README.md) - Academic modules (on academic branch)
 - [Tests](../tests/) - Test documentation
 - [Scripts](../scripts/) - Utility scripts
 
