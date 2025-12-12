@@ -14,12 +14,12 @@ python dashboard/app.py  # Production dashboard
 python orchestrator.py   # Full system
 ```
 
-### 📚 `academic-evidence` - Academic Documentation
+### 📚 `academic` - Academic Documentation
 
 **For**: Writing reports, generating evidence for AT2/AT3
 
 ```bash
-git checkout academic-evidence
+git checkout academic
 python dashboard/app.py  # Dashboard + Academic Evidence modal
 ```
 
@@ -42,10 +42,10 @@ pytest tests/
 # (uses main branch - clean production code)
 ```
 
-### Academic Report Writing (switch to `academic-evidence`)
+### Academic Report Writing (switch to `academic`)
 ```bash
 # Switch branches
-git checkout academic-evidence
+git checkout academic
 
 # Run academic evidence tests
 python academic/test_academic_modules.py
@@ -71,7 +71,7 @@ print('Evidence exported to data/')
 
 ## What's Different Between Branches?
 
-| Feature | `main` | `academic-evidence` |
+| Feature | `main` | `academic` |
 |---------|--------|---------------------|
 | Production code | ✅ | ✅ |
 | Academic modules | ❌ | ✅ |
@@ -93,7 +93,7 @@ print('Evidence exported to data/')
 - ✅ Running in production
 - ✅ Demonstrating the system
 
-### Use `academic-evidence` for:
+### Use `academic` for:
 - 📝 Writing AT2 implementation report
 - 📝 Writing AT3 final report
 - 📊 Generating BCS compliance evidence
@@ -112,7 +112,7 @@ You are on: **`main`** branch
 git branch
 
 # Switch to academic branch
-git checkout academic-evidence
+git checkout academic
 
 # Switch back to main
 git checkout main
@@ -124,7 +124,7 @@ git checkout main
 
 - **BRANCH_STRATEGY.md** - Complete branch strategy explanation
 - **README.md** - Main project documentation
-- On `academic-evidence` branch:
+- On `academic` branch:
   - **ACADEMIC_EVIDENCE_INTEGRATION_GUIDE.md** - How to use academic features
   - **IMPLEMENTATION_COMPLETE.md** - What was implemented
   - **academic/README.md** - Academic module documentation
@@ -133,7 +133,7 @@ git checkout main
 
 **Quick Tip**: Think of it like this:
 - `main` = The actual IoT security system (production)
-- `academic-evidence` = The report writing toolkit (documentation)
+- `academic` = The report writing toolkit (documentation)
 
-Both are based on the same core code, but `academic-evidence` adds tools
+Both are based on the same core code, but `academic` adds tools
 specifically for generating evidence for your university submissions.
