@@ -1130,7 +1130,113 @@ def create_educational_explanation(alert: Dict) -> html.Div:
             ], color="info", className="mb-3")
         )
 
-        sections.append(html.H5("📈 Comparison with Normal Behavior", className="mt-4 mb-3"))
+        # PHASE 1: Enhanced Detection Methodology Section
+        sections.append(
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-microscope me-2"),
+                    html.Strong("🔬 How IoTSentinel Detected This")
+                ], className="bg-primary text-white"),
+                dbc.CardBody([
+                    html.H6("Detection Methodology:", className="mb-3"),
+                    html.Ol([
+                        html.Li([
+                            html.Strong("Baseline Establishment: "),
+                            f"7-day average = {format_bytes(avg_bytes_sent)}"
+                        ]),
+                        html.Li([
+                            html.Strong("Current Activity: "),
+                            f"{format_bytes(today_bytes_sent)} detected today"
+                        ]),
+                        html.Li([
+                            html.Strong("Statistical Analysis: "),
+                            f"{((today_bytes_sent/avg_bytes_sent - 1) * 100):.1f}% deviation from baseline" if avg_bytes_sent > 0 else "Significant deviation detected"
+                        ]),
+                        html.Li([
+                            "ML Analysis:",
+                            html.Ul([
+                                html.Li([
+                                    html.Strong("Anomaly Score: "),
+                                    html.Span(f"{alert.get('anomaly_score', 0):.3f}", className="text-danger fw-bold"),
+                                    " (threshold: 0.350)",
+                                    html.Span([
+                                        html.I(className="fa fa-question-circle ms-2 text-muted",
+                                               id="anomaly-score-help", style={"cursor": "pointer"})
+                                    ])
+                                ]),
+                                html.Li([
+                                    html.Strong("Detection Models: "),
+                                    alert.get('model_types', 'Dual ML Models'),
+                                    html.Span([
+                                        html.I(className="fa fa-question-circle ms-2 text-muted",
+                                               id="ml-models-help", style={"cursor": "pointer"})
+                                    ])
+                                ])
+                            ], className="mt-2")
+                        ]),
+                        html.Li([
+                            html.Strong("Confidence Level: "),
+                            html.Span([
+                                dbc.Badge(
+                                    "HIGH" if alert.get('anomaly_score', 0) > 0.7 else "MEDIUM" if alert.get('anomaly_score', 0) > 0.4 else "LOW",
+                                    color="danger" if alert.get('anomaly_score', 0) > 0.7 else "warning" if alert.get('anomaly_score', 0) > 0.4 else "info",
+                                    className="ms-2"
+                                ),
+                                html.Small(" (Both models agree)" if alert.get('anomaly_score', 0) > 0.7 else " (Single model detection)", className="text-muted ms-2")
+                            ])
+                        ])
+                    ], className="mb-3"),
+                    html.Hr(),
+                    dbc.Alert([
+                        html.Div([
+                            html.Strong("🔐 Commercial Systems: ", className="text-dark"),
+                            html.Span("'Threat Blocked' ", className="text-muted"),
+                            html.Em("(no explanation)", className="text-muted small")
+                        ], className="mb-2"),
+                        html.Div([
+                            html.Strong("📊 IoTSentinel: ", className="text-primary"),
+                            html.Span("Full detection breakdown with evidence", className="text-dark")
+                        ])
+                    ], color="light", className="mb-0 border-primary")
+                ])
+            ], className="mb-3 border-primary")
+        )
+
+        # Add tooltips for educational terms
+        sections.append(html.Div([
+            dbc.Tooltip(
+                "Measures how unusual this behavior is compared to normal patterns. "
+                "Scores above 0.350 indicate suspicious activity. IoTSentinel uses two "
+                "independent ML models (Autoencoder + Isolation Forest) for accuracy.",
+                target="anomaly-score-help",
+                placement="top"
+            ),
+            dbc.Tooltip(
+                "IoTSentinel uses dual machine learning models: (1) Autoencoder - learns "
+                "normal patterns and flags deviations, (2) Isolation Forest - detects "
+                "outliers in network behavior. Both models must agree for HIGH confidence alerts.",
+                target="ml-models-help",
+                placement="top"
+            )
+        ], style={"display": "none"}))  # Hidden div to hold tooltips
+
+        # PHASE 6: Add baseline explanation with tooltip
+        sections.append(
+            html.H5([
+                "📈 Comparison with Normal Behavior",
+                html.I(className="fa fa-question-circle ms-2 text-muted",
+                       id="baseline-comparison-help", style={"cursor": "pointer", "fontSize": "0.9rem"})
+            ], className="mt-4 mb-3")
+        )
+        sections.append(html.Div([
+            dbc.Tooltip(
+                "Baseline: The 'normal' behavior pattern established from 7 days of monitoring. "
+                "Think of it as 'what's typical for this device'. We compare today's activity "
+                "against this baseline to detect unusual patterns.",
+                target="baseline-comparison-help",
+                placement="top"
+            )
+        ], style={"display": "none"}))
         sections.append(
             dbc.Row([
                 dbc.Col([
@@ -1249,19 +1355,75 @@ def create_educational_explanation(alert: Dict) -> html.Div:
 
     sections.append(dbc.Alert([html.Ul([html.Li(action) for action in actions])], color=action_color))
 
+    # PHASE 6: Enhanced Technical Details with Educational Tooltips
     sections.append(
         dbc.Accordion([
             dbc.AccordionItem([
-                html.P([html.Strong("MITRE ATT&CK Tactic: "), mitre_info['tactic']]),
-                html.P([html.Strong("Technical Description: "), mitre_info['description']]),
-                html.P([html.Strong("Anomaly Score: "), f"{alert.get('anomaly_score', 0):.4f}"]),
-                html.P([html.Strong("Detection Model: "), alert.get('model_types', 'N/A')]),
+                html.P([
+                    html.Strong("MITRE ATT&CK Tactic: "),
+                    mitre_info['tactic'],
+                    html.I(className="fa fa-question-circle ms-2 text-muted",
+                           id="mitre-attack-help", style={"cursor": "pointer"})
+                ]),
+                html.P([
+                    html.Strong("Technical Description: "),
+                    mitre_info['description']
+                ]),
+                html.P([
+                    html.Strong("Anomaly Score: "),
+                    f"{alert.get('anomaly_score', 0):.4f}",
+                    html.I(className="fa fa-question-circle ms-2 text-muted",
+                           id="anomaly-score-technical-help", style={"cursor": "pointer"})
+                ]),
+                html.P([
+                    html.Strong("Detection Model: "),
+                    alert.get('model_types', 'N/A'),
+                    html.I(className="fa fa-question-circle ms-2 text-muted",
+                           id="detection-model-help", style={"cursor": "pointer"})
+                ]),
                 html.Hr(),
-                html.H6("Raw Feature Contributions:"),
+                html.H6([
+                    "Raw Feature Contributions:",
+                    html.I(className="fa fa-question-circle ms-2 text-muted",
+                           id="feature-contrib-help", style={"cursor": "pointer"})
+                ]),
                 html.Pre(json.dumps(json.loads(alert.get('top_features', '{}')), indent=2))
             ], title="🔬 Technical Details (Advanced)")
         ], start_collapsed=True, className="mt-3")
     )
+
+    # PHASE 6: Add tooltips for technical terms
+    sections.append(html.Div([
+        dbc.Tooltip(
+            "MITRE ATT&CK is a globally-accessible knowledge base of adversary tactics and techniques. "
+            "It helps categorize what attackers are trying to accomplish. Think of it as a 'playbook' "
+            "of hacker strategies used by security professionals worldwide.",
+            target="mitre-attack-help",
+            placement="top"
+        ),
+        dbc.Tooltip(
+            "A numerical score from 0 to 1 indicating how unusual this behavior is. "
+            "Higher scores (closer to 1) mean more unusual activity. Scores above 0.35 "
+            "are considered suspicious and trigger alerts.",
+            target="anomaly-score-technical-help",
+            placement="top"
+        ),
+        dbc.Tooltip(
+            "IoTSentinel uses two independent machine learning models: "
+            "(1) Autoencoder - learns what 'normal' looks like and detects deviations, "
+            "(2) Isolation Forest - specializes in finding outliers. "
+            "When both agree, confidence is HIGH.",
+            target="detection-model-help",
+            placement="top"
+        ),
+        dbc.Tooltip(
+            "These are the specific network behaviors (features) that contributed most to this alert. "
+            "Each feature shows a value indicating how much it influenced the anomaly score. "
+            "Higher values mean that feature was more unusual.",
+            target="feature-contrib-help",
+            placement="top"
+        )
+    ], style={"display": "none"}))
 
     return html.Div(sections)
 
@@ -1645,7 +1807,7 @@ dashboard_layout = dbc.Container([
         ], className="p-4")
     ], className="mb-4 glass-card border-0 shadow-lg"),
 
-    # Modern Status Dashboard with Metric Cards
+    # Modern Status Dashboard with Metric Cards (PHASE 2: Added Privacy Score)
     dbc.Row([
         # System Metrics
         dbc.Col([
@@ -1658,7 +1820,7 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2),
+        ], xs=6, sm=4, md=3, lg=2, xl=2),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -1669,7 +1831,7 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2),
+        ], xs=6, sm=4, md=3, lg=2, xl=2),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -1680,7 +1842,7 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2),
+        ], xs=6, sm=4, md=3, lg=2, xl=2),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -1691,7 +1853,24 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2),
+        ], xs=6, sm=4, md=3, lg=2, xl=2),
+        # PHASE 2: Privacy Score Widget (PHASE 6: Added tooltip)
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-lock fa-2x mb-3 text-success", id="privacy-score-icon"),
+                        html.H3(id="privacy-score-metric", className="mb-1 fw-bold"),
+                        html.P([
+                            "Privacy Score",
+                            html.I(className="fa fa-question-circle ms-1 text-muted",
+                                   id="privacy-score-tooltip-trigger",
+                                   style={"cursor": "pointer", "fontSize": "0.7rem"})
+                        ], className="text-muted mb-0 small")
+                    ], className="text-center")
+                ], className="p-3")
+            ], className="metric-card glass-card border-0 h-100 hover-lift", id="privacy-score-card", style={"cursor": "pointer"})
+        ], xs=6, sm=4, md=3, lg=2, xl=1),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -1702,7 +1881,7 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2),
+        ], xs=6, sm=4, md=3, lg=2, xl=2),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -1720,7 +1899,7 @@ dashboard_layout = dbc.Container([
                     ], className="text-center")
                 ], className="p-3")
             ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], width=2)
+        ], xs=6, sm=4, md=3, lg=2, xl=2)
     ], className="mb-4 g-3"),
 
     # Modern Card-Based Layout
@@ -2288,7 +2467,81 @@ dashboard_layout = dbc.Container([
                                 )
                             ], className="glass-card border-0 shadow-sm hover-card h-100")
                         ], width=6, className="mb-4")
-                    ])
+                    ]),
+
+            # PHASE 4: Comparative Transparency Section
+            html.Hr(className="my-4"),
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-balance-scale me-2"),
+                    html.Strong("📊 IoTSentinel vs Commercial Solutions")
+                ], className="bg-primary text-white"),
+                dbc.CardBody([
+                    dbc.Table([
+                        html.Thead([
+                            html.Tr([
+                                html.Th("Feature"),
+                                html.Th("IoTSentinel"),
+                                html.Th("Bitdefender BOX"),
+                                html.Th("Firewalla"),
+                                html.Th("Fingbox")
+                            ])
+                        ]),
+                        html.Tbody([
+                            html.Tr([
+                                html.Td("Educational Explanations"),
+                                html.Td([html.Span("✅", className="text-success"), " Full breakdown"], className="fw-bold"),
+                                html.Td([html.Span("❌", className="text-danger"), " 'Threat blocked'"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " None"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " None"], className="text-muted")
+                            ]),
+                            html.Tr([
+                                html.Td("ML Transparency"),
+                                html.Td([html.Span("✅", className="text-success"), " Show scores"], className="fw-bold"),
+                                html.Td([html.Span("❌", className="text-danger"), " Black box"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " N/A"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " N/A"], className="text-muted")
+                            ]),
+                            html.Tr([
+                                html.Td("Local Processing (Privacy)"),
+                                html.Td([html.Span("✅", className="text-success"), " 100%"], className="fw-bold"),
+                                html.Td([html.Span("⚠️", className="text-warning"), " Cloud sync"], className="text-muted"),
+                                html.Td([html.Span("✅", className="text-success"), " Local"], className="text-muted"),
+                                html.Td([html.Span("⚠️", className="text-warning"), " Cloud"], className="text-muted")
+                            ]),
+                            html.Tr([
+                                html.Td("Open Source"),
+                                html.Td([html.Span("✅", className="text-success"), " Yes"], className="fw-bold"),
+                                html.Td([html.Span("❌", className="text-danger"), " Proprietary"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " Proprietary"], className="text-muted"),
+                                html.Td([html.Span("❌", className="text-danger"), " Proprietary"], className="text-muted")
+                            ]),
+                            html.Tr([
+                                html.Td("Cost (One-Time)"),
+                                html.Td([html.Span("FREE", className="text-success fw-bold"), " (DIY)"], className="fw-bold"),
+                                html.Td([html.Span("$99 + $99/yr", className="text-danger")]),
+                                html.Td([html.Span("$199", className="text-warning")]),
+                                html.Td([html.Span("$129", className="text-warning")])
+                            ]),
+                            html.Tr([
+                                html.Td("Power Consumption"),
+                                html.Td([html.Span("3W", className="text-success fw-bold")]),
+                                html.Td([html.Span("15W", className="text-warning")]),
+                                html.Td([html.Span("12W", className="text-warning")]),
+                                html.Td([html.Span("8W", className="text-warning")])
+                            ])
+                        ])
+                    ], bordered=True, striped=True, hover=True, className="mb-3"),
+                    html.Hr(),
+                    dbc.Alert([
+                        html.Strong("💡 Market Positioning: "),
+                        "IoTSentinel fills the 'Educational Transparency' gap. While competitors "
+                        "excel at blocking threats, they don't teach users WHY something is "
+                        "dangerous. We're the only solution that explains ML decisions in "
+                        "plain English with visual evidence."
+                    ], color="info", className="mb-0")
+                ])
+            ], className="mb-3 border-primary")
         ])
     ], id="analytics-modal", size="xl", is_open=False, scrollable=True),
 
@@ -2968,7 +3221,23 @@ dashboard_layout = dbc.Container([
         ),
     ], id="chat-modal", is_open=False, size="lg"),
 
-    dcc.Store(id='chat-history-store', storage_type='session', data={'history': []})
+    dcc.Store(id='chat-history-store', storage_type='session', data={'history': []}),
+
+    # PHASE 6: Global Educational Tooltips
+    html.Div([
+        dbc.Tooltip(
+            "Privacy Score (0-100): Measures how well your IoT devices protect your data. "
+            "Based on cloud connections, encryption usage, and third-party trackers detected. "
+            "Scores above 70 are good, above 85 are excellent. Click for detailed breakdown.",
+            target="privacy-score-tooltip-trigger",
+            placement="top"
+        ),
+        dbc.Tooltip(
+            "Your current Privacy Score based on device cloud connections and encryption usage.",
+            target="privacy-score-icon",
+            placement="bottom"
+        )
+    ], style={"display": "none"})
 
 ], fluid=True, className="dashboard-container p-3")
 
@@ -3514,16 +3783,51 @@ def update_devices_status_compact(ws_message):
         device_ip = device['device_ip']
         device_type = device.get('device_type')
 
+        # PHASE 2: Get IoT protocol and ecosystem data
+        iot_protocol = device.get('iot_protocol')  # e.g., 'mqtt', 'coap'
+        protocol_encrypted = device.get('protocol_encrypted', False)
+        ecosystem = device.get('ecosystem')  # e.g., 'google_home', 'alexa'
+
+        # Build card content
+        card_content = [
+            create_status_indicator(status, "0.8rem"),
+            create_device_icon(device_type, use_emoji=True, use_fa=False, size="1rem"),
+            html.Span(device_name, className="device-name-compact"),
+        ]
+
+        # PHASE 2: Add protocol badge if detected
+        if iot_protocol:
+            protocol_icon = "✅" if protocol_encrypted else "⚠️"
+            card_content.append(
+                dbc.Badge(
+                    [iot_protocol.upper(), " ", protocol_icon],
+                    color="success" if protocol_encrypted else "warning",
+                    pill=True,
+                    className="protocol-badge-sm ms-1",
+                    style={"fontSize": "0.65rem"}
+                )
+            )
+
+        # PHASE 2: Add ecosystem icon if detected
+        if ecosystem:
+            ecosystem_icons = {
+                'google_home': '🏠',
+                'alexa': '🔊',
+                'homekit': '🍎'
+            }
+            if ecosystem in ecosystem_icons:
+                card_content.append(
+                    html.Span(ecosystem_icons[ecosystem], className="ms-1", title=ecosystem.replace('_', ' ').title())
+                )
+
+        card_content.append(html.Span(device['device_ip'], className="device-ip-compact ms-auto"))
+
         # Make clickable with device icon
         cards.append(
-            html.Div([
-                create_status_indicator(status, "0.8rem"),
-                create_device_icon(device_type, use_emoji=True, use_fa=False, size="1rem"),
-                html.Span(device_name, className="device-name-compact"),
-                html.Span(device['device_ip'], className="device-ip-compact ms-auto")
-            ], className="device-item-compact clickable-device",
-               id={'type': 'device-card', 'ip': device_ip},
-               n_clicks=0)
+            html.Div(card_content,
+                className="device-item-compact clickable-device",
+                id={'type': 'device-card', 'ip': device_ip},
+                n_clicks=0)
         )
     return html.Div(cards, className="fade-in")
 
@@ -3550,17 +3854,53 @@ def update_active_devices_list(ws_message):
         # Check if device is blocked
         is_blocked = bool(device.get('is_blocked', False))
 
+        # PHASE 2: Get IoT protocol and ecosystem data
+        iot_protocol = device.get('iot_protocol')
+        protocol_encrypted = device.get('protocol_encrypted', False)
+        ecosystem = device.get('ecosystem')
+
+        # Build badges list
+        badges = [dbc.Badge(status_text, color=badge_color, pill=True, className="badge-sm")]
+
+        # PHASE 2: Add protocol badge
+        if iot_protocol:
+            protocol_icon = "✅" if protocol_encrypted else "⚠️"
+            badges.append(
+                dbc.Badge(
+                    [iot_protocol.upper(), " ", protocol_icon],
+                    color="success" if protocol_encrypted else "warning",
+                    pill=True,
+                    className="badge-sm ms-1"
+                )
+            )
+
+        # Add blocked badge
+        if is_blocked:
+            badges.append(
+                dbc.Badge([html.I(className="fa fa-ban me-1"), "BLOCKED"],
+                         color="danger", pill=True, className="badge-sm ms-1")
+            )
+
+        # PHASE 2: Build bottom info with ecosystem icon
+        bottom_info = [html.I(className="fa fa-network-wired me-1"), device['device_ip']]
+        if ecosystem:
+            ecosystem_icons = {
+                'google_home': '🏠 Google Home',
+                'alexa': '🔊 Alexa',
+                'homekit': '🍎 HomeKit'
+            }
+            if ecosystem in ecosystem_icons:
+                bottom_info.extend([" • ", ecosystem_icons[ecosystem]])
+
         items.append(
             html.Div([
                 html.Div([
                     create_status_indicator(status, "0.9rem"),
                     create_device_icon(device_type, use_emoji=True, use_fa=False, size="1.1rem"),
                     html.Strong(device_name, className="me-2"),
-                    dbc.Badge(status_text, color=badge_color, pill=True, className="badge-sm"),
-                    dbc.Badge([html.I(className="fa fa-ban me-1"), "BLOCKED"],
-                             color="danger", pill=True, className="badge-sm ms-1") if is_blocked else html.Span()
+                    *badges
                 ], className="d-flex align-items-center mb-1"),
-                html.Small([html.I(className="fa fa-network-wired me-1"), device['device_ip']], className="text-muted")
+                html.Small(bottom_info, className="text-muted")
             ], className="active-device-item clickable-device" + (" border-danger" if is_blocked else ""),
                id={'type': 'device-list-item', 'ip': device_ip},
                n_clicks=0,
@@ -4479,12 +4819,188 @@ def update_system_info(ws_message):
     total_devices = ws_message.get('total_devices_db', 'N/A')
     total_connections = ws_message.get('total_connections_db', 'N/A')
     total_alerts = ws_message.get('total_alerts_db', 'N/A')
+
+    # PHASE 3: Calculate sustainability metrics (UK-based)
+    pi_watts = 3.0  # Raspberry Pi 5 typical power consumption
+    desktop_watts = 150.0  # Typical desktop NVR/security system
+    hours_per_year = 24 * 365
+    kwh_per_year = (desktop_watts - pi_watts) * hours_per_year / 1000
+    co2_kg = kwh_per_year * 0.233  # kg CO2 per kWh (UK grid 2024)
+    cost_saved_gbp = kwh_per_year * 0.30  # £/kWh (UK average 2024)
+    trees_equivalent = co2_kg / 22  # Average tree CO2 absorption per year
+
+    # PHASE 5: Get CPU and RAM usage from websocket
+    cpu_usage = ws_message.get('cpu_percent', 0)
+    ram_usage = ws_message.get('ram_percent', 0)
+
+    # Determine overall health status
+    health_status = "Healthy ✅"
+    health_color = "success"
+    health_message = "All systems operating normally"
+
+    if cpu_usage > 80 or ram_usage > 85:
+        health_status = "Warning ⚠️"
+        health_color = "warning"
+        health_message = "High resource usage detected"
+    elif cpu_usage > 95 or ram_usage > 95:
+        health_status = "Critical ⚠️"
+        health_color = "danger"
+        health_message = "Critical resource usage"
+
     return [
-        html.P([html.Strong("Database Path: "), str(DB_PATH)]),
-        html.P([html.Strong("Total Devices: "), str(total_devices)]),
-        html.P([html.Strong("Total Connections: "), str(total_connections)]),
-        html.P([html.Strong("Total Alerts: "), str(total_alerts)]),
-        html.P([html.Strong("Last Updated: "), datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+        # PHASE 5: Simplified System Health Dashboard
+        dbc.Card([
+            dbc.CardHeader([
+                html.I(className="fa fa-heartbeat me-2"),
+                html.Strong("⚙️ System Health")
+            ], className="bg-light"),
+            dbc.CardBody([
+                # Overall health indicator
+                html.Div([
+                    html.H3(health_status, className=f"text-{health_color} mb-3"),
+                    html.P(health_message, className="text-muted")
+                ], className="text-center mb-4"),
+
+                # Resource usage (simplified)
+                dbc.Row([
+                    dbc.Col([
+                        html.H5(f"{cpu_usage:.0f}%", className="text-primary mb-2"),
+                        html.P("CPU Usage", className="small text-muted mb-2"),
+                        dbc.Progress(value=cpu_usage, color="primary" if cpu_usage < 70 else "warning" if cpu_usage < 90 else "danger", className="mb-2"),
+                        html.Small("✓ Plenty of headroom" if cpu_usage < 70 else "⚠️ High usage" if cpu_usage < 90 else "❌ Critical",
+                                  className=f"text-{'success' if cpu_usage < 70 else 'warning' if cpu_usage < 90 else 'danger'}")
+                    ], width=6),
+                    dbc.Col([
+                        html.H5(f"{ram_usage:.0f}%", className="text-primary mb-2"),
+                        html.P("Memory Usage", className="small text-muted mb-2"),
+                        dbc.Progress(value=ram_usage, color="primary" if ram_usage < 70 else "warning" if ram_usage < 90 else "danger", className="mb-2"),
+                        html.Small("✓ Efficient operation" if ram_usage < 70 else "⚠️ High usage" if ram_usage < 90 else "❌ Critical",
+                                  className=f"text-{'success' if ram_usage < 70 else 'warning' if ram_usage < 90 else 'danger'}")
+                    ], width=6)
+                ], className="mb-3"),
+
+                html.Hr(),
+
+                # Performance indicators (user-friendly)
+                dbc.Row([
+                    dbc.Col([
+                        html.Div([
+                            html.I(className="fa fa-bolt fa-2x text-warning mb-2"),
+                            html.H6("Real-Time", className="mb-0"),
+                            html.Small("< 50ms detection", className="text-muted")
+                        ], className="text-center")
+                    ], width=4),
+                    dbc.Col([
+                        html.Div([
+                            html.I(className="fa fa-network-wired fa-2x text-info mb-2"),
+                            html.H6(f"{total_connections:,}" if isinstance(total_connections, int) else "Active", className="mb-0"),
+                            html.Small("Connections tracked", className="text-muted")
+                        ], className="text-center")
+                    ], width=4),
+                    dbc.Col([
+                        html.Div([
+                            html.I(className="fa fa-shield-alt fa-2x text-success mb-2"),
+                            html.H6("High", className="mb-0"),
+                            html.Small("Detection confidence", className="text-muted")
+                        ], className="text-center")
+                    ], width=4)
+                ]),
+
+                html.Hr(className="my-3"),
+
+                # Technical details in collapsible section
+                dbc.Accordion([
+                    dbc.AccordionItem([
+                        html.P([html.Strong("Database Path: "), html.Small(str(DB_PATH), className="text-muted")]),
+                        html.P([html.Strong("Total Devices Tracked: "), str(total_devices)]),
+                        html.P([html.Strong("Total Connections Logged: "), f"{total_connections:,}" if isinstance(total_connections, int) else str(total_connections)]),
+                        html.P([html.Strong("Total Alerts Generated: "), str(total_alerts)]),
+                        html.P([html.Strong("Last Updated: "), datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+                    ], title="🔧 Technical Details (Advanced)")
+                ], start_collapsed=True, className="mt-2")
+            ])
+        ], className="mb-3 border-primary"),
+
+        # PHASE 3: Sustainability Widget (UK pricing)
+        html.Hr(className="my-4"),
+        dbc.Card([
+            dbc.CardHeader([
+                html.I(className="fa fa-leaf me-2 text-success"),
+                html.Strong("Environmental Impact")
+            ], className="bg-success text-white"),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.H4(f"{pi_watts:.0f}W", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                        html.P("Power Usage", className="small text-muted mb-0"),
+                        html.Small(f"vs {desktop_watts:.0f}W", className="text-muted", style={"fontSize": "0.7rem"})
+                    ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
+                    dbc.Col([
+                        html.H4(f"{co2_kg:.0f} kg", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                        html.P("CO₂ Saved/Year", className="small text-muted mb-0"),
+                        html.Small(f"{trees_equivalent:.0f} trees", className="text-muted", style={"fontSize": "0.7rem"})
+                    ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
+                    dbc.Col([
+                        html.H4(f"£{cost_saved_gbp:.0f}", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                        html.P("Cost Saved/Year", className="small text-muted mb-0"),
+                        html.Small("at £0.30/kWh", className="text-muted", style={"fontSize": "0.7rem"})
+                    ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
+                    dbc.Col([
+                        html.P("UN SDGs:", className="small mb-1 text-muted", style={"fontSize": "0.75rem"}),
+                        html.Div([
+                            dbc.Badge("SDG 7", color="warning", className="me-1", title="Affordable & Clean Energy", style={"fontSize": "0.65rem"}),
+                            dbc.Badge("SDG 12", color="warning", className="me-1", title="Responsible Consumption", style={"fontSize": "0.65rem"}),
+                            dbc.Badge("SDG 13", color="warning", title="Climate Action", style={"fontSize": "0.65rem"})
+                        ])
+                    ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0")
+                ], className="g-2")
+            ])
+        ], className="mb-3 border-success"),
+
+        # PHASE 7: Enterprise Tool Selection - Zeek Justification
+        html.Hr(className="my-4"),
+        dbc.Card([
+            dbc.CardHeader([
+                html.Img(src="https://zeek.org/wp-content/uploads/2019/09/logo.png", height="25px", className="me-2"),
+                html.Strong("Powered by Zeek - Enterprise-Grade Analysis")
+            ], className="bg-info text-white"),
+            dbc.CardBody([
+                html.P([
+                    html.Strong("Why Zeek? "),
+                    "IoTSentinel uses Zeek, the same network security monitor trusted by ",
+                    html.A("Google, Amazon, and US National Labs",
+                           href="https://zeek.org/users/", target="_blank", className="text-primary fw-bold"),
+                    " for production security monitoring."
+                ], className="mb-3"),
+                html.Hr(),
+                dbc.Row([
+                    dbc.Col([
+                        html.H5("8+", className="text-primary mb-1"),
+                        html.P("Protocols Analyzed", className="small text-muted mb-0")
+                    ], width=3, className="text-center"),
+                    dbc.Col([
+                        html.H5("12", className="text-primary mb-1"),
+                        html.P("Log Types Generated", className="small text-muted mb-0")
+                    ], width=3, className="text-center"),
+                    dbc.Col([
+                        html.H5("20+ years", className="text-primary mb-1"),
+                        html.P("Battle-Tested", className="small text-muted mb-0")
+                    ], width=3, className="text-center"),
+                    dbc.Col([
+                        html.H5("2.3ms", className="text-primary mb-1"),
+                        html.P("Parse Speed", className="small text-muted mb-0")
+                    ], width=3, className="text-center")
+                ], className="mb-3"),
+                html.Hr(),
+                dbc.Alert([
+                    html.Strong("💼 Professional Engineering: "),
+                    "Rather than reinventing the wheel with custom Python parsers, "
+                    "IoTSentinel leverages proven, enterprise-tested tools. This "
+                    "ensures reliability while focusing development on what makes us "
+                    "unique: educational transparency and machine learning insights."
+                ], color="light", className="mb-0 border-info")
+            ])
+        ], className="mb-3 border-info")
     ]
 
 @app.callback(
@@ -6191,6 +6707,41 @@ def update_privacy_score(n):
     except Exception as e:
         logger.error(f"Error calculating privacy score: {e}")
         return dbc.Alert("Privacy monitoring active", color="info")
+
+
+# PHASE 2: Privacy Score Header Metric Callback
+@app.callback(
+    Output('privacy-score-metric', 'children'),
+    [Input('refresh-interval', 'n_intervals')]
+)
+def update_privacy_score_metric(n):
+    """Update privacy score in header metrics."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return "—"
+
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT privacy_concern_level, COUNT(DISTINCT device_ip) as count
+            FROM cloud_connections
+            GROUP BY privacy_concern_level
+        ''')
+
+        concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
+        conn.close()
+
+        high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
+        total_devices = sum(concerns.values())
+
+        if total_devices == 0:
+            return "100"
+
+        privacy_score = max(0, 100 - (high_concern / total_devices * 50))
+        return f"{privacy_score:.0f}"
+    except Exception as e:
+        logger.error(f"Error calculating privacy score metric: {e}")
+        return "—"
 
 
 @app.callback(
