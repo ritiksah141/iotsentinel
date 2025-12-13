@@ -1807,146 +1807,139 @@ dashboard_layout = dbc.Container([
         ], className="p-4")
     ], className="mb-4 glass-card border-0 shadow-lg"),
 
-    # Modern Status Dashboard with Metric Cards (PHASE 2: Added Privacy Score)
+    # MODERN ASYMMETRIC GRID LAYOUT
     dbc.Row([
-        # System Metrics
+        # LEFT SIDEBAR - Box-Style Metrics & Devices
         dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-microchip fa-2x mb-3 text-primary"),
-                        html.H3(id="cpu-usage", className="mb-1 fw-bold text-gradient"),
-                        html.P("CPU Usage", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-memory fa-2x mb-3 text-success"),
-                        html.H3(id="ram-usage", className="mb-1 fw-bold", style={"fontSize": "1.3rem"}),
-                        html.P("RAM Usage", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-network-wired fa-2x mb-3 text-info"),
-                        html.H3(id="device-count", className="mb-1 fw-bold"),
-                        html.P("Active Devices", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-exclamation-triangle fa-2x mb-3 text-warning"),
-                        html.H3(id="alert-count", className="mb-1 fw-bold"),
-                        html.P("Active Alerts", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2),
-        # PHASE 2: Privacy Score Widget (PHASE 6: Added tooltip)
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-lock fa-2x mb-3 text-success", id="privacy-score-icon"),
-                        html.H3(id="privacy-score-metric", className="mb-1 fw-bold"),
-                        html.P([
-                            "Privacy Score",
-                            html.I(className="fa fa-question-circle ms-1 text-muted",
-                                   id="privacy-score-tooltip-trigger",
-                                   style={"cursor": "pointer", "fontSize": "0.7rem"})
-                        ], className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift", id="privacy-score-card", style={"cursor": "pointer"})
-        ], xs=6, sm=4, md=3, lg=2, xl=1),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-wifi fa-2x mb-3", id="network-icon"),
-                        html.H5(id="network-health", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
-                        html.P("Network Status", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-volume-up fa-2x mb-2 text-secondary"),
-                        html.Div([
-                            dbc.Switch(
-                                id="voice-alert-toggle",
-                                value=False,
-                                className="custom-switch-large",
-                                style={"transform": "scale(1.4)"}
-                            )
-                        ], className="d-flex justify-content-center my-3"),
-                        html.P("Voice Alerts", className="text-muted mb-0 small")
-                    ], className="text-center")
-                ], className="p-3")
-            ], className="metric-card glass-card border-0 h-100 hover-lift")
-        ], xs=6, sm=4, md=3, lg=2, xl=2)
-    ], className="mb-4 g-3"),
+            # Metrics Grid - Box Style (2 columns)
+            dbc.Row([
+                # CPU Usage Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-microchip fa-2x mb-2 text-primary"),
+                            html.H4(id="cpu-usage", className="mb-1 fw-bold text-gradient", style={"fontSize": "1.1rem"}),
+                            html.P("CPU", className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100")
+                ], width=6, className="mb-3"),
 
-    # Modern Card-Based Layout
-    dbc.Row([
-        # LEFT PANEL - Devices Card
-        dbc.Col([
+                # RAM Usage Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-memory fa-2x mb-2 text-success"),
+                            html.H4(id="ram-usage", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.P("RAM", className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100")
+                ], width=6, className="mb-3"),
+
+                # Active Devices Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-network-wired fa-2x mb-2 text-info"),
+                            html.H4(id="device-count", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.P("Devices", className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100")
+                ], width=6, className="mb-3"),
+
+                # Active Alerts Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-exclamation-triangle fa-2x mb-2 text-warning"),
+                            html.H4(id="alert-count", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.P("Alerts", className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100")
+                ], width=6, className="mb-3"),
+
+                # Privacy Score Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-lock fa-2x mb-2 text-success", id="privacy-score-icon"),
+                            html.H4(id="privacy-score-metric", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.P([
+                                "Privacy",
+                                html.I(className="fa fa-question-circle ms-1 text-muted",
+                                       id="privacy-score-tooltip-trigger",
+                                       style={"cursor": "pointer", "fontSize": "0.6rem"})
+                            ], className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100", id="privacy-score-card", style={"cursor": "pointer"})
+                ], width=6, className="mb-3"),
+
+                # Network Status Box
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.I(className="fa fa-wifi fa-2x mb-2", id="network-icon"),
+                            html.H6(id="network-health", className="mb-1 fw-bold", style={"fontSize": "0.9rem"}),
+                            html.P("Network", className="text-muted mb-0 small")
+                        ], className="p-3 text-center")
+                    ], className="metric-card glass-card border-0 shadow hover-lift h-100")
+                ], width=6, className="mb-3"),
+
+                # Voice Alerts Box (Full Width)
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="fa fa-volume-up fa-lg text-secondary me-2"),
+                                html.Span("Voice Alerts", className="text-muted fw-bold small")
+                            ], className="d-flex align-items-center justify-content-center mb-2"),
+                            html.Div([
+                                dbc.Switch(
+                                    id="voice-alert-toggle",
+                                    value=False,
+                                    className="custom-switch-large",
+                                    style={"transform": "scale(1.3)"}
+                                )
+                            ], className="d-flex justify-content-center")
+                        ], className="p-3")
+                    ], className="metric-card glass-card border-0 shadow hover-lift")
+                ], width=12, className="mb-3")
+            ], className="g-2 mb-3"),
+
+            # Devices Card
             dbc.Card([
                 dbc.CardHeader([
                     html.Div([
-                        html.Div([
-                            html.I(className="fa fa-network-wired me-2", style={"color": "#3b82f6"}),
-                            html.Span("Connected Devices", className="fw-bold"),
-                        ], className="d-flex align-items-center"),
-                        html.Div([
-                            dbc.Badge(id='device-count', color="primary", pill=True, className="me-2", style={"fontSize": "1rem", "padding": "0.5rem 0.8rem"}),
-                            html.Small("active", className="text-muted")
-                        ], className="d-flex align-items-center")
-                    ], className="d-flex justify-content-between align-items-center w-100")
-                ], className="bg-gradient-primary text-white"),
+                        html.I(className="fa fa-network-wired me-2", style={"color": "#3b82f6"}),
+                        html.Span("Connected Devices", className="fw-bold"),
+                    ], className="d-flex align-items-center")
+                ], className="bg-gradient-primary text-white", style={"padding": "0.75rem 1rem"}),
                 dbc.CardBody([
-                    # Compact Device Status Grid
+                    # Quick Status Grid
                     html.Div([
                         html.H6([
                             html.I(className="fa fa-th me-2"),
                             "Quick Status"
-                        ], className="text-muted mb-3", style={"fontSize": "0.9rem"}),
+                        ], className="text-muted mb-2", style={"fontSize": "0.85rem"}),
                         html.Div(id='devices-status-compact', className="device-grid-modern")
-                    ], className="mb-4"),
+                    ], className="mb-3"),
 
-                    # Separator
-                    html.Hr(className="my-3", style={"borderTop": "2px solid #e5e7eb"}),
+                    html.Hr(className="my-2", style={"borderTop": "1px solid #e5e7eb"}),
 
-                    # Active Devices List
+                    # Device List
                     html.Div([
                         html.H6([
                             html.I(className="fa fa-list-ul me-2"),
                             "Device List"
-                        ], className="text-muted mb-3", style={"fontSize": "0.9rem"}),
+                        ], className="text-muted mb-2", style={"fontSize": "0.85rem"}),
                         html.Div(id='active-devices-list',
-                                style={'height': '280px', 'overflowY': 'auto'},
+                                style={'height': '350px', 'overflowY': 'auto'},
                                 className="custom-scrollbar-modern")
                     ])
-                ], className="p-4")
-            ], className="glass-card border-0 shadow-lg h-100 hover-card")
-        ], width=4, className="mb-4"),
+                ], className="p-3")
+            ], className="glass-card border-0 shadow-lg hover-card")
+        ], width=2, className="mb-4"),
 
-        # CENTER PANEL - Network Visualization Card
+        # CENTER PANEL - Network Visualization (LARGER)
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader([
@@ -1971,13 +1964,13 @@ dashboard_layout = dbc.Container([
                     target="network-graph-help", placement="bottom"
                 ),
                 dbc.CardBody([
-                    # Graph Container
+                    # Graph Container (LARGER)
                     html.Div([
                         html.Div(id='2d-graph-container', children=[
                             cyto.Cytoscape(
                                 id='network-graph',
                                 layout={'name': 'cose', 'animate': True},
-                                style={'width': '100%', 'height': '380px', 'borderRadius': '12px'},
+                                style={'width': '100%', 'height': '500px', 'borderRadius': '12px'},
                                 stylesheet=[
                                     {'selector': 'node', 'style': {
                                         'content': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
@@ -1996,7 +1989,7 @@ dashboard_layout = dbc.Container([
                             )
                         ]),
                         html.Div(id='3d-graph-container', children=[
-                            dcc.Graph(id='network-graph-3d', style={'height': '380px'})
+                            dcc.Graph(id='network-graph-3d', style={'height': '500px'})
                         ], style={'display': 'none'})
                     ], className="graph-wrapper mb-3"),
 
@@ -2031,7 +2024,7 @@ dashboard_layout = dbc.Container([
                 ], className="p-4")
             ], className="glass-card border-0 shadow-lg mb-3 hover-card"),
 
-            # Analytics Cards Row
+            # Analytics Cards - Stacked Layout
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
@@ -2044,12 +2037,12 @@ dashboard_layout = dbc.Container([
                         dbc.Tooltip("Shows network protocol usage (TCP/UDP/ICMP). Unusual patterns may indicate attacks.",
                                    target="protocol-help", placement="top"),
                         dbc.CardBody(
-                            dcc.Graph(id='protocol-pie', style={'height': '200px'},
+                            dcc.Graph(id='protocol-pie', style={'height': '280px'},
                                     config={'displayModeBar': False}),
                             className="p-2"
                         )
-                    ], className="glass-card border-0 shadow hover-card")
-                ], width=6),
+                    ], className="glass-card border-0 shadow hover-card mb-3")
+                ], width=12),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
@@ -2061,16 +2054,27 @@ dashboard_layout = dbc.Container([
                         dbc.Tooltip("24-hour traffic patterns. Spikes at odd hours may indicate malware or unauthorized access.",
                                    target="timeline-help", placement="top"),
                         dbc.CardBody(
-                            dcc.Graph(id='traffic-timeline', style={'height': '200px'},
+                            dcc.Graph(id='traffic-timeline', style={'height': '280px'},
                                     config={'displayModeBar': False}),
                             className="p-2"
                         )
                     ], className="glass-card border-0 shadow hover-card")
-                ], width=6)
-            ], className="g-3")
-        ], width=5, className="mb-4"),
+                ], width=12)
+            ], className="g-3"),
 
-        # RIGHT PANEL - Alerts Card
+            # Dashboard Features Preview
+            html.Div([
+                html.H4([
+                    html.I(className="fa fa-th-large me-2"),
+                    "Dashboard Features"
+                ], className="text-center mt-4 mb-3 gradient-text"),
+
+                html.P("Access advanced security tools and configuration",
+                       className="text-center text-muted mb-0", style={"fontSize": "0.95rem"})
+            ], className="mt-3")
+        ], width=7, className="mb-4"),
+
+        # RIGHT PANEL - Security Alerts (FULL HEIGHT)
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader([
@@ -2082,11 +2086,11 @@ dashboard_layout = dbc.Container([
                         dbc.Badge(id='alert-count', color="danger", pill=True,
                                 className="pulse-badge", style={"fontSize": "1rem", "padding": "0.5rem 0.8rem"})
                     ], className="d-flex justify-content-between align-items-center w-100")
-                ], className="bg-gradient-warning text-white"),
+                ], className="bg-gradient-warning text-white", style={"padding": "0.75rem 1rem"}),
                 dbc.CardBody([
                     # Alert Filters
                     html.Div([
-                        html.Small("Filter by Severity:", className="text-muted d-block mb-2", style={"fontSize": "0.85rem"}),
+                        html.Small("Severity:", className="text-muted d-block mb-2", style={"fontSize": "0.85rem", "fontWeight": "600"}),
                         dbc.ButtonGroup([
                             dbc.Button("All", id="filter-all", size="sm",
                                      color="primary", className="filter-btn-modern active"),
@@ -2098,250 +2102,257 @@ dashboard_layout = dbc.Container([
                                      size="sm", color="info", outline=True, className="filter-btn-modern"),
                             dbc.Button([html.I(className="fa fa-info-circle")], id="filter-low",
                                      size="sm", color="secondary", outline=True, className="filter-btn-modern")
-                        ], className="w-100 mb-3")
-                    ]),
+                        ], className="w-100 mb-3", style={"gap": "0.25rem"})
+                    ], className="mb-3"),
 
-                    # Alerts Container
+                    # Alerts Container (FLEXIBLE HEIGHT)
                     html.Div(id='alerts-container-compact',
-                            style={'height': '595px', 'overflowY': 'auto'},
+                            style={'minHeight': '400px', 'maxHeight': '920px', 'overflowY': 'auto'},
                             className="custom-scrollbar-modern alerts-modern")
-                ], className="p-4")
+                ], className="p-3", style={"paddingTop": "1rem !important"})
             ], className="glass-card border-0 shadow-lg h-100 hover-card")
         ], width=3, className="mb-4")
     ], className="g-4"),
 
-    # Features Grid - Clickable Cards that open Modals
-    html.H4([
-        html.I(className="fa fa-th-large me-2"),
-        "Dashboard Features"
-    ], className="text-center my-4 gradient-text"),
-
+    # Row 1 - Featured Cards (Larger)
     dbc.Row([
-        # Analytics Card Tile
+        # Analytics Card Tile (LARGE)
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-chart-line fa-3x mb-3", style={"color": "#8b5cf6"}),
-                            html.H5("Analytics & Deep Insights", className="fw-bold mb-2"),
-                            html.P("AI-powered analytics, alerts timeline, anomaly detection", className="small text-muted mb-0")
+                            html.I(className="fa fa-chart-line fa-4x mb-3", style={"color": "#8b5cf6"}),
+                            html.H4("Analytics & Deep Insights", className="fw-bold mb-2"),
+                            html.P("AI-powered analytics, alerts timeline, anomaly detection, and bandwidth monitoring", className="text-muted mb-0")
                         ], className="text-center")
                     ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer", "minHeight": "200px"})
             ], id="analytics-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=6, className="mb-3"),
 
-        # System & ML Models Card Tile
+        # System & ML Models Card Tile (LARGE)
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-cogs fa-3x mb-3", style={"color": "#10b981"}),
-                            html.H5("System & ML Models", className="fw-bold mb-2"),
-                            html.P("System status, ML model information and comparison", className="small text-muted mb-0")
+                            html.I(className="fa fa-cogs fa-4x mb-3", style={"color": "#10b981"}),
+                            html.H4("System & ML Models", className="fw-bold mb-2"),
+                            html.P("System status, ML model information, comparison and performance metrics", className="text-muted mb-0")
                         ], className="text-center")
                     ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer", "minHeight": "200px"})
             ], id="system-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=6, className="mb-3")
+    ], className="g-3 mb-2"),
 
-        # Email Notifications Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-envelope fa-3x mb-3", style={"color": "#06b6d4"}),
-                            html.H5("Email Notifications", className="fw-bold mb-2"),
-                            html.P("Configure SMTP settings and email alerts", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="email-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Firewall Control Card Tile
+    # Row 2 - Medium Cards
+    dbc.Row([
+        # Firewall Control
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
                             html.I(className="fa fa-shield-alt fa-3x mb-3", style={"color": "#ef4444"}),
-                            html.H5("Firewall Control", className="fw-bold mb-2"),
-                            html.P("Lockdown mode and network security settings", className="small text-muted mb-0")
+                            html.H5("Firewall Control", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("Lockdown mode & security", className="small text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-4")
+                    ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="firewall-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=4, className="mb-3"),
 
-        # User Management Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-users fa-3x mb-3", style={"color": "#8b5cf6"}),
-                            html.H5("User Management", className="fw-bold mb-2"),
-                            html.P("Change password and manage user accounts", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="user-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Device Management Card Tile
+        # Device Management
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
                             html.I(className="fa fa-mobile-alt fa-3x mb-3", style={"color": "#f59e0b"}),
-                            html.H5("Device Management", className="fw-bold mb-2"),
-                            html.P("Bulk device operations and trust management", className="small text-muted mb-0")
+                            html.H5("Device Management", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("Bulk operations & trust", className="small text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-4")
+                    ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="device-mgmt-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=4, className="mb-3"),
 
-        # Dashboard Preferences Card Tile
+        # Email Notifications
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-sliders-h fa-3x mb-3", style={"color": "#6366f1"}),
-                            html.H5("Dashboard Preferences", className="fw-bold mb-2"),
-                            html.P("Auto-refresh, retention, themes and settings", className="small text-muted mb-0")
+                            html.I(className="fa fa-envelope fa-3x mb-3", style={"color": "#06b6d4"}),
+                            html.H5("Email Notifications", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("SMTP settings & alerts", className="small text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-4")
+                    ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+            ], id="email-card-btn", n_clicks=0)
+        ], md=4, className="mb-3")
+    ], className="g-3 mb-2"),
+
+    # Row 3 - Compact Cards (4 columns)
+    dbc.Row([
+        # User Management
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-users fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.H6("User Management", className="fw-bold mb-1"),
+                            html.P("Accounts & passwords", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="user-card-btn", n_clicks=0)
+        ], md=3, className="mb-3"),
+
+        # Dashboard Preferences
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-sliders-h fa-2x mb-2", style={"color": "#6366f1"}),
+                            html.H6("Preferences", className="fw-bold mb-1"),
+                            html.P("Themes & settings", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="preferences-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=3, className="mb-3"),
 
-        # Timeline Visualization Card Tile
+        # Timeline Visualization
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-chart-line fa-3x mb-3", style={"color": "#8b5cf6"}),
-                            html.H5("Timeline Visualization", className="fw-bold mb-2"),
-                            html.P("Device activity history and event logs", className="small text-muted mb-0")
+                            html.I(className="fa fa-chart-line fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.H6("Timeline Viz", className="fw-bold mb-1"),
+                            html.P("Activity history", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="timeline-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
+        ], md=3, className="mb-3"),
 
-        # IoT Protocol Analysis Card Tile
+        # Security Education
         dbc.Col([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-broadcast-tower fa-3x mb-3", style={"color": "#06b6d4"}),
-                            html.H5("IoT Protocol Analysis", className="fw-bold mb-2"),
-                            html.P("MQTT, CoAP, and Zigbee traffic monitoring", className="small text-muted mb-0")
+                            html.I(className="fa fa-graduation-cap fa-2x mb-2", style={"color": "#06b6d4"}),
+                            html.H6("Education", className="fw-bold mb-1"),
+                            html.P("Security tips", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="protocol-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # IoT Threat Intelligence Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-shield-alt fa-3x mb-3", style={"color": "#ef4444"}),
-                            html.H5("Threat Intelligence", className="fw-bold mb-2"),
-                            html.P("Mirai, botnet and DDoS threat detection", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="threat-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Privacy Monitoring Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-lock fa-3x mb-3", style={"color": "#f59e0b"}),
-                            html.H5("Privacy Monitoring", className="fw-bold mb-2"),
-                            html.P("Privacy score, cloud tracking, tracker detection", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="privacy-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Smart Home Context Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-home fa-3x mb-3", style={"color": "#8b5cf6"}),
-                            html.H5("Smart Home Context", className="fw-bold mb-2"),
-                            html.P("Hub detection, ecosystem and room management", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="smarthome-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Network Segmentation Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-network-wired fa-3x mb-3", style={"color": "#10b981"}),
-                            html.H5("Network Segmentation", className="fw-bold mb-2"),
-                            html.P("VLAN recommendations and segmentation stats", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="segmentation-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Firmware Management Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-microchip fa-3x mb-3", style={"color": "#6366f1"}),
-                            html.H5("Firmware Management", className="fw-bold mb-2"),
-                            html.P("Firmware status, EOL devices, provisioning", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="firmware-card-btn", n_clicks=0)
-        ], width=3, className="mb-4"),
-
-        # Security Education Card Tile
-        dbc.Col([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-graduation-cap fa-3x mb-3", style={"color": "#06b6d4"}),
-                            html.H5("Security Education", className="fw-bold mb-2"),
-                            html.P("Learn about IoT threats and security tips", className="small text-muted mb-0")
-                        ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="education-card-btn", n_clicks=0)
-        ], width=3, className="mb-4")
-    ], className="g-4 mb-4"),
+        ], md=3, className="mb-3")
+    ], className="g-3 mb-2"),
+
+    # Row 4 - IoT-Specific Features (First Row)
+    dbc.Row([
+        # IoT Protocol Analysis
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-broadcast-tower fa-2x mb-2", style={"color": "#06b6d4"}),
+                            html.H6("IoT Protocol Analysis", className="fw-bold mb-1"),
+                            html.P("MQTT, CoAP, Zigbee", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="protocol-card-btn", n_clicks=0)
+        ], md=3, className="mb-3"),
+
+        # IoT Threat Intelligence
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-shield-alt fa-2x mb-2", style={"color": "#ef4444"}),
+                            html.H6("Threat Intelligence", className="fw-bold mb-1"),
+                            html.P("Mirai, DDoS & botnet", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="threat-card-btn", n_clicks=0)
+        ], md=3, className="mb-3"),
+
+        # Privacy Monitoring
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-lock fa-2x mb-2", style={"color": "#f59e0b"}),
+                            html.H6("Privacy Monitor", className="fw-bold mb-1"),
+                            html.P("Cloud tracking", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="privacy-card-btn", n_clicks=0)
+        ], md=3, className="mb-3"),
+
+        # Smart Home Context
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-home fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.H6("Smart Home", className="fw-bold mb-1"),
+                            html.P("Hub & ecosystem", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="smarthome-card-btn", n_clicks=0)
+        ], md=3, className="mb-3")
+    ], className="g-3 mb-2"),
+
+    # Row 4 continued - IoT-Specific Features (Second Row - Centered)
+    dbc.Row([
+        # Network Segmentation
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-network-wired fa-2x mb-2", style={"color": "#10b981"}),
+                            html.H6("Segmentation", className="fw-bold mb-1"),
+                            html.P("VLAN & isolation", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="segmentation-card-btn", n_clicks=0)
+        ], md=3, className="mb-3"),
+
+        # Firmware Management
+        dbc.Col([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-microchip fa-2x mb-2", style={"color": "#6366f1"}),
+                            html.H6("Firmware", className="fw-bold mb-1"),
+                            html.P("Updates & EOL", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="firmware-card-btn", n_clicks=0)
+        ], md=3, className="mb-3")
+    ], className="g-3 mb-4", justify="center"),
 
     # Modals for each feature
     # Analytics Modal
