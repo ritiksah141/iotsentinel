@@ -1966,32 +1966,49 @@ body.dark-mode .cyber-card:hover {
 
 /* Dropdown menu glass effect */
 .profile-dropdown .dropdown-menu {
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background-color: rgba(255, 255, 255, 0.9) !important;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 12px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
-  padding: 0.5rem;
-  min-width: 220px;
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset, 0 0 30px rgba(102, 126, 234, 0.15) !important;
+  padding: 0.75rem !important;
+  min-width: 240px !important;
   margin-top: 0.5rem !important;
-  z-index: 10000 !important;
-  position: fixed !important;
-  max-height: none !important;
-  overflow: visible !important;
-  right: 20px !important;
-  left: auto !important;
-  top: 60px !important;
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.profile-dropdown .dropdown-menu::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.15) 0%,
+    rgba(240, 147, 251, 0.15) 50%,
+    rgba(79, 172, 254, 0.15) 100%
+  );
+  background-size: 300% 300%;
+  animation: gradientShift 25s linear infinite;
+  filter: blur(15px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
 }
 
 /* Ensure parent dropdown has proper z-index */
 .profile-dropdown {
-  position: relative;
-  z-index: 1000;
+  position: static !important;
 }
 
 .profile-dropdown.show {
+  position: static !important;
   z-index: 9999 !important;
 }
 
@@ -2000,9 +2017,23 @@ body.dark-mode .cyber-card:hover {
 }
 
 /* Fix overflow issue on glass-card containing dropdown */
+.glass-card:has(.profile-dropdown),
+.card:has(.profile-dropdown) {
+  overflow: visible !important;
+  contain: none !important;
+}
 
-/* Alternative: allow overflow for header cards */
-.mb-4
+.glass-card .card-body:has(.profile-dropdown),
+.card .card-body:has(.profile-dropdown) {
+  overflow: visible !important;
+}
+
+.card:has(.profile-dropdown.show) {
+  z-index: 9999 !important;
+  overflow: visible !important;
+  contain: none !important;
+  position: relative;
+}
 
 /* Ensure button group doesn't interfere */
 .btn-group {
@@ -2020,6 +2051,19 @@ body.dark-mode .cyber-card:hover {
   position: absolute !important;
 }
 
+/* Specifically for profile dropdown menu */
+.profile-dropdown .dropdown-menu {
+  position: fixed !important;
+  z-index: 99999 !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+.profile-dropdown.show .dropdown-menu {
+  position: fixed !important;
+  z-index: 99999 !important;
+}
+
 body.dark-mode .profile-dropdown .dropdown-menu {
   background-color: rgba(30, 41, 59, 0.85) !important;
   border: 1px solid rgba(96, 165, 250, 0.2);
@@ -2029,20 +2073,28 @@ body.dark-mode .profile-dropdown .dropdown-menu {
 
 /* Dropdown menu items */
 .profile-dropdown .dropdown-item {
-  border-radius: 8px;
-  padding: 0.6rem 1rem;
-  margin: 0.2rem 0;
-  transition: all 0.3s ease;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin: 0.25rem 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.9) !important;
+  position: relative;
+  z-index: 1;
+  background: transparent !important;
+  border: 1px solid transparent;
 }
 
 .profile-dropdown .dropdown-item:hover {
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.15),
-    rgba(96, 165, 250, 0.15)
+    rgba(102, 126, 234, 0.25),
+    rgba(240, 147, 251, 0.25)
   ) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  color: #ffffff !important;
 }
 
 body.dark-mode .profile-dropdown .dropdown-item:hover {
@@ -2057,13 +2109,18 @@ body.dark-mode .profile-dropdown .dropdown-item:hover {
 .profile-dropdown .dropdown-header {
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.1),
-    rgba(96, 165, 250, 0.1)
+    rgba(102, 126, 234, 0.2),
+    rgba(240, 147, 251, 0.2)
   );
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
   margin-bottom: 0.5rem;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff !important;
+  position: relative;
+  z-index: 1;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
 }
 
 body.dark-mode .profile-dropdown .dropdown-header {
@@ -2077,26 +2134,31 @@ body.dark-mode .profile-dropdown .dropdown-header {
 
 /* Divider styling */
 .profile-dropdown .dropdown-divider {
-  border-color: rgba(59, 130, 246, 0.2);
+  border-color: rgba(255, 255, 255, 0.1);
   margin: 0.5rem 0;
+  opacity: 0.6;
 }
 
 body.dark-mode .profile-dropdown .dropdown-divider {
-  border-color: rgba(96, 165, 250, 0.3);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Logout item special styling */
 .profile-dropdown .dropdown-item:last-child {
-  color: #ef4444;
   font-weight: 500;
+}
+
+.profile-dropdown .dropdown-item:last-child .text-danger {
+  color: #f87171 !important;
 }
 
 .profile-dropdown .dropdown-item:last-child:hover {
   background: linear-gradient(
     135deg,
-    rgba(239, 68, 68, 0.15),
-    rgba(239, 68, 68, 0.1)
+    rgba(239, 68, 68, 0.2),
+    rgba(220, 38, 38, 0.2)
   ) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 body.dark-mode .profile-dropdown .dropdown-item:last-child:hover {
@@ -2107,16 +2169,60 @@ body.dark-mode .profile-dropdown .dropdown-item:last-child:hover {
   ) !important;
 }
 
-/* Profile button styling */
-.profile-dropdown .btn {
+/* Profile button styling - Force white color */
+.profile-dropdown .btn,
+.profile-dropdown .dropdown-toggle,
+.profile-dropdown button,
+.profile-dropdown .btn-link {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   transition: all 0.3s ease;
+  color: white !important;
+  background: transparent !important;
+  border: none !important;
 }
 
-.profile-dropdown .btn:hover {
+.profile-dropdown .btn:hover,
+.profile-dropdown .dropdown-toggle:hover,
+.profile-dropdown button:hover,
+.profile-dropdown .btn-link:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  color: white !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  text-decoration: none !important;
+}
+
+.profile-dropdown .btn:focus,
+.profile-dropdown .dropdown-toggle:focus,
+.profile-dropdown button:focus,
+.profile-dropdown .btn-link:focus {
+  color: white !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.profile-dropdown .btn:active,
+.profile-dropdown .dropdown-toggle:active,
+.profile-dropdown button:active,
+.profile-dropdown .btn-link:active {
+  color: white !important;
+}
+
+.profile-dropdown i.fa-user-circle,
+.profile-dropdown i {
+  color: white !important;
+}
+
+/* Override Bootstrap default btn-link color */
+.btn-link.text-white,
+button.btn-link.text-white {
+  color: white !important;
+}
+
+.btn-link.text-white:hover,
+button.btn-link.text-white:hover {
+  color: white !important;
 }
 
 /* ============================================================================

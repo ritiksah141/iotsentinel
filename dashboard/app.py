@@ -1274,30 +1274,31 @@ login_layout = dbc.Container([
         # LEFT SIDE - Branding with Liquid Glass
         dbc.Col([
             html.Div([
-                # Large decorative shield
+                # Logo with glow effect
                 html.Div([
-                    html.I(className="fa fa-shield-alt", style={
-                        "fontSize": "8rem",
-                        "color": "var(--accent-color)",
-                        "opacity": "0.3",
-                        "filter": "drop-shadow(0 0 40px var(--accent-glow))"
-                    })
+                    html.Img(
+                        src="/assets/logo.png",
+                        style={
+                            "height": "180px",
+                            "filter": "drop-shadow(0 0 40px rgba(102, 126, 234, 0.8))",
+                            "animation": "logoGlow 3s ease-in-out infinite"
+                        }
+                    )
                 ], className="text-center mb-5"),
 
                 # Main title
-                html.H1("Network Security", className="text-center mb-3", style={
+                html.H1("IoTSentinel", className="text-center mb-3 text-gradient", style={
                     "fontSize": "3.5rem",
                     "fontWeight": "800",
-                    "color": "var(--text-primary)",
-                    "textShadow": "0 0 40px var(--accent-glow)",
                     "letterSpacing": "-2px",
                     "lineHeight": "1.1"
                 }),
 
-                html.H2("Monitoring", className="text-center mb-4 text-gradient", style={
-                    "fontSize": "3rem",
-                    "fontWeight": "800",
-                    "letterSpacing": "-1px"
+                html.H2("Network Security Monitoring", className="text-center mb-4", style={
+                    "fontSize": "2rem",
+                    "fontWeight": "600",
+                    "letterSpacing": "-0.5px",
+                    "color": "var(--text-secondary)"
                 }),
 
                 # Features list
@@ -1577,15 +1578,25 @@ dashboard_layout = dbc.Container([
             dbc.Row([
                 dbc.Col([
                     html.Div([
-                        html.H1([
-                            html.Span("🛡️", className="me-2", style={"fontSize": "2.5rem"}),
-                            html.Span("IoTSentinel", className="gradient-text fw-bold"),
-                        ], className="mb-1", style={"fontSize": "2.2rem", "letterSpacing": "-0.5px"}),
-                        html.P([
-                            html.I(className="fa fa-microchip me-2 text-primary"),
-                            "AI-Powered Network Security | Raspberry Pi 5"
-                        ], className="text-muted mb-0", style={"fontSize": "0.95rem"})
-                    ])
+                        html.Img(
+                            src="/assets/logo.png",
+                            style={
+                                "height": "70px",
+                                "filter": "drop-shadow(0 0 20px rgba(102, 126, 234, 0.6))",
+                                "animation": "logoGlow 3s ease-in-out infinite"
+                            },
+                            className="me-3"
+                        ),
+                        html.Div([
+                            html.H1([
+                                html.Span("IoTSentinel", className="gradient-text fw-bold"),
+                            ], className="mb-1", style={"fontSize": "2.2rem", "letterSpacing": "-0.5px"}),
+                            html.P([
+                                html.I(className="fa fa-microchip me-2 text-primary"),
+                                "AI-Powered Network Security | Raspberry Pi 5"
+                            ], className="text-muted mb-0", style={"fontSize": "0.95rem"})
+                        ])
+                    ], className="d-flex align-items-center")
                 ], width=6, className="d-flex align-items-center"),
                 dbc.Col([
                     html.Div([
@@ -2383,7 +2394,7 @@ dashboard_layout = dbc.Container([
         dbc.ModalHeader(dbc.ModalTitle([
             html.I(className="fa fa-user-edit me-2"),
             "Edit Profile"
-        ])),
+        ]), close_button=True),
         dbc.ModalBody([
             # Profile Information
             dbc.Card([
@@ -5593,19 +5604,12 @@ def toggle_admin_menu_items(pathname):
 # Open profile edit modal
 @app.callback(
     Output("profile-edit-modal", "is_open"),
-    [Input("edit-profile-btn", "n_clicks"),
-     Input("profile-edit-modal", "is_open")],
-    State("profile-edit-modal", "is_open"),
-    prevent_initial_call=True
+    [Input("edit-profile-btn", "n_clicks")],
+    [State("profile-edit-modal", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_profile_edit_modal(n_clicks, is_open_trigger, is_open):
-    """Toggle profile edit modal"""
-    ctx = callback_context
-    if not ctx.triggered:
-        raise dash.exceptions.PreventUpdate
-
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if triggered_id == 'edit-profile-btn':
+def toggle_profile_edit_modal(n_clicks, is_open):
+    if n_clicks:
         return not is_open
     return is_open
 
