@@ -3144,3 +3144,49 @@ button.dropdown-toggle {
 .modal-backdrop {
   z-index: 1040 !important;
 }
+
+/* ============================================================================
+ * LIVE THREAT FEED ANIMATIONS
+ * ============================================================================ */
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.threat-feed-item {
+  transition: all 0.2s ease;
+}
+
+.threat-feed-item:hover {
+  transform: translateX(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.threat-feed-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+}
+
+.threat-feed-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.threat-feed-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.threat-feed-container::-webkit-scrollbar-thumb {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+}
+
+.threat-feed-container::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(59, 130, 246, 0.5);
+}
