@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from academic.bcs_compliance import BCSComplianceManager
-from academic.rtm_generator import RTMGenerator
-from academic.risk_register import RiskRegisterManager
-from academic.performance_metrics import PerformanceMetricsCollector
-from academic.c4_generator import C4DiagramGenerator
+from docs.academic.bcs_compliance import BCSComplianceManager
+from docs.academic.rtm_generator import RTMGenerator
+from docs.academic.risk_register import RiskRegisterManager
+from docs.academic.performance_metrics import PerformanceMetricsCollector
+from docs.academic.c4_generator import C4DiagramGenerator
 
 # Use test database or real database
 DB_PATH = project_root / "data" / "iotsentinel.db"
