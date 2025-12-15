@@ -1,0 +1,25 @@
+
+C4 Level 1: System Context Diagram
+====================================
+
++-------------------+
+|   Home User       |
+| (Person)          |
++-------------------+
+        |
+        | Views dashboard, configures alerts
+        v
++-------------------+
+|   IoTSentinel     |
+| [Raspberry Pi 5]  |
+| Network Security  |
+| Monitor           |
++-------------------+
+        ^                   ^
+        |                   |
+    Network traffic     Threat feeds
+        |                   |
++-------------------+  +-------------------+
+|   Home Router     |  |   Internet        |
+| (External System) |  | (External System) |
++-------------------+  +-------------------+
