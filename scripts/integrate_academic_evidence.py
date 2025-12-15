@@ -40,13 +40,13 @@ def check_prerequisites():
     print_header("Prerequisites Check")
 
     required_files = [
-        "academic/__init__.py",
-        "academic/bcs_compliance.py",
-        "academic/rtm_generator.py",
-        "academic/risk_register.py",
-        "academic/performance_metrics.py",
-        "academic/c4_generator.py",
-        "academic/dashboard_components.py",
+        "docs/academic/__init__.py",
+        "docs/academic/bcs_compliance.py",
+        "docs/academic/rtm_generator.py",
+        "docs/academic/risk_register.py",
+        "docs/academic/performance_metrics.py",
+        "docs/academic/c4_generator.py",
+        "docs/academic/dashboard_components.py",
         "dashboard/app.py"
     ]
 
@@ -114,7 +114,7 @@ def show_integration_code():
     print("─" * 70)
     print("""
 # Academic Evidence Dashboard Integration
-from academic.dashboard_components import (
+from docs.academic.dashboard_components import (
     create_academic_evidence_button,
     create_academic_modal,
     register_callbacks as register_academic_callbacks
@@ -151,18 +151,18 @@ def test_integration():
     print_header("Testing Academic Modules")
 
     try:
-        from academic.dashboard_components import (
+        from docs.academic.dashboard_components import (
             create_academic_evidence_button,
             create_academic_modal,
             register_callbacks
         )
         print("✓ Successfully imported dashboard_components")
 
-        from academic.bcs_compliance import BCSComplianceManager
-        from academic.rtm_generator import RTMGenerator
-        from academic.risk_register import RiskRegisterManager
-        from academic.performance_metrics import PerformanceMetricsCollector
-        from academic.c4_generator import C4DiagramGenerator
+        from docs.academic.bcs_compliance import BCSComplianceManager
+        from docs.academic.rtm_generator import RTMGenerator
+        from docs.academic.risk_register import RiskRegisterManager
+        from docs.academic.performance_metrics import PerformanceMetricsCollector
+        from docs.academic.c4_generator import C4DiagramGenerator
 
         print("✓ Successfully imported all academic modules")
 
@@ -207,7 +207,7 @@ from config.config_manager import config
 from database.db_manager import DatabaseManager
 
 # ACADEMIC EVIDENCE IMPORTS
-from academic.dashboard_components import (
+from docs.academic.dashboard_components import (
     create_academic_evidence_button,
     create_academic_modal,
     register_callbacks as register_academic_callbacks
