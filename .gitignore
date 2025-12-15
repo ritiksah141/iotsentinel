@@ -66,6 +66,12 @@ backups/
 *.sql.gz
 *.db.backup
 
+# Test Coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
 # Deployment
 .deploy.env
 deploy_*.log
