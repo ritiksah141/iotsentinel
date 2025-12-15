@@ -1,6 +1,6 @@
 # C4 Model: Level 1 - System Context
 
-**Diagramming Tool**: Mermaid  
+**Diagramming Tool**: Mermaid
 **Last Updated**: November 2025
 
 This diagram provides a high-level overview of the IoTSentinel system, its users, and the external systems it interacts with.
@@ -53,7 +53,7 @@ graph TD
 
 # C4 Model: Level 2 - Container Diagram
 
-**Diagramming Tool**: Mermaid  
+**Diagramming Tool**: Mermaid
 **Last Updated**: November 2025
 
 This diagram zooms into the IoTSentinel system and shows its main containers (applications/services).
@@ -120,7 +120,7 @@ graph TD
 
 # C4 Model: Level 3 - Component Diagram (ML Engine)
 
-**Diagramming Tool**: Mermaid  
+**Diagramming Tool**: Mermaid
 **Last Updated**: November 2025
 
 This diagram zooms into the **ML Engine** container to show its internal components.
@@ -177,7 +177,7 @@ graph TD
 
 # C4 Model: Level 4 - Code (Key Classes)
 
-**Diagramming Tool**: Mermaid  
+**Diagramming Tool**: Mermaid
 **Last Updated**: November 2025
 
 This diagram zooms into key components to show the main classes and their relationships.

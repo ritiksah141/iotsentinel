@@ -21,7 +21,7 @@
 
 ### R-001: Raspberry Pi CPU Bottleneck ⚠️ CRITICAL (Severity 16 → 6 after mitigation)
 
-**Category**: Technical - Performance  
+**Category**: Technical - Performance
 **Description**: Zeek + Python ML inference may exceed Pi 5's CPU capacity, preventing real-time analysis
 
 **Initial Risk Assessment**:
@@ -188,14 +188,14 @@ successfully mitigated CPU bottleneck risk. System operates at 28% average
 CPU with 58% safety margin before corrective measures needed.
 ```
 
-**Owner**: Technical Lead  
+**Owner**: Technical Lead
 **Status**: ✅ Mitigated (current avg CPU: 28%)
 
 ---
 
 ### R-006: Scope Creep ⚠️ CRITICAL (Severity 20 → 8 after mitigation)
 
-**Category**: Project Management  
+**Category**: Project Management
 **Description**: Attempting to match Bitdefender/Firewalla feature sets leads to incomplete MVP
 
 **Initial Risk Assessment**:
@@ -432,14 +432,14 @@ successfully prevented scope creep. All MUST HAVE features delivered at
 100%, with 67% of SHOULD HAVE features (exceeds 50% target for 70%+ grade).
 ```
 
-**Owner**: Project Manager (You)  
+**Owner**: Project Manager (You)
 **Status**: ⚠️ Active Risk (requires weekly monitoring)
 
 ---
 
 ### R-010: Baseline Contaminated with Attack Traffic ⚠️ HIGH (Severity 10 → 4 after mitigation)
 
-**Category**: Data Quality  
+**Category**: Data Quality
 **Description**: If network compromised during baseline, ML learns "attacks are normal"
 
 **Initial Risk Assessment**:
@@ -655,7 +655,7 @@ Example:
 data quality. No attack traffic detected during collection period.
 ```
 
-**Owner**: Data Engineer  
+**Owner**: Data Engineer
 **Status**: ⚠️ Monitoring (validation in progress)
 
 ---
@@ -747,57 +747,57 @@ _(Abbreviated for space - follow same 3-stage mitigation pattern)_
 
 ### R-003: SQLite Database Locking
 
-**Mitigation**: WAL mode enabled, connection pooling, retry logic  
+**Mitigation**: WAL mode enabled, connection pooling, retry logic
 **Status**: ✅ Mitigated
 
 ### R-005: Dashboard Crashes with 50+ Devices
 
-**Mitigation**: Pagination, lazy loading, efficient queries  
+**Mitigation**: Pagination, lazy loading, efficient queries
 **Status**: ✅ Mitigated
 
 ### R-008: Baseline Data Collection Delayed
 
-**Mitigation**: Progress monitoring, automated restart, synthetic fallback  
+**Mitigation**: Progress monitoring, automated restart, synthetic fallback
 **Status**: ⚠️ Monitoring
 
 ### R-009: Mentor Unavailable
 
-**Mitigation**: Biweekly PSG meetings, self-research, escalation path  
+**Mitigation**: Biweekly PSG meetings, self-research, escalation path
 **Status**: ✅ No issues
 
 ### R-011: Insufficient Training Data
 
-**Mitigation**: Minimum threshold check (500 connections), extended collection  
+**Mitigation**: Minimum threshold check (500 connections), extended collection
 **Status**: ⚠️ Monitoring
 
 ### R-012: Zeek Log Rotation Deletes Data
 
-**Mitigation**: 60-second parsing interval, hourly archiving  
+**Mitigation**: 60-second parsing interval, hourly archiving
 **Status**: ✅ Mitigated
 
 ### R-013: Privacy Violation
 
-**Mitigation**: Zeek configured for metadata-only, privacy audit test  
+**Mitigation**: Zeek configured for metadata-only, privacy audit test
 **Status**: ✅ Mitigated
 
 ### R-014: Zeek Version Incompatibility
 
-**Mitigation**: Version pinning (6.0.3), compatibility testing  
+**Mitigation**: Version pinning (6.0.3), compatibility testing
 **Status**: ⚠️ Monitoring
 
 ### R-017: Monitoring Without Household Consent
 
-**Mitigation**: Setup wizard consent requirement, transparency banner  
+**Mitigation**: Setup wizard consent requirement, transparency banner
 **Status**: ⚠️ Documented (user responsibility)
 
 ### R-018: GDPR Compliance
 
-**Mitigation**: Local processing, data minimization, user control  
+**Mitigation**: Local processing, data minimization, user control
 **Status**: ✅ Compliant (home use exemption)
 
 ### R-019: ML Model Bias
 
-**Mitigation**: Diverse 7-day baseline, dual-model validation, user feedback  
+**Mitigation**: Diverse 7-day baseline, dual-model validation, user feedback
 **Status**: ⚠️ Monitoring (FP rate: 6.2%)
 
 ---
@@ -806,17 +806,17 @@ _(Abbreviated for space - follow same 3-stage mitigation pattern)_
 
 ### R-015: Dash/Plotly Version Conflict
 
-**Mitigation**: Version pinning in requirements.txt  
+**Mitigation**: Version pinning in requirements.txt
 **Status**: ✅ Mitigated
 
 ### R-016: Browser Compatibility
 
-**Mitigation**: Cross-browser testing (Chrome, Firefox, Safari)  
+**Mitigation**: Cross-browser testing (Chrome, Firefox, Safari)
 **Status**: ✅ Tested (3 browsers)
 
 ### R-020: Data Breach (Pi Compromised)
 
-**Mitigation**: Strong credentials, firewall rules, localhost-only dashboard  
+**Mitigation**: Strong credentials, firewall rules, localhost-only dashboard
 **Status**: ✅ Mitigated
 
 ---

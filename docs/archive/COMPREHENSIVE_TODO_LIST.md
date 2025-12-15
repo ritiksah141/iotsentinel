@@ -2,9 +2,9 @@
 
 ## From Research to Implementation to Report Writing
 
-**Project Duration**: 10 weeks (176 hours total)  
-**Current Grade**: 63%  
-**Target Grade**: 78%+  
+**Project Duration**: 10 weeks (176 hours total)
+**Current Grade**: 63%
+**Target Grade**: 78%+
 **Last Updated**: November 2025
 
 ---
@@ -13,10 +13,10 @@
 
 This comprehensive to-do list covers **every single task** needed to take your IoTSentinel project from its current 63% grade to 78%+ (Excellent band). It includes:
 
-✅ **Research tasks** (literature review, competitor analysis)  
-✅ **Coding tasks** (test implementation, documentation)  
-✅ **Documentation tasks** (user stories, C4 diagrams, test plans)  
-✅ **Report writing tasks** (AT2, AT3 sections)  
+✅ **Research tasks** (literature review, competitor analysis)
+✅ **Coding tasks** (test implementation, documentation)
+✅ **Documentation tasks** (user stories, C4 diagrams, test plans)
+✅ **Report writing tasks** (AT2, AT3 sections)
 ✅ **Video production tasks** (demo video script, recording, editing)
 
 **Total: 176 hours organized into 34 working days across 10 weeks**
@@ -1561,6 +1561,6 @@ Stop and seek help if:
 
 **END OF COMPREHENSIVE TO-DO LIST**
 
-Total: 150+ detailed tasks  
-Format: Hour-by-hour, step-by-step  
+Total: 150+ detailed tasks
+Format: Hour-by-hour, step-by-step
 Result: Clear path from 63% → 78%+
