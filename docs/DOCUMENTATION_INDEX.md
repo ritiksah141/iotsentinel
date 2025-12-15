@@ -24,21 +24,6 @@ Located in: `/docs/`
 **Audience**: All users
 **Content**: Project description, features, quick start
 
-### QUICK_START.md
-**Purpose**: Fast setup and installation guide
-**Audience**: New users, developers
-**Content**: Installation steps, first-time setup, troubleshooting
-
-### USER_GUIDE.md
-**Purpose**: Comprehensive user manual
-**Audience**: End users, administrators
-**Content**:
-- Custom alert rules
-- Device grouping
-- Export and reporting
-- IoT security features
-- Dashboard usage
-
 ### DEPLOYMENT_GUIDE.md
 **Purpose**: Production deployment instructions
 **Audience**: System administrators, DevOps
@@ -102,8 +87,7 @@ Located in: `/docs/academic/`
 | REQUIREMENTS_TRACEABILITY_MATRIX.md | Requirements tracking | Requirements |
 | RISK_REGISTER.md | Risk management | Project Mgmt |
 | C4_ARCHITECTURE.md | System architecture | Design |
-| DATABASE_SCHEMA.md | Database design | Design |
-| MOBILE_RESPONSIVE_GUIDE.md | Responsive design | UI/UX |
+| README.md | Academic docs & Python modules guide | Overview |
 
 **Status**: ✅ Complete - Ready for AT4 submission
 
@@ -153,7 +137,7 @@ Located in: `/docs/archive/`
 **Primary References**:
 1. Testing: `/docs/testing/00_TESTING_SUMMARY.md` (START HERE)
 2. Academic: `/docs/academic/README.md` (for appendices)
-3. User: `/docs/USER_GUIDE.md` (for features overview)
+3. Main README: `/README.md` (for project overview)
 
 **Grade Breakdown**:
 - Testing (30%): ✅ 75-85% (24-26 points)
@@ -168,13 +152,13 @@ Located in: `/docs/archive/`
 ## 🚀 Quick Access by Role
 
 ### For New Users
-1. Start with: `/docs/README.md`
-2. Setup: `/docs/QUICK_START.md`
-3. Usage: `/docs/USER_GUIDE.md`
+1. Start with: `/README.md` (main project README)
+2. Setup: `/docs/DEPLOYMENT_GUIDE.md`
+3. Configure: `/docs/SYSTEM_CONFIGURATION_MANUAL.md`
 
 ### For Developers
 1. Architecture: `/docs/academic/C4_ARCHITECTURE.md`
-2. Database: `/docs/academic/DATABASE_SCHEMA.md`
+2. Database: `/database/schema.sql`
 3. Testing: `/docs/testing/README.md`
 4. Tests guide: `/tests/README.md`
 

@@ -13,13 +13,13 @@ For complete navigation, see **[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)*
 ## 🚀 Quick Start
 
 ### For New Users
-1. **[QUICK_START.md](QUICK_START.md)** - Installation and setup guide
-2. **[USER_GUIDE.md](USER_GUIDE.md)** - Complete user manual
-3. **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
+1. **[Main README](../README.md)** - Installation and setup guide
+2. **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
+3. **[SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md)** - Configure the system
 
 ### For Developers
 1. **[academic/C4_ARCHITECTURE.md](academic/C4_ARCHITECTURE.md)** - System architecture
-2. **[academic/DATABASE_SCHEMA.md](academic/DATABASE_SCHEMA.md)** - Database design
+2. **[../database/schema.sql](../database/schema.sql)** - Database schema
 3. **[testing/README.md](testing/README.md)** - Testing infrastructure
 
 ### For AT4 Submission
@@ -38,8 +38,6 @@ User-facing documentation for setup, usage, and deployment.
 |----------|---------|
 | **DOCUMENTATION_INDEX.md** | Master navigation index |
 | **README.md** | This file - documentation overview |
-| **QUICK_START.md** | Quick setup and installation |
-| **USER_GUIDE.md** | Comprehensive user manual |
 | **DEPLOYMENT_GUIDE.md** | Raspberry Pi deployment |
 | **SYSTEM_CONFIGURATION_MANUAL.md** | Configuration reference |
 
@@ -66,8 +64,7 @@ Academic documentation for AT4 Project Review Report.
 - **REQUIREMENTS_TRACEABILITY_MATRIX.md** - Requirements tracking
 - **RISK_REGISTER.md** - Risk management
 - **C4_ARCHITECTURE.md** - System architecture
-- **DATABASE_SCHEMA.md** - Database design
-- **MOBILE_RESPONSIVE_GUIDE.md** - Responsive design
+- **README.md** - Complete guide to academic docs and Python modules
 
 **Status**: ✅ Complete - Ready for AT4 submission
 
@@ -88,14 +85,14 @@ Outdated documentation kept for historical reference.
 
 ### I'm a New User
 Start with:
-1. [QUICK_START.md](QUICK_START.md) - Get up and running
-2. [USER_GUIDE.md](USER_GUIDE.md) - Learn the features
+1. [Main README](../README.md) - Get up and running
+2. [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Deploy the system
 3. [SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md) - Configure settings
 
 ### I'm a Developer
 Start with:
 1. [academic/C4_ARCHITECTURE.md](academic/C4_ARCHITECTURE.md) - Understand the architecture
-2. [academic/DATABASE_SCHEMA.md](academic/DATABASE_SCHEMA.md) - Database structure
+2. [../database/schema.sql](../database/schema.sql) - Database structure
 3. [testing/README.md](testing/README.md) - Run tests
 4. [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) - Navigate all docs
 
@@ -135,14 +132,8 @@ Start with:
 
 ### Configuration
 - Environment variables: [SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md)
-- Database setup: [academic/DATABASE_SCHEMA.md](academic/DATABASE_SCHEMA.md)
+- Database schema: [../database/schema.sql](../database/schema.sql)
 - API keys: [SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md)
-
-### Features
-- Custom alert rules: [USER_GUIDE.md](USER_GUIDE.md) - Section 1
-- Device grouping: [USER_GUIDE.md](USER_GUIDE.md) - Section 2
-- Export & reporting: [USER_GUIDE.md](USER_GUIDE.md) - Section 3
-- IoT security: [USER_GUIDE.md](USER_GUIDE.md) - Section 4
 
 ### Testing
 - Test strategy: [testing/01_TEST_PLAN.md](testing/01_TEST_PLAN.md)
