@@ -5,38 +5,31 @@ This directory contains all project documentation organized by category.
 ## 📚 Quick Navigation
 
 ### 🚀 Getting Started
+
 - **[QUICK_START.md](QUICK_START.md)** - Quick reference for main vs academic branches
 - **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
-- **[AI_SETUP.md](AI_SETUP.md)** - AI assistant setup
+
+### ⚙️ Configuration
+
+- **[SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md)** - A comprehensive guide to configuring all major components of the IoTSentinel system.
 
 ### 🏗️ Architecture & Planning
+
 - **[BRANCH_STRATEGY.md](BRANCH_STRATEGY.md)** - Two-branch workflow (main vs academic)
 - **[C4_ARCHITECTURE.md](C4_ARCHITECTURE.md)** - System architecture diagrams
-- **[DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)** - Database structure
+- **[DATABASE_SCHEMA.0md](DATABASE_SCHEMA.md)** - Database structure
 - **[FINALIZATION_PLAN.md](FINALIZATION_PLAN.md)** - Project finalization plan
 
-### 🔐 Security & Authentication
-- **[AUTH_INTEGRATION_GUIDE.md](AUTH_INTEGRATION_GUIDE.md)** - User authentication setup
-- **[THREAT_INTEL_SETUP.md](THREAT_INTEL_SETUP.md)** - Threat intelligence integration
-- **[CUSTOM_RULES_GUIDE.md](CUSTOM_RULES_GUIDE.md)** - Custom detection rules
-- **[DEVICE_BLOCKING_SETUP.md](DEVICE_BLOCKING_SETUP.md)** - Device blocking features
+### 📖 User Guide
 
-### 📱 Features & Integration
-- **[IOT_FEATURES_GUIDE.md](IOT_FEATURES_GUIDE.md)** - IoT-specific features
-- **[DEVICE_GROUPING_GUIDE.md](DEVICE_GROUPING_GUIDE.md)** - Device grouping system
-- **[PUSH_NOTIFICATIONS_GUIDE.md](PUSH_NOTIFICATIONS_GUIDE.md)** - Push notification setup
-- **[EMAIL_SETUP.md](EMAIL_SETUP.md)** - Email alert configuration
-- **[MOBILE_RESPONSIVE_GUIDE.md](MOBILE_RESPONSIVE_GUIDE.md)** - Mobile UI design
-- **[EXPORT_REPORTING_GUIDE.md](EXPORT_REPORTING_GUIDE.md)** - Export and reporting
+- **[USER_GUIDE.md](USER_GUIDE.md)** - A comprehensive guide to using IoTSentinel's features.
 
 ### 📊 Implementation Summaries
-- **[FEATURES_IMPLEMENTATION_SUMMARY.md](FEATURES_IMPLEMENTATION_SUMMARY.md)** - Feature implementation overview
-- **[IOT_FEATURES_IMPLEMENTATION_SUMMARY.md](IOT_FEATURES_IMPLEMENTATION_SUMMARY.md)** - IoT features implementation
-- **[DEPLOYMENT_IMPROVEMENTS_SUMMARY.md](DEPLOYMENT_IMPROVEMENTS_SUMMARY.md)** - Deployment enhancements
-- **[DEPLOYMENT_READINESS_REPORT.md](DEPLOYMENT_READINESS_REPORT.md)** - Production readiness
-- **[IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)** - Overall progress
+
+- **[PROJECT_STATUS_SUMMARY.md](PROJECT_STATUS_SUMMARY.md)** - A comprehensive overview of project status, implementation progress, and deployment readiness.
 
 ### 📝 Academic Evidence (on academic branch)
+
 - **[REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md)** - RTM overview
 - **[RISK_REGISTER.md](RISK_REGISTER.md)** - Project risks
 - **[COMPREHENSIVE_TODO_LIST.md](COMPREHENSIVE_TODO_LIST.md)** - Complete task list
@@ -45,39 +38,29 @@ This directory contains all project documentation organized by category.
 
 ### By Topic
 
-**Setup & Deployment**
+**Setup, Deployment & Configuration**
+
 - QUICK_START.md
 - DEPLOYMENT_GUIDE.md
-- AI_SETUP.md
+- SYSTEM_CONFIGURATION_MANUAL.md
 
 **Architecture**
+
 - BRANCH_STRATEGY.md
 - C4_ARCHITECTURE.md
 - DATABASE_SCHEMA.md
 
-**Security**
-- AUTH_INTEGRATION_GUIDE.md
-- THREAT_INTEL_SETUP.md
-- DEVICE_BLOCKING_SETUP.md
-- CUSTOM_RULES_GUIDE.md
+**User Guide**
 
-**Features**
-- IOT_FEATURES_GUIDE.md
-- DEVICE_GROUPING_GUIDE.md
-- PUSH_NOTIFICATIONS_GUIDE.md
-- EMAIL_SETUP.md
-- MOBILE_RESPONSIVE_GUIDE.md
-- EXPORT_REPORTING_GUIDE.md
+- USER_GUIDE.md
 
 **Progress Reports**
-- FEATURES_IMPLEMENTATION_SUMMARY.md
-- IOT_FEATURES_IMPLEMENTATION_SUMMARY.md
-- DEPLOYMENT_IMPROVEMENTS_SUMMARY.md
-- DEPLOYMENT_READINESS_REPORT.md
-- IMPLEMENTATION_PROGRESS.md
+
+- [PROJECT_STATUS_SUMMARY.md](PROJECT_STATUS_SUMMARY.md)
 - FINALIZATION_PLAN.md
 
 **Academic**
+
 - REQUIREMENTS_TRACEABILITY_MATRIX.md
 - RISK_REGISTER.md
 - COMPREHENSIVE_TODO_LIST.md
@@ -85,20 +68,27 @@ This directory contains all project documentation organized by category.
 ## 🎯 For Different Audiences
 
 ### For Users
+
 Start here:
+
 1. [QUICK_START.md](QUICK_START.md) - Understand branches
 2. [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Deploy system
-3. [IOT_FEATURES_GUIDE.md](IOT_FEATURES_GUIDE.md) - Use features
+3. [SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md) - Configure the system
+4. [USER_GUIDE.md](USER_GUIDE.md) - Use features
 
 ### For Developers
+
 Start here:
+
 1. [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) - Workflow
 2. [C4_ARCHITECTURE.md](C4_ARCHITECTURE.md) - System design
 3. [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) - Data model
-4. [AUTH_INTEGRATION_GUIDE.md](AUTH_INTEGRATION_GUIDE.md) - Security
+4. [SYSTEM_CONFIGURATION_MANUAL.md](SYSTEM_CONFIGURATION_MANUAL.md) - Understand system configuration
 
 ### For Academic Submissions
+
 Start here:
+
 1. Switch to `academic` branch
 2. [REQUIREMENTS_TRACEABILITY_MATRIX.md](REQUIREMENTS_TRACEABILITY_MATRIX.md)
 3. [RISK_REGISTER.md](RISK_REGISTER.md)
@@ -107,6 +97,7 @@ Start here:
 ## 📖 Documentation Standards
 
 All documentation in this directory follows these standards:
+
 - ✅ Markdown format (.md)
 - ✅ Clear section headers
 - ✅ Code examples where applicable
@@ -123,4 +114,4 @@ All documentation in this directory follows these standards:
 ---
 
 **Last Updated**: 2025-12-12
-**Total Documentation Files**: 24+ guides and summaries
+**Total Documentation Files**: 19+ guides and summaries
