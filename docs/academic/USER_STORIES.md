@@ -1,6 +1,7 @@
 # User Stories for IoTSentinel
 
-**Created**:
+**Created**: November 2024
+**Last Updated**: December 2025
 **Purpose**: Define functional requirements from user perspective
 
 **MoSCoW Priority Key**:

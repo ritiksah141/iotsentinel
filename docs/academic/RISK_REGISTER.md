@@ -1,6 +1,6 @@
 # Complete Risk Register with Mitigation Strategies
 
-**Last Updated**:
+**Last Updated**: December 2025
 **Status**: All 20 risks assessed with strategic mitigations
 
 ---
@@ -243,8 +243,11 @@ CPU with 58% safety margin before corrective measures needed.
 
 - Deep Packet Inspection (privacy concerns)
 - Multi-Network Support (out of scope)
-- Device Blocking (router integration complex)
-- Email Notifications (SMTP complexity)
+
+## COULD HAVE (Implemented beyond original scope)
+
+- Device Blocking/Firewall Management (initially scoped as complex, later implemented)
+- Email Alert Notifications (initially scoped as complex, later implemented)
 ```
 
 **Feature Freeze Implementation**:

@@ -1,0 +1,68 @@
+flowchart TB
+    subgraph External["🌍 External Systems"]
+        User["👤 Home User"]
+        Router["🌐 Router"]
+        ThreatAPI["☁️ Threat Intel"]
+        Email["📧 Email Server"]
+    end
+
+    subgraph RPi["🔷 IoTSentinel System - Raspberry Pi"]
+        subgraph Collection["Data Collection Layer"]
+            Zeek["Zeek NSM<br/><i>Packet Analysis</i>"]
+            Parser["Log Parser<br/><i>JSON Processing</i>"]
+        end
+
+        subgraph Storage["Persistence Layer"]
+            DB[("SQLite Database<br/><i>Central Data Store</i>")]
+        end
+
+        subgraph Processing["ML Processing Layer"]
+            MLEngine["ML Engine<br/><i>Anomaly Detection</i>"]
+            Utils["Utils Layer<br/><i>Device Classifier</i><br/><i>Security Checker</i>"]
+        end
+
+        subgraph Application["Application Layer"]
+            Dashboard["Web Dashboard<br/><i>Flask + React</i>"]
+            Alerts["Alerts System<br/><i>Notifications</i>"]
+        end
+
+        subgraph Control["Orchestration"]
+            Orchestrator["Orchestrator<br/><i>Workflow Manager</i>"]
+            Services["Services Layer<br/><i>System Monitor</i>"]
+        end
+    end
+
+    User -->|HTTPS| Dashboard
+    Router -->|Port Mirror| Zeek
+
+    Zeek -->|JSON Logs| Parser
+    Parser -->|Insert| DB
+
+    Orchestrator -->|Coordinates| Parser
+    Orchestrator -->|Coordinates| MLEngine
+    Orchestrator -->|Coordinates| Alerts
+
+    MLEngine -->|Read/Write| DB
+    Dashboard -->|Query| DB
+    Alerts -->|Query| DB
+    Utils -->|Query| DB
+
+    MLEngine -->|Uses| Utils
+    Dashboard -->|Uses| Utils
+    Alerts -->|Uses| Utils
+
+    Utils -->|Lookup| ThreatAPI
+    Alerts -->|Send| Email
+
+    Services -.->|Monitor| Zeek
+    Services -.->|Monitor| MLEngine
+
+    style Zeek fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style Parser fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style DB fill:#10B981,stroke:#059669,stroke-width:3px,color:#fff
+    style MLEngine fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style Utils fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style Dashboard fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style Alerts fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style Orchestrator fill:#EC4899,stroke:#DB2777,stroke-width:3px,color:#fff
+    style Services fill:#EC4899,stroke:#DB2777,stroke-width:2px,color:#fff
