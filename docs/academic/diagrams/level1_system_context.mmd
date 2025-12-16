@@ -1,0 +1,19 @@
+flowchart TB
+    User["👤 Home User<br/>Network Administrator"]
+
+    IoTSentinel["🛡️ IoTSentinel System<br/>ML-Powered Network Security"]
+
+    Router["🌐 Home Router<br/>Network Gateway"]
+    ThreatAPI["☁️ Threat Intelligence<br/>AbuseIPDB API"]
+    EmailServer["📧 Email Server<br/>SMTP Notifications"]
+
+    User -->|Views Dashboard<br/>Receives Alerts| IoTSentinel
+    Router -->|Port Mirror Traffic<br/>Ethernet Data| IoTSentinel
+    IoTSentinel -->|Query IP Reputation<br/>HTTPS| ThreatAPI
+    IoTSentinel -->|Send Alert Emails<br/>SMTP| EmailServer
+
+    style IoTSentinel fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#fff
+    style User fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style Router fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style ThreatAPI fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style EmailServer fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff

@@ -1,0 +1,88 @@
+classDiagram
+    class DatabaseManager {
+        -conn Connection
+        +add_device(ip, kwargs)
+        +add_connection(ip, kwargs)
+        +get_unprocessed_connections(limit)
+        +mark_connections_processed(ids)
+        +create_alert(ip, severity, score, explanation)
+        +store_prediction(conn_id, is_anomaly, score)
+        +get_device_groups()
+        +get_custom_rules()
+    }
+
+    class InferenceEngine {
+        -db DatabaseManager
+        -extractor FeatureExtractor
+        -isolation_forest IsolationForest
+        -autoencoder Model
+        -threat_intel ThreatIntelClient
+        +process_connections()
+        +load_models()
+        +calculate_severity(score)
+        +generate_explanation(connection)
+    }
+
+    class FeatureExtractor {
+        -scaler_mean ndarray
+        -scaler_std ndarray
+        -feature_names list
+        +extract_features(df)
+        +fit_transform(X)
+        +transform(X)
+        +save(path)
+        +load(path)
+    }
+
+    class ZeekLogParser {
+        -db DatabaseManager
+        -file_positions dict
+        +parse_conn_log(path)
+        +watch_and_parse()
+    }
+
+    class DeviceClassifier {
+        -manufacturers dict
+        +classify_device(ip, mac, hostname)
+        +get_device_icon(device_type)
+        +get_confidence_score()
+    }
+
+    class RuleEngine {
+        -db DatabaseManager
+        +evaluate_rules(device_ip)
+        +check_data_volume_rule()
+        +check_connection_count_rule()
+        +check_port_activity_rule()
+    }
+
+    class IoTSecurityChecker {
+        +assess_device_security(device)
+        +calculate_security_score()
+        +generate_recommendations()
+    }
+
+    class ThreatIntelClient {
+        -api_key string
+        -cache dict
+        +lookup_ip(ip_address)
+        +get_reputation_score(ip)
+        +is_malicious(ip)
+    }
+
+    class AlertManager {
+        -db DatabaseManager
+        +create_alert(device_ip, severity, message)
+        +get_recent_alerts(limit)
+        +acknowledge_alert(alert_id)
+    }
+
+    InferenceEngine ..> DatabaseManager : uses
+    InferenceEngine ..> FeatureExtractor : uses
+    InferenceEngine ..> DeviceClassifier : uses
+    InferenceEngine ..> ThreatIntelClient : uses
+    ZeekLogParser ..> DatabaseManager : uses
+    RuleEngine ..> DatabaseManager : uses
+    IoTSecurityChecker ..> DatabaseManager : uses
+    DeviceClassifier ..> DatabaseManager : uses
+    AlertManager ..> DatabaseManager : uses

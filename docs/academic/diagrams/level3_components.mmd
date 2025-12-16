@@ -1,0 +1,65 @@
+flowchart TB
+    subgraph MLEngine["🧠 ML Engine Container"]
+        direction TB
+        InferenceOrch["Inference Orchestrator<br/><i>Main Controller</i>"]
+
+        subgraph Models["ML Models"]
+            FeatureExt["Feature Extractor<br/><i>Preprocessing</i>"]
+            IsoForest["Isolation Forest<br/><i>Unsupervised Detection</i>"]
+            AutoEnc["Autoencoder<br/><i>Reconstruction Error</i>"]
+        end
+
+        AlertGen["Alert Generator<br/><i>Severity Scoring</i>"]
+    end
+
+    subgraph Utils["🔧 Utils Layer Container"]
+        direction TB
+        DevClass["Device Classifier<br/><i>MAC/IP Analysis</i>"]
+        SecCheck["IoT Security Checker<br/><i>Vulnerability Assessment</i>"]
+        ThreatIntel["Threat Intel Client<br/><i>IP Reputation</i>"]
+        RuleEngine["Rule Engine<br/><i>Custom Rules</i>"]
+        AuthMgr["Auth Manager<br/><i>JWT Tokens</i>"]
+        RateLim["Rate Limiter<br/><i>API Protection</i>"]
+    end
+
+    subgraph Alerts["🔔 Alerts System Container"]
+        direction TB
+        AlertMgr["Alert Manager<br/><i>Alert Lifecycle</i>"]
+        EmailNotif["Email Notifier<br/><i>SMTP Client</i>"]
+        NotifDispatch["Notification Dispatcher<br/><i>Multi-channel</i>"]
+        ReportSched["Report Scheduler<br/><i>Periodic Reports</i>"]
+    end
+
+    DB[("💾 SQLite Database<br/><i>Persistent Storage</i>")]
+
+    InferenceOrch -->|Extract| FeatureExt
+    InferenceOrch -->|Predict| IsoForest
+    InferenceOrch -->|Predict| AutoEnc
+    InferenceOrch -->|Generate| AlertGen
+
+    InferenceOrch -->|Classify| DevClass
+    InferenceOrch -->|Lookup| ThreatIntel
+
+    AlertGen -->|Create| AlertMgr
+    AlertGen -->|Store| DB
+
+    AlertMgr -->|Send| EmailNotif
+    AlertMgr -->|Dispatch| NotifDispatch
+    EmailNotif -->|Schedule| ReportSched
+
+    style InferenceOrch fill:#F59E0B,stroke:#D97706,stroke-width:3px,color:#fff
+    style FeatureExt fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style IsoForest fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style AutoEnc fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style AlertGen fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style DevClass fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style SecCheck fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style ThreatIntel fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style RuleEngine fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style AuthMgr fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style RateLim fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style AlertMgr fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style EmailNotif fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style NotifDispatch fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style ReportSched fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style DB fill:#EC4899,stroke:#DB2777,stroke-width:3px,color:#fff
