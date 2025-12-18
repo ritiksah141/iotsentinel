@@ -1810,103 +1810,84 @@ dashboard_layout = dbc.Container([
         ], className="p-4")
     ], className="mb-4 glass-card border-0 shadow-lg"),
 
-    # MODERN ASYMMETRIC GRID LAYOUT
+    # MODERN THREE-COLUMN GRID LAYOUT
     dbc.Row([
-        # LEFT SIDEBAR - Box-Style Metrics & Devices
+        # LEFT COLUMN - Box-Style Metrics & Devices
         dbc.Col([
-            # Metrics Grid - Box Style (2 columns)
+            # Metrics Grid - Box Style (3 columns)
             dbc.Row([
                 # CPU Usage Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-microchip fa-2x mb-2 text-primary"),
-                            html.H4(id="cpu-usage", className="mb-1 fw-bold text-gradient", style={"fontSize": "1.1rem"}),
+                            html.H4(id="cpu-usage", className="mb-1 fw-bold text-gradient", style={"fontSize": "1rem"}),
                             html.P("CPU", className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
                 # RAM Usage Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-memory fa-2x mb-2 text-success"),
-                            html.H4(id="ram-usage", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.H4(id="ram-usage", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("RAM", className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
                 # Bandwidth Usage Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-exchange-alt fa-2x mb-2 text-info"),
-                            html.H4(id="bandwidth-usage", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.H4(id="bandwidth-usage", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("Bandwidth", className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
                 # Threats Blocked Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-shield-alt fa-2x mb-2 text-success"),
-                            html.H4(id="threats-blocked", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.H4(id="threats-blocked", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("Blocked", className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
                 # Privacy Score Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-lock fa-2x mb-2 text-success", id="privacy-score-icon"),
-                            html.H4(id="privacy-score-metric", className="mb-1 fw-bold", style={"fontSize": "1.1rem"}),
+                            html.H4(id="privacy-score-metric", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P([
                                 "Privacy",
                                 html.I(className="fa fa-question-circle ms-1 text-muted",
                                        id="privacy-score-tooltip-trigger",
                                        style={"cursor": "pointer", "fontSize": "0.6rem"})
                             ], className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100", id="privacy-score-card", style={"cursor": "pointer"})
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
                 # Network Health Box
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.I(className="fa fa-wifi fa-2x mb-2", id="network-icon"),
-                            html.H6(id="network-health", className="mb-1 fw-bold", style={"fontSize": "0.9rem"}),
+                            html.H6(id="network-health", className="mb-1 fw-bold", style={"fontSize": "0.85rem"}),
                             html.P("Health", className="text-muted mb-0 small")
-                        ], className="p-3 text-center")
+                        ], className="p-2 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=6, className="mb-3"),
+                ], width=4, className="mb-2"),
 
-                # Voice Alerts Box (Full Width)
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-volume-up fa-lg text-secondary me-2"),
-                                html.Span("Voice Alerts", className="text-muted fw-bold small")
-                            ], className="d-flex align-items-center justify-content-center mb-2"),
-                            html.Div([
-                                dbc.Switch(
-                                    id="voice-alert-toggle",
-                                    value=False,
-                                    className="custom-switch-large",
-                                    style={"transform": "scale(1.3)"}
-                                )
-                            ], className="d-flex justify-content-center")
-                        ], className="p-3")
-                    ], className="metric-card glass-card border-0 shadow hover-lift")
-                ], width=12, className="mb-3")
-            ], className="g-2 mb-3"),
+            ], className="g-2 mb-2"),
 
             # Devices Card
             dbc.Card([
@@ -1940,9 +1921,9 @@ dashboard_layout = dbc.Container([
                     ])
                 ], className="p-3")
             ], className="glass-card border-0 shadow-lg hover-card")
-        ], width=2, className="mb-4"),
+        ], width=4, className="mb-4", id="metrics-section"),
 
-        # CENTER PANEL - Network Visualization (LARGER)
+        # CENTER COLUMN - Network Visualization
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader([
@@ -2075,9 +2056,9 @@ dashboard_layout = dbc.Container([
                 html.P("Access advanced security tools and configuration",
                        className="text-center text-muted mb-0", style={"fontSize": "0.95rem"})
             ], className="mt-3")
-        ], width=7, className="mb-4"),
+        ], width=4, className="mb-4"),
 
-        # RIGHT PANEL - Stats and Security Alerts
+        # RIGHT COLUMN - Stats and Security Alerts
         dbc.Col([
             # Network Status Card
             dbc.Card([
@@ -2257,13 +2238,14 @@ dashboard_layout = dbc.Container([
                     html.Div(id='threat-forecast-content', style={"fontSize": "0.75rem"})
                 ], className="p-2")
             ], className="glass-card border-0 shadow hover-card mt-3")
-        ], width=3, className="mb-4")
-    ], className="g-4"),
+        ], width=4, className="mb-4", id="right-panel-section")
+    ], className="g-3"),
 
-    # Row 1 - Featured Cards (Larger)
-    dbc.Row([
-        # Analytics Card Tile (LARGE)
-        dbc.Col([
+    # Pinterest-Style Masonry Grid Layout for Dashboard Features
+    html.Div([
+    html.Div([
+        # Analytics Card Tile (XL)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2273,78 +2255,72 @@ dashboard_layout = dbc.Container([
                             html.P("AI-powered analytics, alerts timeline, anomaly detection, and bandwidth monitoring", className="text-muted mb-0")
                         ], className="text-center")
                     ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer", "minHeight": "200px"})
+                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="analytics-card-btn", n_clicks=0)
-        ], md=6, className="mb-3"),
+        ], className="masonry-item xl-card"),
 
-        # System & ML Models Card Tile (LARGE)
-        dbc.Col([
+        # System & ML Models Card Tile (MEDIUM)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-cogs fa-4x mb-3", style={"color": "#10b981"}),
-                            html.H4("System & ML Models", className="fw-bold mb-2"),
+                            html.I(className="fa fa-cogs fa-3x mb-3", style={"color": "#10b981"}),
+                            html.H5("System & ML Models", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
                             html.P("System status, ML model information, comparison and performance metrics", className="text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-4")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer", "minHeight": "200px"})
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="system-card-btn", n_clicks=0)
-        ], md=6, className="mb-3")
-    ], className="g-3 mb-2"),
+        ], className="masonry-item medium"),
 
-    # Row 2 - Medium Cards
-    dbc.Row([
-        # Firewall Control
-        dbc.Col([
+        # Firewall Control (COMPACT)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-shield-alt fa-3x mb-3", style={"color": "#ef4444"}),
-                            html.H5("Firewall Control", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
-                            html.P("Lockdown mode & security", className="small text-muted mb-0")
+                            html.I(className="fa fa-shield-alt fa-2x mb-2", style={"color": "#ef4444"}),
+                            html.H6("Firewall Control", className="fw-bold mb-1"),
+                            html.P("Lockdown mode & security", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="firewall-card-btn", n_clicks=0)
-        ], md=4, className="mb-3"),
+        ], className="masonry-item compact"),
 
-        # Device Management
-        dbc.Col([
+        # Device Management (LARGE)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-mobile-alt fa-3x mb-3", style={"color": "#f59e0b"}),
-                            html.H5("Device Management", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
-                            html.P("Bulk operations & trust", className="small text-muted mb-0")
+                            html.I(className="fa fa-mobile-alt fa-4x mb-3", style={"color": "#f59e0b"}),
+                            html.H4("Device Management", className="fw-bold mb-2"),
+                            html.P("Manage all IoT devices with bulk operations and trust levels", className="text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-3")
+                    ], className="p-4")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="device-mgmt-card-btn", n_clicks=0)
-        ], md=4, className="mb-3"),
+        ], className="masonry-item large"),
 
-        # Email Notifications
-        dbc.Col([
+        # Email Notifications (COMPACT)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-envelope fa-3x mb-3", style={"color": "#06b6d4"}),
-                            html.H5("Email Notifications", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
-                            html.P("SMTP settings & alerts", className="small text-muted mb-0")
+                            html.I(className="fa fa-envelope fa-2x mb-2", style={"color": "#06b6d4"}),
+                            html.H6("Email Notifications", className="fw-bold mb-1"),
+                            html.P("SMTP settings & alerts", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="email-card-btn", n_clicks=0)
-        ], md=4, className="mb-3")
-    ], className="g-3 mb-2"),
+        ], className="masonry-item compact"),
 
-    # Row 3 - Compact Cards (4 columns)
-    dbc.Row([
         # User Management
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2356,10 +2332,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="user-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Dashboard Preferences
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2371,10 +2347,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="preferences-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Timeline Visualization
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2386,10 +2362,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="timeline-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Security Education
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2401,43 +2377,40 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="education-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
-        # Geographic Threat Map
-        dbc.Col([
+        # Geographic Threat Map (MEDIUM)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-globe-americas fa-2x mb-2", style={"color": "#ef4444"}),
-                            html.H6("Threat Map", className="fw-bold mb-1"),
-                            html.P("Global attacks", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            html.I(className="fa fa-globe-americas fa-3x mb-3", style={"color": "#ef4444"}),
+                            html.H5("Global Threat Map", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("Real-time global attack visualization", className="small text-muted mb-0")
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="threat-map-card-btn", n_clicks=0)
-        ], md=3, className="mb-3")
-    ], className="g-3 mb-2"),
+        ], className="masonry-item medium"),
 
-    # Row 4 - IoT-Specific Features (First Row)
-    dbc.Row([
-        # IoT Protocol Analysis
-        dbc.Col([
+        # IoT Protocol Analysis (MEDIUM)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-broadcast-tower fa-2x mb-2", style={"color": "#06b6d4"}),
-                            html.H6("IoT Protocol Analysis", className="fw-bold mb-1"),
-                            html.P("MQTT, CoAP, Zigbee", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            html.I(className="fa fa-broadcast-tower fa-3x mb-3", style={"color": "#06b6d4"}),
+                            html.H5("IoT Protocol Analysis", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("MQTT, CoAP, Zigbee protocol monitoring", className="small text-muted mb-0")
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="protocol-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item medium"),
 
         # IoT Threat Intelligence
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2449,10 +2422,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="threat-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
-        # Privacy Monitoring
-        dbc.Col([
+        # Privacy Monitoring (COMPACT)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2464,28 +2437,25 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="privacy-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item compact"),
 
-        # Smart Home Context
-        dbc.Col([
+        # Smart Home Context (MEDIUM)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-home fa-2x mb-2", style={"color": "#8b5cf6"}),
-                            html.H6("Smart Home", className="fw-bold mb-1"),
-                            html.P("Hub & ecosystem", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            html.I(className="fa fa-home fa-3x mb-3", style={"color": "#8b5cf6"}),
+                            html.H5("Smart Home Context", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("Hub management & ecosystem", className="small text-muted mb-0")
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="smarthome-card-btn", n_clicks=0)
-        ], md=3, className="mb-3")
-    ], className="g-3 mb-2"),
+        ], className="masonry-item medium"),
 
-    # Row 4 continued - IoT-Specific Features (Second Row - Centered)
-    dbc.Row([
         # Network Segmentation
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2497,25 +2467,25 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="segmentation-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
-        # Firmware Management
-        dbc.Col([
+        # Firmware Management (LARGE)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-microchip fa-2x mb-2", style={"color": "#6366f1"}),
-                            html.H6("Firmware", className="fw-bold mb-1"),
-                            html.P("Updates & EOL", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            html.I(className="fa fa-microchip fa-4x mb-3", style={"color": "#6366f1"}),
+                            html.H4("Firmware Management", className="fw-bold mb-2"),
+                            html.P("Track firmware updates and end-of-life devices", className="text-muted mb-0")
                         ], className="text-center")
-                    ], className="p-3")
+                    ], className="p-4")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="firmware-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item large"),
 
         # Device Risk Heat Map
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2527,10 +2497,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="risk-heatmap-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Attack Surface Analyzer
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2542,13 +2512,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="attack-surface-card-btn", n_clicks=0)
-        ], md=3, className="mb-3")
-    ], className="g-3 mb-4", justify="center"),
+        ], className="masonry-item small"),
 
-    # Row 5 - Advanced Security Features
-    dbc.Row([
         # Forensic Timeline
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2560,25 +2527,25 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="forensic-timeline-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
-        # Compliance Dashboard
-        dbc.Col([
+        # Compliance Dashboard (MEDIUM)
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-clipboard-check fa-2x mb-2", style={"color": "#10b981"}),
-                            html.H6("Compliance", className="fw-bold mb-1"),
-                            html.P("GDPR, NIST, IoT Act", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            html.I(className="fa fa-clipboard-check fa-3x mb-3", style={"color": "#10b981"}),
+                            html.H5("Compliance Dashboard", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
+                            html.P("GDPR, NIST, IoT Cybersecurity Act", className="small text-muted mb-0")
                         ], className="text-center")
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="compliance-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item medium"),
 
         # Automated Response
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2590,13 +2557,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="auto-response-card-btn", n_clicks=0)
-        ], md=3, className="mb-3")
-    ], className="g-3 mb-4", justify="center"),
+        ], className="masonry-item small"),
 
-    # Row 6 - Extended Features
-    dbc.Row([
         # Vulnerability Scanner
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2608,10 +2572,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="vuln-scanner-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # API Integration Hub
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2623,10 +2587,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="api-hub-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Comparison & Benchmarking
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2638,10 +2602,10 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="benchmark-card-btn", n_clicks=0)
-        ], md=3, className="mb-3"),
+        ], className="masonry-item small"),
 
         # Network Performance Analytics
-        dbc.Col([
+        html.Div([
             html.Div([
                 dbc.Card([
                     dbc.CardBody([
@@ -2653,8 +2617,9 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="performance-card-btn", n_clicks=0)
-        ], md=3, className="mb-3")
-    ], className="g-3 mb-4", justify="center"),
+        ], className="masonry-item small")
+    ], className="masonry-grid")
+    ], id="features-section"),
 
     # Modals for each feature
     # Analytics Modal
@@ -4036,12 +4001,24 @@ dashboard_layout = dbc.Container([
         duration=2000,
         style={"position": "fixed", "top": 174, "right": 10, "width": 350, "zIndex": 9999}
     ),
+    dbc.Toast(
+        id="widget-prefs-toast",
+        header="Layout Preferences",
+        is_open=False,
+        dismissable=True,
+        icon="success",
+        duration=3000,
+        style={"position": "fixed", "top": 228, "right": 10, "width": 350, "zIndex": 9999}
+    ),
     dcc.Store(id='theme-store', storage_type='local', data={'theme': 'cyberpunk'}),
     dcc.Store(id='voice-alert-store', storage_type='local'),
     dcc.Store(id='announced-alerts-store', storage_type='session', data={}),
     dcc.Store(id='onboarding-store', storage_type='local'),
     dcc.Store(id='onboarding-step-store', data=0),
     dcc.Store(id='keyboard-shortcut-store', data=None),
+
+    # Dummy output for clientside callback
+    html.Div(id='widget-visibility-dummy', style={'display': 'none'}),
 
     # Onboarding Modal
     dbc.Modal([
@@ -6420,6 +6397,36 @@ app.clientside_callback(
     Input('chat-modal', 'is_open')
 )
 
+# Clientside callback to apply widget visibility preferences
+app.clientside_callback(
+    """
+    function(prefs) {
+        if (!prefs) {
+            // Default: show all sections
+            prefs = {metrics: true, features: true, rightPanel: true};
+        }
+
+        const metricsSection = document.getElementById('metrics-section');
+        const featuresSection = document.getElementById('features-section');
+        const rightPanelSection = document.getElementById('right-panel-section');
+
+        if (metricsSection) {
+            metricsSection.style.display = prefs.metrics ? 'block' : 'none';
+        }
+        if (featuresSection) {
+            featuresSection.style.display = prefs.features ? 'block' : 'none';
+        }
+        if (rightPanelSection) {
+            rightPanelSection.style.display = prefs.rightPanel ? 'block' : 'none';
+        }
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('widget-visibility-dummy', 'children'),
+    Input('widget-preferences', 'data')
+)
+
 # ============================================================================
 # WEBSOCKET BACKGROUND THREAD
 # ============================================================================
@@ -8410,6 +8417,97 @@ def toggle_firmware_modal(n, is_open):
 def toggle_education_modal(n, is_open):
     return not is_open
 
+# Toggle callbacks for new feature modals
+@app.callback(
+    Output("threat-map-modal", "is_open"),
+    Input("threat-map-card-btn", "n_clicks"),
+    State("threat-map-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_threat_map_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("risk-heatmap-modal", "is_open"),
+    Input("risk-heatmap-card-btn", "n_clicks"),
+    State("risk-heatmap-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_risk_heatmap_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("attack-surface-modal", "is_open"),
+    Input("attack-surface-card-btn", "n_clicks"),
+    State("attack-surface-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_attack_surface_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("forensic-timeline-modal", "is_open"),
+    Input("forensic-timeline-card-btn", "n_clicks"),
+    State("forensic-timeline-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_forensic_timeline_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("compliance-modal", "is_open"),
+    Input("compliance-card-btn", "n_clicks"),
+    State("compliance-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_compliance_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("auto-response-modal", "is_open"),
+    Input("auto-response-card-btn", "n_clicks"),
+    State("auto-response-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_auto_response_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("vuln-scanner-modal", "is_open"),
+    Input("vuln-scanner-card-btn", "n_clicks"),
+    State("vuln-scanner-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_vuln_scanner_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("api-hub-modal", "is_open"),
+    Input("api-hub-card-btn", "n_clicks"),
+    State("api-hub-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_api_hub_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("benchmark-modal", "is_open"),
+    Input("benchmark-card-btn", "n_clicks"),
+    State("benchmark-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_benchmark_modal(n, is_open):
+    return not is_open
+
+@app.callback(
+    Output("performance-modal", "is_open"),
+    Input("performance-card-btn", "n_clicks"),
+    State("performance-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_performance_modal(n, is_open):
+    return not is_open
+
 @app.callback(
     [Output('geographic-threat-map', 'figure'),
      Output('threat-map-total', 'children'),
@@ -8450,29 +8548,56 @@ def update_geographic_threat_map(n):
             )
             return fig, "0 Threats", "0 Countries"
 
-        # Simple IP-to-location mapping (demo data - replace with real geolocation API)
-        import random
+        # IP-to-location mapping using real geolocation
+        import requests
+        from time import sleep
+
         locations = []
         for threat in threats:
-            # Generate random coordinates for demo (replace with actual IP geolocation)
-            lat = random.uniform(-60, 70)
-            lon = random.uniform(-180, 180)
+            # Try to get real geolocation for IP
+            try:
+                # Use ip-api.com (free, no API key needed, 45 req/min limit)
+                response = requests.get(
+                    f"http://ip-api.com/json/{threat['dest_ip']}?fields=status,country,countryCode,lat,lon,isp",
+                    timeout=2
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('status') == 'success':
+                        locations.append({
+                            'ip': threat['dest_ip'],
+                            'count': threat['count'],
+                            'lat': data.get('lat', 0),
+                            'lon': data.get('lon', 0),
+                            'country': data.get('country', 'Unknown'),
+                            'country_code': data.get('countryCode', '??'),
+                            'isp': data.get('isp', 'Unknown')
+                        })
+                        sleep(0.05)  # Rate limiting (max 20 req/sec)
+                        continue
+            except Exception as e:
+                logger.warning(f"Geolocation failed for {threat['dest_ip']}: {e}")
+
+            # Fallback: Use approximate location for private/invalid IPs
             locations.append({
                 'ip': threat['dest_ip'],
                 'count': threat['count'],
-                'lat': lat,
-                'lon': lon,
-                'country': f"Country-{random.choice(['CN', 'RU', 'US', 'BR', 'IN'])}"
+                'lat': 0,
+                'lon': 0,
+                'country': 'Unknown',
+                'country_code': '??',
+                'isp': 'Unknown'
             })
 
         # Create map
         fig = go.Figure()
 
-        # Add threat markers
+        # Add threat markers with real geolocation data
         fig.add_trace(go.Scattergeo(
             lon=[loc['lon'] for loc in locations],
             lat=[loc['lat'] for loc in locations],
-            text=[f"{loc['ip']}<br>Connections: {loc['count']}" for loc in locations],
+            text=[f"<b>{loc['ip']}</b><br>Country: {loc['country']} ({loc['country_code']})<br>ISP: {loc['isp']}<br>Connections: {loc['count']}"
+                  for loc in locations],
             mode='markers',
             marker=dict(
                 size=[min(loc['count'] * 2, 30) for loc in locations],
@@ -8505,8 +8630,8 @@ def update_geographic_threat_map(n):
             margin=dict(l=0, r=0, t=40, b=0)
         )
 
-        unique_countries = len(set([loc['country'] for loc in locations]))
-        total_threats = len(threats)
+        unique_countries = len(set([loc['country_code'] for loc in locations if loc['country_code'] != '??']))
+        total_threats = sum(loc['count'] for loc in locations)
 
         return fig, f"{total_threats} Threats", f"{unique_countries} Countries"
 
@@ -8720,7 +8845,7 @@ def update_traffic_flow_sankey(n):
         for flow in flows:
             # Shorten device IP for display
             device_label = f"Device-{flow['device_ip'].split('.')[-1]}"
-            proto_label = flow['proto'] or 'tcp'
+            proto_label = flow['protocol'] or 'tcp'
             dest_label = f"→ {flow['dest_ip'].split('.')[-1]}"
 
             # Add nodes with colors
@@ -8891,7 +9016,7 @@ def update_forensic_device_options(n):
         # Get devices with connections or alerts
         cursor.execute('''
             SELECT DISTINCT d.device_ip, d.device_name, d.device_type,
-                   COUNT(DISTINCT c.uid) as connection_count,
+                   COUNT(DISTINCT c.id) as connection_count,
                    COUNT(DISTINCT a.id) as alert_count
             FROM devices d
             LEFT JOIN connections c ON d.device_ip = c.device_ip
@@ -8907,15 +9032,15 @@ def update_forensic_device_options(n):
 
         options = []
         for device in devices:
-            device_label = f"{device['ip']}"
-            if device['name']:
-                device_label += f" ({device['name']})"
+            device_label = f"{device['device_ip']}"
+            if device['device_name']:
+                device_label += f" ({device['device_name']})"
             if device['alert_count'] > 0:
                 device_label += f" - {device['alert_count']} alerts"
 
             options.append({
                 'label': device_label,
-                'value': device['ip']
+                'value': device['device_ip']
             })
 
         return options
@@ -8958,7 +9083,7 @@ def update_forensic_timeline(device_ip, n):
 
         # Get all events (connections + alerts) for this device
         cursor.execute('''
-            SELECT timestamp, 'connection' as event_type, dest_ip, dest_port, proto,
+            SELECT timestamp, 'connection' as event_type, dest_ip, dest_port, protocol,
                    bytes_sent, bytes_received, 'normal' as severity
             FROM connections
             WHERE device_ip = ?
@@ -8968,7 +9093,7 @@ def update_forensic_timeline(device_ip, n):
         connections = cursor.fetchall()
 
         cursor.execute('''
-            SELECT timestamp, 'alert' as event_type, severity, alert_type, explanation
+            SELECT timestamp, 'alert' as event_type, severity, explanation
             FROM alerts
             WHERE device_ip = ?
             ORDER BY timestamp DESC
@@ -8984,7 +9109,7 @@ def update_forensic_timeline(device_ip, n):
                 'timestamp': conn_event['timestamp'],
                 'type': 'connection',
                 'severity': 'normal',
-                'description': f"Connection to {conn_event['dest_ip']}:{conn_event['dest_port']} ({conn_event['proto']})",
+                'description': f"Connection to {conn_event['dest_ip']}:{conn_event['dest_port']} ({conn_event['protocol']})",
                 'bytes': conn_event['bytes_sent'] + conn_event['bytes_received']
             })
 
@@ -8993,7 +9118,7 @@ def update_forensic_timeline(device_ip, n):
                 'timestamp': alert_event['timestamp'],
                 'type': 'alert',
                 'severity': alert_event['severity'],
-                'description': f"{alert_event['alert_type']}: {alert_event['explanation']}",
+                'description': f"Alert: {alert_event['explanation']}",
                 'bytes': 0
             })
 
@@ -9346,7 +9471,7 @@ def update_automated_response_dashboard(n):
             SELECT MAX(timestamp) as last_time FROM (
                 SELECT timestamp FROM alerts WHERE timestamp >= datetime("now", "-24 hours")
                 UNION ALL
-                SELECT created_at as timestamp FROM devices WHERE is_blocked = 1
+                SELECT first_seen as timestamp FROM devices WHERE is_blocked = 1
             )
         ''')
         result = cursor.fetchone()
@@ -9369,9 +9494,9 @@ def update_automated_response_dashboard(n):
 
         # Get recent blocks
         cursor.execute('''
-            SELECT ip, name, created_at FROM devices
+            SELECT device_ip, device_name, first_seen FROM devices
             WHERE is_blocked = 1
-            ORDER BY created_at DESC
+            ORDER BY first_seen DESC
             LIMIT 10
         ''')
         blocked_devices = cursor.fetchall()
@@ -9379,14 +9504,14 @@ def update_automated_response_dashboard(n):
         for device in blocked_devices:
             actions_log.append({
                 'type': 'block',
-                'timestamp': device['created_at'],
-                'description': f"Blocked device {device['ip']}" + (f" ({device['name']})" if device['name'] else ""),
+                'timestamp': device['first_seen'],
+                'description': f"Blocked device {device['device_ip']}" + (f" ({device['device_name']})" if device['device_name'] else ""),
                 'severity': 'danger'
             })
 
         # Get recent critical alerts
         cursor.execute('''
-            SELECT device_ip, alert_type, severity, timestamp, explanation
+            SELECT device_ip, severity, timestamp, explanation
             FROM alerts
             WHERE timestamp >= datetime("now", "-24 hours")
             ORDER BY timestamp DESC
@@ -9398,7 +9523,7 @@ def update_automated_response_dashboard(n):
             actions_log.append({
                 'type': 'alert',
                 'timestamp': alert['timestamp'],
-                'description': f"Alert: {alert['alert_type']} on {alert['device_ip']} - {alert['explanation']}",
+                'description': f"Alert on {alert['device_ip']}: {alert['explanation']}",
                 'severity': alert['severity']
             })
 
@@ -9467,7 +9592,7 @@ def update_vulnerability_scanner(n):
         cursor = conn.cursor()
 
         # Get all devices
-        cursor.execute('SELECT ip, name, device_type FROM devices')
+        cursor.execute('SELECT device_ip, device_name, device_type FROM devices')
         devices = cursor.fetchall()
 
         vulnerabilities = []
@@ -9480,7 +9605,7 @@ def update_vulnerability_scanner(n):
                 SELECT DISTINCT dest_port FROM connections
                 WHERE device_ip = ?
                 AND timestamp >= datetime("now", "-24 hours")
-            ''', (device['ip'],))
+            ''', (device['device_ip'],))
             ports = [row['dest_port'] for row in cursor.fetchall()]
 
             # Telnet (port 23) - Critical vulnerability
@@ -9560,7 +9685,7 @@ def update_vulnerability_scanner(n):
             # Add device vulnerabilities to main list
             for vuln in device_vulns:
                 vuln['device_ip'] = device['device_ip']
-                vuln['device_name'] = device['name'] or device['device_ip']
+                vuln['device_name'] = device['device_name'] or device['device_ip']
                 vulnerabilities.append(vuln)
 
         conn.close()
@@ -9637,71 +9762,234 @@ def update_vulnerability_scanner(n):
     [Input('refresh-interval', 'n_intervals')]
 )
 def update_api_integration_hub(n):
-    """Display status of external API integrations."""
+    """Display status of external API integrations with real connectivity checks."""
     try:
-        # In a real implementation, these would check actual API connectivity
-        # For now, showing configured status
+        import requests
+        import os
 
-        api_integrations = [
-            {
-                'name': 'VirusTotal',
-                'status': 'configured',
-                'description': 'Malware and URL scanning',
-                'icon': 'fa-virus',
-                'color': 'success'
-            },
-            {
-                'name': 'Shodan',
-                'status': 'not_configured',
-                'description': 'IoT device search engine',
-                'icon': 'fa-search',
-                'color': 'warning'
-            },
-            {
-                'name': 'MITRE ATT&CK',
-                'status': 'configured',
-                'description': 'Threat intelligence framework',
-                'icon': 'fa-shield-alt',
-                'color': 'success'
-            },
-            {
-                'name': 'AbuseIPDB',
-                'status': 'configured',
-                'description': 'IP reputation database',
-                'icon': 'fa-database',
-                'color': 'success'
-            },
-            {
-                'name': 'AlienVault OTX',
-                'status': 'not_configured',
-                'description': 'Open threat exchange',
-                'icon': 'fa-exchange-alt',
-                'color': 'warning'
-            }
-        ]
+        def check_api_health(api_name, test_url, headers=None, timeout=2):
+            """Check if API is reachable and responding."""
+            try:
+                response = requests.get(test_url, headers=headers, timeout=timeout)
+                if response.status_code in [200, 401, 403]:  # 401/403 means API exists but needs auth
+                    return 'connected', 'success'
+                return 'error', 'danger'
+            except:
+                return 'not_configured', 'warning'
+
+        # Check actual API connectivity
+        api_integrations = []
+
+        # AbuseIPDB - Check from environment or config (FREE tier: 1000 queries/day)
+        abuseipdb_key = os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY') or os.getenv('ABUSEIPDB_API_KEY')
+        if not abuseipdb_key:
+            try:
+                abuseipdb_key = config.get('threat_intel', 'abuseipdb_key')
+            except:
+                pass
+
+        if abuseipdb_key and abuseipdb_key != 'your_abuseipdb_key_here': # pragma: allowlist secret
+            status, color = check_api_health(
+                'AbuseIPDB',
+                'https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8',
+                headers={'Key': abuseipdb_key, 'Accept': 'application/json'}
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+
+        api_integrations.append({
+            'name': 'AbuseIPDB',
+            'status': status,
+            'description': 'IP reputation (FREE: 1000/day)',
+            'icon': 'fa-database',
+            'color': color,
+            'signup_url': 'https://www.abuseipdb.com/register',
+            'env_var': 'THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY'
+        })
+
+        # VirusTotal - Check for API key in environment (FREE tier: 4 requests/minute)
+        vt_key = os.getenv('VIRUSTOTAL_API_KEY')
+        if vt_key:
+            status, color = check_api_health(
+                'VirusTotal',
+                'https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8',
+                headers={'x-apikey': vt_key}
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+        api_integrations.append({
+            'name': 'VirusTotal',
+            'status': status,
+            'description': 'Malware scanning (FREE: 4 req/min)',
+            'icon': 'fa-virus',
+            'color': color,
+            'signup_url': 'https://www.virustotal.com/gui/join-us',
+            'env_var': 'VIRUSTOTAL_API_KEY'
+        })
+
+        # Shodan - Check for API key (FREE tier: 100 queries/month)
+        shodan_key = os.getenv('SHODAN_API_KEY')
+        if shodan_key:
+            status, color = check_api_health(
+                'Shodan',
+                f'https://api.shodan.io/api-info?key={shodan_key}'
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+        api_integrations.append({
+            'name': 'Shodan',
+            'status': status,
+            'description': 'IoT search (FREE: 100/month)',
+            'icon': 'fa-search',
+            'color': color,
+            'signup_url': 'https://account.shodan.io/register',
+            'env_var': 'SHODAN_API_KEY'
+        })
+
+        # AlienVault OTX - Check for API key (100% FREE)
+        otx_key = os.getenv('OTX_API_KEY')
+        if otx_key:
+            # Use a better endpoint that works with new accounts
+            status, color = check_api_health(
+                'OTX',
+                'https://otx.alienvault.com/api/v1/indicators/IPv4/8.8.8.8/general',
+                headers={'X-OTX-API-KEY': otx_key}
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+        api_integrations.append({
+            'name': 'AlienVault OTX',
+            'status': status,
+            'description': 'Open threat exchange (100% FREE)',
+            'icon': 'fa-exchange-alt',
+            'color': color,
+            'signup_url': 'https://otx.alienvault.com/accounts/signup',
+            'env_var': 'OTX_API_KEY'
+        })
+
+        # GreyNoise - Check for API key (FREE tier: 50 queries/day)
+        greynoise_key = os.getenv('GREYNOISE_API_KEY')
+        if greynoise_key:
+            status, color = check_api_health(
+                'GreyNoise',
+                'https://api.greynoise.io/v3/community/8.8.8.8',
+                headers={'key': greynoise_key}
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+        api_integrations.append({
+            'name': 'GreyNoise',
+            'status': status,
+            'description': 'Internet scanner intel (FREE: 50/day)',
+            'icon': 'fa-radar',
+            'color': color,
+            'signup_url': 'https://www.greynoise.io/signup',
+            'env_var': 'GREYNOISE_API_KEY'
+        })
+
+        # IPinfo - Check for API key (FREE tier: 50k queries/month)
+        ipinfo_key = os.getenv('IPINFO_API_KEY')
+        if ipinfo_key:
+            status, color = check_api_health(
+                'IPinfo',
+                f'https://ipinfo.io/8.8.8.8?token={ipinfo_key}'
+            )
+        else:
+            status, color = 'not_configured', 'warning'
+        api_integrations.append({
+            'name': 'IPinfo',
+            'status': status,
+            'description': 'IP geolocation (FREE: 50k/month)',
+            'icon': 'fa-map-marked-alt',
+            'color': color,
+            'signup_url': 'https://ipinfo.io/signup',
+            'env_var': 'IPINFO_API_KEY'
+        })
+
+        # MITRE ATT&CK - Public resource (100% FREE, no API key needed)
+        status, color = check_api_health('MITRE', 'https://attack.mitre.org/')
+        api_integrations.append({
+            'name': 'MITRE ATT&CK',
+            'status': status,
+            'description': 'Threat framework (100% FREE, no key)',
+            'icon': 'fa-shield-alt',
+            'color': color,
+            'signup_url': None,
+            'env_var': None
+        })
 
         api_cards = []
         for api in api_integrations:
+            status_text = {
+                'connected': '✓ Connected',
+                'not_configured': 'Configure',
+                'error': '✗ Connection Failed'
+            }.get(api['status'], api['status'].title())
+
             status_badge = dbc.Badge(
-                "✓ Connected" if api['status'] == 'configured' else "Not Configured",
+                status_text,
                 color=api['color'],
-                className="ms-2"
+                className="ms-2",
+                pill=True
             )
+
+            # Build card content
+            card_content = [
+                html.Div([
+                    html.I(className=f"fa {api['icon']} fa-2x text-{api['color']} me-3"),
+                    html.Div([
+                        html.H5([api['name'], status_badge], className="mb-1"),
+                        html.P(api['description'], className="mb-0 text-muted small")
+                    ], style={'flex': '1'})
+                ], className="d-flex align-items-center")
+            ]
+
+            # Add configuration instructions if not configured
+            if api['status'] == 'not_configured' and api.get('env_var'):
+                card_content.append(
+                    html.Div([
+                        html.Hr(className="my-2"),
+                        html.Div([
+                            html.Strong("To configure:", className="text-primary small"),
+                            html.Ol([
+                                html.Li([
+                                    "Sign up: ",
+                                    html.A("Get API Key", href=api['signup_url'], target="_blank", className="text-decoration-none")
+                                ], className="small mb-1"),
+                                html.Li([
+                                    "Add to .env file: ",
+                                    html.Code(f"{api['env_var']}=your_key_here", className="bg-light px-2 py-1 rounded")
+                                ], className="small mb-1"),
+                                html.Li("Restart dashboard", className="small")
+                            ], className="mb-0 ps-3", style={'fontSize': '0.85rem'})
+                        ], className="bg-light p-2 rounded")
+                    ])
+                )
+            elif api['status'] == 'connected':
+                card_content.append(
+                    html.Div([
+                        html.Hr(className="my-2"),
+                        html.Div([
+                            html.I(className="fa fa-check-circle text-success me-2"),
+                            html.Span("API is active and responding", className="small text-success")
+                        ])
+                    ])
+                )
+            elif api['status'] == 'error' and api.get('env_var'):
+                card_content.append(
+                    html.Div([
+                        html.Hr(className="my-2"),
+                        html.Div([
+                            html.I(className="fa fa-exclamation-triangle text-danger me-2"),
+                            html.Span("Check API key or network connection", className="small text-danger")
+                        ])
+                    ])
+                )
 
             api_cards.append(
                 dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.Div([
-                                html.I(className=f"fa {api['icon']} fa-2x text-{api['color']} me-3"),
-                                html.Div([
-                                    html.H5([api['name'], status_badge], className="mb-1"),
-                                    html.P(api['description'], className="mb-0 text-muted")
-                                ])
-                            ], className="d-flex align-items-center")
-                        ])
-                    ])
-                ], className="mb-3 border-0 shadow-sm")
+                    dbc.CardBody(card_content)
+                ], className="mb-3 border-0 shadow-sm hover-card")
             )
 
         return html.Div(api_cards)
@@ -9839,16 +10127,22 @@ def update_performance_analytics(n):
         cursor.execute('''
             SELECT
                 AVG(bytes_sent + bytes_received) as avg_bytes,
+                AVG(duration) as avg_duration,
                 COUNT(*) as conn_count,
                 MIN(timestamp) as first_conn,
-                MAX(timestamp) as last_conn
+                MAX(timestamp) as last_conn,
+                SUM(CASE WHEN conn_state IN ('S0', 'REJ', 'RSTO', 'RSTOS0', 'RSTR') THEN 1 ELSE 0 END) as failed_conns
             FROM connections
             WHERE timestamp >= datetime("now", "-1 hour")
         ''')
         result = cursor.fetchone()
 
-        # Simulated latency (in real system, would come from actual measurements)
-        avg_latency = "12ms"
+        # Calculate real latency from connection duration (if available)
+        if result['avg_duration'] and result['avg_duration'] > 0:
+            avg_latency_ms = result['avg_duration'] * 1000  # Convert seconds to ms
+            avg_latency = f"{avg_latency_ms:.1f}ms"
+        else:
+            avg_latency = "N/A"  # Not available from current data
 
         # Calculate throughput
         if result['avg_bytes'] and result['conn_count']:
@@ -9857,8 +10151,12 @@ def update_performance_analytics(n):
         else:
             throughput = "0 Mbps"
 
-        # Simulated packet loss
-        packet_loss = "0.1%"
+        # Calculate packet loss approximation from failed connections
+        if result['conn_count'] and result['conn_count'] > 0:
+            loss_rate = (result['failed_conns'] / result['conn_count']) * 100
+            packet_loss = f"{loss_rate:.2f}%"
+        else:
+            packet_loss = "N/A"
 
         # Generate performance graph
         cursor.execute('''
@@ -10537,7 +10835,9 @@ def load_widget_preferences(is_open, prefs):
 # Save widget preferences
 @app.callback(
     [Output('widget-preferences', 'data'),
-     Output('customize-layout-modal', 'is_open', allow_duplicate=True)],
+     Output('customize-layout-modal', 'is_open', allow_duplicate=True),
+     Output('widget-prefs-toast', 'is_open'),
+     Output('widget-prefs-toast', 'children')],
     [Input('save-widget-prefs', 'n_clicks')],
     [State('widget-toggles', 'value')],
     prevent_initial_call=True
@@ -10550,8 +10850,13 @@ def save_widget_preferences(n_clicks, selected_widgets):
             'features': 'features' in selected_widgets,
             'rightPanel': 'rightPanel' in selected_widgets
         }
-        return prefs, False  # Save and close modal
-    return dash.no_update, dash.no_update
+
+        # Count enabled sections
+        enabled_count = sum(prefs.values())
+        message = f"Layout preferences saved! {enabled_count}/3 sections enabled and applied."
+
+        return prefs, False, True, message  # Save, close modal, show toast
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 if __name__ == '__main__':
     main()

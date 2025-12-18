@@ -3,97 +3,64 @@
 **Version**: 1.0
 **Base URL**: `http://<raspberry-pi-ip>:8050`
 **Protocol**: HTTP/HTTPS
-**Authentication**: Session-based (login required for most endpoints)
+**Architecture**: Dash Single-Page Application with Flask backend
+**Authentication**: Session-based (Flask-Login)
+
+---
+
+## 📋 Overview
+
+IoTSentinel is built using the **Dash framework** (Plotly), which provides a component-based single-page application. The system uses **Dash callbacks** for data updates rather than traditional REST API endpoints.
+
+### Architecture
+
+```
+Web Browser
+    ↓ HTTP/HTTPS + WebSocket
+Dash Single-Page Application
+    ↓ @app.callback decorators
+Database Layer (db_manager.py)
+    ↓ SQLite
+network_monitoring.db
+```
+
+### Available Interfaces
+
+1. **Web Dashboard** - Main user interface (GET /)
+2. **Health Endpoint** - REST API for monitoring (GET /health)
+3. **Dash Callbacks** - Internal component updates (automatic)
+4. **Database Layer** - Direct database access (programmatic)
 
 ---
 
 ## 📋 Table of Contents
 
-1. [Authentication](#authentication)
-2. [Health & Monitoring](#health--monitoring)
-3. [Dashboard Endpoints](#dashboard-endpoints)
-4. [Device Management](#device-management)
-5. [Alert Management](#alert-management)
-6. [Analytics & Reports](#analytics--reports)
-7. [System Configuration](#system-configuration)
-8. [WebSocket Updates](#websocket-updates)
+1. [Health Monitoring (REST Endpoint)](#health-monitoring-rest-endpoint)
+2. [Web Dashboard](#web-dashboard)
+3. [Dashboard Operations](#-dashboard-operations)
+   - [Device Management](#device-management-operations)
+   - [Alert Management](#alert-management-operations)
+   - [System Configuration](#system-configuration-operations)
+   - [Data Export](#data-export-operations)
+   - [Analytics & Visualizations](#analytics--visualization-updates)
+   - [AI Assistant](#ai-assistant-operations)
+4. [Authentication](#authentication)
+5. [Data Access Layer](#data-access-layer)
+6. [Real-Time Updates](#real-time-updates)
+7. [Security](#security)
+8. [Integration Guide](#integration-guide)
 
 ---
 
-## 🔐 Authentication
-
-### Login
-
-**Endpoint**: `POST /login`
-
-**Description**: Authenticate user and create session
-
-**Request**:
-```http
-POST /login HTTP/1.1
-Content-Type: application/x-www-form-urlencoded
-
-username=admin&password=your_password
-```
-
-**Response** (Success):
-```http
-HTTP/1.1 302 Found
-Location: /
-Set-Cookie: session=...; HttpOnly; Path=/
-```
-
-**Response** (Failure - Invalid Credentials):
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: text/html
-
-Invalid username or password
-```
-
-**Response** (Failure - Rate Limited):
-```http
-HTTP/1.1 429 Too Many Requests
-Content-Type: text/html
-
-Too many failed attempts. Please try again in 5 minutes.
-```
-
-**Rate Limiting**:
-- **Limit**: 5 failed attempts per IP
-- **Lockout Duration**: 5 minutes
-- **Implementation**: `utils/rate_limiter.py`
-
----
-
-### Logout
-
-**Endpoint**: `POST /logout`
-
-**Description**: End user session
-
-**Request**:
-```http
-POST /logout HTTP/1.1
-Cookie: session=...
-```
-
-**Response**:
-```http
-HTTP/1.1 302 Found
-Location: /login
-Set-Cookie: session=; Expires=Thu, 01 Jan 1970 00:00:00 GMT
-```
-
----
-
-## 🏥 Health & Monitoring
+## 🏥 Health Monitoring (REST Endpoint)
 
 ### Health Check
 
 **Endpoint**: `GET /health`
 
 **Description**: System health status (no authentication required)
+
+**Implementation**: `dashboard/app.py:133-200`
 
 **Request**:
 ```http
@@ -105,45 +72,28 @@ GET /health HTTP/1.1
 {
   "status": "healthy",
   "timestamp": "2025-12-16T01:30:00Z",
-  "version": "1.0.0",
   "components": {
     "database": {
-      "status": "up",
-      "response_time_ms": 12
+      "status": "healthy",
+      "device_count": 12
     },
-    "zeek_parser": {
-      "status": "running",
-      "last_activity": "2025-12-16T01:29:45Z"
-    },
-    "ml_engine": {
-      "status": "ready",
-      "models_loaded": true
-    },
-    "alerting": {
-      "status": "active"
+    "authentication": {
+      "status": "healthy",
+      "user_count": 1
     }
-  },
-  "system": {
-    "cpu_percent": 42.3,
-    "memory_percent": 67.8,
-    "disk_percent": 45.2,
-    "uptime_hours": 168.5
   }
 }
 ```
 
-**Response** (Degraded):
+**Response** (Unhealthy):
 ```json
 {
-  "status": "degraded",
+  "status": "unhealthy",
   "timestamp": "2025-12-16T01:30:00Z",
   "components": {
     "database": {
-      "status": "up"
-    },
-    "zeek_parser": {
-      "status": "stopped",
-      "error": "Zeek service not running"
+      "status": "unhealthy",
+      "error": "Connection timeout"
     }
   }
 }
@@ -153,19 +103,23 @@ GET /health HTTP/1.1
 - `200 OK`: All components healthy
 - `503 Service Unavailable`: One or more critical components down
 
-**Implementation**: `dashboard/app.py:88-155`
+**Use Cases**:
+- Container health checks
+- Deployment verification
+- Uptime monitoring
+- Load balancer health probes
 
 ---
 
-## 📊 Dashboard Endpoints
+## 🖥️ Web Dashboard
 
 ### Main Dashboard
 
 **Endpoint**: `GET /`
 
-**Description**: Main dashboard page with device list, alerts, and analytics
+**Description**: Single-page Dash application with all features
 
-**Authentication**: Required
+**Authentication**: Required (Flask-Login)
 
 **Request**:
 ```http
@@ -173,571 +127,937 @@ GET / HTTP/1.1
 Cookie: session=...
 ```
 
-**Response**:
-```http
-HTTP/1.1 200 OK
-Content-Type: text/html
+**Response**: HTML page with embedded React components
 
-<!DOCTYPE html>
-<html>
-  <!-- Dashboard HTML -->
-</html>
-```
-
-**Features Displayed**:
-- Device list with status indicators
-- Real-time alert feed
+**Features**:
+- Device list with real-time status
+- Alert feed with severity indicators
 - Network activity heatmap
 - Alert timeline (7 days)
 - System health metrics
+- AI Assistant chat
+- Settings panel
+- Export functionality
+
+**Update Frequency**: Components refresh every 5 seconds via Dash callbacks
 
 ---
 
-### Get Dashboard Data (AJAX)
+## 🎛️ Dashboard Operations
 
-**Endpoint**: `POST /_dash-update-component`
+All dashboard operations are performed through **Dash callbacks** triggered by user interactions. Below are the key operations available:
 
-**Description**: Dash internal endpoint for component updates (WebSocket-like)
+### Device Management Operations
 
-**Authentication**: Required
+#### Update Device Metadata
 
-**Request**:
-```json
-{
-  "output": "device-table.data",
-  "inputs": [],
-  "state": []
-}
+**Callback**: `save_device_changes` @ `app.py:4244`
+
+**Trigger**: Edit device modal → Save button
+
+**Operation**:
+```python
+db_manager.update_device_metadata(
+    device_ip=ip,
+    custom_name=name,
+    device_type=device_type,
+    notes=notes
+)
 ```
 
-**Response**:
-```json
-{
-  "response": {
-    "device-table": {
-      "data": [
-        {
-          "ip": "192.168.1.100",
-          "name": "Living Room Camera",
-          "type": "Camera",
-          "status": "Active",
-          "last_seen": "2 minutes ago"
-        }
-      ]
-    }
-  }
-}
-```
-
-**Note**: This is a Dash framework internal endpoint. For direct API access, use the endpoints below.
+**Fields**:
+- Custom name
+- Device type
+- Group assignment
+- Notes/description
 
 ---
 
-## 🖥️ Device Management
+#### Trust Device
 
-### Get All Devices
+**Callback**: `toggle_device_trust` @ `app.py:5012`
 
-**Endpoint**: `GET /api/devices`
+**Trigger**: Device card → Trust toggle switch
 
-**Description**: Retrieve list of all discovered devices
-
-**Authentication**: Required
-
-**Request**:
-```http
-GET /api/devices HTTP/1.1
-Cookie: session=...
+**Operation**:
+```python
+db_manager.update_device_trust(device_ip, is_trusted=True)
 ```
 
-**Response**:
-```json
-{
-  "devices": [
-    {
-      "id": 1,
-      "ip": "192.168.1.100",
-      "mac": "AA:BB:CC:DD:EE:FF",
-      "hostname": "camera-living-room",
-      "device_type": "Camera",
-      "manufacturer": "Ring",
-      "custom_name": "Living Room Camera",
-      "first_seen": "2025-12-01T10:30:00Z",
-      "last_seen": "2025-12-16T01:28:00Z",
-      "status": "active",
-      "total_connections": 1523,
-      "data_sent_mb": 45.2,
-      "data_received_mb": 128.7
-    }
-  ],
-  "total": 12,
-  "timestamp": "2025-12-16T01:30:00Z"
-}
-```
-
-**Query Parameters**:
-- `status` (optional): Filter by status (`active`, `inactive`)
-- `type` (optional): Filter by device type (`Camera`, `Speaker`, etc.)
-
-**Example**:
-```http
-GET /api/devices?status=active&type=Camera HTTP/1.1
-```
+**Effect**:
+- Marks device as trusted
+- Excludes from lockdown mode blocking
+- Visual indicator updates (green badge)
 
 ---
 
-### Update Device
+#### Block Device
 
-**Endpoint**: `POST /api/devices/{device_ip}`
+**Callback**: `toggle_device_block` @ `app.py:5053`
 
-**Description**: Update device custom name, notes, or group
+**Trigger**: Device card → Block button
 
-**Authentication**: Required
-
-**Request**:
-```json
-{
-  "custom_name": "Kitchen Camera",
-  "notes": "Monitors kitchen entrance",
-  "group": "Security Cameras"
-}
+**Operation**:
+```python
+firewall_manager.block_device(device_ip)
+db_manager.update_device_block_status(device_ip, is_blocked=True)
 ```
 
-**Response** (Success):
-```json
-{
-  "success": true,
-  "device_ip": "192.168.1.100",
-  "updated_fields": ["custom_name", "notes", "group"]
-}
-```
+**Effect**:
+- Adds firewall rule to block device
+- Updates database status
+- Device appears as "Blocked" in UI
 
-**HTTP Status Codes**:
-- `200 OK`: Device updated successfully
-- `404 Not Found`: Device IP not found
-- `400 Bad Request`: Invalid input data
+**Requirements**: Firewall manager must be configured
 
 ---
 
-### Block Device
+#### View Device Details
 
-**Endpoint**: `POST /api/devices/{device_ip}/block`
+**Callback**: `toggle_device_details` @ `app.py:4879`
 
-**Description**: Block device using firewall rules
+**Trigger**: Click device card or list item
 
-**Authentication**: Required (admin role)
+**Displays**:
+- Device information (IP, MAC, hostname, manufacturer)
+- Connection statistics (total connections, data sent/received)
+- Activity timeline
+- Trust/block controls
+- Recent connections
 
-**Request**:
-```json
-{
-  "reason": "Suspicious activity detected",
-  "duration_hours": 24
-}
-```
-
-**Response** (Success):
-```json
-{
-  "success": true,
-  "device_ip": "192.168.1.100",
-  "blocked": true,
-  "unblock_at": "2025-12-17T01:30:00Z"
-}
-```
-
-**Note**: Requires `scripts/firewall_manager.py` configured
+**Data Sources**:
+- `db_manager.get_device_by_ip()`
+- `db_manager.get_device_connections()`
+- `db_manager.get_device_baseline()`
 
 ---
 
-## 🚨 Alert Management
+### Alert Management Operations
 
-### Get Alerts
+#### View Alert Details
 
-**Endpoint**: `GET /api/alerts`
+**Callback**: `toggle_alert_details` @ `app.py:5208`
 
-**Description**: Retrieve recent alerts
+**Trigger**: Click alert card → "Details" button
 
-**Authentication**: Required
+**Displays**:
+- Alert severity and timestamp
+- Device information
+- Educational explanation
+- Baseline vs Today comparison charts
+- MITRE ATT&CK mapping
+- Contributing factors
+- Recommended actions
 
-**Request**:
-```http
-GET /api/alerts?severity=critical&limit=50 HTTP/1.1
-Cookie: session=...
-```
-
-**Query Parameters**:
-- `severity` (optional): Filter by severity (`critical`, `high`, `medium`, `low`)
-- `limit` (optional): Maximum alerts to return (default: 100)
-- `acknowledged` (optional): Filter by acknowledgment status (`true`, `false`)
-- `days` (optional): Number of days to look back (default: 7)
-
-**Response**:
-```json
-{
-  "alerts": [
-    {
-      "id": 42,
-      "device_ip": "192.168.1.100",
-      "device_name": "Living Room Camera",
-      "severity": "critical",
-      "anomaly_score": 0.98,
-      "timestamp": "2025-12-16T01:15:00Z",
-      "explanation": {
-        "summary": "Device sent 500MB of data in 1 hour (normal: 10MB/hour)",
-        "top_features": [
-          {
-            "feature": "bytes_sent",
-            "value": 524288000,
-            "normal_range": "5000000-15000000"
-          },
-          {
-            "feature": "connection_count",
-            "value": 45,
-            "normal_range": "5-10"
-          }
-        ],
-        "contributing_factors": [
-          "Unusual data volume",
-          "High connection frequency",
-          "Destination: unknown IP"
-        ]
-      },
-      "acknowledged": false,
-      "acknowledged_by": null,
-      "acknowledged_at": null
-    }
-  ],
-  "total": 1,
-  "unacknowledged_count": 1
-}
-```
+**Implementation**: `get_alert_with_context()` @ `app.py:722`
 
 ---
 
-### Acknowledge Alert
+#### Filter Alerts by Severity
 
-**Endpoint**: `POST /api/alerts/{alert_id}/acknowledge`
+**Callback**: `update_alert_filter` @ `app.py:5235`
 
-**Description**: Mark alert as acknowledged
+**Trigger**: Alert severity filter dropdown
 
-**Authentication**: Required
+**Options**:
+- All alerts
+- Critical only
+- High severity
+- Medium severity
+- Low severity
 
-**Request**:
-```json
-{
-  "notes": "Investigated - firmware update in progress"
-}
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "alert_id": 42,
-  "acknowledged": true,
-  "acknowledged_by": "admin",
-  "acknowledged_at": "2025-12-16T01:30:00Z"
-}
-```
+**Effect**: Updates alert feed to show only selected severity level
 
 ---
 
-## 📈 Analytics & Reports
+#### Acknowledge Alert
 
-### Get Network Statistics
+**Database Method**: `db_manager.acknowledge_alert()`
 
-**Endpoint**: `GET /api/analytics/network-stats`
+**Location**: `db_manager.py:404-417`
 
-**Description**: Overall network statistics
-
-**Authentication**: Required
-
-**Request**:
-```http
-GET /api/analytics/network-stats?days=7 HTTP/1.1
+**Operation**:
+```python
+db_manager.acknowledge_alert(
+    alert_id=42,
+    acknowledged_by="admin",
+    notes="Investigated - false positive"
+)
 ```
 
-**Response**:
-```json
-{
-  "period": {
-    "start": "2025-12-09T00:00:00Z",
-    "end": "2025-12-16T00:00:00Z",
-    "days": 7
-  },
-  "devices": {
-    "total": 12,
-    "active": 10,
-    "inactive": 2
-  },
-  "connections": {
-    "total": 15234,
-    "avg_per_day": 2176,
-    "anomalous": 12,
-    "anomaly_rate": 0.08
-  },
-  "traffic": {
-    "total_mb": 1523.4,
-    "upload_mb": 432.1,
-    "download_mb": 1091.3
-  },
-  "alerts": {
-    "total": 12,
-    "critical": 1,
-    "high": 3,
-    "medium": 6,
-    "low": 2
-  }
-}
-```
+**Effect**:
+- Marks alert as acknowledged
+- Records username and timestamp
+- Optional notes field
 
 ---
 
-### Export Data (CSV)
+### System Configuration Operations
 
-**Endpoint**: `GET /api/export/{data_type}`
+#### Lockdown Mode
 
-**Description**: Export data as CSV
+**Callback**: `handle_lockdown_confirmation` @ `app.py:5368`
 
-**Authentication**: Required
+**Trigger**: Settings → Firewall Control → Lockdown toggle → Confirm
 
-**Data Types**: `connections`, `alerts`, `devices`
-
-**Request**:
-```http
-GET /api/export/connections?start_date=2025-12-01&end_date=2025-12-16 HTTP/1.1
+**Operation**:
+```python
+if lockdown_enabled:
+    firewall_manager.enable_lockdown_mode()  # Block all untrusted devices
+else:
+    firewall_manager.disable_lockdown_mode()  # Restore normal access
 ```
 
-**Query Parameters**:
-- `start_date` (required): Start date (YYYY-MM-DD)
-- `end_date` (required): End date (YYYY-MM-DD)
+**Effect**:
+- Blocks ALL untrusted devices using firewall rules
+- Only trusted devices can access network
+- Emergency security measure
 
-**Response**:
-```http
-HTTP/1.1 200 OK
-Content-Type: text/csv
-Content-Disposition: attachment; filename="connections_2025-12-01_2025-12-16.csv"
-
-timestamp,device_ip,dest_ip,dest_port,protocol,bytes_sent,bytes_received,duration
-2025-12-16T01:00:00Z,192.168.1.100,8.8.8.8,443,tcp,1234,5678,45.2
-...
-```
-
-**Implementation**: `dashboard/app.py:434-449`
+**Requirements**:
+- Firewall manager configured
+- At least one device marked as trusted (recommended)
 
 ---
 
-## ⚙️ System Configuration
+#### Email Notifications Setup
 
-### Get System Status
+**Callback**: `load_email_settings` @ `app.py:5444`
 
-**Endpoint**: `GET /api/system/status`
+**Trigger**: Navigate to Settings → Notifications
 
-**Description**: Current system status and metrics
+**Configurable Settings**:
+- Email alerts enabled/disabled
+- Email address
+- Notification severity threshold (critical, high, all)
 
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "monitoring": {
-    "enabled": true,
-    "paused": false
-  },
-  "components": {
-    "zeek": {
-      "running": true,
-      "last_log": "2025-12-16T01:29:45Z"
-    },
-    "ml_engine": {
-      "running": true,
-      "models_loaded": true,
-      "last_inference": "2025-12-16T01:29:30Z"
-    },
-    "database": {
-      "size_mb": 245.7,
-      "connections_count": 15234,
-      "oldest_record": "2025-11-16T00:00:00Z"
-    }
-  },
-  "system_metrics": {
-    "cpu_percent": 42.3,
-    "memory_percent": 67.8,
-    "disk_percent": 45.2,
-    "temperature_celsius": 58.4
-  }
-}
-```
+**Storage**: User preferences in database
 
 ---
 
-### Pause/Resume Monitoring
+#### Pause/Resume Monitoring
 
-**Endpoint**: `POST /api/system/monitoring`
+**Database Method**: `db_manager.set_monitoring_status()`
 
-**Description**: Pause or resume network monitoring
+**Trigger**: Settings → Privacy Controls
 
-**Authentication**: Required (admin role)
+**Operations**:
+```python
+# Pause monitoring
+db_manager.set_monitoring_status(enabled=False)
+# Effect: Stops Zeek log parsing and ML inference
 
-**Request** (Pause):
-```json
-{
-  "action": "pause"
-}
+# Resume monitoring
+db_manager.set_monitoring_status(enabled=True)
+# Effect: Restarts monitoring services
 ```
 
-**Response**:
-```json
-{
-  "success": true,
-  "monitoring_enabled": false,
-  "message": "Monitoring paused. Zeek and ML inference stopped."
-}
-```
-
-**Request** (Resume):
-```json
-{
-  "action": "resume"
-}
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "monitoring_enabled": true,
-  "message": "Monitoring resumed. Zeek and ML inference started."
-}
-```
-
-**Implementation**: `dashboard/app.py:167-207`
+**Use Case**: Privacy control when not monitoring needed
 
 ---
 
-## 🔄 WebSocket Updates
+### Data Export Operations
 
-### Real-Time Updates
+#### Quick Export (CSV)
 
-**Description**: Dashboard uses Dash's built-in WebSocket for real-time updates
+**Callback**: `quick_export` @ `app.py:10654-10697`
 
-**Endpoint**: `ws://<raspberry-pi-ip>:8050/_dash-update-component`
+**Trigger**: Settings → Export → "Export Report" button
 
-**Update Frequency**: Every 5 seconds (configurable)
+**Process**:
+1. Fetches recent alerts (last 1000)
+2. Fetches all devices
+3. Generates CSV format
+4. Returns download file
+
+**Export Contents**:
+- Alert history (timestamp, severity, device, explanation)
+- Device inventory (IP, MAC, hostname, vendor, trust status)
+
+**Format**: CSV file with two sections (Alerts, Devices)
+
+**Filename**: `iotsentinel_report_YYYY-MM-DD.csv`
+
+---
+
+### Analytics & Visualization Updates
+
+All charts and graphs update automatically every 5 seconds via these callbacks:
+
+#### Network Activity Graph
+
+**Callback**: `update_network_graph` @ `app.py:4497`
+
+**Displays**: Device connections visualized as network graph
+
+**Data**: Recent connections between devices and external IPs
+
+---
+
+#### Traffic Timeline
+
+**Callback**: `update_traffic_timeline` @ `app.py:4684`
+
+**Displays**: Network traffic over time (24 hours)
+
+**Metrics**: Bytes sent/received per hour
+
+---
+
+#### Protocol Distribution
+
+**Callback**: `update_protocol_pie` @ `app.py:4703`
+
+**Displays**: Pie chart of protocol usage (TCP, UDP, ICMP)
+
+**Data**: Connection counts by protocol
+
+---
+
+#### System Metrics
+
+**Callback**: `update_system_metrics` @ `app.py:4329`
+
+**Displays**:
+- CPU usage
+- Memory usage
+- Disk usage
+- System temperature (Raspberry Pi)
+
+**Source**: `utils/metrics_collector.py`
+
+---
+
+#### Device Status Summary
+
+**Callback**: `update_devices_status_compact` @ `app.py:4724`
+
+**Displays**: Count of active/inactive/blocked devices
+
+**Updates**: Every 5 seconds
+
+---
+
+#### Active Alerts Count
+
+**Callback**: `update_header_stats` @ `app.py:4345`
+
+**Displays**: Alert counts by severity in header
+
+**Breakdown**: Critical, High, Medium, Low
+
+---
+
+### AI Assistant Operations
+
+#### Chat with AI Assistant
+
+**Implementation**: `call_ollama_api()` @ `app.py:223`
+
+**Trigger**: Type message in AI Assistant chat
+
+**Process**:
+1. Check if Ollama API available
+2. Build context (device count, alert count, recent alerts)
+3. Send prompt to Ollama
+4. Return AI-generated response
+5. Fallback to rule-based responses if Ollama unavailable
+
+**Supported Queries**:
+- "Is my network secure?"
+- "What devices are connected?"
+- "Explain this alert"
+- "How does IoTSentinel work?"
+- "What is lockdown mode?"
+
+**Fallback**: Rule-based responses @ `get_rule_based_response()` @ `app.py:265`
+
+---
+
+### Onboarding & Help
+
+#### Launch Onboarding Tour
+
+**Callback**: `launch_onboarding_modal` @ `app.py:5253`
+
+**Trigger**: First login or Settings → "Restart Tour"
+
+**Steps**:
+1. Welcome & overview
+2. Device monitoring explanation
+3. Alert system walkthrough
+4. Settings & controls guide
+
+**Navigation**: Next/Previous buttons, step indicators
+
+---
+
+## 🔐 Authentication
+
+### Login Flow
+
+**Implementation**: Flask-Login with session management
+
+**Location**: `dashboard/app.py:123-130`
+
+**Process**:
+1. User navigates to `/`
+2. If not authenticated → redirect to login page
+3. User submits credentials via form
+4. Flask-Login validates credentials
+5. Session created with HttpOnly cookie
+6. Redirect back to dashboard
+
+**Session Configuration**:
+- Storage: Server-side Flask sessions
+- Cookie: HttpOnly (prevents XSS)
+- Timeout: 24 hours
+- Secret Key: Environment variable `FLASK_SECRET_KEY`
+
+### Rate Limiting
+
+**Implementation**: `utils/rate_limiter.py`, `dashboard/app.py:91`
+
+**Configuration**:
+```python
+login_rate_limiter = LoginRateLimiter(
+    max_attempts=5,
+    lockout_duration=300  # 5 minutes
+)
+```
+
+**Protection**:
+- 5 failed attempts per IP → 5-minute lockout
+- Prevents brute force attacks
+- IP-based tracking
+
+---
+
+## 📊 Data Access Layer
+
+Since IoTSentinel uses Dash callbacks rather than REST endpoints, data access is handled through the **database layer** or **Dash callbacks**.
+
+### Database Manager
+
+**Location**: `database/db_manager.py` (876 lines)
+
+**Key Methods**:
+
+#### Devices
+
+```python
+# Get all devices
+devices = db_manager.get_all_devices()
+# Returns: List[Dict] with device information
+
+# Get specific device
+device = db_manager.get_device_by_ip(device_ip)
+# Returns: Dict or None
+
+# Update device metadata
+db_manager.update_device_metadata(
+    device_ip="192.168.1.100",
+    custom_name="Living Room Camera",
+    notes="Monitors entrance",
+    group="Security"
+)
+
+# Get device connections
+connections = db_manager.get_device_connections(
+    device_ip="192.168.1.100",
+    limit=100
+)
+```
+
+**Implementation**: `db_manager.py:48-118, 150-168, 380-469`
+
+#### Alerts
+
+```python
+# Get recent alerts
+alerts = db_manager.get_recent_alerts(
+    limit=100,
+    severity=None,  # or 'critical', 'high', 'medium', 'low'
+    acknowledged=False
+)
+# Returns: List[Dict] with alert information
+
+# Acknowledge alert
+db_manager.acknowledge_alert(
+    alert_id=42,
+    acknowledged_by="admin",
+    notes="Investigated - firmware update"
+)
+
+# Get alert statistics
+stats = db_manager.get_alert_statistics(days=7)
+```
+
+**Implementation**: `db_manager.py:246-269, 404-417`
+
+#### Analytics
+
+```python
+# Get network statistics
+stats = db_manager.get_network_statistics(days=7)
+# Returns: Dict with connection counts, traffic volumes, etc.
+
+# Get device activity timeline
+timeline = db_manager.get_device_activity_timeline(
+    device_ip="192.168.1.100",
+    days=7
+)
+```
+
+### Dash Callbacks
+
+**Count**: 162 callbacks in `dashboard/app.py`
+
+**Pattern**:
+```python
+@app.callback(
+    Output('device-table', 'data'),
+    Input('interval-component', 'n_intervals')
+)
+def update_device_table(n):
+    """Update device table every 5 seconds"""
+    devices = db_manager.get_all_devices()
+    return devices  # Dash automatically serializes to JSON
+```
+
+**Key Callbacks**:
+- Device table updates
+- Alert feed updates
+- Analytics chart updates
+- System health metrics
+- Export functionality
+- Device management actions
+
+---
+
+## 🔄 Real-Time Updates
+
+### Update Mechanism
+
+**Technology**: Dash built-in WebSocket
+
+**Endpoint**: `ws://<raspberry-pi-ip>:8050/_dash-update-component` (automatic)
+
+**Frequency**: Configurable interval component (default: 5 seconds)
+
+**How It Works**:
+1. Interval component triggers every 5 seconds
+2. Callbacks execute and fetch new data
+3. Dash serializes data to JSON
+4. WebSocket pushes updates to browser
+5. React components re-render automatically
 
 **Updated Components**:
-- Device table
+- Device list and status
 - Alert feed
 - Network activity charts
-- System health metrics
+- System metrics
+- Connection counts
 
-**Example WebSocket Message** (Device Update):
-```json
-{
-  "output": "device-table.data",
-  "response": {
-    "props": {
-      "data": [
-        {
-          "ip": "192.168.1.100",
-          "status": "Active",
-          "last_seen": "Just now"
-        }
-      ]
-    }
-  }
-}
+**No manual WebSocket code required** - Dash handles all serialization and transport.
+
+---
+
+## 📥 Data Export
+
+### CSV Export
+
+**Implementation**: Dash callback @ `dashboard/app.py:10648-10697`
+
+**Trigger**: Button click in web interface
+
+**Process**:
+1. User clicks "Export" button
+2. Callback fetches alerts and devices from database
+3. Generates CSV format in-memory
+4. Returns download file via `dcc.Download` component
+
+**Export Contents**:
+```csv
+IoTSentinel Security Report
+Generated: 2025-12-16 01:30:00
+
+=== ALERTS ===
+Timestamp,Severity,Device IP,Device Name,Explanation
+2025-12-16T01:15:00,critical,192.168.1.100,Living Room Camera,"High outbound traffic detected"
+
+=== DEVICES ===
+IP Address,MAC Address,Hostname,Vendor,First Seen,Last Seen,Trust Level
+192.168.1.100,AA:BB:CC:DD:EE:FF,camera-lr,Ring,2025-12-01,2025-12-16,trusted
 ```
 
-**Note**: WebSocket connection managed automatically by Dash framework
+**Access**: Via web dashboard Settings → Export section
 
 ---
 
 ## 🔒 Security
 
-### Authentication
+### Authentication & Sessions
 
-All endpoints except `/login` and `/health` require authentication.
+**Framework**: Flask-Login
 
-**Session Management**:
-- Sessions stored server-side
-- `HttpOnly` cookies prevent XSS
-- Secure flag enabled in production (HTTPS)
-- Session timeout: 24 hours
+**Features**:
+- Secure session management
+- HttpOnly cookies (prevents XSS)
+- Secure flag in production (HTTPS)
+- Bcrypt password hashing
+- 24-hour session timeout
+
+**Implementation**: `utils/auth_manager.py`, `dashboard/app.py:123-130`
 
 ### Rate Limiting
 
-**Login Endpoint**:
-- 5 failed attempts per IP = 5-minute lockout
-- Implementation: `utils/rate_limiter.py`
+**Login Protection**:
+- 5 attempts per IP maximum
+- 5-minute lockout after failed attempts
+- IP-based tracking
 
-**API Endpoints**:
-- No rate limiting currently (single-user home deployment)
-- Future: Consider rate limiting for `/api/*` endpoints
+**Implementation**: `utils/rate_limiter.py`
+
+### Database Security
+
+**Protection**:
+- Parameterized queries (prevents SQL injection)
+- Connection pooling with timeouts
+- Row-level access control via Flask-Login
 
 ### CSRF Protection
 
-- Built-in Dash CSRF protection
+**Framework**: Dash built-in CSRF protection
+
+**Features**:
 - Automatic CSRF tokens in forms
+- Token validation on POST requests
 
 ---
 
-## 📝 Error Responses
+## 🔗 Integration Guide
 
-### Standard Error Format
+### Option 1: Database Layer (Recommended)
 
-```json
-{
-  "error": true,
-  "message": "Device not found",
-  "code": "DEVICE_NOT_FOUND",
-  "timestamp": "2025-12-16T01:30:00Z"
-}
+**For**: Python scripts, automation, integrations
+
+**Method**: Import and use `db_manager.py` directly
+
+```python
+from database.db_manager import DatabaseManager
+
+# Initialize
+db = DatabaseManager('/path/to/network_monitoring.db')
+
+# Get devices
+devices = db.get_all_devices()
+for device in devices:
+    print(f"{device['device_ip']}: {device['device_name']}")
+
+# Get alerts
+alerts = db.get_recent_alerts(severity='critical', limit=10)
+for alert in alerts:
+    print(f"Alert: {alert['explanation']}")
+
+# Acknowledge alert
+db.acknowledge_alert(alert_id=42, acknowledged_by='script')
 ```
 
-### HTTP Status Codes
+**Advantages**:
+- ✅ Direct database access
+- ✅ No HTTP overhead
+- ✅ Full Python API
+- ✅ Type hints and documentation
 
-| Code | Meaning | When Used |
-|------|---------|-----------|
-| 200 | OK | Successful request |
-| 400 | Bad Request | Invalid input data |
-| 401 | Unauthorized | Not authenticated |
-| 403 | Forbidden | Insufficient permissions |
-| 404 | Not Found | Resource doesn't exist |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Server-side error |
-| 503 | Service Unavailable | System component down |
+**Disadvantages**:
+- ❌ Requires Python
+- ❌ Must run on same host or access SQLite file
+- ❌ No authentication layer
 
 ---
 
-## 🛠️ Implementation Notes
+### Option 2: Web Scraping (Not Recommended)
+
+**For**: External tools that can't access database
+
+**Method**: Parse HTML from web dashboard
+
+**Disadvantages**:
+- ❌ Fragile (breaks with UI changes)
+- ❌ Requires authentication handling
+- ❌ HTML parsing overhead
+- ❌ Not designed for programmatic access
+
+**Better Alternative**: Request REST API implementation if needed
+
+---
+
+### Option 3: Future REST API (Planned)
+
+If you need a REST API for external integrations, this can be added:
+
+**Implementation Pattern**:
+```python
+# dashboard/api_routes.py (would need to be created)
+from flask import Blueprint, jsonify
+from flask_login import login_required
+
+api_bp = Blueprint('api', __name__, url_prefix='/api')
+
+@api_bp.route('/devices', methods=['GET'])
+@login_required
+def get_devices():
+    devices = db_manager.get_all_devices()
+    return jsonify({
+        'devices': devices,
+        'total': len(devices),
+        'timestamp': datetime.now().isoformat()
+    })
+
+# Register in app.py
+server.register_blueprint(api_bp)
+```
+
+**Effort**: 40-60 hours for full REST API implementation
+
+---
+
+## 📝 Error Handling
+
+### Database Errors
+
+```python
+try:
+    devices = db_manager.get_all_devices()
+except Exception as e:
+    logger.error(f"Database error: {e}")
+    # Handle gracefully
+```
+
+### Authentication Errors
+
+**Unauthorized Access**:
+- Redirect to login page
+- Clear invalid sessions
+- Log access attempts
+
+### Rate Limit Errors
+
+**Response**: "Too many failed attempts. Please try again in 5 minutes."
+
+---
+
+## 🛠️ Development & Testing
+
+### Running the Dashboard
+
+```bash
+# Start the dashboard
+python dashboard/app.py
+
+# Access at:
+http://localhost:8050
+```
+
+### Health Check Testing
+
+```bash
+# Test health endpoint
+curl http://localhost:8050/health
+
+# Expected response (healthy):
+{"status":"healthy","timestamp":"2025-12-16T01:30:00Z","components":{...}}
+```
+
+### Database Testing
+
+```python
+# Direct database testing
+import sqlite3
+
+conn = sqlite3.connect('data/network_monitoring.db')
+conn.row_factory = sqlite3.Row
+cursor = conn.cursor()
+
+cursor.execute('SELECT * FROM devices')
+devices = cursor.fetchall()
+
+for device in devices:
+    print(dict(device))
+```
+
+---
+
+## 📚 Code Locations
+
+| Component | File | Lines |
+|-----------|------|-------|
+| Main Dashboard | `dashboard/app.py` | 10,899 total |
+| Health Endpoint | `dashboard/app.py` | 133-200 |
+| Authentication Setup | `dashboard/app.py` | 123-130 |
+| **Dashboard Operations** | | |
+| - Save Device Changes | `dashboard/app.py` | 4244 |
+| - Toggle Device Trust | `dashboard/app.py` | 5012 |
+| - Toggle Device Block | `dashboard/app.py` | 5053 |
+| - View Device Details | `dashboard/app.py` | 4879 |
+| - View Alert Details | `dashboard/app.py` | 5208 |
+| - Filter Alerts | `dashboard/app.py` | 5235 |
+| - Lockdown Mode | `dashboard/app.py` | 5368 |
+| - Email Settings | `dashboard/app.py` | 5444 |
+| - Quick Export | `dashboard/app.py` | 10648-10697 |
+| - Network Graph | `dashboard/app.py` | 4497 |
+| - Traffic Timeline | `dashboard/app.py` | 4684 |
+| - Protocol Distribution | `dashboard/app.py` | 4703 |
+| - System Metrics | `dashboard/app.py` | 4329 |
+| - Device Status Summary | `dashboard/app.py` | 4724 |
+| - Alert Stats Header | `dashboard/app.py` | 4345 |
+| - AI Assistant | `dashboard/app.py` | 223, 265 |
+| - Onboarding Tour | `dashboard/app.py` | 5253 |
+| **Database Layer** | | |
+| Database Manager | `database/db_manager.py` | 876 total |
+| - Device Operations | `database/db_manager.py` | 48-118, 380-469 |
+| - Alert Operations | `database/db_manager.py` | 246-269, 404-417 |
+| - Connection Data | `database/db_manager.py` | 150-168 |
+| **Security & Auth** | | |
+| Auth Manager | `utils/auth_manager.py` | Full file |
+| Rate Limiter | `utils/rate_limiter.py` | Full file |
+| Firewall Manager | `scripts/firewall_manager.py` | Full file |
+
+---
+
+## 📊 Technical Specifications
 
 ### Technology Stack
 
-- **Framework**: Dash (Plotly) - Python web framework
-- **Server**: Flask (underlying Dash server)
-- **WebSocket**: Dash built-in WebSocket for real-time updates
-- **Database**: SQLite (accessed via `database/db_manager.py`)
-- **Authentication**: Flask sessions with bcrypt password hashing
+- **Frontend**: Dash (React components)
+- **Backend**: Flask (via Dash)
+- **Database**: SQLite3
+- **Authentication**: Flask-Login + bcrypt
+- **Real-time**: Dash WebSocket (automatic)
+- **Styling**: Dash Bootstrap Components
 
-### Code Locations
+### Performance
 
-- **Main Dashboard**: `dashboard/app.py` (10,899 lines)
-- **Database API**: `database/db_manager.py` (876 lines)
-- **Health Endpoint**: `dashboard/app.py:88-155`
-- **Authentication**: `dashboard/app.py:43,66,3653-3694`
-- **Device Management**: `database/db_manager.py:48-118,380-469`
-- **Alert Management**: `alerts/alert_manager.py`
+- **Dashboard Load**: < 2 seconds
+- **Component Updates**: Every 5 seconds
+- **Database Queries**: Cached where appropriate
+- **Concurrent Users**: Single-user design (home deployment)
+
+### Scalability
+
+**Current Design**:
+- ✅ Single home network
+- ✅ 10-50 IoT devices
+- ✅ Single user
+- ✅ SQLite database
+
+**Scaling Considerations**:
+- For multi-user: Add PostgreSQL/MySQL
+- For high traffic: Add Redis caching
+- For multiple networks: Add tenant isolation
 
 ---
 
-## 📚 Additional Resources
+## 🎯 Use Cases
 
-- **System Configuration**: See `docs/SYSTEM_CONFIGURATION_MANUAL.md`
+### 1. Health Monitoring
+
+```bash
+# Docker health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+  CMD curl -f http://localhost:8050/health || exit 1
+```
+
+### 2. Device Monitoring
+
+**Method**: Use web dashboard or database layer
+
+```python
+# Check device status
+device = db_manager.get_device_by_ip('192.168.1.100')
+if device['last_seen'] > datetime.now() - timedelta(minutes=10):
+    print("Device online")
+else:
+    print("Device offline")
+```
+
+### 3. Alert Processing
+
+**Method**: Query alerts via database layer
+
+```python
+# Get critical alerts
+critical_alerts = db_manager.get_recent_alerts(
+    severity='critical',
+    acknowledged=False
+)
+
+# Send notifications
+for alert in critical_alerts:
+    send_notification(alert['explanation'])
+    db_manager.acknowledge_alert(alert['id'], 'automation')
+```
+
+### 4. Reporting
+
+**Method**: Use export callback or direct database queries
+
+```python
+# Generate weekly report
+stats = db_manager.get_network_statistics(days=7)
+devices = db_manager.get_all_devices()
+alerts = db_manager.get_recent_alerts(days=7)
+
+# Create report
+report = generate_weekly_report(stats, devices, alerts)
+email_report(report)
+```
+
+---
+
+## ❓ FAQ
+
+**Q: Why no REST API endpoints?**
+
+A: IoTSentinel uses the Dash framework, which provides a component-based architecture with built-in callbacks and WebSocket support. This eliminates the need for manual REST endpoint creation for the web interface. For programmatic access, use the database layer directly.
+
+**Q: Can I integrate with external tools?**
+
+A: Yes, use the database layer (`db_manager.py`) for Python integrations. For other languages, access the SQLite database directly or request REST API implementation.
+
+**Q: How do I get device data programmatically?**
+
+A: Import and use `DatabaseManager` from `database/db_manager.py`:
+```python
+from database.db_manager import DatabaseManager
+db = DatabaseManager('/path/to/db')
+devices = db.get_all_devices()
+```
+
+**Q: Is there an API for mobile apps?**
+
+A: Not currently. The web dashboard is mobile-responsive. For native mobile apps, a REST API layer would need to be implemented.
+
+**Q: How do I monitor system health?**
+
+A: Use the `/health` endpoint for health checks. This is the only REST endpoint and requires no authentication.
+
+**Q: Can I export data via API?**
+
+A: Export is currently available through the web dashboard. For programmatic export, query the database directly and format as needed.
+
+---
+
+## 📞 Support & Documentation
+
+- **System Configuration**: `docs/SYSTEM_CONFIGURATION_MANUAL.md`
 - **Deployment Guide**: See deployment documentation
-- **Testing**: API endpoints tested in `tests/test_dashboard_api_integration.py`
+- **Database Schema**: `database/schema.sql`
+- **Testing**: `tests/test_dashboard_api_integration.py`
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: December 16, 2025
 **Version**: 1.0
+**Architecture**: Dash Single-Page Application
 **Maintained by**: Ritik Sah
