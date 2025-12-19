@@ -509,3 +509,205 @@ class AuthManager:
         except sqlite3.Error as e:
             logger.error(f"Error updating settings for user {user_id}: {e}")
             return False
+
+    def create_password_reset_token(self, email: str) -> Optional[str]:
+        """
+        Create a password reset token for a user.
+
+        Args:
+            email: User's email address
+
+        Returns:
+            Reset token if user exists, None otherwise
+        """
+        import secrets
+        from datetime import datetime, timedelta
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Check if user exists
+            cursor.execute("SELECT id FROM users WHERE email = ? AND is_active = 1", (email,))
+            user_row = cursor.fetchone()
+
+            if not user_row:
+                conn.close()
+                return None
+
+            user_id = user_row[0]
+
+            # Generate reset token
+            reset_token = secrets.token_urlsafe(32)
+            expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+
+            # Store token
+            cursor.execute("""
+                INSERT INTO password_reset_tokens (user_id, token, expires_at)
+                VALUES (?, ?, ?)
+            """, (user_id, reset_token, expires_at))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Created password reset token for user ID: {user_id}")
+            return reset_token
+
+        except sqlite3.Error as e:
+            logger.error(f"Error creating password reset token: {e}")
+            return None
+
+    def verify_reset_token(self, token: str) -> Optional[int]:
+        """
+        Verify password reset token and return user ID if valid.
+
+        Args:
+            token: Reset token
+
+        Returns:
+            User ID if token is valid, None otherwise
+        """
+        from datetime import datetime
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT user_id, expires_at, used
+                FROM password_reset_tokens
+                WHERE token = ?
+            """, (token,))
+
+            token_row = cursor.fetchone()
+
+            if not token_row:
+                conn.close()
+                return None
+
+            user_id, expires_at, used = token_row
+
+            # Check if token is already used
+            if used:
+                conn.close()
+                logger.warning(f"Attempted to use already-used reset token")
+                return None
+
+            # Check if token is expired
+            expires_datetime = datetime.fromisoformat(expires_at)
+            if datetime.now() > expires_datetime:
+                conn.close()
+                logger.warning(f"Attempted to use expired reset token")
+                return None
+
+            conn.close()
+            return user_id
+
+        except sqlite3.Error as e:
+            logger.error(f"Error verifying reset token: {e}")
+            return None
+
+    def reset_password_with_token(self, token: str, new_password: str) -> bool:
+        """
+        Reset password using a valid token.
+
+        Args:
+            token: Reset token
+            new_password: New password
+
+        Returns:
+            True if password reset successfully, False otherwise
+        """
+        try:
+            # Verify token
+            user_id = self.verify_reset_token(token)
+            if not user_id:
+                return False
+
+            # Change password
+            if not self.change_password(user_id, new_password):
+                return False
+
+            # Mark token as used
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE password_reset_tokens
+                SET used = 1
+                WHERE token = ?
+            """, (token,))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Password reset completed for user ID: {user_id}")
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error resetting password with token: {e}")
+            return False
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user data by username.
+
+        Args:
+            username: Username to look up
+
+        Returns:
+            Dictionary with user data if found, None otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, created_at, last_login
+                FROM users
+                WHERE username = ?
+            """, (username,))
+
+            user_row = cursor.fetchone()
+            conn.close()
+
+            if user_row:
+                return dict(user_row)
+            return None
+
+        except sqlite3.Error as e:
+            logger.error(f"Error getting user by username {username}: {e}")
+            return None
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user data by email.
+
+        Args:
+            email: Email to look up
+
+        Returns:
+            Dictionary with user data if found, None otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, created_at, last_login
+                FROM users
+                WHERE email = ?
+            """, (email,))
+
+            user_row = cursor.fetchone()
+            conn.close()
+
+            if user_row:
+                return dict(user_row)
+            return None
+
+        except sqlite3.Error as e:
+            logger.error(f"Error getting user by email {email}: {e}")
+            return None

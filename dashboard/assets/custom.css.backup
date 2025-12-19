@@ -1889,7 +1889,7 @@ body.dark-mode .offcanvas.notification-drawer-custom {
   padding: 1.5rem !important;
 }
 
-body.dark-mode .offcanvas-header {
+body.dark-mode .offcanvas-body {
   background: rgba(30, 41, 59, 0.7) !important;
   backdrop-filter: blur(20px) !important;
   border-bottom: 1px solid var(--border-color) !important;
@@ -1908,6 +1908,110 @@ body.dark-mode .offcanvas-header {
 /* ============================================================================
  * DARK MODE SPECIFIC ENHANCEMENTS
  * ============================================================================ */
+
+/* ============================================================================
+ * GLASSMORPHISM TOAST MESSAGES - V2 (Colored Glass)
+ * ============================================================================ */
+
+.toast {
+  /* Base glass effect - will be overridden by specific types */
+  background-color: var(--bg-glass) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+  opacity: 1 !important;
+  transition: all 0.4s ease-in-out !important;
+  color: var(--text-primary) !important;
+}
+
+.toast-header {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+
+.toast-body {
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+}
+
+/* Colored Glass for Dark Mode */
+body.dark-mode .toast.bg-success,
+body.dark-theme .toast.bg-success {
+  background-color: rgba(52, 211, 153, 0.15) !important;
+  border: 1px solid rgba(52, 211, 153, 0.3) !important;
+  box-shadow: 0 0 25px rgba(52, 211, 153, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-danger,
+body.dark-theme .toast.bg-danger {
+  background-color: rgba(248, 113, 113, 0.15) !important;
+  border: 1px solid rgba(248, 113, 113, 0.3) !important;
+  box-shadow: 0 0 25px rgba(248, 113, 113, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-warning,
+body.dark-theme .toast.bg-warning {
+  background-color: rgba(251, 191, 36, 0.15) !important;
+  border: 1px solid rgba(251, 191, 36, 0.3) !important;
+  box-shadow: 0 0 25px rgba(251, 191, 36, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-info,
+body.dark-theme .toast.bg-info {
+  background-color: rgba(34, 211, 238, 0.15) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.25) !important;
+}
+
+/* Colored Glass for Light Mode */
+body.light-mode .toast.bg-success {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.25) !important;
+}
+
+body.light-mode .toast.bg-danger {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.25) !important;
+}
+
+body.light-mode .toast.bg-warning {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.25) !important;
+}
+
+body.light-mode .toast.bg-info {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25) !important;
+}
+
+/* Ensure close button is visible in both themes */
+.toast-header .btn-close {
+  filter: invert(0.8);
+}
+
+body.light-mode .toast-header .btn-close {
+    filter: none;
+}
+
+/* Custom square indicator for toasts */
+.toast-color-square {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 4px; /* Slightly rounded square */
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0; /* Prevent it from shrinking in flex containers */
+  margin-right: 0.5rem; /* Spacing from text */
+}
+
 
 body.dark-mode .card,
 body.dark-mode .cyber-card {
@@ -3053,4 +3157,277 @@ button.dropdown-toggle {
 /* Fix any backdrop or overlay issues */
 .modal-backdrop {
   z-index: 1040 !important;
+}
+
+/* ============================================================================
+ * LIVE THREAT FEED ANIMATIONS
+ * ============================================================================ */
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.threat-feed-item {
+  transition: all 0.2s ease;
+}
+
+.threat-feed-item:hover {
+  transform: translateX(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.threat-feed-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+}
+
+.threat-feed-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.threat-feed-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.threat-feed-container::-webkit-scrollbar-thumb {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+}
+
+.threat-feed-container::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(59, 130, 246, 0.5);
+}
+/* ============================================================================
+ * MASONRY GRID LAYOUT FOR DASHBOARD FEATURES
+ * ============================================================================ */
+
+.masonry-grid {
+  column-count: 4;
+  column-gap: 1.25rem;
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.masonry-item {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-bottom: 1.25rem;
+  display: inline-block;
+  width: 100%;
+}
+
+/* Responsive columns */
+@media (max-width: 1400px) {
+  .masonry-grid {
+    column-count: 3;
+  }
+}
+
+@media (max-width: 992px) {
+  .masonry-grid {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 576px) {
+  .masonry-grid {
+    column-count: 1;
+  }
+}
+
+/* Enhanced card styles for Pinterest-style masonry */
+.masonry-item .glass-card {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 16px !important;
+  overflow: hidden;
+}
+
+.masonry-item .glass-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Variable card heights with rich content */
+.masonry-item.xl-card {
+  min-height: 280px;
+}
+
+.masonry-item.xl-card .card-body {
+  padding: 2.5rem 2rem !important;
+}
+
+.masonry-item.large {
+  min-height: 220px;
+}
+
+.masonry-item.large .card-body {
+  padding: 2rem 1.5rem !important;
+}
+
+.masonry-item.medium {
+  min-height: 180px;
+}
+
+.masonry-item.medium .card-body {
+  padding: 1.5rem !important;
+}
+
+.masonry-item.small {
+  min-height: 140px;
+}
+
+.masonry-item.small .card-body {
+  padding: 1.25rem !important;
+}
+
+.masonry-item.compact {
+  min-height: 110px;
+}
+
+.masonry-item.compact .card-body {
+  padding: 1rem !important;
+}
+
+/* Color-coded card backgrounds - Pinterest style */
+.masonry-card-purple {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-blue {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-green {
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-orange {
+  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-red {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-teal {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+  color: white !important;
+}
+
+.masonry-card-cyan {
+  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%) !important;
+  color: #1a202c !important;
+}
+
+.masonry-card-pink {
+  background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%) !important;
+  color: #1a202c !important;
+}
+
+.masonry-card-light {
+  background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important;
+  color: #1a202c !important;
+}
+
+.masonry-card-indigo {
+  background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%) !important;
+  color: white !important;
+}
+
+/* Card content styling for Pinterest look */
+.masonry-card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  line-height: 1.3;
+}
+
+.masonry-card-subtitle {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.masonry-card-description {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.masonry-card-icon {
+  margin-bottom: 1rem;
+  opacity: 0.95;
+}
+
+.masonry-card-badge {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+/* Stats/Metrics in cards */
+.masonry-card-stats {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.masonry-card-stat {
+  flex: 1;
+  text-align: center;
+}
+
+.masonry-card-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: block;
+}
+
+.masonry-card-stat-label {
+  font-size: 0.7rem;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.25rem;
+}
+
+/* Remove glass effect from colored cards */
+.masonry-item [class*="masonry-card-"]::before,
+.masonry-item [class*="masonry-card-"]::after {
+  display: none !important;
+}
+
+/* Icon sizing for different card sizes */
+.masonry-item.xl-card .fa,
+.masonry-item.large .fa {
+  font-size: 3rem !important;
+}
+
+.masonry-item.medium .fa {
+  font-size: 2.5rem !important;
+}
+
+.masonry-item.small .fa,
+.masonry-item.compact .fa {
+  font-size: 2rem !important;
 }
