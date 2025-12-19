@@ -50,6 +50,233 @@
   --dark-shadow: rgba(0, 0, 0, 0.4);
 
   /* ============================================================================
+ * ENHANCED LOGIN PAGE STYLES
+ * ============================================================================ */
+
+  /* Floating labels for inputs */
+  .floating-label {
+    position: relative;
+    margin-bottom: 1.5rem;
+  }
+
+  .floating-label label {
+    position: absolute;
+    top: 50%;
+    left: 3rem;
+    transform: translateY(-50%);
+    transition: all 0.3s ease;
+    color: var(--text-secondary);
+    pointer-events: none;
+    font-size: 0.95rem;
+  }
+
+  .floating-label input:focus ~ label,
+  .floating-label input:not(:placeholder-shown) ~ label {
+    top: -0.5rem;
+    left: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--accent-color);
+    background: var(--bg-primary);
+    padding: 0 0.5rem;
+  }
+
+  /* Custom checkbox styling */
+  .custom-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-color);
+    cursor: pointer;
+  }
+
+  /* Input focus animations */
+  .form-control:focus {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+  }
+
+  /* Forgot password link hover */
+  a[id="forgot-password-link"]:hover {
+    color: var(--accent-secondary) !important;
+    text-decoration: underline !important;
+  }
+
+  /* Password strength meter colors */
+  .password-weak {
+    background: #ef4444 !important;
+  }
+
+  .password-fair {
+    background: #f59e0b !important;
+  }
+
+  .password-good {
+    background: #10b981 !important;
+  }
+
+  .password-strong {
+    background: #059669 !important;
+  }
+
+  /* Validation icons */
+  .validation-success {
+    color: var(--success-color) !important;
+  }
+
+  .validation-error {
+    color: var(--danger-color) !important;
+  }
+
+  /* Button loading state */
+  .cyber-button-modern:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Glass modal styling */
+  .glass-modal .modal-content {
+    background: var(--bg-glass) !important;
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-modal .modal-header {
+    border-bottom: 1px solid var(--border-color);
+    background: linear-gradient(
+      135deg,
+      rgba(102, 126, 234, 0.1) 0%,
+      rgba(118, 75, 162, 0.1) 100%
+    );
+  }
+
+  .glass-modal .modal-footer {
+    border-top: 1px solid var(--border-color);
+  }
+
+  /* Trust signals styling */
+  .trust-signal {
+    animation: fadeIn 0.5s ease-in;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Input error shake animation */
+  @keyframes shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: translateX(-5px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: translateX(5px);
+    }
+  }
+
+  .input-error {
+    animation: shake 0.5s;
+    border-color: var(--danger-color) !important;
+  }
+
+  /* Success checkmark animation */
+  @keyframes checkmark {
+    0% {
+      transform: scale(0) rotate(45deg);
+    }
+    50% {
+      transform: scale(1.2) rotate(45deg);
+    }
+    100% {
+      transform: scale(1) rotate(45deg);
+    }
+  }
+
+  .checkmark-appear {
+    animation: checkmark 0.4s ease-in-out;
+  }
+
+  /* Login card entrance animation */
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(50px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-50px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .glass-card.hover-lift {
+    animation: slideInRight 0.6s ease-out;
+  }
+
+  /* Button hover micro-interactions */
+  .cyber-button-modern {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+  }
+
+  .cyber-button-modern:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px var(--accent-glow), 0 0 60px var(--accent-glow) !important;
+  }
+
+  .cyber-button-modern:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  /* Ripple effect for buttons */
+  .cyber-button-modern::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+
+  .cyber-button-modern:active::after {
+    width: 300px;
+    height: 300px;
+  }
+
+  /* ============================================================================
  * MODERN GLASSMORPHISM CARDS - LIQUID GLASS DESIGN
  * ============================================================================ */
 
@@ -546,96 +773,6 @@ body::before {
   padding: 20px;
   position: relative;
   z-index: 1;
-}
-
-/* ============================================================================
- * LOGIN PAGE STYLING - MATCHING MODAL STYLE
- * ============================================================================ */
-
-/* Login card - exact modal styling for better visibility */
-.container-fluid:has(#auth-tabs) .glass-card {
-  background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(15px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(15px) saturate(140%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  border-radius: 24px !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
-  position: relative !important;
-  overflow: hidden !important;
-  transform: translateZ(0) !important;
-  contain: layout style paint !important;
-}
-
-/* Animated gradient overlay matching modal */
-.container-fluid:has(#auth-tabs) .glass-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(102, 126, 234, 0.22) 0%,
-    rgba(240, 147, 251, 0.22) 50%,
-    rgba(79, 172, 254, 0.22) 100%
-  );
-  background-size: 300% 300%;
-  animation: gradientShift 25s linear infinite;
-  filter: blur(20px);
-  -webkit-filter: blur(20px);
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.65;
-  transform: translateZ(0);
-  will-change: background-position;
-  backface-visibility: hidden;
-}
-
-/* Ensure content appears above gradient */
-.container-fluid:has(#auth-tabs) .glass-card .card-body {
-  position: relative;
-  z-index: 1;
-}
-
-/* Tab styling */
-.container-fluid:has(#auth-tabs) .nav-tabs {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-
-.container-fluid:has(#auth-tabs) .nav-tabs .nav-link {
-  color: rgba(255, 255, 255, 0.7) !important;
-}
-
-.container-fluid:has(#auth-tabs) .nav-tabs .nav-link.active {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: #ffffff !important;
-  font-weight: 700 !important;
-}
-
-/* Input styling */
-.container-fluid:has(#auth-tabs) .input-group-text {
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  color: rgba(255, 255, 255, 0.9) !important;
-}
-
-.container-fluid:has(#auth-tabs) .form-control {
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  color: #ffffff !important;
-}
-
-.container-fluid:has(#auth-tabs) .form-control::placeholder {
-  color: rgba(255, 255, 255, 0.4) !important;
-}
-
-.container-fluid:has(#auth-tabs) .form-control:focus {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(102, 126, 234, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
 }
 
 /* ============================================================================
@@ -1979,7 +2116,7 @@ body.dark-mode .offcanvas.notification-drawer-custom {
   padding: 1.5rem !important;
 }
 
-body.dark-mode .offcanvas-header {
+body.dark-mode .offcanvas-body {
   background: rgba(30, 41, 59, 0.7) !important;
   backdrop-filter: blur(20px) !important;
   border-bottom: 1px solid var(--border-color) !important;
@@ -1998,6 +2135,109 @@ body.dark-mode .offcanvas-header {
 /* ============================================================================
  * DARK MODE SPECIFIC ENHANCEMENTS
  * ============================================================================ */
+
+/* ============================================================================
+ * GLASSMORPHISM TOAST MESSAGES - V2 (Colored Glass)
+ * ============================================================================ */
+
+.toast {
+  /* Base glass effect - will be overridden by specific types */
+  background-color: var(--bg-glass) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+  opacity: 1 !important;
+  transition: all 0.4s ease-in-out !important;
+  color: var(--text-primary) !important;
+}
+
+.toast-header {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+
+.toast-body {
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+}
+
+/* Colored Glass for Dark Mode */
+body.dark-mode .toast.bg-success,
+body.dark-theme .toast.bg-success {
+  background-color: rgba(52, 211, 153, 0.15) !important;
+  border: 1px solid rgba(52, 211, 153, 0.3) !important;
+  box-shadow: 0 0 25px rgba(52, 211, 153, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-danger,
+body.dark-theme .toast.bg-danger {
+  background-color: rgba(248, 113, 113, 0.15) !important;
+  border: 1px solid rgba(248, 113, 113, 0.3) !important;
+  box-shadow: 0 0 25px rgba(248, 113, 113, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-warning,
+body.dark-theme .toast.bg-warning {
+  background-color: rgba(251, 191, 36, 0.15) !important;
+  border: 1px solid rgba(251, 191, 36, 0.3) !important;
+  box-shadow: 0 0 25px rgba(251, 191, 36, 0.25) !important;
+}
+
+body.dark-mode .toast.bg-info,
+body.dark-theme .toast.bg-info {
+  background-color: rgba(34, 211, 238, 0.15) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.25) !important;
+}
+
+/* Colored Glass for Light Mode */
+body.light-mode .toast.bg-success {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.25) !important;
+}
+
+body.light-mode .toast.bg-danger {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.25) !important;
+}
+
+body.light-mode .toast.bg-warning {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.25) !important;
+}
+
+body.light-mode .toast.bg-info {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25) !important;
+}
+
+/* Ensure close button is visible in both themes */
+.toast-header .btn-close {
+  filter: invert(0.8);
+}
+
+body.light-mode .toast-header .btn-close {
+  filter: none;
+}
+
+/* Custom square indicator for toasts */
+.toast-color-square {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 4px; /* Slightly rounded square */
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0; /* Prevent it from shrinking in flex containers */
+  margin-right: 0.5rem; /* Spacing from text */
+}
 
 body.dark-mode .card,
 body.dark-mode .cyber-card {

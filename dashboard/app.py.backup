@@ -4,6 +4,9 @@ IoTSentinel Dashboard - Enhanced Educational Transparency Edition
 Complete implementation with onboarding, trust management, lockdown mode,
 voice alerts, enhanced 3D visualizations, and AI assistant.
 """
+# Eventlet monkey-patching MUST be done before any other imports
+import eventlet
+eventlet.monkey_patch()
 
 import base64
 import json
@@ -18,7 +21,7 @@ import random
 import psutil
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from dash import dcc, html, Input, Output, State, callback_context, ALL
+from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
 import requests
 import os
 import secrets
@@ -73,6 +76,16 @@ app = dash.Dash(
 )
 
 socketio = SocketIO(app.server, cors_allowed_origins="*")
+socketio = SocketIO(
+    app.server,
+    cors_allowed_origins="*",
+    async_mode='eventlet',
+    logger=True,
+    engineio_logger=True,
+    websocket_ping_interval=25, # Ping every 25 seconds
+    websocket_ping_timeout=60   # Timeout if no pong in 30 seconds
+)
+
 
 # Database setup
 DB_PATH = config.get('database', 'path')
@@ -1489,8 +1502,7 @@ login_layout = dbc.Container([
             })
         ], md=6, className="d-none d-md-flex align-items-center justify-content-center", style={
             "minHeight": "100vh",
-            "position": "relative",
-            "background": "var(--bg-secondary)"
+            "position": "relative"
         }),
 
         # RIGHT SIDE - Login/Register Form
@@ -1521,7 +1533,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-user", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1538,7 +1549,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1553,7 +1563,6 @@ login_layout = dbc.Container([
                                     dbc.Button(
                                         html.I(id="login-password-toggle", className="fa fa-eye"),
                                         id="login-password-toggle-btn",
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
                                     )
                                 ], className="mb-3"),
@@ -1584,7 +1593,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-envelope", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1601,7 +1609,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-user", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1618,7 +1625,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1632,7 +1638,6 @@ login_layout = dbc.Container([
                                     dbc.Button(
                                         html.I(id="register-password-toggle", className="fa fa-eye"),
                                         id="register-password-toggle-btn",
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
                                     )
                                 ], className="mb-3"),
@@ -1641,7 +1646,6 @@ login_layout = dbc.Container([
                                 dbc.InputGroup([
                                     dbc.InputGroupText(
                                         html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                     ),
                                     dbc.Input(
@@ -1655,7 +1659,6 @@ login_layout = dbc.Container([
                                     dbc.Button(
                                         html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
                                         id="register-password-confirm-toggle-btn",
-                                        className="glass-card",
                                         style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
                                     )
                                 ], className="mb-3"),
@@ -1675,7 +1678,6 @@ login_layout = dbc.Container([
                                     dbc.InputGroup([
                                         dbc.InputGroupText(
                                             html.I(className="fa fa-key", style={"color": "var(--accent-color)"}),
-                                            className="glass-card",
                                             style={"border": "1px solid var(--border-color)", "borderRight": "none"}
                                         ),
                                         dbc.Input(
@@ -1720,14 +1722,15 @@ login_layout = dbc.Container([
             })
         ], width=12, md=6, className="d-flex justify-content-center align-items-center", style={
             "minHeight": "100vh",
-            "padding": "2rem",
-            "background": "var(--bg-primary)"
+            "padding": "2rem"
         })
-    ], className="g-0 min-vh-100")
+    ], className="g-0 min-vh-100"),
+
+    # Toast container for login/register notifications
+    html.Div(id="toast-container", style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999})
 ], fluid=True, style={
     "position": "relative",
-    "minHeight": "100vh",
-    "background": "var(--bg-primary)"
+    "minHeight": "100vh"
 })
 
 # ============================================================================
@@ -1769,6 +1772,7 @@ dashboard_layout = dbc.Container([
                         ], color="link", id="notification-bell-button", className="text-white position-relative px-3"),
                         dbc.Button(html.I(className="fa fa-robot fa-lg"), color="link", id="open-chat-button", className="text-white px-3 ms-1"),
                         dbc.Button(html.I(className="fa fa-pause fa-lg", id="pause-icon"), color="link", id="pause-button", className="text-white px-3 ms-1"),
+                        dbc.Button(html.I(className="fa fa-volume-up fa-lg", id="voice-alert-icon"), color="link", id="voice-alert-toggle", className="text-white px-3 ms-1", title="Toggle Voice Alerts"),
                         dbc.Button(html.I(className="fa fa-moon fa-lg", id="dark-mode-icon"), color="link", id="dark-mode-toggle", className="text-white px-3 ms-1", title="Toggle Dark Mode"),
                         dbc.Button(html.I(className="fa fa-th fa-lg"), color="link", id="customize-layout-button", className="text-white px-3 ms-1", title="Customize Layout"),
                         dbc.DropdownMenu([
@@ -1810,11 +1814,12 @@ dashboard_layout = dbc.Container([
         ], className="p-4")
     ], className="mb-4 glass-card border-0 shadow-lg"),
 
-    # MODERN THREE-COLUMN GRID LAYOUT
+    # THREE COLUMN LAYOUT - Asymmetric 2-7-3 Layout
     dbc.Row([
-        # LEFT COLUMN - Box-Style Metrics & Devices
+        # LEFT COLUMN - Metrics, Network Activity, Devices, Quick Actions (2 cols)
         dbc.Col([
-            # Metrics Grid - Box Style (3 columns)
+            html.Div(id='metrics-section', children=[
+            # Metrics Boxes (2 columns for squarish layout)
             dbc.Row([
                 # CPU Usage Box
                 dbc.Col([
@@ -1823,9 +1828,9 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-microchip fa-2x mb-2 text-primary"),
                             html.H4(id="cpu-usage", className="mb-1 fw-bold text-gradient", style={"fontSize": "1rem"}),
                             html.P("CPU", className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
 
                 # RAM Usage Box
                 dbc.Col([
@@ -1834,9 +1839,9 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-memory fa-2x mb-2 text-success"),
                             html.H4(id="ram-usage", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("RAM", className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
 
                 # Bandwidth Usage Box
                 dbc.Col([
@@ -1845,9 +1850,9 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-exchange-alt fa-2x mb-2 text-info"),
                             html.H4(id="bandwidth-usage", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("Bandwidth", className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
 
                 # Threats Blocked Box
                 dbc.Col([
@@ -1856,9 +1861,9 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-shield-alt fa-2x mb-2 text-success"),
                             html.H4(id="threats-blocked", className="mb-1 fw-bold", style={"fontSize": "1rem"}),
                             html.P("Blocked", className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
 
                 # Privacy Score Box
                 dbc.Col([
@@ -1872,9 +1877,9 @@ dashboard_layout = dbc.Container([
                                        id="privacy-score-tooltip-trigger",
                                        style={"cursor": "pointer", "fontSize": "0.6rem"})
                             ], className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100", id="privacy-score-card", style={"cursor": "pointer"})
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
 
                 # Network Health Box
                 dbc.Col([
@@ -1883,11 +1888,36 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-wifi fa-2x mb-2", id="network-icon"),
                             html.H6(id="network-health", className="mb-1 fw-bold", style={"fontSize": "0.85rem"}),
                             html.P("Health", className="text-muted mb-0 small")
-                        ], className="p-2 text-center")
+                        ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100")
-                ], width=4, className="mb-2"),
+                ], width=6, className="mb-2"),
+            ], className="g-2 mb-3"),
 
-            ], className="g-2 mb-2"),
+            # Network Activity Card (moved above devices)
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-chart-line me-2", style={"color": "#6366f1"}),
+                    html.Span("Network Activity", className="fw-bold")
+                ], className="bg-gradient-primary text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                html.I(className="fa fa-laptop text-primary mb-1", style={"fontSize": "1.2rem"}),
+                                html.H6(id='device-count-stat', className="mb-0 fw-bold", style={"fontSize": "1.1rem"}),
+                                html.Small("Active (1h)", className="text-muted", style={"fontSize": "0.7rem"})
+                            ], className="text-center")
+                        ], width=6, className="mb-2"),
+                        dbc.Col([
+                            html.Div([
+                                html.I(className="fa fa-exchange-alt text-info mb-1", style={"fontSize": "1.2rem"}),
+                                html.H6(id='bandwidth-stat', className="mb-0 fw-bold", style={"fontSize": "1.1rem"}),
+                                html.Small("Connections", className="text-muted", style={"fontSize": "0.7rem"})
+                            ], className="text-center")
+                        ], width=6, className="mb-2")
+                    ], className="g-2")
+                ], className="p-2")
+            ], className="glass-card border-0 shadow hover-card mb-3"),
 
             # Devices Card
             dbc.Card([
@@ -1916,15 +1946,17 @@ dashboard_layout = dbc.Container([
                             "Device List"
                         ], className="text-muted mb-2", style={"fontSize": "0.85rem"}),
                         html.Div(id='active-devices-list',
-                                style={'height': '350px', 'overflowY': 'auto'},
+                                style={'height': '215px', 'overflowY': 'auto'},
                                 className="custom-scrollbar-modern")
                     ])
                 ], className="p-3")
-            ], className="glass-card border-0 shadow-lg hover-card")
-        ], width=4, className="mb-4", id="metrics-section"),
+            ], className="glass-card border-0 shadow-lg hover-card mb-3")
+            ])
+        ], width=2, className="mb-4"),
 
-        # CENTER COLUMN - Network Visualization
+        # CENTER COLUMN - Network Visualization and Charts (7 cols)
         dbc.Col([
+            # Network Topology Card
             dbc.Card([
                 dbc.CardHeader([
                     html.Div([
@@ -2010,6 +2042,7 @@ dashboard_layout = dbc.Container([
 
             # Analytics Cards - Stacked Layout
             dbc.Row([
+                # Protocol Distribution
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
@@ -2044,48 +2077,12 @@ dashboard_layout = dbc.Container([
                         )
                     ], className="glass-card border-0 shadow hover-card")
                 ], width=12)
-            ], className="g-3"),
+            ], className="g-3")
+        ], width=7, className="mb-4"),
 
-            # Dashboard Features Preview
-            html.Div([
-                html.H4([
-                    html.I(className="fa fa-th-large me-2"),
-                    "Dashboard Features"
-                ], className="text-center mt-4 mb-3 gradient-text"),
-
-                html.P("Access advanced security tools and configuration",
-                       className="text-center text-muted mb-0", style={"fontSize": "0.95rem"})
-            ], className="mt-3")
-        ], width=4, className="mb-4"),
-
-        # RIGHT COLUMN - Stats and Security Alerts
+        # RIGHT COLUMN - Security Status and Alerts (3 cols)
         dbc.Col([
-            # Network Status Card
-            dbc.Card([
-                dbc.CardHeader([
-                    html.I(className="fa fa-chart-line me-2", style={"color": "#6366f1"}),
-                    html.Span("Network Activity", className="fw-bold")
-                ], className="bg-gradient-primary text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
-                dbc.CardBody([
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div([
-                                html.I(className="fa fa-laptop text-primary mb-1", style={"fontSize": "1.2rem"}),
-                                html.H6(id='device-count-stat', className="mb-0 fw-bold", style={"fontSize": "1.1rem"}),
-                                html.Small("Active (1h)", className="text-muted", style={"fontSize": "0.7rem"})
-                            ], className="text-center")
-                        ], width=6, className="mb-2"),
-                        dbc.Col([
-                            html.Div([
-                                html.I(className="fa fa-exchange-alt text-info mb-1", style={"fontSize": "1.2rem"}),
-                                html.H6(id='bandwidth-stat', className="mb-0 fw-bold", style={"fontSize": "1.1rem"}),
-                                html.Small("Connections", className="text-muted", style={"fontSize": "0.7rem"})
-                            ], className="text-center")
-                        ], width=6, className="mb-2")
-                    ], className="g-2")
-                ], className="p-2")
-            ], className="glass-card border-0 shadow hover-card mb-3"),
-
+            html.Div(id='right-panel-section', children=[
             # Security Status Card
             dbc.Card([
                 dbc.CardHeader([
@@ -2113,7 +2110,60 @@ dashboard_layout = dbc.Container([
                 ], className="p-2")
             ], className="glass-card border-0 shadow hover-card mb-3"),
 
-            # Security Alerts Card
+            # Recent Activity Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-history me-2", style={"color": "#8b5cf6"}),
+                    html.Span("Recent Activity", className="fw-bold")
+                ], className="bg-gradient-purple text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
+                dbc.CardBody([
+                    html.Div(id='recent-activity-list', className="", style={"fontSize": "0.75rem"})
+                ], className="p-2", style={"minHeight": "150px"})
+            ], className="glass-card border-0 shadow hover-card mb-3"),
+
+            # Recommended Actions Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-lightbulb me-2", style={"color": "#fbbf24"}),
+                    html.Span("Recommendations", className="fw-bold")
+                ], className="bg-gradient-warning text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
+                dbc.CardBody([
+                    html.Div(id='recommendations-list', className="", style={"fontSize": "0.75rem"})
+                ], className="p-2", style={"minHeight": "120px"})
+            ], className="glass-card border-0 shadow hover-card mb-3"),
+
+            # Live Threat Feed Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.Div([
+                        html.Div([
+                            html.I(className="fa fa-bullseye me-2", style={"color": "#ef4444"}),
+                            html.Span("Live Threat Feed", className="fw-bold")
+                        ], className="d-flex align-items-center"),
+                        dbc.Badge("LIVE", color="danger", pill=True, className="pulse-badge")
+                    ], className="d-flex justify-content-between align-items-center w-100")
+                ], className="bg-gradient-danger text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
+                dbc.CardBody([
+                    html.Div(id='live-threat-feed', className="threat-feed-container", style={
+                        "maxHeight": "250px",
+                        "overflowY": "auto",
+                        "fontSize": "0.75rem"
+                    })
+                ], className="p-2")
+            ], className="glass-card border-0 shadow hover-card mb-3"),
+
+            # Predictive Threat Intelligence Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-brain me-2", style={"color": "#8b5cf6"}),
+                    html.Span("Threat Forecast (AI)", className="fw-bold")
+                ], className="bg-gradient-secondary text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
+                dbc.CardBody([
+                    html.Div(id='threat-forecast-content', style={"fontSize": "0.75rem"})
+                ], className="p-2", style={"minHeight": "100px"})
+            ], className="glass-card border-0 shadow hover-card mb-3"),
+
+            # Security Alerts Card (moved to last)
             dbc.Card([
                 dbc.CardHeader([
                     html.Div([
@@ -2145,101 +2195,36 @@ dashboard_layout = dbc.Container([
 
                     # Alerts Container (FIXED HEIGHT)
                     html.Div(id='alerts-container-compact',
-                            style={'height': '450px', 'overflowY': 'auto'},
+                            style={'height': '420px', 'overflowY': 'auto'},
                             className="custom-scrollbar-modern alerts-modern")
                 ], className="p-3", style={"paddingTop": "1rem !important"})
-            ], className="glass-card border-0 shadow-lg hover-card"),
+            ], className="glass-card border-0 shadow-lg hover-card")
+            ])
+        ], width=3, className="mb-4")
+    ], className="g-3"),
 
-            # Quick Actions Card
+    # Dashboard Features Section Header - Floating Style
+    dbc.Row([
+        dbc.Col([
             dbc.Card([
-                dbc.CardHeader([
-                    html.I(className="fa fa-bolt me-2", style={"color": "#f59e0b"}),
-                    html.Span("Quick Actions", className="fw-bold")
-                ], className="bg-gradient-warning text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
                 dbc.CardBody([
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Button([
-                                html.I(className="fa fa-sync-alt me-1"),
-                                "Refresh"
-                            ], id="quick-refresh-btn", color="primary", size="sm", className="w-100 mb-2")
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Button([
-                                html.I(className="fa fa-search me-1"),
-                                "Scan"
-                            ], id="quick-scan-btn", color="success", size="sm", className="w-100 mb-2")
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Button([
-                                html.I(className="fa fa-download me-1"),
-                                "Export"
-                            ], id="quick-export-btn", color="info", size="sm", className="w-100")
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Button([
-                                html.I(className="fa fa-cog me-1"),
-                                "Settings"
-                            ], id="quick-settings-btn", color="secondary", size="sm", className="w-100")
-                        ], width=6)
-                    ], className="g-2")
-                ], className="p-2")
-            ], className="glass-card border-0 shadow hover-card mt-3"),
-
-            # Recent Activity Card
-            dbc.Card([
-                dbc.CardHeader([
-                    html.I(className="fa fa-history me-2", style={"color": "#8b5cf6"}),
-                    html.Span("Recent Activity", className="fw-bold")
-                ], className="bg-gradient-purple text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
-                dbc.CardBody([
-                    html.Div(id='recent-activity-list', className="", style={"fontSize": "0.75rem"})
-                ], className="p-2", style={"minHeight": "100px"})
-            ], className="glass-card border-0 shadow hover-card mt-3"),
-
-            # Recommended Actions Card
-            dbc.Card([
-                dbc.CardHeader([
-                    html.I(className="fa fa-lightbulb me-2", style={"color": "#fbbf24"}),
-                    html.Span("Recommendations", className="fw-bold")
-                ], className="bg-gradient-warning text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
-                dbc.CardBody([
-                    html.Div(id='recommendations-list', className="", style={"fontSize": "0.75rem"})
-                ], className="p-2", style={"minHeight": "80px"})
-            ], className="glass-card border-0 shadow hover-card mt-3"),
-
-            # Live Threat Feed Card
-            dbc.Card([
-                dbc.CardHeader([
                     html.Div([
                         html.Div([
-                            html.I(className="fa fa-bullseye me-2", style={"color": "#ef4444"}),
-                            html.Span("Live Threat Feed", className="fw-bold")
-                        ], className="d-flex align-items-center"),
-                        dbc.Badge("LIVE", color="danger", pill=True, className="pulse-badge")
-                    ], className="d-flex justify-content-between align-items-center w-100")
-                ], className="bg-gradient-danger text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
-                dbc.CardBody([
-                    html.Div(id='live-threat-feed', className="threat-feed-container", style={
-                        "maxHeight": "300px",
-                        "overflowY": "auto",
-                        "fontSize": "0.75rem"
-                    })
-                ], className="p-2")
-            ], className="glass-card border-0 shadow hover-card mt-3"),
-
-            # Predictive Threat Intelligence Card
-            dbc.Card([
-                dbc.CardHeader([
-                    html.I(className="fa fa-brain me-2", style={"color": "#8b5cf6"}),
-                    html.Span("Threat Forecast (AI)", className="fw-bold")
-                ], className="bg-gradient-secondary text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
-                dbc.CardBody([
-                    html.Div(id='threat-forecast-content', style={"fontSize": "0.75rem"})
-                ], className="p-2")
-            ], className="glass-card border-0 shadow hover-card mt-3")
-        ], width=4, className="mb-4", id="right-panel-section")
-    ], className="g-3"),
+                            html.I(className="fa fa-layer-group me-3", style={"fontSize": "2.5rem", "color": "#667eea"}),
+                            html.Div([
+                                html.H3("Dashboard Features", className="mb-1 gradient-text fw-bold"),
+                                html.P("Explore powerful security tools",
+                                       className="text-muted mb-0", style={"fontSize": "0.95rem"})
+                            ])
+                        ], className="d-flex align-items-center justify-content-center")
+                    ])
+                ], className="py-4")
+            ], className="glass-card border-0 shadow-lg hover-card", style={
+                "background": "linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)",
+                "backdropFilter": "blur(10px)"
+            })
+        ], width={"size": 6, "offset": 3})
+    ], className="mb-4"),
 
     # Pinterest-Style Masonry Grid Layout for Dashboard Features
     html.Div([
@@ -3980,8 +3965,9 @@ dashboard_layout = dbc.Container([
         is_open=False,
         dismissable=True,
         icon="info",
+        color="info",
         duration=4000,
-        style={"position": "fixed", "top": 66, "right": 10, "width": 350, "zIndex": 9999}
+        style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
     ),
     dbc.Toast(
         id="quick-export-toast",
@@ -3989,8 +3975,9 @@ dashboard_layout = dbc.Container([
         is_open=False,
         dismissable=True,
         icon="success",
+        color="success",
         duration=3000,
-        style={"position": "fixed", "top": 120, "right": 10, "width": 350, "zIndex": 9999}
+        style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
     ),
     dbc.Toast(
         id="quick-refresh-toast",
@@ -3998,8 +3985,9 @@ dashboard_layout = dbc.Container([
         is_open=False,
         dismissable=True,
         icon="info",
+        color="info",
         duration=2000,
-        style={"position": "fixed", "top": 174, "right": 10, "width": 350, "zIndex": 9999}
+        style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
     ),
     dbc.Toast(
         id="widget-prefs-toast",
@@ -4007,8 +3995,9 @@ dashboard_layout = dbc.Container([
         is_open=False,
         dismissable=True,
         icon="success",
+        color="success",
         duration=3000,
-        style={"position": "fixed", "top": 228, "right": 10, "width": 350, "zIndex": 9999}
+        style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
     ),
     dcc.Store(id='theme-store', storage_type='local', data={'theme': 'cyberpunk'}),
     dcc.Store(id='voice-alert-store', storage_type='local'),
@@ -4094,7 +4083,7 @@ dashboard_layout = dbc.Container([
         ]),
     ], id="edit-device-modal", is_open=False, size="lg"),
 
-    html.Div(id="toast-container", style={"position": "fixed", "top": 66, "right": 10, "width": 350, "zIndex": 9999}),
+    html.Div(id="toast-container", style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}),
 
     # Notifications Modal (changed from Offcanvas to Modal)
     dbc.Modal([
@@ -4148,6 +4137,7 @@ dashboard_layout = dbc.Container([
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='user-session', storage_type='session'),
+    dcc.Store(id='auth-notification-store', storage_type='session'),
     html.Div(id='page-content')
 ])
 
@@ -4251,7 +4241,8 @@ def open_edit_device_modal(n_clicks, cancel_clicks, is_open):
 
 @app.callback(
     [Output('edit-device-modal', 'is_open', allow_duplicate=True),
-     Output('device-management-table', 'children', allow_duplicate=True)],
+     Output('device-management-table', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('save-device-changes-btn', 'n_clicks')],
     [State('edit-device-ip', 'data'),
      State('edit-device-name', 'value'),
@@ -4264,15 +4255,39 @@ def save_device_changes(n_clicks, ip, name, device_type, group_id, notes):
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
-    db_manager.update_device_metadata(device_ip=ip, custom_name=name, device_type=device_type, notes=notes)
+    try:
+        db_manager.update_device_metadata(device_ip=ip, custom_name=name, device_type=device_type, notes=notes)
 
-    if group_id:
-        current_groups = group_manager.get_device_groups(ip)
-        for group in current_groups:
-            group_manager.remove_device_from_group(ip, group['id'])
-        group_manager.add_device_to_group(ip, group_id)
+        if group_id:
+            current_groups = group_manager.get_device_groups(ip)
+            for group in current_groups:
+                group_manager.remove_device_from_group(ip, group['id'])
+            group_manager.add_device_to_group(ip, group_id)
 
-    return False, load_device_management_table(1)
+        toast = dbc.Toast(
+            f"Device '{name or ip}' updated successfully!",
+            header="Device Updated",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, load_device_management_table(1), toast
+    except Exception as e:
+        logger.error(f"Error saving device changes: {e}")
+        toast = dbc.Toast(
+            f"Failed to update device: {str(e)}",
+            header="Update Failed",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, dash.no_update, toast
 
 # ============================================================================
 # CALLBACKS - HEADER & NOTIFICATIONS
@@ -5024,7 +5039,7 @@ def toggle_device_details(card_clicks, list_clicks, view_clicks, tap_data, close
 
 # Trust Switch Callback
 @app.callback(
-    Output('toast-container', 'children'),
+    Output('toast-container', 'children', allow_duplicate=True),
     Input({'type': 'device-trust-switch', 'ip': ALL}, 'value'),
     prevent_initial_call=True
 )
@@ -5033,16 +5048,38 @@ def toggle_device_trust(value):
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
 
+    # Ensure the callback was triggered by an actual value change, not initial render
+    if not value or all(v is None for v in value):
+        raise dash.exceptions.PreventUpdate
+
     triggered_id = ctx.triggered_id
     if not isinstance(triggered_id, dict):
-        return dbc.Toast("Invalid trigger for trust switch.", header="Error", icon="danger", duration=3000)
+        return dbc.Toast(
+            "Invalid trigger for trust switch.",
+            header="Error",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
 
     try:
         device_ip = triggered_id['ip']
         is_trusted = ctx.triggered[0]['value']
     except (TypeError, KeyError) as e:
         logger.error(f"Error parsing trust switch ID or value: {e}")
-        return dbc.Toast("Error processing request.", header="Error", icon="danger", duration=3000)
+        return dbc.Toast(
+            "Error processing request.",
+            header="Error",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
 
     success = db_manager.set_device_trust(device_ip, is_trusted)
 
@@ -5052,39 +5089,72 @@ def toggle_device_trust(value):
             f"Device {device_ip} set to {status_text}.",
             header="✅ Success",
             icon="success",
+            color="success",
             duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
         )
     else:
         return dbc.Toast(
             f"Failed to update trust status for {device_ip}.",
             header="❌ Error",
             icon="danger",
+            color="danger",
             duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
         )
 
 # Block Device Callback
 @app.callback(
-    Output({'type': 'block-status', 'ip': dash.dependencies.MATCH}, 'children'),
-    Input({'type': 'device-block-btn', 'ip': dash.dependencies.MATCH}, 'n_clicks'),
-    State({'type': 'device-block-btn', 'ip': dash.dependencies.MATCH}, 'id'),
+    Output('toast-container', 'children', allow_duplicate=True),
+    Input({'type': 'device-block-btn', 'ip': dash.dependencies.ALL}, 'n_clicks'),
     prevent_initial_call=True
 )
-def toggle_device_block(n_clicks, button_id):
+def toggle_device_block(n_clicks):
     """Handle device blocking/unblocking via firewall"""
-    if n_clicks is None:
+    # Get device IP from callback context
+    ctx = dash.callback_context
+    if not ctx.triggered_id:
         raise dash.exceptions.PreventUpdate
 
-    device_ip = button_id['ip']
+    # Ensure the callback was triggered by an actual click, not initial render
+    if not n_clicks or all(c is None for c in n_clicks):
+        raise dash.exceptions.PreventUpdate
+
+    device_ip = ctx.triggered_id['ip']
 
     try:
         # Get device details including MAC address and current blocked status
         device = get_device_details(device_ip)
         if not device:
-            return dbc.Alert("Device not found", color="danger", dismissable=True)
+            toast = dbc.Toast(
+                "Device not found",
+                header="Error",
+                icon="danger",
+                color="danger",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         mac_address = device.get('mac_address')
         if not mac_address:
-            return dbc.Alert("Cannot block device: MAC address unknown", color="warning", dismissable=True)
+            toast = dbc.Toast(
+                "Cannot block device: MAC address unknown",
+                header="MAC Address Missing",
+                icon="warning",
+                color="warning",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         current_blocked = bool(device.get('is_blocked', False))
         new_blocked_status = not current_blocked
@@ -5104,20 +5174,30 @@ def toggle_device_block(n_clicks, button_id):
             command = [sys.executable, str(firewall_script), '--block', mac_address]
             action_text = "blocked"
             alert_color = "danger"
+            toast_color = "danger"
         else:
             # Unblock the device
             command = [sys.executable, str(firewall_script), '--unblock', mac_address]
             action_text = "unblocked"
             alert_color = "success"
+            toast_color = "success"
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=10)
             logger.info(f"Device {device_ip} ({mac_address}) {action_text}: {result.stdout}")
 
-            return dbc.Alert([
-                html.I(className=f"fa fa-check-circle me-2"),
-                f"Device successfully {action_text}! Refresh page to see updated status."
-            ], color=alert_color, dismissable=True)
+            toast = dbc.Toast(
+                f"Device successfully {action_text}!",
+                header=f"Device {action_text.capitalize()}",
+                icon="success" if toast_color == "success" else "danger",
+                color=toast_color,
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+
+            return toast
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
@@ -5125,29 +5205,57 @@ def toggle_device_block(n_clicks, button_id):
 
             # Check if firewall is disabled
             if not config.get('firewall', 'enabled', default=False):
-                return dbc.Alert([
-                    html.I(className="fa fa-exclamation-triangle me-2"),
-                    "Firewall integration is disabled in config. Enable it to block devices."
-                ], color="warning", dismissable=True)
+                toast = dbc.Toast(
+                    "Firewall integration is disabled in config. Enable it to block devices.",
+                    header="Firewall Disabled",
+                    icon="warning",
+                    color="warning",
+                    duration=4000,
+                    is_open=True,
+                    dismissable=True,
+                    style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+                )
+                return toast
 
-            return dbc.Alert([
-                html.I(className="fa fa-times-circle me-2"),
-                f"Failed to {action_text} device: {error_msg}"
-            ], color="danger", dismissable=True)
+            toast = dbc.Toast(
+                f"Failed to {action_text} device: {error_msg}",
+                header=f"{action_text.capitalize()} Failed",
+                icon="danger",
+                color="danger",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout while trying to {action_text} device {device_ip}")
-            return dbc.Alert([
-                html.I(className="fa fa-clock me-2"),
-                f"Operation timed out. Check firewall configuration."
-            ], color="warning", dismissable=True)
+            toast = dbc.Toast(
+                "Operation timed out. Check firewall configuration.",
+                header="Timeout",
+                icon="warning",
+                color="warning",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
     except Exception as e:
         logger.error(f"Error toggling block for device {device_ip}: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            f"Error: {str(e)}"
-        ], color="danger", dismissable=True)
+        toast = dbc.Toast(
+            f"Error: {str(e)}",
+            header="Error",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast
 
 # ============================================================================
 # CALLBACKS - ALERTS
@@ -5378,7 +5486,7 @@ def toggle_lockdown_modal(switch_value, cancel_clicks, confirm_clicks, is_open, 
 
 @app.callback(
     [Output('lockdown-switch', 'value'),
-     Output('lockdown-status', 'children')],
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('lockdown-cancel', 'n_clicks'),
      Input('lockdown-confirm', 'n_clicks'),
      Input('lockdown-switch', 'value')],
@@ -5396,13 +5504,33 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
     # Case 1: User cancels the confirmation modal
     if trigger_id == 'lockdown-cancel':
         logger.info("Lockdown mode cancelled by user.")
-        return False, dbc.Alert("Lockdown mode remains disabled.", color="secondary", className="mt-2")
+        toast = dbc.Toast(
+            "Lockdown mode remains disabled.",
+            header="Cancelled",
+            icon="info",
+            color="info",
+            duration=2000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, toast
 
     # Case 2: User confirms enabling lockdown mode
     if trigger_id == 'lockdown-confirm':
         if not config.get('firewall', 'enabled', default=False):
             logger.warning("Firewall management is disabled in config. Cannot enable lockdown.")
-            return False, dbc.Alert("Firewall management is disabled in configuration.", color="danger", className="mt-2")
+            toast = dbc.Toast(
+                "Firewall management is disabled in configuration.",
+                header="Firewall Disabled",
+                icon="warning",
+                color="warning",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return False, toast
 
         logger.info("Lockdown mode ENABLED - applying firewall rules.")
 
@@ -5417,17 +5545,31 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
             logger.info(f"Firewall script output: {result.stdout}")
-            status_alert = dbc.Alert([
-                html.I(className="fa fa-shield-alt me-2"),
-                html.Strong("Lockdown Mode Active"),
-                html.P(f"Firewall rules applied. {len(trusted_macs)} device(s) allowed.", className="mb-0 small")
-            ], color="danger", className="mt-2")
-            return True, status_alert
+            toast = dbc.Toast(
+                f"Lockdown Mode Active! {len(trusted_macs)} device(s) allowed.",
+                header="Lockdown Enabled",
+                icon="danger",
+                color="danger",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return True, toast
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"Failed to apply firewall rules: {e}")
             error_message = f"Error: {e.stderr}" if hasattr(e, 'stderr') else str(e)
-            status_alert = dbc.Alert(f"Failed to apply firewall rules. {error_message}", color="danger", className="mt-2")
-            return False, status_alert
+            toast = dbc.Toast(
+                f"Failed to apply firewall rules. {error_message}",
+                header="Lockdown Failed",
+                icon="danger",
+                color="danger",
+                duration=5000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return False, toast
 
     # Case 3: User toggles the switch to OFF
     if trigger_id == 'lockdown-switch' and not current_value:
@@ -5437,14 +5579,32 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
             logger.info(f"Firewall clear script output: {result.stdout}")
-            status_alert = dbc.Alert("Lockdown mode disabled and firewall rules cleared.", color="success", className="mt-2")
-            return False, status_alert
+            toast = dbc.Toast(
+                "Lockdown mode disabled and firewall rules cleared.",
+                header="Lockdown Disabled",
+                icon="success",
+                color="success",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return False, toast
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"Failed to clear firewall rules: {e}")
             error_message = f"Error: {e.stderr}" if hasattr(e, 'stderr') else str(e)
-            status_alert = dbc.Alert(f"Failed to clear firewall rules. {error_message}", color="warning", className="mt-2")
+            toast = dbc.Toast(
+                f"Failed to clear firewall rules. {error_message}",
+                header="Clear Failed",
+                icon="warning",
+                color="warning",
+                duration=5000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
             # Keep switch on to indicate rules might still be active
-            return True, status_alert
+            return True, toast
 
     raise dash.exceptions.PreventUpdate
 
@@ -5454,16 +5614,14 @@ def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
 
 @app.callback(
     [Output('email-enable-switch', 'value'),
-     Output('email-to', 'value'),
-     Output('email-status-badge', 'children'),
-     Output('email-status-badge', 'color')],
+     Output('email-to', 'value')],
     Input('url', 'pathname'),
     prevent_initial_call=True
 )
 def load_email_settings(pathname):
     """Load email settings for the current user."""
     if not current_user.is_authenticated:
-        return False, '', "DISABLED", "secondary"
+        return False, ''
 
     # Fetch user preferences
     try:
@@ -5487,33 +5645,11 @@ def load_email_settings(pathname):
         enabled = False
         recipient_email = os.environ.get('EMAIL_RECIPIENT_EMAIL', '')
 
-    # Determine status badge
-    smtp_configured = all([
-        os.environ.get('EMAIL_SMTP_HOST'),
-        os.environ.get('EMAIL_SMTP_PORT'),
-        os.environ.get('EMAIL_SMTP_USER'),
-        os.environ.get('EMAIL_SMTP_PASSWORD')
-    ])
-
-    if enabled and smtp_configured and recipient_email:
-        badge_text = "ENABLED"
-        badge_color = "success"
-    elif enabled and recipient_email:
-        badge_text = "INCOMPLETE"
-        badge_color = "warning"
-    elif enabled:
-        badge_text = "NO RECIPIENT"
-        badge_color = "warning"
-    else:
-        badge_text = "DISABLED"
-        badge_color = "danger"
-
-    return enabled, recipient_email, badge_text, badge_color
+    return enabled, recipient_email
 
 @app.callback(
-    [Output('email-settings-status', 'children'),
-     Output('email-status-badge', 'children', allow_duplicate=True),
-     Output('email-status-badge', 'color', allow_duplicate=True)],
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('email-modal', 'is_open', allow_duplicate=True)],
     Input('save-email-settings-btn', 'n_clicks'),
     [State('email-enable-switch', 'value'),
      State('email-to', 'value')],
@@ -5548,26 +5684,34 @@ def save_email_settings(n_clicks, enabled, recipient_email):
 
         logger.info(f"Email settings for user {current_user.id} - Enabled: {enabled}, Recipient: {recipient_email}")
 
-        status_msg = dbc.Alert("✅ Email notification settings saved successfully!", color="success", dismissable=True)
+        toast = dbc.Toast(
+            "Email notification settings saved successfully!",
+            header="Settings Saved",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
 
-        # Update badge based on new state
-        if enabled and recipient_email:
-            badge_text = "ENABLED"
-            badge_color = "success"
-        elif enabled:
-            badge_text = "INCOMPLETE"
-            badge_color = "warning"
-        else:
-            badge_text = "DISABLED"
-            badge_color = "danger"
-
-        return status_msg, badge_text, badge_color
+        return toast, False  # Close the modal
 
     except Exception as e:
         logger.error(f"Error saving email settings: {e}")
-        return dbc.Alert(f"❌ Error saving settings: {e}", color="danger", dismissable=True), "ERROR", "danger"
+        toast = dbc.Toast(
+            f"Error saving settings: {str(e)}",
+            header="Save Failed",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update  # Keep modal open on error
 @app.callback(
-    Output('email-settings-status', 'children', allow_duplicate=True),
+    Output('toast-container', 'children', allow_duplicate=True),
     Input('test-email-btn', 'n_clicks'),
     State('email-to', 'value'),
     prevent_initial_call=True
@@ -5590,16 +5734,30 @@ def send_test_email(n_clicks, recipient_email):
 
         # Validate inputs
         if not all([smtp_host, smtp_port, smtp_user, smtp_password]):
-            return dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "SMTP configuration missing in .env file. Please configure EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER, and EMAIL_SMTP_PASSWORD."
-            ], color="warning", dismissable=True)
+            toast = dbc.Toast(
+                "SMTP configuration missing in .env file. Please configure email settings.",
+                header="Configuration Missing",
+                icon="warning",
+                color="warning",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         if not to_email:
-            return dbc.Alert([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                "Please enter a recipient email address."
-            ], color="warning", dismissable=True)
+            toast = dbc.Toast(
+                "Please enter a recipient email address.",
+                header="Email Required",
+                icon="warning",
+                color="warning",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         # Create test email
         message = MIMEMultipart("alternative")
@@ -5664,42 +5822,31 @@ IoTSentinel Network Security Monitor
         server.quit()
 
         logger.info(f"Test email sent successfully to {to_email}")
-        return dbc.Alert([
-            html.I(className="fa fa-check-circle me-2"),
-            f"✅ Test email sent successfully to {to_email}!"
-        ], color="success", dismissable=True)
+        toast = dbc.Toast(
+            f"Test email sent successfully to {to_email}!",
+            header="Email Sent",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast
 
     except Exception as e:
         logger.error(f"Failed to send test email: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            f"❌ Failed to send email: {str(e)}"
-        ], color="danger", dismissable=True)
-        server.ehlo()
-        server.login(smtp_user, smtp_password)
-        server.send_message(message)
-        server.quit()
-
-        logger.info(f"Test email sent successfully to {recipient_email}")
-        return dbc.Alert([
-            html.I(className="fa fa-check-circle me-2"),
-            html.Strong("Test email sent successfully!"),
-            html.P(f"Check {recipient_email} for the test message.", className="mb-0 small mt-1")
-        ], color="success", dismissable=True)
-
-    except smtplib.SMTPAuthenticationError:
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            html.Strong("Authentication failed"),
-            html.P("Check your SMTP username and password. For Gmail, you may need an App Password.", className="mb-0 small mt-1")
-        ], color="danger", dismissable=True)
-    except Exception as e:
-        logger.error(f"Error sending test email: {e}")
-        return dbc.Alert([
-            html.I(className="fa fa-times-circle me-2"),
-            html.Strong("Failed to send test email"),
-            html.P(str(e), className="mb-0 small mt-1")
-        ], color="danger", dismissable=True)
+        toast = dbc.Toast(
+            f"Failed to send email: {str(e)}",
+            header="Email Failed",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast
 
 # ============================================================================
 # CALLBACKS - ANALYTICS
@@ -6085,13 +6232,51 @@ app.clientside_callback(
 )
 
 @app.callback(
-    Output('voice-alert-store', 'data'),
-    Input('voice-alert-toggle', 'value'),
+    [Output('voice-alert-icon', 'className'),
+     Output('voice-alert-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('voice-alert-toggle', 'n_clicks'),
+    State('voice-alert-store', 'data'),
     prevent_initial_call=True
 )
-def update_voice_alert_store(value):
-    """Persist voice alert toggle state"""
-    return {'enabled': value}
+def toggle_voice_alerts(n_clicks, current_data):
+    """Toggle voice alert state and update icon"""
+    if n_clicks:
+        # Get current state
+        current_enabled = current_data.get('enabled', False) if current_data else False
+        # Toggle state
+        new_enabled = not current_enabled
+        # Update icon
+        icon_class = "fa fa-volume-up fa-lg" if new_enabled else "fa fa-volume-mute fa-lg"
+
+        if new_enabled:
+            square_color_class = "bg-success"
+            message_text = "enabled"
+        else:
+            square_color_class = "bg-danger"
+            message_text = "disabled"
+
+        custom_header = html.Div(
+            [
+                html.Span(className=f"toast-color-square {square_color_class} me-2"), # Custom square
+                html.Strong("Voice Alerts") # Original header text
+            ],
+            className="d-flex align-items-center"
+        )
+
+        # Create toast notification
+        toast = dbc.Toast(
+            f"Voice alerts {message_text}",
+            header=custom_header, # Use custom header
+            # icon removed, as it's replaced by custom_header content
+            color="info", # Neutral color for the toast body glass tint
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return icon_class, {'enabled': new_enabled}, toast
+    return "fa fa-volume-mute fa-lg", {'enabled': False}, no_update
 
 # ============================================================================
 # CALLBACKS - UTILITIES
@@ -6586,7 +6771,8 @@ def test_disconnect():
 # ============================================================================
 
 @app.callback(
-    Output('page-content', 'children'),
+    [Output('page-content', 'children'),
+     Output('auth-notification-store', 'data')],
     [Input('url', 'pathname')],
     prevent_initial_call=False
 )
@@ -6597,19 +6783,58 @@ def display_page(pathname):
         # User is logged in
         if pathname == '/logout':
             logout_user()
-            return login_layout
+            return login_layout, {"type": "logout_success"}
         # Show dashboard for any other path when authenticated
-        return dashboard_layout
+        return dashboard_layout, dash.no_update
     else:
         # User not logged in, show login page
-        return login_layout
+        return login_layout, dash.no_update
+
+
+# Auth notification toast callback
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    Input('auth-notification-store', 'data'),
+    prevent_initial_call=True
+)
+def show_auth_notification(notification_data):
+    """Display toast notifications for login/logout events"""
+    if not notification_data:
+        raise dash.exceptions.PreventUpdate
+
+    notification_type = notification_data.get('type')
+
+    if notification_type == 'login_success':
+        username = notification_data.get('username', 'User')
+        return dbc.Toast(
+            f"Welcome back, {username}!",
+            header="Login Successful",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+    elif notification_type == 'logout_success':
+        return dbc.Toast(
+            "You have been logged out successfully.",
+            header="Logged Out",
+            icon="info",
+            color="info",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+
+    raise dash.exceptions.PreventUpdate
 
 
 @app.callback(
-    [Output('login-alert', 'children'),
-     Output('login-alert', 'is_open'),
-     Output('login-alert', 'color'),
-     Output('url', 'pathname', allow_duplicate=True)],
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('url', 'pathname', allow_duplicate=True),
+     Output('auth-notification-store', 'data', allow_duplicate=True)],
     [Input('login-button', 'n_clicks'),
      Input('login-password', 'n_submit')],
     [State('login-username', 'value'),
@@ -6623,7 +6848,17 @@ def handle_login(n_clicks, n_submit, username, password):
 
     # Validate inputs
     if not username or not password:
-        return "Please enter both username and password", True, "warning", dash.no_update
+        toast = dbc.Toast(
+            "Please enter both username and password",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update, dash.no_update
 
     # Check if username is locked out due to too many failed attempts
     is_locked, remaining_time = login_rate_limiter.is_locked_out(username)
@@ -6631,12 +6866,17 @@ def handle_login(n_clicks, n_submit, username, password):
         minutes = remaining_time // 60
         seconds = remaining_time % 60
         logger.warning(f"Login attempt for locked account '{username}' (locked for {minutes}m {seconds}s)")
-        return (
+        toast = dbc.Toast(
             f"Too many failed attempts. Account locked for {minutes} minute(s) and {seconds} second(s).",
-            True,
-            "danger",
-            dash.no_update
+            header="Account Locked",
+            icon="danger",
+            color="danger",
+            duration=5000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
         )
+        return toast, dash.no_update, dash.no_update
 
     # Verify credentials
     user = auth_manager.verify_user(username, password)
@@ -6646,27 +6886,47 @@ def handle_login(n_clicks, n_submit, username, password):
         login_rate_limiter.record_successful_login(username)
         login_user(user)
         logger.info(f"User '{username}' logged in successfully")
-        return "Login successful! Loading dashboard...", True, "success", "/"
+        toast = dbc.Toast(
+            "Login successful! Loading dashboard...",
+            header="Login Success",
+            icon="success",
+            color="success",
+            duration=2000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, "/", {"type": "login_success", "username": username}
     else:
         # Login failed - record failed attempt
         is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
 
         if is_now_locked:
             logger.warning(f"Account '{username}' locked due to too many failed attempts")
-            return (
+            toast = dbc.Toast(
                 "Too many failed attempts. Account locked for 5 minutes.",
-                True,
-                "danger",
-                dash.no_update
+                header="Account Locked",
+                icon="danger",
+                color="danger",
+                duration=5000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
             )
+            return toast, dash.no_update, dash.no_update
         else:
             logger.warning(f"Failed login attempt for username '{username}' ({remaining_attempts} attempts remaining)")
-            return (
+            toast = dbc.Toast(
                 f"Invalid username or password. {remaining_attempts} attempt(s) remaining before lockout.",
-                True,
-                "danger",
-                dash.no_update
+                header="Login Failed",
+                icon="danger",
+                color="danger",
+                duration=4000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
             )
+            return toast, dash.no_update, dash.no_update
 
 
 # Password toggle callbacks for login page
@@ -6762,12 +7022,10 @@ def send_verification_email(email, code):
 
 # Send verification code callback
 @app.callback(
-    [Output('register-alert', 'children', allow_duplicate=True),
-     Output('register-alert', 'is_open', allow_duplicate=True),
-     Output('register-alert', 'color', allow_duplicate=True),
-     Output('verification-code-container', 'style'),
+    [Output('verification-code-container', 'style'),
      Output('verification-code-sent', 'data'),
-     Output('send-verification-btn', 'disabled')],
+     Output('send-verification-btn', 'disabled'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     Input('send-verification-btn', 'n_clicks'),
     State('register-email', 'value'),
     prevent_initial_call=True
@@ -6779,7 +7037,17 @@ def send_verification_code(n_clicks, email):
 
     # Validate email
     if not email or '@' not in email or '.' not in email:
-        return "Please enter a valid email address", True, "warning", {"display": "none"}, False, False
+        toast = dbc.Toast(
+            "Please enter a valid email address",
+            header="Invalid Email",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return {"display": "none"}, False, False, toast
 
     # Generate 6-digit code
     code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
@@ -6794,19 +7062,37 @@ def send_verification_code(n_clicks, email):
     # Send email
     if send_verification_email(email, code):
         logger.info(f"Verification code sent to {email}")
-        return f"Verification code sent to {email}", True, "success", {"display": "block"}, True, True
+        toast = dbc.Toast(
+            f"Verification code sent to {email}",
+            header="Code Sent",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return {"display": "block"}, True, True, toast
     else:
-        # For development/testing - show code in alert if email fails
+        # For development/testing - show code in toast if email fails
         logger.warning(f"Email sending failed. Verification code for {email}: {code}")
-        return f"Email service unavailable. Your verification code is: {code}", True, "info", {"display": "block"}, True, True
+        toast = dbc.Toast(
+            f"Email service unavailable. Your verification code is: {code}",
+            header="Email Service Down",
+            icon="info",
+            color="info",
+            duration=5000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return {"display": "block"}, True, True, toast
 
 # Verify code and enable registration button
 @app.callback(
-    [Output('register-alert', 'children', allow_duplicate=True),
-     Output('register-alert', 'is_open', allow_duplicate=True),
-     Output('register-alert', 'color', allow_duplicate=True),
-     Output('email-verified', 'data'),
-     Output('register-button', 'disabled')],
+    [Output('email-verified', 'data'),
+     Output('register-button', 'disabled'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     Input('verification-code', 'value'),
     [State('register-email', 'value'),
      State('verification-code-sent', 'data')],
@@ -6818,27 +7104,65 @@ def verify_code(code, email, code_sent):
         raise dash.exceptions.PreventUpdate
 
     if email not in verification_codes:
-        return "Verification code expired. Please request a new code.", True, "danger", False, True
+        toast = dbc.Toast(
+            "Verification code expired. Please request a new code.",
+            header="Code Expired",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, True, toast
 
     stored_data = verification_codes[email]
 
     # Check if code expired
     if datetime.now() > stored_data['expires']:
         del verification_codes[email]
-        return "Verification code expired. Please request a new code.", True, "danger", False, True
+        toast = dbc.Toast(
+            "Verification code expired. Please request a new code.",
+            header="Code Expired",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, True, toast
 
     # Verify code
     if code == stored_data['code']:
-        return "Email verified successfully! You can now create your account.", True, "success", True, False
+        toast = dbc.Toast(
+            "Email verified successfully! You can now create your account.",
+            header="Email Verified",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return True, False, toast
     else:
-        return "Invalid verification code", True, "danger", False, True
+        toast = dbc.Toast(
+            "Invalid verification code",
+            header="Verification Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, True, toast
 
 # Registration callback
 @app.callback(
-    [Output('register-alert', 'children', allow_duplicate=True),
-     Output('register-alert', 'is_open', allow_duplicate=True),
-     Output('register-alert', 'color', allow_duplicate=True),
-     Output('auth-tabs', 'active_tab', allow_duplicate=True)],
+    [Output('auth-tabs', 'active_tab', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
     Input('register-button', 'n_clicks'),
     [State('register-email', 'value'),
      State('register-username', 'value'),
@@ -6855,20 +7179,70 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
 
     # Check email verification
     if not email_verified:
-        return "Please verify your email address first", True, "warning", dash.no_update
+        toast = dbc.Toast(
+            "Please verify your email address first",
+            header="Email Not Verified",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     # Validation
     if not email or not username or not password or not password_confirm:
-        return "Please fill in all fields", True, "warning", dash.no_update
+        toast = dbc.Toast(
+            "Please fill in all fields",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     if len(username) < 3:
-        return "Username must be at least 3 characters", True, "warning", dash.no_update
+        toast = dbc.Toast(
+            "Username must be at least 3 characters",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     if len(password) < 4:
-        return "Password must be at least 4 characters", True, "warning", dash.no_update
+        toast = dbc.Toast(
+            "Password must be at least 4 characters",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     if password != password_confirm:
-        return "Passwords do not match", True, "danger", dash.no_update
+        toast = dbc.Toast(
+            "Passwords do not match",
+            header="Validation Error",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     # Attempt to create user
     success = auth_manager.create_user(username, password, role or 'viewer')
@@ -6879,9 +7253,29 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
             del verification_codes[email]
 
         logger.info(f"New user registered: {username} (role: {role or 'viewer'}, email: {email})")
-        return "Account created successfully! Please login.", True, "success", "login-tab"
+        toast = dbc.Toast(
+            "Account created successfully! Please login.",
+            header="Account Created",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return "login-tab", toast
     else:
-        return "Username already exists", True, "danger", dash.no_update
+        toast = dbc.Toast(
+            "Username already exists",
+            header="Registration Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
 
 # User list callback (Admin only)
@@ -6976,7 +7370,8 @@ def display_user_list(pathname):
      Output('new-user-username', 'value'),
      Output('new-user-email', 'value'),
      Output('new-user-password', 'value'),
-     Output('user-list-container', 'children', allow_duplicate=True)],
+     Output('user-list-container', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
     Input('create-user-btn', 'n_clicks'),
     [State('new-user-username', 'value'),
      State('new-user-email', 'value'),
@@ -6991,13 +7386,43 @@ def create_new_user(n_clicks, username, email, password, role):
 
     # Validation
     if not username or not password:
-        return dbc.Alert("Username and password are required", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            "Username and password are required",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dbc.Alert("Username and password are required", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     if len(username) < 3:
-        return dbc.Alert("Username must be at least 3 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            "Username must be at least 3 characters",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dbc.Alert("Username must be at least 3 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     if len(password) < 4:
-        return dbc.Alert("Password must be at least 4 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            "Password must be at least 4 characters",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dbc.Alert("Password must be at least 4 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     # Create user
     success = auth_manager.create_user(username, password, role or 'viewer', email)
@@ -7028,15 +7453,36 @@ def create_new_user(n_clicks, username, email, password, role):
             bordered=True, hover=True, responsive=True, striped=True, className="mt-3"
         )
 
-        return dbc.Alert([html.I(className="fa fa-check-circle me-2"), f"User '{username}' created successfully!"], color="success"), "", "", "", user_table
+        toast = dbc.Toast(
+            f"User '{username}' created successfully!",
+            header="User Created",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+
+        return dbc.Alert([html.I(className="fa fa-check-circle me-2"), f"User '{username}' created successfully!"], color="success"), "", "", "", user_table, toast
     else:
-        return dbc.Alert("Username already exists", color="danger"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            "Username already exists",
+            header="User Creation Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dbc.Alert("Username already exists", color="danger"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
 # Delete user callback (Admin only)
 @app.callback(
     [Output('user-list-container', 'children', allow_duplicate=True),
-     Output('add-user-status', 'children', allow_duplicate=True)],
-    Input({'type': 'delete-user-btn', 'index': ALL}, 'n_clicks'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input({'type': 'delete-user-btn', 'index': dash.dependencies.ALL}, 'n_clicks'),
     prevent_initial_call=True
 )
 def delete_user(n_clicks):
@@ -7044,25 +7490,31 @@ def delete_user(n_clicks):
     if not current_user.is_authenticated or not current_user.is_admin():
         raise dash.exceptions.PreventUpdate
 
-    # Check which button was clicked
-    ctx = callback_context
-    if not ctx.triggered or not ctx.triggered[0]['prop_id']:
+    # Get user_id from callback context
+    ctx = dash.callback_context
+    if not ctx.triggered_id:
         raise dash.exceptions.PreventUpdate
 
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if not button_id or button_id == '':
+    # Ensure the callback was triggered by an actual click, not initial render
+    # With ALL pattern, n_clicks is a list - check if any are not None
+    if not n_clicks or all(c is None for c in n_clicks):
         raise dash.exceptions.PreventUpdate
 
-    import json
-    try:
-        button_data = json.loads(button_id)
-        user_id = button_data['index']
-    except (json.JSONDecodeError, KeyError):
-        raise dash.exceptions.PreventUpdate
+    user_id = ctx.triggered_id['index']
 
     # Prevent deleting current user
     if user_id == current_user.id:
-        return dash.no_update, dbc.Alert([html.I(className="fa fa-exclamation-triangle me-2"), "Cannot delete yourself!"], color="warning")
+        toast = dbc.Toast(
+            "Cannot delete yourself!",
+            header="Delete Failed",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
     # Delete user (pass current user ID to prevent accidents)
     success = auth_manager.delete_user(user_id, current_user.id)
@@ -7093,9 +7545,30 @@ def delete_user(n_clicks):
             bordered=True, hover=True, responsive=True, striped=True, className="mt-3"
         )
 
-        return user_table, dbc.Alert([html.I(className="fa fa-check-circle me-2"), "User deleted successfully!"], color="success")
+        toast = dbc.Toast(
+            "User deleted successfully!",
+            header="User Deleted",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+
+        return user_table, toast
     else:
-        return dash.no_update, dbc.Alert("Error deleting user", color="danger")
+        toast = dbc.Toast(
+            "Error deleting user",
+            header="Delete Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, toast
 
 # Update current user display in header and profile dropdown
 @app.callback(
@@ -7174,7 +7647,8 @@ def open_user_management_modal(n_clicks, is_open):
 
 # Update profile information
 @app.callback(
-    Output('profile-update-status', 'children'),
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('profile-edit-modal', 'is_open', allow_duplicate=True)],
     Input('update-profile-btn', 'n_clicks'),
     [State('edit-username', 'value'),
      State('edit-email', 'value')],
@@ -7182,23 +7656,67 @@ def open_user_management_modal(n_clicks, is_open):
 )
 def update_profile_info(n_clicks, username, email):
     """Update user profile information"""
+    if n_clicks is None:
+        raise dash.exceptions.PreventUpdate
+
     if not current_user.is_authenticated:
-        return dbc.Alert("Not authenticated", color="danger")
+        toast = dbc.Toast(
+            "Not authenticated",
+            header="Authentication Required",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     if not username or not email:
-        return dbc.Alert("Please fill in all fields", color="warning")
+        toast = dbc.Toast(
+            "Please fill in all fields",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     # Update user profile
     success = auth_manager.update_user_profile(current_user.id, username, email)
 
     if success:
-        return dbc.Alert([html.I(className="fa fa-check-circle me-2"), "Profile updated successfully!"], color="success")
+        toast = dbc.Toast(
+            "Profile updated successfully!",
+            header="Profile Updated",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, False
     else:
-        return dbc.Alert("Failed to update profile. Username may already exist.", color="danger")
+        toast = dbc.Toast(
+            "Failed to update profile. Username may already exist.",
+            header="Update Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
 # Change password from profile edit modal
 @app.callback(
-    Output('profile-change-password-status', 'children'),
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('profile-edit-modal', 'is_open', allow_duplicate=True)],
     Input('profile-change-password-btn', 'n_clicks'),
     [State('profile-current-password', 'value'),
      State('profile-new-password', 'value'),
@@ -7207,30 +7725,103 @@ def update_profile_info(n_clicks, username, email):
 )
 def change_password_from_profile(n_clicks, current_password, new_password, confirm_password):
     """Change password from profile edit modal"""
+    if n_clicks is None:
+        raise dash.exceptions.PreventUpdate
+
     if not current_user.is_authenticated:
-        return dbc.Alert("Not authenticated", color="danger")
+        toast = dbc.Toast(
+            "Not authenticated",
+            header="Authentication Required",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     if not current_password or not new_password or not confirm_password:
-        return dbc.Alert("Please fill in all password fields", color="warning")
+        toast = dbc.Toast(
+            "Please fill in all password fields",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     if new_password != confirm_password:
-        return dbc.Alert("New passwords do not match", color="warning")
+        toast = dbc.Toast(
+            "New passwords do not match",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     if len(new_password) < 6:
-        return dbc.Alert("Password must be at least 6 characters", color="warning")
+        toast = dbc.Toast(
+            "Password must be at least 6 characters",
+            header="Validation Error",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     # Verify current password
     user = auth_manager.verify_user(current_user.username, current_password)
     if not user:
-        return dbc.Alert("Current password is incorrect", color="danger")
+        toast = dbc.Toast(
+            "Current password is incorrect",
+            header="Verification Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
     # Change password
     success = auth_manager.change_password(current_user.id, new_password)
 
     if success:
-        return dbc.Alert([html.I(className="fa fa-check-circle me-2"), "Password changed successfully!"], color="success")
+        toast = dbc.Toast(
+            "Password changed successfully!",
+            header="Password Updated",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, False
     else:
-        return dbc.Alert("Failed to change password", color="danger")
+        toast = dbc.Toast(
+            "Failed to change password",
+            header="Update Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
 
 # ============================================================================
 # DEVICE MANAGEMENT & PREFERENCES CALLBACKS
@@ -7334,10 +7925,11 @@ def load_device_management_table(n_clicks):
 
 
 @app.callback(
-    [Output('preferences-status', 'children'),
-     Output('refresh-interval', 'interval'),
+    [Output('refresh-interval', 'interval'),
      Output('theme-store', 'data', allow_duplicate=True),
-     Output('ws', 'message', allow_duplicate=True)],
+     Output('ws', 'message', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True),
+     Output('preferences-modal', 'is_open', allow_duplicate=True)],
     Input('save-preferences-btn', 'n_clicks'),
     [State('refresh-interval-dropdown', 'value'),
      State('retention-dropdown', 'value'),
@@ -7356,8 +7948,21 @@ def load_device_management_table(n_clicks):
 def save_preferences(n_clicks, refresh_interval, retention, threshold, display_density, timezone, alert_prefs,
                      theme, language, layout, auto_export, backup_schedule, backup_retention):
     """Save user preferences to database and apply them"""
+    if n_clicks is None:
+        raise dash.exceptions.PreventUpdate
+
     if not current_user.is_authenticated:
-        return dbc.Alert("Please login to save preferences", color="warning"), dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            "Please login to save preferences",
+            header="Authentication Required",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, dash.no_update, dash.no_update, toast, dash.no_update
 
     # Save to user_preferences table
     user_id = current_user.id
@@ -7392,20 +7997,39 @@ def save_preferences(n_clicks, refresh_interval, retention, threshold, display_d
         conn.commit()
         conn.close()
 
+        toast = dbc.Toast(
+            "Preferences saved and applied successfully!",
+            header="Preferences Saved",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+
         # Apply preferences immediately
         return (
-            dbc.Alert([
-                html.I(className="fa fa-check-circle me-2"),
-                "Preferences saved and applied successfully!"
-            ], color="success", dismissable=True),
             refresh_interval,  # Update refresh interval
             {'theme': theme},  # Update theme
-            dash.no_update
+            dash.no_update,
+            toast,
+            False  # Close modal
         )
 
     except Exception as e:
         logger.error(f"Error saving preferences: {e}")
-        return dbc.Alert(f"Error saving preferences: {e}", color="danger", dismissable=True), dash.no_update, dash.no_update, dash.no_update
+        toast = dbc.Toast(
+            f"Error saving preferences: {str(e)}",
+            header="Save Failed",
+            icon="danger",
+            color="danger",
+            duration=4000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return dash.no_update, dash.no_update, dash.no_update, toast, dash.no_update
 
 
 @app.callback(
@@ -7491,7 +8115,7 @@ def update_iot_security_widget(ws_message):
 
 # Bulk Device Operations Callbacks - NEW
 @app.callback(
-    Output('bulk-action-status', 'children'),
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('bulk-trust-btn', 'n_clicks'),
      Input('bulk-block-btn', 'n_clicks'),
      Input('bulk-delete-btn', 'n_clicks')],
@@ -7515,7 +8139,17 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
     ]
 
     if not selected_ips:
-        return dbc.Alert("No devices selected", color="warning", duration=3000)
+        toast = dbc.Toast(
+            "No devices selected",
+            header="No Selection",
+            icon="warning",
+            color="warning",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast
 
     try:
         count = len(selected_ips)
@@ -7524,13 +8158,33 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
             # Trust selected devices
             for ip in selected_ips:
                 db_manager.set_device_trust(ip, is_trusted=True)
-            return dbc.Alert(f"✅ Trusted {count} device(s)", color="success", duration=3000)
+            toast = dbc.Toast(
+                f"Trusted {count} device(s)",
+                header="Bulk Trust",
+                icon="success",
+                color="success",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         elif 'bulk-block-btn' in button_id:
             # Block selected devices
             for ip in selected_ips:
                 db_manager.set_device_blocked(ip, is_blocked=True)
-            return dbc.Alert(f"🚫 Blocked {count} device(s)", color="danger", duration=3000)
+            toast = dbc.Toast(
+                f"Blocked {count} device(s)",
+                header="Bulk Block",
+                icon="danger",
+                color="danger",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
         elif 'bulk-delete-btn' in button_id:
             # Delete selected devices
@@ -7540,11 +8194,31 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
                 cursor.execute("DELETE FROM devices WHERE device_ip = ?", (ip,))
             conn.commit()
             conn.close()
-            return dbc.Alert(f"🗑️ Deleted {count} device(s)", color="warning", duration=3000)
+            toast = dbc.Toast(
+                f"Deleted {count} device(s)",
+                header="Bulk Delete",
+                icon="warning",
+                color="warning",
+                duration=3000,
+                is_open=True,
+                dismissable=True,
+                style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+            )
+            return toast
 
     except Exception as e:
         logger.error(f"Bulk operation error: {e}")
-        return dbc.Alert(f"Error: {e}", color="danger", duration=5000)
+        toast = dbc.Toast(
+            f"Error: {str(e)}",
+            header="Bulk Operation Failed",
+            icon="danger",
+            color="danger",
+            duration=5000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast
 
     return dash.no_update
 
@@ -10730,8 +11404,9 @@ def quick_export(n):
 
 @app.callback(
     [Output('quick-settings-modal', 'is_open'),
-     Output('voice-alert-toggle', 'value', allow_duplicate=True),
-     Output('refresh-interval', 'interval', allow_duplicate=True)],
+     Output('voice-alert-store', 'data', allow_duplicate=True),
+     Output('refresh-interval', 'interval', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('quick-settings-btn', 'n_clicks'),
      Input('settings-close-btn', 'n_clicks'),
      Input('settings-save-btn', 'n_clicks')],
@@ -10744,7 +11419,7 @@ def handle_quick_settings(settings_click, close_click, save_click, is_open, aler
     """Handle quick settings modal and save settings."""
     ctx = callback_context
     if not ctx.triggered:
-        return is_open, dash.no_update, dash.no_update
+        return is_open, dash.no_update, dash.no_update, dash.no_update
 
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -10752,10 +11427,20 @@ def handle_quick_settings(settings_click, close_click, save_click, is_open, aler
     if button_id == 'settings-save-btn' and alert_settings is not None:
         voice_enabled = 'voice' in alert_settings if alert_settings else False
         logger.info(f"Settings saved - Voice alerts: {voice_enabled}, Refresh: {refresh_interval_value}ms")
-        return False, voice_enabled, refresh_interval_value or 10000
+        toast = dbc.Toast(
+            f"Settings saved successfully! Voice alerts: {'Enabled' if voice_enabled else 'Disabled'}, Refresh: {refresh_interval_value/1000}s",
+            header="Settings Saved",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return False, voice_enabled, refresh_interval_value or 10000, toast
 
     # Just toggle modal for open/close
-    return not is_open, dash.no_update, dash.no_update
+    return not is_open, dash.no_update, dash.no_update, dash.no_update
 
 # Sync voice alert toggle with settings
 @app.callback(
