@@ -172,6 +172,89 @@ def init_database():
         )
     ''')
 
+    # Password Reset Tokens table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_reset_expiry ON password_reset_tokens(expires_at, used)')
+
+    # Email Verification Codes table (replacing in-memory storage)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS email_verification_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            verified INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_verification_email ON email_verification_codes(email, verified)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_verification_expiry ON email_verification_codes(expires_at, verified)')
+
+    # OAuth Accounts table (Google Sign-In)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS oauth_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            provider_user_id TEXT NOT NULL,
+            email TEXT,
+            access_token TEXT,
+            refresh_token TEXT,
+            token_expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP,
+            UNIQUE(provider, provider_user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_oauth_provider ON oauth_accounts(provider, provider_user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id)')
+
+    # WebAuthn Credentials table (Biometric Authentication)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            credential_id TEXT UNIQUE NOT NULL,
+            public_key TEXT NOT NULL,
+            sign_count INTEGER DEFAULT 0,
+            aaguid TEXT,
+            transports TEXT,
+            device_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_webauthn_credential ON webauthn_credentials(credential_id)')
+
+    # User Login History table (Enhanced Welcome Experience)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_login_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            login_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT,
+            user_agent TEXT,
+            login_method TEXT,
+            success INTEGER DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_history ON user_login_history(user_id, login_timestamp DESC)')
+
     # Alert Rules table for custom user-defined rules
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alert_rules (
@@ -680,6 +763,11 @@ def init_database():
     print("  - malicious_ips")
     print("  - users")
     print("  - user_preferences")
+    print("  - password_reset_tokens")
+    print("  - email_verification_codes")
+    print("  - oauth_accounts (Google Sign-In)")
+    print("  - webauthn_credentials (Biometric Auth)")
+    print("  - user_login_history")
     print("  - alert_rules")
     print("  - device_groups")
     print("  - device_group_members")

@@ -49,8 +49,11 @@ from config.config_manager import config
 from database.db_manager import DatabaseManager
 from utils.threat_intel import ThreatIntelligence
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask import request, redirect, session as flask_session, jsonify
 from utils.auth import AuthManager, User
 from utils.rate_limiter import LoginRateLimiter
+from utils.oauth_handler import GoogleOAuthHandler, is_oauth_configured
+from utils.webauthn_handler import WebAuthnHandler, is_webauthn_available
 
 # Import new IoT-specific modules
 from utils.iot_device_intelligence import get_intelligence
@@ -103,6 +106,9 @@ auth_manager = AuthManager(DB_PATH)
 # Rate limiting for login attempts (5 attempts, 5-minute lockout)
 login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
 
+# Google OAuth handler (will be initialized after Flask app is configured)
+oauth_handler = None
+
 # Initialize IoT-specific modules
 try:
     iot_intelligence = get_intelligence(db_manager)
@@ -137,10 +143,38 @@ login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
 
+# Remember Me cookie configuration (7-day duration)
+server.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=7)
+server.config['REMEMBER_COOKIE_SECURE'] = True  # HTTPS only in production
+server.config['REMEMBER_COOKIE_HTTPONLY'] = True  # Prevent XSS attacks
+server.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+
 @login_manager.user_loader
 def load_user(user_id):
     """Load user by ID for Flask-Login"""
     return auth_manager.get_user_by_id(int(user_id))
+
+# Initialize Google OAuth handler
+try:
+    oauth_handler = GoogleOAuthHandler(server, DB_PATH)
+    if oauth_handler.enabled:
+        logger.info("Google OAuth initialized successfully")
+    else:
+        logger.warning("Google OAuth credentials not configured")
+except Exception as e:
+    logger.error(f"Failed to initialize OAuth: {e}")
+    oauth_handler = None
+
+# Initialize WebAuthn handler for biometric authentication
+try:
+    webauthn_handler = WebAuthnHandler(DB_PATH)
+    if is_webauthn_available():
+        logger.info("WebAuthn initialized successfully")
+    else:
+        logger.warning("WebAuthn requires HTTPS (except localhost)")
+except Exception as e:
+    logger.error(f"Failed to initialize WebAuthn: {e}")
+    webauthn_handler = None
 
 # Health check endpoint for monitoring
 @server.route('/health')
@@ -211,6 +245,218 @@ def health_check():
         status_code = 503  # Service Unavailable
 
     return jsonify(health_status), status_code
+
+
+# ============================================================================
+# GOOGLE OAUTH ROUTES
+# ============================================================================
+
+@server.route('/auth/google')
+def google_login():
+    """Initiate Google OAuth login flow"""
+    if not oauth_handler or not oauth_handler.enabled:
+        logger.error("OAuth attempted but not configured")
+        return redirect('/?error=oauth_not_configured')
+
+    try:
+        return oauth_handler.get_authorization_url()
+    except Exception as e:
+        logger.error(f"Error initiating OAuth: {e}")
+        return redirect('/?error=oauth_failed')
+
+
+@server.route('/auth/google/callback')
+def google_callback():
+    """Handle Google OAuth callback"""
+    from flask import jsonify
+
+    if not oauth_handler or not oauth_handler.enabled:
+        logger.error("OAuth callback received but OAuth not configured")
+        return redirect('/?error=oauth_not_configured')
+
+    try:
+        # Handle OAuth callback
+        oauth_data = oauth_handler.handle_callback(request)
+
+        if not oauth_data:
+            logger.error("Failed to get OAuth user data")
+            return redirect('/?error=oauth_failed')
+
+        # Create or update user from OAuth data
+        user_id = oauth_handler.create_or_update_oauth_user(oauth_data)
+
+        if not user_id:
+            logger.error("Failed to create/update OAuth user")
+            return redirect('/?error=user_creation_failed')
+
+        # Get user object
+        user_data = oauth_handler.get_user_by_id(user_id)
+
+        if not user_data:
+            logger.error(f"Failed to load user {user_id}")
+            return redirect('/?error=user_not_found')
+
+        # Create User object for Flask-Login
+        user = User(
+            id=user_data['id'],
+            username=user_data['username'],
+            email=user_data['email'],
+            role=user_data['role']
+        )
+
+        # Log in the user (remember=True for OAuth users)
+        login_user(user, remember=True)
+
+        # Record login in history
+        user_ip = request.remote_addr or 'Unknown'
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_login_history
+            (user_id, login_timestamp, ip_address, user_agent, login_method, success)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, datetime.now(), user_ip, user_agent, 'oauth_google', 1))
+        conn.commit()
+        conn.close()
+
+        logger.info(f"User {user_data['username']} logged in via Google OAuth")
+
+        # Redirect to dashboard
+        return redirect('/')
+
+    except Exception as e:
+        logger.error(f"Error in OAuth callback: {e}")
+        return redirect('/?error=oauth_callback_failed')
+
+
+# ============================================================================
+# WEBAUTHN BIOMETRIC AUTHENTICATION ROUTES
+# ============================================================================
+
+@server.route('/api/webauthn/register/start', methods=['POST'])
+@login_required
+def webauthn_register_start():
+    """Start WebAuthn registration"""
+    if not webauthn_handler:
+        return jsonify({'error': 'WebAuthn not available'}), 503
+
+    try:
+        user_id = current_user.id
+        username = current_user.username
+
+        # Get email from database (User object doesn't have email attribute)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+        result = cursor.fetchone()
+        conn.close()
+
+        email = result[0] if result else username  # Fallback to username if no email
+
+        options = webauthn_handler.generate_registration_options(user_id, username, email)
+        return jsonify(options), 200
+
+    except Exception as e:
+        logger.error(f"WebAuthn registration start error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@server.route('/api/webauthn/register/verify', methods=['POST'])
+@login_required
+def webauthn_register_verify():
+    """Verify WebAuthn registration"""
+    if not webauthn_handler:
+        return jsonify({'error': 'WebAuthn not available'}), 503
+
+    try:
+        data = request.get_json()
+        credential = data.get('credential')
+        challenge_key = data.get('challenge_key')
+        device_name = data.get('device_name', 'My Device')
+
+        success = webauthn_handler.verify_registration(
+            current_user.id,
+            credential,
+            challenge_key,
+            device_name
+        )
+
+        if success:
+            return jsonify({'success': True, 'message': 'Biometric registered successfully'}), 200
+        else:
+            return jsonify({'error': 'Registration verification failed'}), 400
+
+    except Exception as e:
+        logger.error(f"WebAuthn registration verify error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@server.route('/api/webauthn/login/start', methods=['POST'])
+def webauthn_login_start():
+    """Start WebAuthn authentication"""
+    if not webauthn_handler:
+        return jsonify({'error': 'WebAuthn not available'}), 503
+
+    try:
+        data = request.get_json()
+        username = data.get('username')
+
+        options = webauthn_handler.generate_authentication_options(username)
+        return jsonify(options), 200
+
+    except Exception as e:
+        logger.error(f"WebAuthn login start error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@server.route('/api/webauthn/login/verify', methods=['POST'])
+def webauthn_login_verify():
+    """Verify WebAuthn authentication"""
+    if not webauthn_handler:
+        return jsonify({'error': 'WebAuthn not available'}), 503
+
+    try:
+        data = request.get_json()
+        credential = data.get('credential')
+        challenge_key = data.get('challenge_key')
+
+        user_id = webauthn_handler.verify_authentication(credential, challenge_key)
+
+        if user_id:
+            # Get user object
+            user = auth_manager.get_user_by_id(user_id)
+
+            if user:
+                # Log in the user
+                login_user(user, remember=True)
+
+                # Record login in history
+                user_ip = request.remote_addr or 'Unknown'
+                user_agent = request.headers.get('User-Agent', 'Unknown')
+
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO user_login_history
+                    (user_id, login_timestamp, ip_address, user_agent, login_method, success)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (user_id, datetime.now(), user_ip, user_agent, 'webauthn_biometric', 1))
+                conn.commit()
+                conn.close()
+
+                logger.info(f"User {user.username} logged in via WebAuthn biometric")
+                return jsonify({'success': True, 'redirect': '/'}), 200
+            else:
+                return jsonify({'error': 'User not found'}), 404
+        else:
+            return jsonify({'error': 'Authentication failed'}), 401
+
+    except Exception as e:
+        logger.error(f"WebAuthn login verify error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 # Threat Intelligence setup
 THREAT_INTEL_ENABLED = config.get('threat_intelligence', 'enabled', default=False)
@@ -1529,41 +1775,48 @@ login_layout = dbc.Container([
                             html.Div([
                                 dbc.Alert(id="login-alert", is_open=False, duration=4000, className="mt-3"),
 
-                                # Username Input
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-user", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
-                                    ),
+                                # Username Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-user input-icon"),
                                     dbc.Input(
                                         id="login-username",
                                         type="text",
-                                        placeholder="Username",
+                                        placeholder=" ",
                                         autocomplete="username",
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none"}
-                                    )
-                                ], className="mb-3 mt-3"),
-
-                                # Password Input with Eye Icon
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                        style={"border": "1px solid var(--border-color)"}
                                     ),
+                                    html.Label("Username", htmlFor="login-username")
+                                ], className="floating-input-group mt-3"),
+
+                                # Password Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-lock input-icon"),
                                     dbc.Input(
                                         id="login-password",
                                         type="password",
-                                        placeholder="Password",
+                                        placeholder=" ",
                                         autocomplete="current-password",
                                         n_submit=0,
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none", "borderLeft": "none"}
+                                        style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     ),
+                                    html.Label("Password", htmlFor="login-password"),
                                     dbc.Button(
                                         html.I(id="login-password-toggle", className="fa fa-eye"),
                                         id="login-password-toggle-btn",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
+                                        className="password-toggle-btn"
+                                    )
+                                ], className="floating-input-group"),
+
+                                # Remember Me Checkbox
+                                html.Div([
+                                    dbc.Checkbox(
+                                        id="remember-me-checkbox",
+                                        label="Remember me for 7 days",
+                                        value=False,
+                                        className="custom-checkbox",
+                                        style={"color": "var(--text-secondary)"}
                                     )
                                 ], className="mb-3"),
 
@@ -1581,6 +1834,159 @@ login_layout = dbc.Container([
                                     }
                                 ),
 
+                                # Forgot Password Link
+                                html.Div([
+                                    html.A(
+                                        "Forgot password?",
+                                        id="forgot-password-link",
+                                        href="#",
+                                        className="d-block text-center mt-3",
+                                        style={
+                                            "color": "var(--text-secondary)",
+                                            "fontSize": "0.9rem",
+                                            "textDecoration": "none",
+                                            "cursor": "pointer"
+                                        }
+                                    )
+                                ], className="mb-3"),
+
+                                # OAuth Divider
+                                html.Div([
+                                    html.Div(style={
+                                        "borderTop": "1px solid var(--border-color)",
+                                        "position": "relative",
+                                        "margin": "1.5rem 0"
+                                    }),
+                                    html.Span("OR", style={
+                                        "position": "absolute",
+                                        "top": "-0.6rem",
+                                        "left": "50%",
+                                        "transform": "translateX(-50%)",
+                                        "background": "var(--bg-secondary)",
+                                        "padding": "0 1rem",
+                                        "color": "var(--text-secondary)",
+                                        "fontSize": "0.85rem",
+                                        "fontWeight": "600"
+                                    })
+                                ], style={"position": "relative"}),
+
+                                # Google Sign-In Button
+                                html.Div([
+                                    html.A(
+                                        [
+                                            html.Img(
+                                                src="https://www.google.com/favicon.ico",
+                                                style={
+                                                    "width": "20px",
+                                                    "height": "20px",
+                                                    "marginRight": "0.75rem",
+                                                    "verticalAlign": "middle"
+                                                }
+                                            ),
+                                            html.Span("Continue with Google", style={"verticalAlign": "middle"})
+                                        ],
+                                        href="/auth/google",
+                                        className="w-100 btn btn-outline-light",
+                                        style={
+                                            "display": "flex",
+                                            "alignItems": "center",
+                                            "justifyContent": "center",
+                                            "padding": "0.75rem",
+                                            "fontSize": "0.95rem",
+                                            "fontWeight": "600",
+                                            "border": "1px solid var(--border-color)",
+                                            "borderRadius": "8px",
+                                            "background": "var(--bg-tertiary)",
+                                            "color": "var(--text-primary)",
+                                            "textDecoration": "none",
+                                            "transition": "all 0.3s ease"
+                                        },
+                                        id="google-signin-btn"
+                                    )
+                                ], className="mb-2", id="oauth-section"),
+
+                                # Biometric Login Button (shown if WebAuthn supported)
+                                html.Div([
+                                    dbc.Button(
+                                        [
+                                            html.I(className="fa fa-fingerprint me-2", style={"fontSize": "1.25rem"}),
+                                            html.Span("Sign in with Biometrics")
+                                        ],
+                                        id="biometric-login-btn",
+                                        className="w-100",
+                                        color="primary",
+                                        outline=True,
+                                        style={
+                                            "padding": "0.75rem",
+                                            "fontSize": "0.95rem",
+                                            "fontWeight": "600",
+                                            "border": "1px solid var(--accent-color)",
+                                            "borderRadius": "8px",
+                                            "background": "rgba(102, 126, 234, 0.1)",
+                                            "color": "var(--accent-color)",
+                                            "transition": "all 0.3s ease",
+                                            "display": "none"  # Hidden by default, shown via JS if WebAuthn available
+                                        }
+                                    )
+                                ], className="mb-3", id="biometric-section"),
+
+                                # Trust Signals & Security Badges
+                                html.Div([
+                                    # Divider
+                                    html.Hr(style={"borderTop": "1px solid var(--border-color)", "margin": "1.5rem 0 1rem 0"}),
+
+                                    # Security badges
+                                    html.Div([
+                                        # Bank-level encryption badge
+                                        html.Div([
+                                            html.I(className="fa fa-shield-alt", style={
+                                                "color": "var(--success-color)",
+                                                "fontSize": "1rem",
+                                                "marginRight": "0.5rem"
+                                            }),
+                                            html.Small("Bank-Level Encryption", style={
+                                                "color": "var(--text-secondary)",
+                                                "fontSize": "0.8rem",
+                                                "fontWeight": "500"
+                                            })
+                                        ], className="d-flex align-items-center mb-2"),
+
+                                        # Data privacy badge
+                                        html.Div([
+                                            html.I(className="fa fa-lock", style={
+                                                "color": "var(--info-color)",
+                                                "fontSize": "1rem",
+                                                "marginRight": "0.5rem"
+                                            }),
+                                            html.Small("Your Data Stays Local", style={
+                                                "color": "var(--text-secondary)",
+                                                "fontSize": "0.8rem",
+                                                "fontWeight": "500"
+                                            })
+                                        ], className="d-flex align-items-center mb-2"),
+
+                                        # Open source badge
+                                        html.Div([
+                                            html.I(className="fab fa-github", style={
+                                                "color": "var(--accent-color)",
+                                                "fontSize": "1rem",
+                                                "marginRight": "0.5rem"
+                                            }),
+                                            html.Small("Open Source Security", style={
+                                                "color": "var(--text-secondary)",
+                                                "fontSize": "0.8rem",
+                                                "fontWeight": "500"
+                                            })
+                                        ], className="d-flex align-items-center")
+                                    ], style={
+                                        "textAlign": "center",
+                                        "padding": "0.75rem",
+                                        "background": "rgba(255, 255, 255, 0.02)",
+                                        "borderRadius": "8px",
+                                        "border": "1px solid rgba(255, 255, 255, 0.05)"
+                                    })
+                                ], className="mt-3", id="trust-signals"),
+
                             ])
                         ], label="Login", tab_id="login-tab", activeTabClassName="fw-bold", className="glass-card"),
 
@@ -1589,79 +1995,90 @@ login_layout = dbc.Container([
                             html.Div([
                                 dbc.Alert(id="register-alert", is_open=False, duration=4000, className="mt-3"),
 
-                                # Email Input
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-envelope", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
-                                    ),
+                                # Email Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-envelope input-icon"),
                                     dbc.Input(
                                         id="register-email",
                                         type="email",
-                                        placeholder="Email address",
+                                        placeholder=" ",
                                         autocomplete="email",
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none"}
-                                    )
-                                ], className="mb-3 mt-3"),
-
-                                # New Username Input
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-user", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                        style={"border": "1px solid var(--border-color)"}
                                     ),
+                                    html.Label("Email Address", htmlFor="register-email")
+                                ], className="floating-input-group mt-3"),
+                                html.Div(id="email-validation-feedback", className="validation-feedback mb-2"),
+
+                                # Username Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-user input-icon"),
                                     dbc.Input(
                                         id="register-username",
                                         type="text",
-                                        placeholder="Choose username",
+                                        placeholder=" ",
                                         autocomplete="off",
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none"}
-                                    )
-                                ], className="mb-3"),
-
-                                # New Password Input
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
+                                        style={"border": "1px solid var(--border-color)"}
                                     ),
+                                    html.Label("Username", htmlFor="register-username")
+                                ], className="floating-input-group"),
+                                html.Div(id="username-validation-feedback", className="validation-feedback mb-2"),
+
+                                # New Password Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-lock input-icon"),
                                     dbc.Input(
                                         id="register-password",
                                         type="password",
-                                        placeholder="Choose password",
+                                        placeholder=" ",  # Space required for :not(:placeholder-shown)
                                         autocomplete="new-password",
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none", "borderLeft": "none"}
+                                        style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     ),
+                                    html.Label("Password", htmlFor="register-password"),
                                     dbc.Button(
                                         html.I(id="register-password-toggle", className="fa fa-eye"),
                                         id="register-password-toggle-btn",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
+                                        className="password-toggle-btn"
                                     )
-                                ], className="mb-3"),
+                                ], className="floating-input-group"),
 
-                                # Confirm Password Input
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(
-                                        html.I(className="fa fa-lock", style={"color": "var(--accent-color)"}),
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none"}
-                                    ),
+                                # Password Strength Meter
+                                html.Div([
+                                    html.Div([
+                                        html.Small("Password Strength:", className="text-secondary d-block mb-1", style={"fontSize": "0.85rem"}),
+                                        html.Div([
+                                            html.Div(id="password-strength-bar", style={
+                                                "height": "4px",
+                                                "borderRadius": "2px",
+                                                "backgroundColor": "var(--border-color)",
+                                                "transition": "all 0.3s ease",
+                                                "width": "0%"
+                                            })
+                                        ], style={"width": "100%", "backgroundColor": "var(--bg-tertiary)", "borderRadius": "2px", "height": "4px"}),
+                                        html.Small(id="password-strength-text", className="text-muted d-block mt-1", style={"fontSize": "0.8rem"})
+                                    ], id="password-strength-container", style={"display": "none"})
+                                ], className="mb-2"),
+
+                                # Confirm Password Input with Floating Label
+                                html.Div([
+                                    html.I(className="fa fa-lock input-icon"),
                                     dbc.Input(
                                         id="register-password-confirm",
                                         type="password",
-                                        placeholder="Confirm password",
+                                        placeholder=" ",  # Space required for :not(:placeholder-shown)
                                         autocomplete="new-password",
                                         className="form-control",
-                                        style={"border": "1px solid var(--border-color)", "borderRight": "none", "borderLeft": "none"}
+                                        style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     ),
+                                    html.Label("Confirm Password", htmlFor="register-password-confirm"),
                                     dbc.Button(
                                         html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
                                         id="register-password-confirm-toggle-btn",
-                                        style={"border": "1px solid var(--border-color)", "borderLeft": "none", "color": "var(--text-secondary)"}
+                                        className="password-toggle-btn"
                                     )
-                                ], className="mb-3"),
+                                ], className="floating-input-group mb-3"),
 
                                 # Send Verification Code Button
                                 dbc.Button(
@@ -1673,22 +2090,20 @@ login_layout = dbc.Container([
                                     style={"fontWeight": "600"}
                                 ),
 
-                                # Verification Code Input (initially hidden)
+                                # Verification Code Input (initially hidden) with Floating Label
                                 html.Div([
-                                    dbc.InputGroup([
-                                        dbc.InputGroupText(
-                                            html.I(className="fa fa-key", style={"color": "var(--accent-color)"}),
-                                            style={"border": "1px solid var(--border-color)", "borderRight": "none"}
-                                        ),
+                                    html.Div([
+                                        html.I(className="fa fa-key input-icon"),
                                         dbc.Input(
                                             id="verification-code",
                                             type="text",
-                                            placeholder="Enter 6-digit verification code",
+                                            placeholder=" ",  # Space required for :not(:placeholder-shown)
                                             maxLength=6,
                                             className="form-control",
-                                            style={"border": "1px solid var(--border-color)", "borderLeft": "none"}
-                                        )
-                                    ], className="mb-3")
+                                            style={"border": "1px solid var(--border-color)"}
+                                        ),
+                                        html.Label("Verification Code", htmlFor="verification-code")
+                                    ], className="floating-input-group mb-3")
                                 ], id="verification-code-container", style={"display": "none"}),
 
                                 # Hidden role field - always viewer for self-registration
@@ -1727,7 +2142,62 @@ login_layout = dbc.Container([
     ], className="g-0 min-vh-100"),
 
     # Toast container for login/register notifications
-    html.Div(id="toast-container", style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999})
+    html.Div(id="toast-container", style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}),
+
+    # Forgot Password Modal
+    dbc.Modal([
+        dbc.ModalHeader(
+            dbc.ModalTitle([
+                html.I(className="fa fa-key me-2", style={"color": "var(--accent-color)"}),
+                "Reset Your Password"
+            ]),
+            close_button=True
+        ),
+        dbc.ModalBody([
+            # Step 1: Email Input with Floating Label
+            html.Div([
+                html.P("Enter your email address and we'll send you a password reset link.",
+                       className="text-secondary mb-3", style={"fontSize": "0.95rem"}),
+                html.Div([
+                    html.I(className="fa fa-envelope input-icon"),
+                    dbc.Input(
+                        id="forgot-password-email",
+                        type="email",
+                        placeholder=" ",  # Space required for :not(:placeholder-shown)
+                        autocomplete="email",
+                        className="form-control",
+                        style={"border": "1px solid var(--border-color)"}
+                    ),
+                    html.Label("Email Address", htmlFor="forgot-password-email")
+                ], className="floating-input-group mb-3"),
+                html.Div(id="forgot-password-message")
+            ], id="forgot-password-step-1"),
+
+            # Step 2: Success Message (initially hidden)
+            html.Div([
+                html.Div([
+                    html.I(className="fa fa-check-circle fa-3x text-success mb-3"),
+                    html.H5("Check Your Email", className="mb-2"),
+                    html.P([
+                        "We've sent a password reset link to ",
+                        html.Strong(id="reset-email-display", className="text-primary")
+                    ], className="text-secondary mb-2"),
+                    html.P("The link will expire in 1 hour.",
+                           className="text-muted small")
+                ], className="text-center")
+            ], id="forgot-password-step-2", style={"display": "none"})
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="forgot-password-cancel", color="secondary", outline=True),
+            dbc.Button(
+                [html.I(className="fa fa-paper-plane me-2"), "Send Reset Link"],
+                id="forgot-password-submit",
+                color="primary",
+                className="cyber-button-modern"
+            )
+        ], id="forgot-password-footer")
+    ], id="forgot-password-modal", size="md", is_open=False, className="glass-modal")
+
 ], fluid=True, style={
     "position": "relative",
     "minHeight": "100vh"
@@ -3043,7 +3513,36 @@ dashboard_layout = dbc.Container([
                         "Update Password"
                     ], id='profile-change-password-btn', color="success", className="w-100")
                 ])
-            ], className="glass-card")
+            ], className="glass-card mb-4"),
+
+            # Biometric Security Section
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-fingerprint me-2"),
+                    "Biometric Security"
+                ], className="fw-bold"),
+                dbc.CardBody([
+                    html.P([
+                        "Use Touch ID, Face ID, or Windows Hello for quick and secure login. ",
+                        "Your biometric data never leaves your device."
+                    ], className="text-secondary mb-3", style={"fontSize": "0.9rem"}),
+
+                    # Registered Devices List
+                    html.Div(id='biometric-devices-list', className="mb-3"),
+
+                    # Hidden div to store username for WebAuthn
+                    html.Div(id='biometric-username-store', **{'data-username': ''}, style={'display': 'none'}),
+
+                    # Register New Biometric Button
+                    dbc.Button([
+                        html.I(className="fa fa-plus-circle me-2"),
+                        "Register New Biometric"
+                    ], id='register-biometric-btn', color="primary", outline=True, className="w-100 mb-2"),
+
+                    # Status messages
+                    html.Div(id='biometric-status-message')
+                ])
+            ], className="glass-card", id="biometric-security-section", style={"display": "none"})
         ])
     ], id="profile-edit-modal", size="lg", is_open=False, scrollable=True),
 
@@ -7649,6 +8148,31 @@ def display_page(pathname):
         return login_layout, dash.no_update
 
 
+# Clear form inputs when logging out or returning to login page
+@app.callback(
+    [Output('login-username', 'value'),
+     Output('login-password', 'value'),
+     Output('register-email', 'value'),
+     Output('register-username', 'value'),
+     Output('register-password', 'value'),
+     Output('register-password-confirm', 'value'),
+     Output('verification-code', 'value'),
+     Output('forgot-password-email', 'value')],
+    [Input('url', 'pathname'),
+     Input('auth-notification-store', 'data')],
+    prevent_initial_call=False
+)
+def clear_form_inputs(pathname, notification_data):
+    """Clear all form inputs when showing login page or after logout"""
+    # Clear on logout or when not authenticated
+    if notification_data and notification_data.get('type') == 'logout_success':
+        return '', '', '', '', '', '', '', ''
+    elif not current_user.is_authenticated:
+        return '', '', '', '', '', '', '', ''
+    # User is authenticated - don't update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
 # Auth notification toast callback
 @app.callback(
     Output('toast-container', 'children', allow_duplicate=True),
@@ -7696,10 +8220,11 @@ def show_auth_notification(notification_data):
     [Input('login-button', 'n_clicks'),
      Input('login-password', 'n_submit')],
     [State('login-username', 'value'),
-     State('login-password', 'value')],
+     State('login-password', 'value'),
+     State('remember-me-checkbox', 'value')],
     prevent_initial_call=True
 )
-def handle_login(n_clicks, n_submit, username, password):
+def handle_login(n_clicks, n_submit, username, password, remember_me):
     """Handle login button click or Enter key"""
     if n_clicks is None and n_submit is None:
         raise dash.exceptions.PreventUpdate
@@ -7742,14 +8267,85 @@ def handle_login(n_clicks, n_submit, username, password):
     if user:
         # Login successful - reset rate limiter for this username
         login_rate_limiter.record_successful_login(username)
-        login_user(user)
-        logger.info(f"User '{username}' logged in successfully")
+        login_user(user, remember=remember_me)
+        logger.info(f"User '{username}' logged in successfully (remember_me={remember_me})")
+
+        # Enhanced Welcome Experience: Get login history and record current login
+        from flask import request
+        from datetime import datetime
+
+        # Get user's IP and user agent
+        user_ip = request.remote_addr or 'Unknown'
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+
+        # Query last login from history (before recording current one)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT login_timestamp, ip_address, login_method
+            FROM user_login_history
+            WHERE user_id = ? AND success = 1
+            ORDER BY login_timestamp DESC
+            LIMIT 1
+        """, (user.id,))
+        last_login = cursor.fetchone()
+
+        # Record current login in history
+        cursor.execute("""
+            INSERT INTO user_login_history
+            (user_id, login_timestamp, ip_address, user_agent, login_method, success)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user.id, datetime.now(), user_ip, user_agent, 'password', 1))
+        conn.commit()
+        conn.close()
+
+        # Create personalized welcome message
+        if last_login:
+            last_login_time = last_login[0]
+            last_login_ip = last_login[1]
+            last_login_method = last_login[2]
+
+            # Parse datetime - handle SQLite datetime format
+            try:
+                # Try different datetime parsing methods
+                try:
+                    # Try ISO format first
+                    last_dt = datetime.fromisoformat(last_login_time)
+                except:
+                    # Try SQLite datetime format: "2025-12-21 10:30:45.123456"
+                    last_dt = datetime.strptime(last_login_time.split('.')[0], "%Y-%m-%d %H:%M:%S")
+
+                now = datetime.now()
+                time_diff = now - last_dt
+
+                # Format time difference
+                if time_diff.total_seconds() < 60:
+                    time_ago = "moments ago"
+                elif time_diff.total_seconds() < 3600:
+                    minutes = int(time_diff.total_seconds() / 60)
+                    time_ago = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+                elif time_diff.total_seconds() < 86400:
+                    hours = int(time_diff.total_seconds() / 3600)
+                    time_ago = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                else:
+                    days = int(time_diff.days)
+                    time_ago = f"{days} day{'s' if days != 1 else ''} ago"
+
+                # Simple text format like other toasts
+                welcome_body = f"Welcome back, {username}! Last login: {time_ago} from {last_login_ip}"
+            except Exception as e:
+                logger.error(f"Failed to parse last login time '{last_login_time}': {e}")
+                welcome_body = f"Welcome back, {username}!"
+        else:
+            # First time login
+            welcome_body = f"Welcome, {username}! This is your first login."
+
         toast = dbc.Toast(
-            "Login successful! Loading dashboard...",
-            header="Login Success",
+            welcome_body,
+            header="Login Successful",
             icon="success",
             color="success",
-            duration=2000,
+            duration=5000,
             is_open=True,
             dismissable=True,
             style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
@@ -7779,12 +8375,262 @@ def handle_login(n_clicks, n_submit, username, password):
                 header="Login Failed",
                 icon="danger",
                 color="danger",
-                duration=4000,
+                duration=5000,
                 is_open=True,
                 dismissable=True,
                 style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
             )
             return toast, dash.no_update, dash.no_update
+
+
+# Forgot Password Modal Toggle
+@app.callback(
+    Output('forgot-password-modal', 'is_open'),
+    [Input('forgot-password-link', 'n_clicks'),
+     Input('forgot-password-cancel', 'n_clicks'),
+     Input('forgot-password-submit', 'n_clicks')],
+    State('forgot-password-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_forgot_password_modal(link_clicks, cancel_clicks, submit_clicks, is_open):
+    """Toggle forgot password modal"""
+    ctx = callback_context
+    if not ctx.triggered:
+        return is_open
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # Open modal when link is clicked, close when cancel is clicked
+    # Keep open when submit is clicked (will be handled by next callback)
+    if button_id == 'forgot-password-link':
+        return True
+    elif button_id == 'forgot-password-cancel':
+        return False
+
+    return is_open
+
+
+# Send Password Reset Email
+@app.callback(
+    [Output('forgot-password-step-1', 'style'),
+     Output('forgot-password-step-2', 'style'),
+     Output('reset-email-display', 'children'),
+     Output('forgot-password-footer', 'style'),
+     Output('forgot-password-message', 'children')],
+    Input('forgot-password-submit', 'n_clicks'),
+    State('forgot-password-email', 'value'),
+    prevent_initial_call=True
+)
+def send_reset_email(n_clicks, email):
+    """Send password reset email"""
+    if not email or '@' not in email or '.' not in email:
+        return (
+            {"display": "block"},
+            {"display": "none"},
+            "",
+            {"display": "flex"},
+            dbc.Alert("Please enter a valid email address", color="warning", className="mb-0")
+        )
+
+    # Generate reset token
+    reset_token = auth_manager.create_password_reset_token(email)
+
+    if not reset_token:
+        return (
+            {"display": "block"},
+            {"display": "none"},
+            "",
+            {"display": "flex"},
+            dbc.Alert("No account found with that email address", color="danger", className="mb-0")
+        )
+
+    # Send email with reset link
+    from flask import request
+    reset_link = f"{request.host_url}reset-password?token={reset_token}"
+
+    try:
+        # Send email using existing SMTP configuration
+        send_password_reset_email(email, reset_link, reset_token)
+        logger.info(f"Password reset email sent to {email}")
+
+        # Show success step
+        return (
+            {"display": "none"},
+            {"display": "block"},
+            email,
+            {"display": "none"},
+            ""
+        )
+    except Exception as e:
+        logger.error(f"Failed to send reset email: {e}")
+        return (
+            {"display": "block"},
+            {"display": "none"},
+            "",
+            {"display": "flex"},
+            dbc.Alert(f"Failed to send email. Please try again later or contact support.", color="danger", className="mb-0")
+        )
+
+
+def send_password_reset_email(email: str, reset_link: str, token: str):
+    """Send password reset email with glassmorphic styling"""
+    smtp_server = os.getenv('EMAIL_SMTP_HOST', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('EMAIL_SMTP_PORT', '587'))
+    smtp_user = os.getenv('EMAIL_SMTP_USER', '')
+    smtp_password = os.getenv('EMAIL_SMTP_PASSWORD', '')
+    sender_email = os.getenv('EMAIL_SENDER_EMAIL', smtp_user)
+
+    if not smtp_user or not smtp_password:
+        # If SMTP not configured, log the reset link for development
+        logger.warning(f"SMTP not configured. Reset link: {reset_link}")
+        logger.warning(f"Reset token for {email}: {token}")
+        return
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = 'Reset Your IoTSentinel Password'
+    msg['From'] = sender_email
+    msg['To'] = email
+
+    # Create HTML email body
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 40px 20px;
+                margin: 0;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: 0 auto;
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 40px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
+            }}
+            .logo {{
+                font-size: 36px;
+                font-weight: bold;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }}
+            .content {{
+                color: #333;
+                line-height: 1.6;
+            }}
+            .button {{
+                display: inline-block;
+                padding: 16px 32px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white !important;
+                text-decoration: none;
+                border-radius: 12px;
+                font-weight: 600;
+                margin: 20px 0;
+                box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+            }}
+            .footer {{
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 1px solid #e0e0e0;
+                color: #666;
+                font-size: 14px;
+                text-align: center;
+            }}
+            .warning {{
+                background: #fff3cd;
+                border-left: 4px solid #ffc107;
+                padding: 12px;
+                margin: 20px 0;
+                border-radius: 4px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="logo">🛡️ IoTSentinel</div>
+                <p style="color: #666; margin-top: 10px;">AI-Powered Network Security</p>
+            </div>
+
+            <div class="content">
+                <h2 style="color: #333;">Password Reset Request</h2>
+                <p>Hello,</p>
+                <p>We received a request to reset your IoTSentinel password. Click the button below to create a new password:</p>
+
+                <div style="text-align: center;">
+                    <a href="{reset_link}" class="button">Reset My Password</a>
+                </div>
+
+                <div class="warning">
+                    <strong>⚠️ Security Notice:</strong> This link will expire in 1 hour for your security.
+                </div>
+
+                <p>If you didn't request this password reset, please ignore this email. Your password will remain unchanged.</p>
+
+                <p>For security reasons, we recommend:</p>
+                <ul>
+                    <li>Use a strong, unique password</li>
+                    <li>Enable two-factor authentication</li>
+                    <li>Never share your password with anyone</li>
+                </ul>
+            </div>
+
+            <div class="footer">
+                <p>This is an automated message from IoTSentinel.</p>
+                <p>If you have any questions, please contact your system administrator.</p>
+                <p style="margin-top: 20px; color: #999; font-size: 12px;">
+                    If the button doesn't work, copy and paste this link into your browser:<br>
+                    <a href="{reset_link}" style="color: #667eea;">{reset_link}</a>
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # Plain text version
+    text_body = f"""
+    IoTSentinel - Password Reset Request
+
+    Hello,
+
+    We received a request to reset your IoTSentinel password.
+
+    Click the link below to create a new password:
+    {reset_link}
+
+    This link will expire in 1 hour for your security.
+
+    If you didn't request this password reset, please ignore this email.
+
+    Best regards,
+    IoTSentinel Security Team
+    """
+
+    part1 = MIMEText(text_body, 'plain')
+    part2 = MIMEText(html_body, 'html')
+
+    msg.attach(part1)
+    msg.attach(part2)
+
+    # Send email
+    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+    server.ehlo()
+    server.starttls()
+    server.ehlo()
+    server.login(smtp_user, smtp_password)
+    server.sendmail(sender_email, email, msg.as_string())
+    server.quit()
 
 
 # Password toggle callbacks for login page
@@ -7828,6 +8674,186 @@ def toggle_register_confirm_password(n_clicks, current_type):
     if current_type == 'password':
         return 'text', 'fa fa-eye-slash'
     return 'password', 'fa fa-eye'
+
+
+# Real-time Email Validation
+@app.callback(
+    [Output('email-validation-feedback', 'children'),
+     Output('register-email', 'style')],
+    Input('register-email', 'value'),
+    prevent_initial_call=True
+)
+def validate_email_realtime(email):
+    """Validate email in real-time"""
+    base_style = {"border": "1px solid var(--border-color)", "borderLeft": "none"}
+
+    if not email:
+        return "", base_style
+
+    # Import email validator
+    try:
+        from email_validator import validate_email, EmailNotValidError
+
+        try:
+            # Validate email format
+            validate_email(email, check_deliverability=False)
+
+            # Check if email already exists
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+            existing = cursor.fetchone()
+            conn.close()
+
+            if existing:
+                error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
+                return html.Div([
+                    html.I(className="fa fa-times-circle validation-error me-1"),
+                    html.Small("Email already registered", className="text-danger")
+                ]), error_style
+
+            success_style = {**base_style, "borderColor": "var(--success-color)", "boxShadow": "0 0 0 0.2rem rgba(16, 185, 129, 0.25)"}
+            return html.Div([
+                html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+                html.Small("Valid email", className="text-success")
+            ]), success_style
+
+        except EmailNotValidError:
+            error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
+            return html.Div([
+                html.I(className="fa fa-times-circle validation-error me-1"),
+                html.Small("Invalid email format", className="text-danger")
+            ]), error_style
+
+    except ImportError:
+        # If email-validator not installed, do basic validation
+        if '@' in email and '.' in email.split('@')[-1]:
+            return html.Div([
+                html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+                html.Small("Valid email", className="text-success")
+            ]), base_style
+        else:
+            return html.Div([
+                html.I(className="fa fa-times-circle validation-error me-1"),
+                html.Small("Invalid email format", className="text-danger")
+            ]), base_style
+
+
+# Real-time Username Validation
+@app.callback(
+    [Output('username-validation-feedback', 'children'),
+     Output('register-username', 'style')],
+    Input('register-username', 'value'),
+    prevent_initial_call=True
+)
+def validate_username_realtime(username):
+    """Validate username in real-time"""
+    base_style = {"border": "1px solid var(--border-color)", "borderLeft": "none"}
+
+    if not username:
+        return "", base_style
+
+    # Check length
+    if len(username) < 3:
+        error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
+        return html.Div([
+            html.I(className="fa fa-times-circle validation-error me-1"),
+            html.Small("Username must be at least 3 characters", className="text-danger")
+        ]), error_style
+
+    # Check valid characters
+    if not username.replace('_', '').replace('-', '').isalnum():
+        error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
+        return html.Div([
+            html.I(className="fa fa-times-circle validation-error me-1"),
+            html.Small("Only letters, numbers, _ and - allowed", className="text-danger")
+        ]), error_style
+
+    # Check availability
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+    existing = cursor.fetchone()
+    conn.close()
+
+    if existing:
+        error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
+        return html.Div([
+            html.I(className="fa fa-times-circle validation-error me-1"),
+            html.Small("Username already taken", className="text-danger")
+        ]), error_style
+
+    success_style = {**base_style, "borderColor": "var(--success-color)", "boxShadow": "0 0 0 0.2rem rgba(16, 185, 129, 0.25)"}
+    return html.Div([
+        html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+        html.Small(f"'{username}' is available", className="text-success")
+    ]), success_style
+
+
+# Password Strength Meter
+@app.callback(
+    [Output('password-strength-bar', 'style'),
+     Output('password-strength-text', 'children'),
+     Output('password-strength-container', 'style')],
+    Input('register-password', 'value'),
+    prevent_initial_call=True
+)
+def validate_password_strength(password):
+    """Validate password strength in real-time"""
+    if not password:
+        return (
+            {"height": "4px", "width": "0%", "borderRadius": "2px", "transition": "all 0.3s ease"},
+            "",
+            {"display": "none"}
+        )
+
+    # Try to use zxcvbn for advanced strength checking
+    try:
+        from zxcvbn import zxcvbn
+        result = zxcvbn(password)
+        score = result['score']  # 0-4
+
+        colors = ["#ef4444", "#f59e0b", "#fbbf24", "#10b981", "#059669"]
+        labels = ["Very Weak", "Weak", "Fair", "Good", "Strong"]
+        widths = ["20%", "40%", "60%", "80%", "100%"]
+
+        bar_style = {
+            "height": "4px",
+            "width": widths[score],
+            "backgroundColor": colors[score],
+            "borderRadius": "2px",
+            "transition": "all 0.3s ease"
+        }
+
+        text = f"{labels[score]}"
+        if score < 2 and result['feedback'].get('warning'):
+            text += f" - {result['feedback']['warning']}"
+
+        return bar_style, text, {"display": "block"}
+
+    except ImportError:
+        # Fallback to basic strength checking
+        score = 0
+        if len(password) >= 8: score += 1
+        if any(c.isupper() for c in password): score += 1
+        if any(c.islower() for c in password): score += 1
+        if any(c.isdigit() for c in password): score += 1
+        if any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in password): score += 1
+
+        score = min(score, 4)
+        colors = ["#ef4444", "#f59e0b", "#fbbf24", "#10b981", "#059669"]
+        labels = ["Very Weak", "Weak", "Fair", "Good", "Strong"]
+        widths = ["20%", "40%", "60%", "80%", "100%"]
+
+        bar_style = {
+            "height": "4px",
+            "width": widths[score],
+            "backgroundColor": colors[score],
+            "borderRadius": "2px",
+            "transition": "all 0.3s ease"
+        }
+
+        return bar_style, labels[score], {"display": "block"}
 
 
 # Email verification storage (in production, use Redis or database)
@@ -8680,6 +9706,168 @@ def change_password_from_profile(n_clicks, current_password, new_password, confi
             style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
         )
         return toast, dash.no_update
+
+
+# ============================================================================
+# BIOMETRIC SECURITY CALLBACKS
+# ============================================================================
+
+# Show/hide biometric section and load registered devices
+@app.callback(
+    [Output('biometric-security-section', 'style'),
+     Output('biometric-devices-list', 'children'),
+     Output('biometric-username-store', 'data-username')],
+    Input('profile-edit-modal', 'is_open'),
+    prevent_initial_call=False
+)
+def manage_biometric_section(is_open):
+    """Show biometric section if WebAuthn available and load registered devices"""
+    if not is_open or not current_user.is_authenticated:
+        return {"display": "none"}, [], ''
+
+    # Check if WebAuthn is available
+    if not webauthn_handler or not is_webauthn_available():
+        return {"display": "none"}, [], ''
+
+    # Get current username
+    username = current_user.username
+
+    # Load registered devices
+    try:
+        credentials = webauthn_handler.get_user_credentials_list(current_user.id)
+
+        if not credentials:
+            device_list = html.Div([
+                html.P([
+                    html.I(className="fa fa-info-circle me-2", style={"color": "var(--info-color)"}),
+                    "No biometric credentials registered yet."
+                ], className="text-secondary", style={"fontSize": "0.85rem"})
+            ])
+        else:
+            device_items = []
+            for cred in credentials:
+                device_name = cred.get('device_name', 'Unknown Device')
+                credential_id = cred.get('credential_id')
+
+                device_items.append(
+                    dbc.Card([
+                        dbc.CardBody([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.I(className="fa fa-fingerprint me-2", style={"color": "var(--accent-color)"}),
+                                    html.Strong(device_name)
+                                ], md=9),
+                                dbc.Col([
+                                    dbc.Button([html.I(className="fa fa-trash")],
+                                    id={"type": "remove-biometric-btn", "index": credential_id},
+                                    color="danger", size="sm", outline=True, title="Remove device")
+                                ], md=3, className="d-flex justify-content-end")
+                            ])
+                        ])
+                    ], className="mb-2", style={"background": "rgba(255, 255, 255, 0.05)", "border": "1px solid rgba(255, 255, 255, 0.1)"})
+                )
+            device_list = html.Div(device_items)
+
+        return {"display": "block"}, device_list, username
+
+    except Exception as e:
+        logger.error(f"Error loading biometric devices: {e}")
+        return {"display": "block"}, html.P("Error loading devices", className="text-danger"), username
+
+
+# Register new biometric credential (clientside callback)
+app.clientside_callback(
+    """
+    function(n_clicks, username) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+
+        if (!username) {
+            alert('Username not available. Please try again.');
+            return window.dash_clientside.no_update;
+        }
+
+        // Call WebAuthn registration
+        if (window.WebAuthnClient && window.WebAuthnClient.register) {
+            window.WebAuthnClient.register(username)
+                .then(result => {
+                    // Success - reload page to refresh device list
+                    console.log('Biometric registration successful:', result);
+                    alert('Biometric credential registered successfully! Please close and reopen the profile to see it.');
+                    window.location.reload();
+                })
+                .catch(error => {
+                    console.error('Biometric registration failed:', error);
+                    alert('Biometric registration failed: ' + error.message);
+                });
+        } else {
+            alert('WebAuthn is not supported on this device/browser');
+        }
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('biometric-status-message', 'children'),
+    [Input('register-biometric-btn', 'n_clicks'),
+     Input('biometric-username-store', 'data-username')],
+    prevent_initial_call=True
+)
+
+
+# Remove biometric credential
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('profile-edit-modal', 'is_open', allow_duplicate=True)],
+    Input({"type": "remove-biometric-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True
+)
+def remove_biometric_device(n_clicks_list):
+    """Remove a biometric credential"""
+    if not current_user.is_authenticated or not webauthn_handler:
+        raise dash.exceptions.PreventUpdate
+
+    ctx = callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    # Get credential ID from button that was clicked
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    import json
+    try:
+        button_data = json.loads(triggered_id)
+        credential_id = button_data['index']
+    except:
+        raise dash.exceptions.PreventUpdate
+
+    # Remove credential
+    success = webauthn_handler.remove_credential(current_user.id, credential_id)
+
+    if success:
+        toast = dbc.Toast(
+            "Biometric credential removed successfully",
+            header="Device Removed",
+            icon="success",
+            color="success",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, True  # Reopen modal to refresh list
+    else:
+        toast = dbc.Toast(
+            "Failed to remove biometric credential",
+            header="Removal Failed",
+            icon="danger",
+            color="danger",
+            duration=3000,
+            is_open=True,
+            dismissable=True,
+            style={"position": "fixed", "top": 20, "left": "50%", "transform": "translateX(-50%)", "width": 350, "zIndex": 99999}
+        )
+        return toast, dash.no_update
+
 
 # ============================================================================
 # DEVICE MANAGEMENT & PREFERENCES CALLBACKS
