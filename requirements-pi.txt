@@ -13,6 +13,7 @@ dash-bootstrap-components
 plotly
 Flask-SocketIO
 dash-extensions
+Flask-Compress  # Gzip compression for better performance
 
 # Authentication & Security
 Authlib
