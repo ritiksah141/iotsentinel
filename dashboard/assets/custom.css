@@ -52,6 +52,43 @@
 }
 
 /* ============================================================================
+ * 120 FPS OPTIMIZATIONS - For High Refresh Rate Displays
+ * ============================================================================ */
+
+/* High refresh rate optimizations (120Hz, 144Hz, 240Hz displays) */
+.high-refresh * {
+  /* Use faster timing functions for smoother 120+ FPS */
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.high-refresh .card,
+.high-refresh .cyber-card {
+  /* Smoother transitions on high refresh displays */
+  transition-duration: 0.2s; /* Faster for 120Hz */
+}
+
+.high-refresh .btn,
+.high-refresh .cyber-button {
+  /* Ultra-smooth button interactions */
+  transition-duration: 0.15s;
+}
+
+/* Optimize animations for 120 FPS */
+.high-refresh .card:hover,
+.high-refresh .cyber-card:hover {
+  /* Halve transition time for double smoothness */
+  transition-duration: 0.15s;
+}
+
+/* Force maximum performance mode */
+.high-refresh .glass-card,
+.high-refresh .modal-content {
+  /* Ensure GPU compositing */
+  transform: translateZ(0);
+  will-change: auto; /* Let browser optimize */
+}
+
+/* ============================================================================
  * CSS VARIABLES FOR THEME COLORS - ENHANCED WITH GRADIENTS
  * ============================================================================ */
 
