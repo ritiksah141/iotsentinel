@@ -1701,50 +1701,202 @@ login_layout = dbc.Container([
                     html.Img(
                         src="/assets/logo.png",
                         style={
-                            "height": "180px",
+                            "height": "120px",
                             "filter": "drop-shadow(0 0 40px rgba(102, 126, 234, 0.8))",
                             "animation": "logoGlow 3s ease-in-out infinite"
                         }
                     )
-                ], className="text-center mb-5"),
+                ], className="text-center mb-3"),
 
                 # Main title
-                html.H1("IoTSentinel", className="text-center mb-3 text-gradient", style={
-                    "fontSize": "3.5rem",
+                html.H1("IoTSentinel", className="text-center mb-2 text-gradient", style={
+                    "fontSize": "2.5rem",
                     "fontWeight": "800",
                     "letterSpacing": "-2px",
                     "lineHeight": "1.1"
                 }),
 
-                html.H2("Network Security Monitoring", className="text-center mb-4", style={
-                    "fontSize": "2rem",
+                html.H2("Network Security Monitoring", className="text-center mb-3", style={
+                    "fontSize": "1.3rem",
                     "fontWeight": "600",
                     "letterSpacing": "-0.5px",
                     "color": "var(--text-secondary)"
                 }),
 
-                # Features list
+                # Features list with badge design
                 html.Div([
                     html.Div([
-                        html.I(className="fa fa-network-wired me-3", style={"color": "var(--accent-color)", "fontSize": "1.5rem"}),
-                        html.Span("Real-time IoT Device Monitoring", style={"fontSize": "1.1rem", "color": "var(--text-primary)"})
-                    ], className="d-flex align-items-center mb-3"),
+                        html.I(className="fa fa-network-wired", style={
+                            "fontSize": "1.5rem",
+                            "color": "#667eea",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("Real-time Monitoring", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("Track connected devices", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(102, 126, 234, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(102, 126, 234, 0.2)"
+                    }),
+
                     html.Div([
-                        html.I(className="fa fa-brain me-3", style={"color": "var(--accent-secondary)", "fontSize": "1.5rem"}),
-                        html.Span("AI-Powered Threat Detection", style={"fontSize": "1.1rem", "color": "var(--text-primary)"})
-                    ], className="d-flex align-items-center mb-3"),
+                        html.I(className="fa fa-brain", style={
+                            "fontSize": "1.5rem",
+                            "color": "#f093fb",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("AI Threat Detection", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("ML-powered analysis", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(240, 147, 251, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(240, 147, 251, 0.2)"
+                    }),
+
                     html.Div([
-                        html.I(className="fa fa-chart-line me-3", style={"color": "var(--info-color)", "fontSize": "1.5rem"}),
-                        html.Span("Advanced Network Analytics", style={"fontSize": "1.1rem", "color": "var(--text-primary)"})
-                    ], className="d-flex align-items-center mb-3"),
+                        html.I(className="fa fa-chart-line", style={
+                            "fontSize": "1.5rem",
+                            "color": "#4facfe",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("Network Analytics", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("Deep traffic insights", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(79, 172, 254, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(79, 172, 254, 0.2)"
+                    }),
+
                     html.Div([
-                        html.I(className="fa fa-tachometer-alt me-3", style={"color": "var(--success-color)", "fontSize": "1.5rem"}),
-                        html.Span("Comprehensive Security Dashboard", style={"fontSize": "1.1rem", "color": "var(--text-primary)"})
-                    ], className="d-flex align-items-center")
-                ], className="mt-5", style={"maxWidth": "450px", "margin": "0 auto"})
+                        html.I(className="fa fa-tachometer-alt", style={
+                            "fontSize": "1.5rem",
+                            "color": "#10b981",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("Security Dashboard", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("Complete visibility", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(16, 185, 129, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(16, 185, 129, 0.2)"
+                    })
+                ], className="mt-3", style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(2, 1fr)",
+                    "gap": "0.6rem",
+                    "maxWidth": "650px",
+                    "margin": "0 auto"
+                }),
+
+                # Trust Signals & Security Badges
+                html.Div([
+                    html.Div([
+                        html.I(className="fa fa-shield-alt", style={
+                            "fontSize": "1.5rem",
+                            "color": "#10b981",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("End-to-End Encryption", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("256-bit AES", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(16, 185, 129, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(16, 185, 129, 0.2)"
+                    }),
+
+                    html.Div([
+                        html.I(className="fa fa-lock", style={
+                            "fontSize": "1.5rem",
+                            "color": "#3b82f6",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("Data Stays Local", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("Never shared", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(59, 130, 246, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(59, 130, 246, 0.2)"
+                    }),
+
+                    html.Div([
+                        html.I(className="fab fa-github", style={
+                            "fontSize": "1.5rem",
+                            "color": "#a855f7",
+                            "marginBottom": "0.4rem"
+                        }),
+                        html.Div("Open Source", style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": "var(--text-primary)",
+                            "marginBottom": "0.2rem"
+                        }),
+                        html.Div("Auditable code", style={
+                            "fontSize": "0.75rem",
+                            "color": "var(--text-secondary)"
+                        })
+                    ], className="text-center p-2", style={
+                        "background": "rgba(168, 85, 247, 0.08)",
+                        "borderRadius": "10px",
+                        "border": "1px solid rgba(168, 85, 247, 0.2)"
+                    })
+                ], className="mt-3", style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(3, 1fr)",
+                    "gap": "0.6rem",
+                    "maxWidth": "650px",
+                    "margin": "0 auto"
+                })
             ], className="d-flex flex-column justify-content-center", style={
                 "height": "100%",
-                "padding": "4rem 3rem"
+                "padding": "2rem 2rem"
             })
         ], md=6, className="d-none d-md-flex align-items-center justify-content-center", style={
             "minHeight": "100vh",
@@ -1756,17 +1908,28 @@ login_layout = dbc.Container([
             # Login/Register Card with Liquid Glass Effect
             dbc.Card([
                 dbc.CardBody([
-                    # Simple welcome message at top
+                    # Welcome message at top with better styling
                     html.Div([
-                        html.H3("Welcome Back", className="mb-2", style={
-                            "fontWeight": "700",
-                            "color": "var(--text-primary)"
-                        }),
-                        html.P("Sign in to access your dashboard", className="mb-4", style={
+                        html.Div([
+                            html.I(className="fa fa-sign-in-alt", style={
+                                "fontSize": "2rem",
+                                "color": "var(--accent-color)",
+                                "marginRight": "0.75rem",
+                                "filter": "drop-shadow(0 0 10px rgba(102, 126, 234, 0.5))"
+                            }),
+                            html.H2("Sign In", className="mb-0", style={
+                                "fontWeight": "700",
+                                "fontSize": "2rem",
+                                "color": "var(--text-primary)",
+                                "letterSpacing": "-0.5px"
+                            })
+                        ], className="d-flex align-items-center justify-content-center mb-2"),
+                        html.P("Sign in to access the dashboard", className="mb-0", style={
                             "color": "var(--text-secondary)",
-                            "fontSize": "0.95rem"
+                            "fontSize": "0.9rem",
+                            "fontWeight": "500"
                         })
-                    ], className="text-center mb-3"),
+                    ], className="text-center mb-4"),
 
                     # Tabs for Login/Register
                     dbc.Tabs([
@@ -1809,16 +1972,34 @@ login_layout = dbc.Container([
                                     )
                                 ], className="floating-input-group"),
 
-                                # Remember Me Checkbox
+                                # Remember Me & Forgot Password Row
                                 html.Div([
-                                    dbc.Checkbox(
-                                        id="remember-me-checkbox",
-                                        label="Remember me for 7 days",
-                                        value=False,
-                                        className="custom-checkbox",
-                                        style={"color": "var(--text-secondary)"}
-                                    )
-                                ], className="mb-3"),
+                                    html.Div([
+                                        dbc.Checkbox(
+                                            id="remember-me-checkbox",
+                                            label="Remember me for 7 days",
+                                            value=False,
+                                            className="custom-checkbox",
+                                            style={"fontSize": "0.9rem"}
+                                        )
+                                    ], style={"flex": "1"}),
+                                    html.Div([
+                                        html.A(
+                                            "Forgot password?",
+                                            id="forgot-password-link",
+                                            href="#",
+                                            style={
+                                                "color": "var(--accent-color)",
+                                                "fontSize": "0.9rem",
+                                                "textDecoration": "none",
+                                                "cursor": "pointer",
+                                                "fontWeight": "500"
+                                            }
+                                        )
+                                    ], style={"textAlign": "right"})
+                                ], className="d-flex justify-content-between align-items-center mb-3", style={
+                                    "marginTop": "0.75rem"
+                                }),
 
                                 # Login Button
                                 dbc.Button(
@@ -1834,28 +2015,12 @@ login_layout = dbc.Container([
                                     }
                                 ),
 
-                                # Forgot Password Link
-                                html.Div([
-                                    html.A(
-                                        "Forgot password?",
-                                        id="forgot-password-link",
-                                        href="#",
-                                        className="d-block text-center mt-3",
-                                        style={
-                                            "color": "var(--text-secondary)",
-                                            "fontSize": "0.9rem",
-                                            "textDecoration": "none",
-                                            "cursor": "pointer"
-                                        }
-                                    )
-                                ], className="mb-3"),
-
                                 # OAuth Divider
                                 html.Div([
                                     html.Div(style={
                                         "borderTop": "1px solid var(--border-color)",
                                         "position": "relative",
-                                        "margin": "1.5rem 0"
+                                        "margin": "1rem 0"
                                     }),
                                     html.Span("OR", style={
                                         "position": "absolute",
@@ -1863,9 +2028,9 @@ login_layout = dbc.Container([
                                         "left": "50%",
                                         "transform": "translateX(-50%)",
                                         "background": "var(--bg-secondary)",
-                                        "padding": "0 1rem",
+                                        "padding": "0 0.75rem",
                                         "color": "var(--text-secondary)",
-                                        "fontSize": "0.85rem",
+                                        "fontSize": "0.8rem",
                                         "fontWeight": "600"
                                     })
                                 ], style={"position": "relative"}),
@@ -1930,62 +2095,38 @@ login_layout = dbc.Container([
                                     )
                                 ], className="mb-3", id="biometric-section"),
 
-                                # Trust Signals & Security Badges
+                                # Security Guarantees Below Login Form
                                 html.Div([
-                                    # Divider
-                                    html.Hr(style={"borderTop": "1px solid var(--border-color)", "margin": "1.5rem 0 1rem 0"}),
-
-                                    # Security badges
                                     html.Div([
-                                        # Bank-level encryption badge
-                                        html.Div([
-                                            html.I(className="fa fa-shield-alt", style={
-                                                "color": "var(--success-color)",
-                                                "fontSize": "1rem",
-                                                "marginRight": "0.5rem"
-                                            }),
-                                            html.Small("Bank-Level Encryption", style={
-                                                "color": "var(--text-secondary)",
-                                                "fontSize": "0.8rem",
-                                                "fontWeight": "500"
-                                            })
-                                        ], className="d-flex align-items-center mb-2"),
-
-                                        # Data privacy badge
-                                        html.Div([
-                                            html.I(className="fa fa-lock", style={
-                                                "color": "var(--info-color)",
-                                                "fontSize": "1rem",
-                                                "marginRight": "0.5rem"
-                                            }),
-                                            html.Small("Your Data Stays Local", style={
-                                                "color": "var(--text-secondary)",
-                                                "fontSize": "0.8rem",
-                                                "fontWeight": "500"
-                                            })
-                                        ], className="d-flex align-items-center mb-2"),
-
-                                        # Open source badge
-                                        html.Div([
-                                            html.I(className="fab fa-github", style={
-                                                "color": "var(--accent-color)",
-                                                "fontSize": "1rem",
-                                                "marginRight": "0.5rem"
-                                            }),
-                                            html.Small("Open Source Security", style={
-                                                "color": "var(--text-secondary)",
-                                                "fontSize": "0.8rem",
-                                                "fontWeight": "500"
-                                            })
-                                        ], className="d-flex align-items-center")
-                                    ], style={
-                                        "textAlign": "center",
-                                        "padding": "0.75rem",
-                                        "background": "rgba(255, 255, 255, 0.02)",
-                                        "borderRadius": "8px",
-                                        "border": "1px solid rgba(255, 255, 255, 0.05)"
-                                    })
-                                ], className="mt-3", id="trust-signals"),
+                                        html.I(className="fa fa-shield-check", style={
+                                            "color": "#10b981",
+                                            "fontSize": "1rem",
+                                            "marginRight": "0.5rem"
+                                        }),
+                                        html.Span("Encrypted passwords with bcrypt", style={
+                                            "fontSize": "0.85rem",
+                                            "color": "var(--text-primary)",
+                                            "fontWeight": "500"
+                                        })
+                                    ], className="d-flex align-items-center mb-2"),
+                                    html.Div([
+                                        html.I(className="fa fa-user-shield", style={
+                                            "color": "#3b82f6",
+                                            "fontSize": "1rem",
+                                            "marginRight": "0.5rem"
+                                        }),
+                                        html.Span("We never share your data", style={
+                                            "fontSize": "0.85rem",
+                                            "color": "var(--text-primary)",
+                                            "fontWeight": "500"
+                                        })
+                                    ], className="d-flex align-items-center")
+                                ], className="mt-3", style={
+                                    "padding": "0.875rem 1rem",
+                                    "background": "rgba(59, 130, 246, 0.05)",
+                                    "borderRadius": "10px",
+                                    "border": "1px solid rgba(59, 130, 246, 0.15)"
+                                }),
 
                             ])
                         ], label="Login", tab_id="login-tab", activeTabClassName="fw-bold", className="glass-card"),
@@ -2124,7 +2265,51 @@ login_layout = dbc.Container([
                                         "border": "none",
                                         "boxShadow": "0 8px 24px rgba(16, 185, 129, 0.4), 0 0 40px rgba(16, 185, 129, 0.2)"
                                     }
-                                )
+                                ),
+
+                                # Security Guarantees Below Register Form
+                                html.Div([
+                                    html.Div("🔒 Your Security Guarantees", style={
+                                        "fontSize": "0.9rem",
+                                        "fontWeight": "700",
+                                        "color": "var(--text-primary)",
+                                        "textAlign": "center",
+                                        "marginBottom": "0.75rem"
+                                    }),
+                                    html.Div([
+                                        html.I(className="fa fa-check-circle me-2", style={"color": "#10b981", "fontSize": "0.85rem"}),
+                                        html.Span("End-to-end encryption protects all data", style={
+                                            "fontSize": "0.8rem",
+                                            "color": "var(--text-secondary)"
+                                        })
+                                    ], className="d-flex align-items-start mb-2"),
+                                    html.Div([
+                                        html.I(className="fa fa-check-circle me-2", style={"color": "#10b981", "fontSize": "0.85rem"}),
+                                        html.Span("Passwords hashed with bcrypt (never stored in plain text)", style={
+                                            "fontSize": "0.8rem",
+                                            "color": "var(--text-secondary)"
+                                        })
+                                    ], className="d-flex align-items-start mb-2"),
+                                    html.Div([
+                                        html.I(className="fa fa-check-circle me-2", style={"color": "#10b981", "fontSize": "0.85rem"}),
+                                        html.Span("Your data stays local - never shared or sold", style={
+                                            "fontSize": "0.8rem",
+                                            "color": "var(--text-secondary)"
+                                        })
+                                    ], className="d-flex align-items-start mb-2"),
+                                    html.Div([
+                                        html.I(className="fa fa-check-circle me-2", style={"color": "#10b981", "fontSize": "0.85rem"}),
+                                        html.Span("Open source code - fully auditable", style={
+                                            "fontSize": "0.8rem",
+                                            "color": "var(--text-secondary)"
+                                        })
+                                    ], className="d-flex align-items-start")
+                                ], className="mt-4", style={
+                                    "padding": "1.25rem",
+                                    "background": "rgba(16, 185, 129, 0.05)",
+                                    "borderRadius": "10px",
+                                    "border": "1px solid rgba(16, 185, 129, 0.2)"
+                                })
                             ])
                         ], label="Register", tab_id="register-tab", activeTabClassName="fw-bold", className="glass-card")
                     ], id="auth-tabs", active_tab="login-tab", className="mb-0")

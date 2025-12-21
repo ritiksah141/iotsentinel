@@ -50,6 +50,233 @@
   --dark-shadow: rgba(0, 0, 0, 0.4);
 
   /* ============================================================================
+ * ENHANCED LOGIN PAGE STYLES
+ * ============================================================================ */
+
+  /* Floating labels for inputs */
+  .floating-label {
+    position: relative;
+    margin-bottom: 1.5rem;
+  }
+
+  .floating-label label {
+    position: absolute;
+    top: 50%;
+    left: 3rem;
+    transform: translateY(-50%);
+    transition: all 0.3s ease;
+    color: var(--text-secondary);
+    pointer-events: none;
+    font-size: 0.95rem;
+  }
+
+  .floating-label input:focus ~ label,
+  .floating-label input:not(:placeholder-shown) ~ label {
+    top: -0.5rem;
+    left: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--accent-color);
+    background: var(--bg-primary);
+    padding: 0 0.5rem;
+  }
+
+  /* Custom checkbox styling */
+  .custom-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-color);
+    cursor: pointer;
+  }
+
+  /* Input focus animations */
+  .form-control:focus {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+  }
+
+  /* Forgot password link hover */
+  a[id="forgot-password-link"]:hover {
+    color: var(--accent-secondary) !important;
+    text-decoration: underline !important;
+  }
+
+  /* Password strength meter colors */
+  .password-weak {
+    background: #ef4444 !important;
+  }
+
+  .password-fair {
+    background: #f59e0b !important;
+  }
+
+  .password-good {
+    background: #10b981 !important;
+  }
+
+  .password-strong {
+    background: #059669 !important;
+  }
+
+  /* Validation icons */
+  .validation-success {
+    color: var(--success-color) !important;
+  }
+
+  .validation-error {
+    color: var(--danger-color) !important;
+  }
+
+  /* Button loading state */
+  .cyber-button-modern:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Glass modal styling */
+  .glass-modal .modal-content {
+    background: var(--bg-glass) !important;
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-modal .modal-header {
+    border-bottom: 1px solid var(--border-color);
+    background: linear-gradient(
+      135deg,
+      rgba(102, 126, 234, 0.1) 0%,
+      rgba(118, 75, 162, 0.1) 100%
+    );
+  }
+
+  .glass-modal .modal-footer {
+    border-top: 1px solid var(--border-color);
+  }
+
+  /* Trust signals styling */
+  .trust-signal {
+    animation: fadeIn 0.5s ease-in;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Input error shake animation */
+  @keyframes shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: translateX(-5px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: translateX(5px);
+    }
+  }
+
+  .input-error {
+    animation: shake 0.5s;
+    border-color: var(--danger-color) !important;
+  }
+
+  /* Success checkmark animation */
+  @keyframes checkmark {
+    0% {
+      transform: scale(0) rotate(45deg);
+    }
+    50% {
+      transform: scale(1.2) rotate(45deg);
+    }
+    100% {
+      transform: scale(1) rotate(45deg);
+    }
+  }
+
+  .checkmark-appear {
+    animation: checkmark 0.4s ease-in-out;
+  }
+
+  /* Login card entrance animation */
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(50px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-50px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .glass-card.hover-lift {
+    animation: slideInRight 0.6s ease-out;
+  }
+
+  /* Button hover micro-interactions */
+  .cyber-button-modern {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+  }
+
+  .cyber-button-modern:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px var(--accent-glow), 0 0 60px var(--accent-glow) !important;
+  }
+
+  .cyber-button-modern:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  /* Ripple effect for buttons */
+  .cyber-button-modern::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+
+  .cyber-button-modern:active::after {
+    width: 300px;
+    height: 300px;
+  }
+
+  /* ============================================================================
  * MODERN GLASSMORPHISM CARDS - LIQUID GLASS DESIGN
  * ============================================================================ */
 
@@ -1998,7 +2225,7 @@ body.light-mode .toast.bg-info {
 }
 
 body.light-mode .toast-header .btn-close {
-    filter: none;
+  filter: none;
 }
 
 /* Custom square indicator for toasts */
@@ -2011,7 +2238,6 @@ body.light-mode .toast-header .btn-close {
   flex-shrink: 0; /* Prevent it from shrinking in flex containers */
   margin-right: 0.5rem; /* Spacing from text */
 }
-
 
 body.dark-mode .card,
 body.dark-mode .cyber-card {
@@ -2068,20 +2294,20 @@ body.dark-mode .cyber-card:hover {
  * PROFILE DROPDOWN STYLING (MATCHING METRIC CARDS)
  * ============================================================================ */
 
-/* Dropdown menu glass effect */
+/* Dropdown menu glass effect (matching modal style) */
 .profile-dropdown .dropdown-menu {
-  background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  background: rgba(240, 242, 250, 0.95) !important;
+  backdrop-filter: blur(10px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(120%) !important;
+  border: 1px solid rgba(200, 210, 230, 0.4) !important;
   border-radius: 16px !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset, 0 0 30px rgba(102, 126, 234, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset !important;
   padding: 0.75rem !important;
   min-width: 240px !important;
   margin-top: 0.5rem !important;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   transform: translateZ(0);
 }
 
@@ -2094,16 +2320,18 @@ body.dark-mode .cyber-card:hover {
   bottom: 0;
   background: linear-gradient(
     135deg,
-    rgba(102, 126, 234, 0.15) 0%,
-    rgba(240, 147, 251, 0.15) 50%,
-    rgba(79, 172, 254, 0.15) 100%
+    rgba(102, 126, 234, 0.03) 0%,
+    rgba(240, 147, 251, 0.03) 50%,
+    rgba(79, 172, 254, 0.03) 100%
   );
   background-size: 300% 300%;
   animation: gradientShift 25s linear infinite;
-  filter: blur(15px);
+  filter: blur(8px);
+  -webkit-filter: blur(8px);
   pointer-events: none;
   z-index: 0;
-  opacity: 0.5;
+  opacity: 0.3;
+  border-radius: 16px;
 }
 
 /* Ensure parent dropdown has proper z-index */
@@ -2169,71 +2397,88 @@ body.dark-mode .cyber-card:hover {
 }
 
 body.dark-mode .profile-dropdown .dropdown-menu {
-  background-color: rgba(30, 41, 59, 0.85) !important;
-  border: 1px solid rgba(96, 165, 250, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(96, 165, 250, 0.1) inset;
+  background: rgba(30, 41, 59, 0.95) !important;
+  backdrop-filter: blur(10px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(120%) !important;
+  border: 1px solid rgba(96, 165, 250, 0.3) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(96, 165, 250, 0.2) inset !important;
 }
 
-/* Dropdown menu items */
+body.dark-mode .profile-dropdown .dropdown-menu::before {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.05) 0%,
+    rgba(96, 165, 250, 0.05) 50%,
+    rgba(79, 172, 254, 0.05) 100%
+  );
+  opacity: 0.4;
+}
+
+/* Dropdown menu items (matching modal form controls) */
 .profile-dropdown .dropdown-item {
-  border-radius: 10px;
-  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border: 1px solid rgba(200, 210, 230, 0.3);
+  color: #1e293b !important;
+  border-radius: 8px;
+  padding: 10px 14px;
   margin: 0.25rem 0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.9) !important;
   position: relative;
   z-index: 1;
-  background: transparent !important;
-  border: 1px solid transparent;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 500;
 }
 
 .profile-dropdown .dropdown-item:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(102, 126, 234, 0.25),
-    rgba(240, 147, 251, 0.25)
-  ) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(102, 126, 234, 0.15);
+  border: 1px solid rgba(102, 126, 234, 0.4);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
   transform: translateX(4px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-  color: #ffffff !important;
+  color: #1e293b !important;
+}
+
+body.dark-mode .profile-dropdown .dropdown-item {
+  background: rgba(51, 65, 85, 0.5);
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  color: rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 body.dark-mode .profile-dropdown .dropdown-item:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.25),
-    rgba(96, 165, 250, 0.25)
-  ) !important;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  color: rgba(255, 255, 255, 1) !important;
 }
 
-/* Header item styling */
+/* Header item styling (matching modal header) */
 .profile-dropdown .dropdown-header {
-  background: linear-gradient(
-    135deg,
-    rgba(102, 126, 234, 0.2),
-    rgba(240, 147, 251, 0.2)
-  );
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
+  background: rgba(102, 126, 234, 0.1);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
   margin-bottom: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #ffffff !important;
+  color: #1e293b !important;
   position: relative;
   z-index: 1;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 body.dark-mode .profile-dropdown .dropdown-header {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.2),
-    rgba(96, 165, 250, 0.2)
-  );
-  border: 1px solid rgba(96, 165, 250, 0.3);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 /* Divider styling */
@@ -2244,33 +2489,41 @@ body.dark-mode .profile-dropdown .dropdown-header {
 }
 
 body.dark-mode .profile-dropdown .dropdown-divider {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(71, 85, 105, 0.5);
+  opacity: 1;
 }
 
 /* Logout item special styling */
 .profile-dropdown .dropdown-item:last-child {
-  font-weight: 500;
+  font-weight: 600;
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.75rem;
 }
 
 .profile-dropdown .dropdown-item:last-child .text-danger {
-  color: #f87171 !important;
+  color: #ef4444 !important;
 }
 
 .profile-dropdown .dropdown-item:last-child:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(239, 68, 68, 0.2),
-    rgba(220, 38, 38, 0.2)
-  ) !important;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+  border: 2px solid rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1),
+    0 4px 16px rgba(239, 68, 68, 0.3);
+}
+
+body.dark-mode .profile-dropdown .dropdown-item:last-child {
+  border-top: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+body.dark-mode .profile-dropdown .dropdown-item:last-child .text-danger {
+  color: #f87171 !important;
 }
 
 body.dark-mode .profile-dropdown .dropdown-item:last-child:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(239, 68, 68, 0.25),
-    rgba(239, 68, 68, 0.2)
-  ) !important;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
 }
 
 /* Profile button styling - Force white color */
@@ -3430,4 +3683,873 @@ button.dropdown-toggle {
 .masonry-item.small .fa,
 .masonry-item.compact .fa {
   font-size: 2rem !important;
+}
+
+/* ============================================================================
+ * CUSTOM TOOLTIP STYLES - GLASSMORPHISM & SMOOTH ANIMATIONS
+ * Matches modal theme with animated gradient background
+ * ============================================================================ */
+
+/* Tooltip base styling */
+.tooltip {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  pointer-events: none;
+  will-change: opacity;
+  z-index: 10000 !important;
+}
+
+/* Inner tooltip container with modal-like glassmorphism */
+.tooltip-inner {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(15px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+  color: #f1f5f9 !important;
+  font-size: 0.875rem !important;
+  font-weight: 500;
+  padding: 0.75rem 1rem !important;
+  max-width: 320px !important;
+  text-align: left !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0.01em;
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Animated gradient background overlay (like modals) */
+.tooltip-inner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.18) 0%,
+    rgba(240, 147, 251, 0.18) 50%,
+    rgba(79, 172, 254, 0.18) 100%
+  );
+  background-size: 300% 300%;
+  animation: gradientShift 25s linear infinite;
+  filter: blur(15px);
+  -webkit-filter: blur(15px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+}
+
+/* Ensure text is above the gradient overlay */
+.tooltip-inner > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Light mode specific tooltip styles */
+body.light-mode .tooltip-inner {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(99, 102, 241, 0.08) inset !important;
+  color: #2c3e50 !important;
+}
+
+body.light-mode .tooltip-inner::before {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.08) 0%,
+    rgba(139, 92, 246, 0.08) 50%,
+    rgba(99, 102, 241, 0.08) 100%
+  );
+  opacity: 0.7;
+}
+
+/* Dark mode specific tooltip styles */
+body.dark-mode .tooltip-inner {
+  background: rgba(30, 41, 59, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(96, 165, 250, 0.15) inset !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-mode .tooltip-inner::before {
+  background: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.2) 0%,
+    rgba(167, 139, 250, 0.2) 50%,
+    rgba(79, 172, 254, 0.2) 100%
+  );
+  opacity: 0.5;
+}
+
+/* Arrow styling */
+.tooltip .arrow {
+  width: 0.8rem;
+  height: 0.4rem;
+}
+
+.tooltip .arrow::before {
+  border-width: 0.4rem;
+}
+
+/* Light mode arrow colors */
+body.light-mode .bs-tooltip-top .arrow::before,
+body.light-mode .bs-tooltip-auto[data-popper-placement^="top"] .arrow::before {
+  border-top-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+body.light-mode .bs-tooltip-bottom .arrow::before,
+body.light-mode
+  .bs-tooltip-auto[data-popper-placement^="bottom"]
+  .arrow::before {
+  border-bottom-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+body.light-mode .bs-tooltip-start .arrow::before,
+body.light-mode .bs-tooltip-auto[data-popper-placement^="left"] .arrow::before {
+  border-left-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+body.light-mode .bs-tooltip-end .arrow::before,
+body.light-mode
+  .bs-tooltip-auto[data-popper-placement^="right"]
+  .arrow::before {
+  border-right-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Dark mode arrow colors */
+body.dark-mode .bs-tooltip-top .arrow::before,
+body.dark-mode .bs-tooltip-auto[data-popper-placement^="top"] .arrow::before {
+  border-top-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+body.dark-mode .bs-tooltip-bottom .arrow::before,
+body.dark-mode
+  .bs-tooltip-auto[data-popper-placement^="bottom"]
+  .arrow::before {
+  border-bottom-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+body.dark-mode .bs-tooltip-start .arrow::before,
+body.dark-mode .bs-tooltip-auto[data-popper-placement^="left"] .arrow::before {
+  border-left-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+body.dark-mode .bs-tooltip-end .arrow::before,
+body.dark-mode .bs-tooltip-auto[data-popper-placement^="right"] .arrow::before {
+  border-right-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+/* Smooth fade-in/out animations - FIXED positioning issue */
+.tooltip {
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.tooltip.show {
+  opacity: 1;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .tooltip-inner::before {
+    animation: none !important;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .tooltip-inner {
+    max-width: 280px !important;
+    font-size: 0.813rem !important;
+    padding: 0.625rem 0.875rem !important;
+  }
+}
+
+/* ============================================================================
+ * REAL-TIME VALIDATION STYLES
+ * ============================================================================ */
+
+.validation-feedback {
+  font-size: 0.85rem;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.validation-success {
+  color: var(--success-color) !important;
+}
+
+.validation-error {
+  color: var(--danger-color) !important;
+}
+
+.input-success {
+  border-color: var(--success-color) !important;
+  box-shadow: 0 0 0 0.2rem rgba(16, 185, 129, 0.25) !important;
+}
+
+.input-error {
+  border-color: var(--danger-color) !important;
+  box-shadow: 0 0 0 0.2rem rgba(239, 68, 68, 0.25) !important;
+}
+
+/* Password strength bar animation */
+#password-strength-bar {
+  transition: width 0.3s ease, background-color 0.3s ease !important;
+}
+
+/* Success checkmark animation */
+@keyframes successCheckmark {
+  0% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(45deg);
+    opacity: 1;
+  }
+}
+
+.validation-success i {
+  animation: successCheckmark 0.4s ease-out;
+}
+
+/* Error shake */
+@keyframes errorShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-8px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+.input-error {
+  animation: errorShake 0.5s ease-out;
+}
+
+/* ============================================================================
+ * MULTI-STEP REGISTRATION WIZARD
+ * ============================================================================ */
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 400px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+}
+
+.step-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+  margin-bottom: 0.5rem;
+}
+
+.step-circle.active {
+  background: var(--gradient-accent);
+  border-color: var(--accent-color);
+  color: white;
+  box-shadow: 0 4px 12px var(--accent-glow);
+  transform: scale(1.1);
+}
+
+.step-circle.completed {
+  background: var(--success-color);
+  border-color: var(--success-color);
+  color: white;
+}
+
+.step-circle.completed::before {
+  content: "\f00c";
+  font-family: "Font Awesome 5 Free";
+  font-weight: 900;
+}
+
+.step-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: center;
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border-color);
+  margin: 0 -1rem;
+  margin-bottom: 1.5rem;
+  transition: background 0.3s ease;
+}
+
+.step-connector.active {
+  background: var(--accent-color);
+}
+
+/* Step transitions */
+.registration-step {
+  animation: fadeInSlide 0.4s ease-out;
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+ * MOBILE OPTIMIZATIONS
+ * ============================================================================ */
+
+@media (max-width: 768px) {
+  /* Hide left branding panel on mobile */
+  .login-layout .d-none.d-md-flex {
+    display: none !important;
+  }
+
+  /* Full-width login/register forms */
+  .glass-card.hover-lift {
+    max-width: 100% !important;
+    margin: 0.5rem !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
+    border-radius: 16px !important;
+  }
+
+  /* Larger touch targets - prevent iOS zoom */
+  .form-control {
+    font-size: 16px !important;
+    min-height: 48px !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  .cyber-button-modern {
+    min-height: 48px !important;
+    font-size: 1rem !important;
+    padding: 0.75rem 1.5rem !important;
+  }
+
+  /* Biometric button more prominent on mobile */
+  #biometric-login-btn {
+    font-size: 1.1rem !important;
+    padding: 1rem !important;
+  }
+
+  #biometric-login-btn i {
+    font-size: 1.5rem !important;
+  }
+
+  /* Stack OAuth buttons vertically */
+  .oauth-section {
+    margin-top: 1.5rem !important;
+  }
+
+  /* Simplified step progress on mobile */
+  .progress-steps {
+    padding: 0 0.5rem !important;
+    margin-bottom: 1.5rem !important;
+  }
+
+  .step-circle {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+  }
+
+  .step-label {
+    font-size: 0.65rem !important;
+  }
+
+  .step-connector {
+    margin: 0 -0.75rem !important;
+    margin-bottom: 1.25rem !important;
+  }
+
+  /* Better toast positioning */
+  #toast-container,
+  .toast {
+    width: calc(100% - 2rem) !important;
+    left: 1rem !important;
+    right: 1rem !important;
+    transform: none !important;
+    max-width: 100% !important;
+  }
+
+  /* Floating labels adjusted for mobile */
+  .floating-input-group label {
+    font-size: 0.85rem !important;
+  }
+
+  .floating-input-group input:focus ~ label,
+  .floating-input-group input:not(:placeholder-shown) ~ label {
+    font-size: 0.7rem !important;
+  }
+
+  /* Modal improvements */
+  .modal-dialog {
+    margin: 0.5rem !important;
+    max-width: calc(100% - 1rem) !important;
+  }
+
+  .modal-body {
+    padding: 1rem !important;
+  }
+
+  /* Reduce padding on auth container */
+  .auth-tabs {
+    padding: 1.5rem 1rem !important;
+  }
+
+  /* Input groups on mobile */
+  .input-group-text {
+    min-width: 44px !important;
+    justify-content: center;
+  }
+
+  /* Password strength meter */
+  #password-strength-container {
+    font-size: 0.8rem !important;
+  }
+
+  /* Validation feedback */
+  .validation-feedback {
+    font-size: 0.8rem !important;
+  }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+  .form-control {
+    appearance: none;
+    -webkit-appearance: none;
+    border-radius: 8px;
+  }
+
+  /* Fix iOS input zoom */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"] {
+    font-size: 16px !important;
+  }
+
+  /* Prevent iOS bounce scroll on modals */
+  .modal {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Android-specific fixes */
+@supports not (-webkit-touch-callout: none) {
+  .form-control:focus {
+    outline-offset: 2px;
+  }
+
+  /* Better tap highlighting */
+  * {
+    -webkit-tap-highlight-color: rgba(96, 165, 250, 0.2);
+  }
+}
+
+/* Tablet optimizations (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .glass-card.hover-lift {
+    max-width: 600px !important;
+  }
+
+  .login-layout .col-md-5 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+/* Landscape mobile */
+@media (max-width: 896px) and (orientation: landscape) {
+  .glass-card.hover-lift {
+    padding: 1.5rem !important;
+  }
+
+  .progress-steps {
+    margin-bottom: 1rem !important;
+  }
+
+  .step-circle {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 0.85rem !important;
+  }
+}
+
+/* ============================================================================
+ * FLOATING LABEL INPUTS (Material Design)
+ * ============================================================================ */
+
+.floating-input-group {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.floating-input-group input,
+.floating-input-group .form-control {
+  padding: 1.25rem 3rem 0.5rem 3rem !important;
+  font-size: 0.95rem;
+  height: auto !important;
+}
+
+.floating-input-group label {
+  position: absolute;
+  top: 50%;
+  left: 3rem;
+  transform: translateY(-50%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--text-secondary);
+  pointer-events: none;
+  font-size: 0.95rem;
+  background: transparent;
+  padding: 0 0.25rem;
+  z-index: 1;
+  font-weight: 500;
+}
+
+/* When focused or has value */
+.floating-input-group input:focus ~ label,
+.floating-input-group input:not(:placeholder-shown) ~ label,
+.floating-input-group .form-control:focus ~ label,
+.floating-input-group .form-control:not(:placeholder-shown) ~ label {
+  top: 0.25rem;
+  left: 2.5rem;
+  font-size: 0.75rem;
+  color: var(--accent-color);
+  background: var(--bg-secondary);
+  padding: 0 0.5rem;
+  font-weight: 600;
+  transform: translateY(0);
+}
+
+.floating-input-group input:focus,
+.floating-input-group .form-control:focus {
+  outline: none;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1) !important;
+}
+
+/* Icon positioning for floating labels */
+.floating-input-group .input-icon {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.floating-input-group input:focus ~ .input-icon,
+.floating-input-group .form-control:focus ~ .input-icon {
+  color: var(--accent-color);
+}
+
+/* Password toggle button positioning */
+.floating-input-group .password-toggle-btn {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  z-index: 2;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.floating-input-group .password-toggle-btn:hover {
+  color: var(--accent-color);
+}
+
+/* Input group adjustments for floating labels */
+.floating-input-group .input-group {
+  position: relative;
+}
+
+.floating-input-group .input-group-text {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  z-index: 2;
+  padding: 0 0 0 1rem;
+}
+
+/* ============================================================================
+ * GOOGLE OAUTH SIGN-IN BUTTON
+ * ============================================================================ */
+
+#google-signin-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+#google-signin-btn:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  transform: translateY(-1px);
+}
+
+#google-signin-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+/* Ripple effect */
+#google-signin-btn::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+#google-signin-btn:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* OAuth section */
+#oauth-section {
+  animation: fadeIn 0.3s ease-in;
+}
+/* ============================================================================
+ * BIOMETRIC LOGIN BUTTON
+ * ============================================================================ */
+
+#biometric-login-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+#biometric-login-btn:hover {
+  background: rgba(102, 126, 234, 0.2) !important;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transform: translateY(-2px);
+}
+
+#biometric-login-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+#biometric-login-btn .fa-fingerprint {
+  animation: biometricPulse 2s ease-in-out infinite;
+}
+
+@keyframes biometricPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+/* Trust signals animation */
+#trust-signals {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#trust-signals i {
+  animation: floatBadge 3s ease-in-out infinite;
+}
+
+@keyframes floatBadge {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* ============================================================================
+ * MICRO-INTERACTIONS & ANIMATIONS
+ * ============================================================================ */
+
+/* Enhanced input focus glow */
+.floating-input-group input:focus {
+  animation: inputFocusGlow 0.3s ease-out;
+}
+
+@keyframes inputFocusGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(102, 126, 234, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+  }
+}
+
+/* Enhanced toast slide-in */
+.toast {
+  animation: toastSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) !important;
+}
+
+@keyframes toastSlideIn {
+  0% {
+    transform: translateY(-100px) translateX(-50%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) translateX(-50%);
+    opacity: 1;
+  }
+}
+
+/* Card hover lift effect */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+}
+
+/* Logo pulse glow */
+.logo-glow {
+  animation: logoGlow 3s ease-in-out infinite;
+}
+
+@keyframes logoGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.8));
+  }
+}
+
+/* Loading spinner */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Button click ripple effect */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+.cyber-button-modern {
+  position: relative;
+  overflow: hidden;
+}
+
+.cyber-button-modern::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cyber-button-modern:active::after {
+  animation: ripple 0.6s ease-out;
 }
