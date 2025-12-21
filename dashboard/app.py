@@ -75,7 +75,10 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME, '/assets/custom.css', '/assets/skeleton.css'],
     title="IoTSentinel - Network Security Monitor",
-    suppress_callback_exceptions=True
+    suppress_callback_exceptions=True,
+    # Performance optimizations
+    compress=True,  # Enable gzip compression (requires: pip install dash[compress])
+    update_title=None,  # Disable title updates for performance
 )
 
 socketio = SocketIO(app.server, cors_allowed_origins="*")

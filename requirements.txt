@@ -17,6 +17,7 @@ dash-cytoscape==0.3.0
 plotly==5.18.0
 matplotlib==3.7.2
 seaborn==0.12.2
+Flask-Compress==1.14  # Gzip compression for better performance
 
 # Database
 # sqlite3 is built into Python
