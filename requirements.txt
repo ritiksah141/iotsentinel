@@ -21,6 +21,16 @@ seaborn==0.12.2
 # Database
 # sqlite3 is built into Python
 
+# Authentication & Security
+Authlib==1.3.0                 # OAuth 2.0 client
+webauthn==1.11.1               # WebAuthn/FIDO2 support
+zxcvbn==4.4.28                  # Password strength meter
+email-validator==2.1.0          # Email validation
+PyJWT==2.8.0                    # JWT token handling
+cryptography==41.0.7            # Required by WebAuthn
+bcrypt==4.1.2                   # Password hashing (if not already installed)
+Flask-Login==0.6.3              # Session management
+
 # Utilities
 python-dateutil==2.8.2
 requests==2.31.0

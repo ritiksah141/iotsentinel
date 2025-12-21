@@ -3665,7 +3665,8 @@ button.dropdown-toggle {
 
 /* Tooltip base styling */
 .tooltip {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   pointer-events: none;
   will-change: opacity;
   z-index: 10000 !important;
@@ -3678,7 +3679,8 @@ button.dropdown-toggle {
   -webkit-backdrop-filter: blur(15px) saturate(140%) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   border-radius: 16px !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
   color: #f1f5f9 !important;
   font-size: 0.875rem !important;
   font-weight: 500;
@@ -3727,7 +3729,8 @@ button.dropdown-toggle {
 body.light-mode .tooltip-inner {
   background: rgba(255, 255, 255, 0.95) !important;
   border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(99, 102, 241, 0.08) inset !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(99, 102, 241, 0.08) inset !important;
   color: #2c3e50 !important;
 }
 
@@ -3745,7 +3748,8 @@ body.light-mode .tooltip-inner::before {
 body.dark-mode .tooltip-inner {
   background: rgba(30, 41, 59, 0.92) !important;
   border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(96, 165, 250, 0.15) inset !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(96, 165, 250, 0.15) inset !important;
   color: #f1f5f9 !important;
 }
 
@@ -3776,7 +3780,9 @@ body.light-mode .bs-tooltip-auto[data-popper-placement^="top"] .arrow::before {
 }
 
 body.light-mode .bs-tooltip-bottom .arrow::before,
-body.light-mode .bs-tooltip-auto[data-popper-placement^="bottom"] .arrow::before {
+body.light-mode
+  .bs-tooltip-auto[data-popper-placement^="bottom"]
+  .arrow::before {
   border-bottom-color: rgba(255, 255, 255, 0.95) !important;
 }
 
@@ -3786,7 +3792,9 @@ body.light-mode .bs-tooltip-auto[data-popper-placement^="left"] .arrow::before {
 }
 
 body.light-mode .bs-tooltip-end .arrow::before,
-body.light-mode .bs-tooltip-auto[data-popper-placement^="right"] .arrow::before {
+body.light-mode
+  .bs-tooltip-auto[data-popper-placement^="right"]
+  .arrow::before {
   border-right-color: rgba(255, 255, 255, 0.95) !important;
 }
 
@@ -3797,7 +3805,9 @@ body.dark-mode .bs-tooltip-auto[data-popper-placement^="top"] .arrow::before {
 }
 
 body.dark-mode .bs-tooltip-bottom .arrow::before,
-body.dark-mode .bs-tooltip-auto[data-popper-placement^="bottom"] .arrow::before {
+body.dark-mode
+  .bs-tooltip-auto[data-popper-placement^="bottom"]
+  .arrow::before {
   border-bottom-color: rgba(30, 41, 59, 0.92) !important;
 }
 
@@ -3840,4 +3850,637 @@ body.dark-mode .bs-tooltip-auto[data-popper-placement^="right"] .arrow::before {
     font-size: 0.813rem !important;
     padding: 0.625rem 0.875rem !important;
   }
+}
+
+/* ============================================================================
+ * REAL-TIME VALIDATION STYLES
+ * ============================================================================ */
+
+.validation-feedback {
+  font-size: 0.85rem;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.validation-success {
+  color: var(--success-color) !important;
+}
+
+.validation-error {
+  color: var(--danger-color) !important;
+}
+
+.input-success {
+  border-color: var(--success-color) !important;
+  box-shadow: 0 0 0 0.2rem rgba(16, 185, 129, 0.25) !important;
+}
+
+.input-error {
+  border-color: var(--danger-color) !important;
+  box-shadow: 0 0 0 0.2rem rgba(239, 68, 68, 0.25) !important;
+}
+
+/* Password strength bar animation */
+#password-strength-bar {
+  transition: width 0.3s ease, background-color 0.3s ease !important;
+}
+
+/* Success checkmark animation */
+@keyframes successCheckmark {
+  0% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(45deg);
+    opacity: 1;
+  }
+}
+
+.validation-success i {
+  animation: successCheckmark 0.4s ease-out;
+}
+
+/* Error shake */
+@keyframes errorShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-8px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+.input-error {
+  animation: errorShake 0.5s ease-out;
+}
+
+/* ============================================================================
+ * MULTI-STEP REGISTRATION WIZARD
+ * ============================================================================ */
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 400px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+}
+
+.step-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+  margin-bottom: 0.5rem;
+}
+
+.step-circle.active {
+  background: var(--gradient-accent);
+  border-color: var(--accent-color);
+  color: white;
+  box-shadow: 0 4px 12px var(--accent-glow);
+  transform: scale(1.1);
+}
+
+.step-circle.completed {
+  background: var(--success-color);
+  border-color: var(--success-color);
+  color: white;
+}
+
+.step-circle.completed::before {
+  content: "\f00c";
+  font-family: "Font Awesome 5 Free";
+  font-weight: 900;
+}
+
+.step-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: center;
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border-color);
+  margin: 0 -1rem;
+  margin-bottom: 1.5rem;
+  transition: background 0.3s ease;
+}
+
+.step-connector.active {
+  background: var(--accent-color);
+}
+
+/* Step transitions */
+.registration-step {
+  animation: fadeInSlide 0.4s ease-out;
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+ * MOBILE OPTIMIZATIONS
+ * ============================================================================ */
+
+@media (max-width: 768px) {
+  /* Hide left branding panel on mobile */
+  .login-layout .d-none.d-md-flex {
+    display: none !important;
+  }
+
+  /* Full-width login/register forms */
+  .glass-card.hover-lift {
+    max-width: 100% !important;
+    margin: 0.5rem !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
+    border-radius: 16px !important;
+  }
+
+  /* Larger touch targets - prevent iOS zoom */
+  .form-control {
+    font-size: 16px !important;
+    min-height: 48px !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  .cyber-button-modern {
+    min-height: 48px !important;
+    font-size: 1rem !important;
+    padding: 0.75rem 1.5rem !important;
+  }
+
+  /* Biometric button more prominent on mobile */
+  #biometric-login-btn {
+    font-size: 1.1rem !important;
+    padding: 1rem !important;
+  }
+
+  #biometric-login-btn i {
+    font-size: 1.5rem !important;
+  }
+
+  /* Stack OAuth buttons vertically */
+  .oauth-section {
+    margin-top: 1.5rem !important;
+  }
+
+  /* Simplified step progress on mobile */
+  .progress-steps {
+    padding: 0 0.5rem !important;
+    margin-bottom: 1.5rem !important;
+  }
+
+  .step-circle {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+  }
+
+  .step-label {
+    font-size: 0.65rem !important;
+  }
+
+  .step-connector {
+    margin: 0 -0.75rem !important;
+    margin-bottom: 1.25rem !important;
+  }
+
+  /* Better toast positioning */
+  #toast-container,
+  .toast {
+    width: calc(100% - 2rem) !important;
+    left: 1rem !important;
+    right: 1rem !important;
+    transform: none !important;
+    max-width: 100% !important;
+  }
+
+  /* Floating labels adjusted for mobile */
+  .floating-input-group label {
+    font-size: 0.85rem !important;
+  }
+
+  .floating-input-group input:focus ~ label,
+  .floating-input-group input:not(:placeholder-shown) ~ label {
+    font-size: 0.7rem !important;
+  }
+
+  /* Modal improvements */
+  .modal-dialog {
+    margin: 0.5rem !important;
+    max-width: calc(100% - 1rem) !important;
+  }
+
+  .modal-body {
+    padding: 1rem !important;
+  }
+
+  /* Reduce padding on auth container */
+  .auth-tabs {
+    padding: 1.5rem 1rem !important;
+  }
+
+  /* Input groups on mobile */
+  .input-group-text {
+    min-width: 44px !important;
+    justify-content: center;
+  }
+
+  /* Password strength meter */
+  #password-strength-container {
+    font-size: 0.8rem !important;
+  }
+
+  /* Validation feedback */
+  .validation-feedback {
+    font-size: 0.8rem !important;
+  }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+  .form-control {
+    appearance: none;
+    -webkit-appearance: none;
+    border-radius: 8px;
+  }
+
+  /* Fix iOS input zoom */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"] {
+    font-size: 16px !important;
+  }
+
+  /* Prevent iOS bounce scroll on modals */
+  .modal {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Android-specific fixes */
+@supports not (-webkit-touch-callout: none) {
+  .form-control:focus {
+    outline-offset: 2px;
+  }
+
+  /* Better tap highlighting */
+  * {
+    -webkit-tap-highlight-color: rgba(96, 165, 250, 0.2);
+  }
+}
+
+/* Tablet optimizations (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .glass-card.hover-lift {
+    max-width: 600px !important;
+  }
+
+  .login-layout .col-md-5 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+/* Landscape mobile */
+@media (max-width: 896px) and (orientation: landscape) {
+  .glass-card.hover-lift {
+    padding: 1.5rem !important;
+  }
+
+  .progress-steps {
+    margin-bottom: 1rem !important;
+  }
+
+  .step-circle {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 0.85rem !important;
+  }
+}
+
+/* ============================================================================
+ * FLOATING LABEL INPUTS (Material Design)
+ * ============================================================================ */
+
+.floating-input-group {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.floating-input-group input,
+.floating-input-group .form-control {
+  padding: 1.25rem 3rem 0.5rem 3rem !important;
+  font-size: 0.95rem;
+  height: auto !important;
+}
+
+.floating-input-group label {
+  position: absolute;
+  top: 50%;
+  left: 3rem;
+  transform: translateY(-50%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--text-secondary);
+  pointer-events: none;
+  font-size: 0.95rem;
+  background: transparent;
+  padding: 0 0.25rem;
+  z-index: 1;
+  font-weight: 500;
+}
+
+/* When focused or has value */
+.floating-input-group input:focus ~ label,
+.floating-input-group input:not(:placeholder-shown) ~ label,
+.floating-input-group .form-control:focus ~ label,
+.floating-input-group .form-control:not(:placeholder-shown) ~ label {
+  top: 0.25rem;
+  left: 2.5rem;
+  font-size: 0.75rem;
+  color: var(--accent-color);
+  background: var(--bg-secondary);
+  padding: 0 0.5rem;
+  font-weight: 600;
+  transform: translateY(0);
+}
+
+.floating-input-group input:focus,
+.floating-input-group .form-control:focus {
+  outline: none;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1) !important;
+}
+
+/* Icon positioning for floating labels */
+.floating-input-group .input-icon {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.floating-input-group input:focus ~ .input-icon,
+.floating-input-group .form-control:focus ~ .input-icon {
+  color: var(--accent-color);
+}
+
+/* Password toggle button positioning */
+.floating-input-group .password-toggle-btn {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  z-index: 2;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.floating-input-group .password-toggle-btn:hover {
+  color: var(--accent-color);
+}
+
+/* Input group adjustments for floating labels */
+.floating-input-group .input-group {
+  position: relative;
+}
+
+.floating-input-group .input-group-text {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  z-index: 2;
+  padding: 0 0 0 1rem;
+}
+
+/* ============================================================================
+ * GOOGLE OAUTH SIGN-IN BUTTON
+ * ============================================================================ */
+
+#google-signin-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+#google-signin-btn:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  transform: translateY(-1px);
+}
+
+#google-signin-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+/* Ripple effect */
+#google-signin-btn::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+#google-signin-btn:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* OAuth section */
+#oauth-section {
+  animation: fadeIn 0.3s ease-in;
+}
+/* ============================================================================
+ * BIOMETRIC LOGIN BUTTON
+ * ============================================================================ */
+
+#biometric-login-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+#biometric-login-btn:hover {
+  background: rgba(102, 126, 234, 0.2) !important;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transform: translateY(-2px);
+}
+
+#biometric-login-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+#biometric-login-btn .fa-fingerprint {
+  animation: biometricPulse 2s ease-in-out infinite;
+}
+
+@keyframes biometricPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+/* Trust signals animation */
+#trust-signals {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#trust-signals i {
+  animation: floatBadge 3s ease-in-out infinite;
+}
+
+@keyframes floatBadge {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* ============================================================================
+ * MICRO-INTERACTIONS & ANIMATIONS
+ * ============================================================================ */
+
+/* Enhanced input focus glow */
+.floating-input-group input:focus {
+  animation: inputFocusGlow 0.3s ease-out;
+}
+
+@keyframes inputFocusGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(102, 126, 234, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+  }
+}
+
+/* Enhanced toast slide-in */
+.toast {
+  animation: toastSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) !important;
+}
+
+@keyframes toastSlideIn {
+  0% {
+    transform: translateY(-100px) translateX(-50%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) translateX(-50%);
+    opacity: 1;
+  }
+}
+
+/* Card hover lift effect */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+}
+
+/* Logo pulse glow */
+.logo-glow {
+  animation: logoGlow 3s ease-in-out infinite;
+}
+
+@keyframes logoGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.8));
+  }
+}
+
+/* Loading spinner */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }

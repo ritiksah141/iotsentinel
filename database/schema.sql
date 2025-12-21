@@ -1,6 +1,6 @@
 -- IoTSentinel Database Schema Documentation
 -- This is for REFERENCE ONLY - actual schema is created by config/init_database.py
--- Last updated: 2025-12-09
+-- Last updated: 2025-12-20 (Added authentication enhancement tables)
 
 -- ====================================================================================
 -- CORE TABLES
@@ -102,6 +102,70 @@ user_preferences (
     preference_value,
     updated_at TIMESTAMP,
     UNIQUE(user_id, preference_key)
+)
+
+password_reset_tokens (
+    id PRIMARY KEY,
+    user_id → users,
+    token UNIQUE,                       -- Secure reset token
+    expires_at TIMESTAMP,               -- Token expiration (1 hour)
+    used BOOLEAN DEFAULT 0,             -- One-time use flag
+    created_at TIMESTAMP,
+    INDEX(token),
+    INDEX(expires_at, used)
+)
+
+email_verification_codes (
+    id PRIMARY KEY,
+    email,                              -- Email being verified
+    code,                               -- 6-digit verification code
+    expires_at TIMESTAMP,               -- Code expiration (10 minutes)
+    verified BOOLEAN DEFAULT 0,         -- Verification status
+    created_at TIMESTAMP,
+    INDEX(email, verified),
+    INDEX(expires_at, verified)
+)
+
+oauth_accounts (
+    id PRIMARY KEY,
+    user_id → users,
+    provider,                           -- 'google', 'github', etc.
+    provider_user_id,                   -- OAuth provider's user ID
+    email,                              -- Email from OAuth provider
+    access_token,                       -- OAuth access token
+    refresh_token,                      -- OAuth refresh token
+    token_expires_at TIMESTAMP,         -- Token expiration
+    created_at TIMESTAMP,
+    last_login TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    INDEX(provider, provider_user_id),
+    INDEX(user_id)
+)
+
+webauthn_credentials (
+    id PRIMARY KEY,
+    user_id → users,
+    credential_id UNIQUE,               -- WebAuthn credential ID
+    public_key,                         -- Public key for verification
+    sign_count DEFAULT 0,               -- Signature counter
+    aaguid,                             -- Authenticator GUID
+    transports,                         -- JSON array: ['usb', 'nfc', 'ble', 'internal']
+    device_name,                        -- User-friendly name: "iPhone Touch ID"
+    created_at TIMESTAMP,
+    last_used TIMESTAMP,
+    INDEX(user_id),
+    INDEX(credential_id)
+)
+
+user_login_history (
+    id PRIMARY KEY,
+    user_id → users,
+    login_timestamp TIMESTAMP,
+    ip_address,                         -- Login IP address
+    user_agent,                         -- Browser/device info
+    login_method,                       -- 'password', 'oauth_google', 'webauthn'
+    success BOOLEAN DEFAULT 1,          -- Login success/failure
+    INDEX(user_id, login_timestamp DESC)
 )
 
 -- ====================================================================================
