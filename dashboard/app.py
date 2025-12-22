@@ -81,6 +81,43 @@ app = dash.Dash(
     update_title=None,  # Disable title updates for performance
 )
 
+# Add inline critical CSS for instant first paint
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        <style>
+        /* Critical CSS for instant render - prevents FOUC */
+        .no-animations,.no-animations *,.no-animations *::before,.no-animations *::after{animation:0s!important;transition:0s!important}
+        :root{--radius-md:16px;--blur-medium:60px;--glass-bg-solid:rgba(255,255,255,0.55);--transition-fast:0.3s}
+        body.dark-mode{--glass-bg-solid:rgba(30,41,59,0.55)}
+        *{-webkit-font-smoothing:antialiased}
+        body{margin:0;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+        body.dark-mode{background:#0f172a}
+        .glass-card,.modal-content,.btn,.card{transform:translateZ(0);backface-visibility:hidden}
+        .skeleton{background:linear-gradient(110deg,rgba(200,210,220,0.4) 8%,rgba(220,230,240,0.6) 18%,rgba(200,210,220,0.4) 33%);background-size:200% 100%;animation:shimmer 2s linear infinite;border-radius:8px}
+        body.dark-mode .skeleton{background:linear-gradient(110deg,rgba(51,65,85,0.4) 8%,rgba(71,85,105,0.6) 18%,rgba(51,65,85,0.4) 33%)}
+        @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        </style>
+        {%css%}
+    </head>
+    <body class="no-animations">
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+        <script>
+        /* Remove no-animations class after load for smooth transitions */
+        window.addEventListener('load',function(){setTimeout(function(){document.body.classList.remove('no-animations')},100)});
+        </script>
+    </body>
+</html>
+'''
+
 socketio = SocketIO(app.server, cors_allowed_origins="*")
 socketio = SocketIO(
     app.server,
@@ -2010,12 +2047,6 @@ login_layout = dbc.Container([
                                     id="login-button",
                                     className="w-100 mt-2 cyber-button-modern",
                                     size="lg",
-                                    style={
-                                        "fontWeight": "700",
-                                        "background": "var(--gradient-accent)",
-                                        "border": "none",
-                                        "boxShadow": "0 8px 24px var(--accent-glow), 0 0 40px var(--accent-glow)"
-                                    }
                                 ),
 
                                 # OAuth Divider
@@ -2262,12 +2293,6 @@ login_layout = dbc.Container([
                                     className="w-100 mt-2 cyber-button-modern",
                                     size="lg",
                                     disabled=True,
-                                    style={
-                                        "fontWeight": "700",
-                                        "background": "var(--gradient-success)",
-                                        "border": "none",
-                                        "boxShadow": "0 8px 24px rgba(16, 185, 129, 0.4), 0 0 40px rgba(16, 185, 129, 0.2)"
-                                    }
                                 ),
 
                                 # Security Guarantees Below Register Form
