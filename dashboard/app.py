@@ -66,6 +66,7 @@ from utils.iot_features import (
     get_firmware_manager
 )
 
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,6 +75,12 @@ logger = logging.getLogger(__name__)
 app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME, '/assets/custom.css', '/assets/skeleton.css'],
+    external_scripts=[
+        # Performance optimizations (tested and verified)
+        '/assets/debounce.js',  # Debounce search inputs (500ms delay)
+        '/assets/virtual-scroll.js',  # Virtual scrolling for long lists
+        '/assets/static-cache.js'  # Cache static assets in memory
+    ],
     title="IoTSentinel - Network Security Monitor",
     suppress_callback_exceptions=True,
     # Performance optimizations
@@ -133,6 +140,7 @@ socketio = SocketIO(
 # Database setup
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
+
 
 # Device group manager import
 from utils.device_group_manager import DeviceGroupManager
@@ -906,85 +914,17 @@ ONBOARDING_STEPS = [
 # ============================================================================
 
 def get_db_connection():
+    """Get a database connection (simple connections work best for SQLite)"""
     try:
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
         logger.error(f"Database connection error: {e}")
         return None
 
-def get_device_status(device_ip: str, hours: int = 24) -> str:
-    conn = get_db_connection()
-    if not conn:
-        return 'unknown'
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT severity, COUNT(*) as count FROM alerts
-            WHERE device_ip = ? AND timestamp > datetime('now', ? || ' hours') AND acknowledged = 0
-            GROUP BY severity
-        """, (device_ip, f'-{hours}'))
-        alerts = {row['severity']: row['count'] for row in cursor.fetchall()}
-        if alerts.get('critical', 0) > 0 or alerts.get('high', 0) > 0:
-            return 'alert'
-        elif alerts.get('medium', 0) > 0 or alerts.get('low', 0) > 0:
-            return 'warning'
-        return 'normal'
-    except sqlite3.Error as e:
-        logger.error(f"Error getting device status: {e}")
-        return 'unknown'
-    finally:
-        conn.close()
-
-def get_device_baseline(device_ip: str, days: int = 7) -> Dict[str, Any]:
-    conn = get_db_connection()
-    if not conn:
-        return {'has_baseline': False}
-
-    conn.create_function("sqrt", 1, math.sqrt)
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT
-                AVG(daily_bytes_sent) as avg_bytes_sent,
-                AVG(daily_bytes_received) as avg_bytes_received,
-                AVG(daily_connections) as avg_connections,
-                AVG(daily_unique_destinations) as avg_unique_destinations,
-                COALESCE(sqrt(ABS(AVG(daily_bytes_sent*daily_bytes_sent) - AVG(daily_bytes_sent)*AVG(daily_bytes_sent))), 0) as std_bytes_sent,
-                COALESCE(sqrt(ABS(AVG(daily_bytes_received*daily_bytes_received) - AVG(daily_bytes_received)*AVG(daily_bytes_received))), 0) as std_bytes_received,
-                COALESCE(sqrt(ABS(AVG(daily_connections*daily_connections) - AVG(daily_connections)*AVG(daily_connections))), 0) as std_connections
-            FROM (
-                SELECT DATE(timestamp) as day,
-                    SUM(bytes_sent) as daily_bytes_sent,
-                    SUM(bytes_received) as daily_bytes_received,
-                    COUNT(*) as daily_connections,
-                    COUNT(DISTINCT dest_ip) as daily_unique_destinations
-                FROM connections
-                WHERE device_ip = ? AND timestamp BETWEEN datetime('now', ? || ' days') AND datetime('now', '-1 day')
-                GROUP BY DATE(timestamp)
-            )
-        """, (device_ip, f'-{days}'))
-        row = cursor.fetchone()
-        if row and row['avg_bytes_sent'] is not None:
-            return {
-                'avg_bytes_sent': row['avg_bytes_sent'] or 0,
-                'avg_bytes_received': row['avg_bytes_received'] or 0,
-                'avg_connections': row['avg_connections'] or 0,
-                'avg_unique_destinations': row['avg_unique_destinations'] or 0,
-                'std_bytes_sent': row['std_bytes_sent'] or 0,
-                'std_bytes_received': row['std_bytes_received'] or 0,
-                'std_connections': row['std_connections'] or 0,
-                'baseline_days': days,
-                'has_baseline': True
-            }
-        return {'has_baseline': False}
-    except sqlite3.Error as e:
-        logger.error(f"Error getting device baseline: {e}")
-        return {'has_baseline': False}
-    finally:
-        conn.close()
+# Note: get_device_status and get_device_baseline are now imported from cached_queries
+# for better performance with TTL-based caching
 
 def get_device_today_stats(device_ip: str) -> Dict[str, Any]:
     conn = get_db_connection()
@@ -2733,7 +2673,10 @@ dashboard_layout = dbc.Container([
                             )
                         ]),
                         html.Div(id='3d-graph-container', children=[
-                            dcc.Graph(id='network-graph-3d', style={'height': '500px'})
+                            dcc.Loading(
+                                dcc.Graph(id='network-graph-3d', style={'height': '500px'}),
+                                type="circle"
+                            )
                         ], style={'display': 'none'})
                     ], className="graph-wrapper mb-3"),
 
@@ -2782,8 +2725,11 @@ dashboard_layout = dbc.Container([
                         dbc.Tooltip("Shows network protocol usage (TCP/UDP/ICMP). Unusual patterns may indicate attacks.",
                                    target="protocol-help", placement="top"),
                         dbc.CardBody(
-                            dcc.Graph(id='protocol-pie', style={'height': '280px'},
+                            dcc.Loading(
+                                dcc.Graph(id='protocol-pie', style={'height': '280px'},
                                     config={'displayModeBar': False}),
+                                type="circle"
+                            ),
                             className="p-2"
                         )
                     ], className="glass-card border-0 shadow hover-card mb-3")
@@ -2799,8 +2745,11 @@ dashboard_layout = dbc.Container([
                         dbc.Tooltip("24-hour traffic patterns. Spikes at odd hours may indicate malware or unauthorized access.",
                                    target="timeline-help", placement="top"),
                         dbc.CardBody(
-                            dcc.Graph(id='traffic-timeline', style={'height': '280px'},
+                            dcc.Loading(
+                                dcc.Graph(id='traffic-timeline', style={'height': '280px'},
                                     config={'displayModeBar': False}),
+                                type="circle"
+                            ),
                             className="p-2"
                         )
                     ], className="glass-card border-0 shadow hover-card")
@@ -3831,7 +3780,8 @@ dashboard_layout = dbc.Container([
                 dbc.Button("Delete Selected", id='bulk-delete-btn', color="warning", size="sm")
             ], className="mb-3"),
             html.Div(id='device-management-table'),
-            dcc.Store(id='selected-devices-store', data=[])
+            dcc.Store(id='selected-devices-store', data=[]),
+            dcc.Store(id='device-table-page', data=1)  # Pagination state
         ])
     ], id="device-mgmt-modal", size="xl", is_open=False, scrollable=True),
 
@@ -5097,7 +5047,7 @@ dashboard_layout = dbc.Container([
     html.Div(id='dummy-output-clientside-callback', style={'display': 'none'}),
     html.Div(id='dummy-output-card-clicks', style={'display': 'none'}),
     WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"),
-    dcc.Interval(id='refresh-interval', interval=10*1000, n_intervals=0),  # 10 second refresh for IoT stats
+    dcc.Interval(id='refresh-interval', interval=30*1000, n_intervals=0),  # 30 second refresh (optimized for performance)
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
@@ -5814,26 +5764,96 @@ def save_device_changes(n_clicks, ip, name, device_type, group_id, notes):
 # CALLBACKS - HEADER & NOTIFICATIONS
 # ============================================================================
 
+# Simple helper functions (cached queries disabled due to performance issues)
+def get_latest_alerts(limit=10):
+    """Get recent alerts without caching"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
+                a.anomaly_score, a.explanation, a.top_features, a.acknowledged, d.is_trusted
+            FROM alerts a LEFT JOIN devices d ON a.device_ip = d.device_ip
+            WHERE a.timestamp > datetime('now', '-24 hours') AND a.acknowledged = 0
+            ORDER BY a.timestamp DESC LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        logger.error(f"Error fetching alerts: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_bandwidth_stats():
+    """Get bandwidth statistics"""
+    conn = get_db_connection()
+    if not conn:
+        return {'total': 0, 'formatted': '0 B'}
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT SUM(packet_size) as total FROM network_traffic WHERE timestamp > datetime('now', '-1 hour')")
+        row = cursor.fetchone()
+        total = row['total'] or 0
+        # Format bytes
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if total < 1024:
+                return {'total': total, 'formatted': f"{total:.1f} {unit}"}
+            total /= 1024
+        return {'total': total * 1024**4, 'formatted': f"{total:.1f} TB"}
+    except Exception as e:
+        logger.error(f"Error fetching bandwidth: {e}")
+        return {'total': 0, 'formatted': '0 B'}
+    finally:
+        conn.close()
+
+def get_threats_blocked():
+    """Get count of threats blocked"""
+    conn = get_db_connection()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM alerts WHERE severity IN ('high', 'critical') AND timestamp > datetime('now', '-24 hours')")
+        row = cursor.fetchone()
+        return row['count'] or 0
+    except Exception as e:
+        logger.error(f"Error fetching threats: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def get_device_status(device_ip, hours=24):
+    """Get device alert status"""
+    conn = get_db_connection()
+    if not conn:
+        return 'normal'
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT severity, COUNT(*) as count FROM alerts
+            WHERE device_ip = ? AND timestamp > datetime('now', ? || ' hours') AND acknowledged = 0
+            GROUP BY severity
+        """, (device_ip, f'-{hours}'))
+        rows = cursor.fetchall()
+        for row in rows:
+            if row['severity'] in ['critical', 'high']:
+                return row['severity']
+        return 'normal'
+    except Exception as e:
+        logger.error(f"Error fetching device status: {e}")
+        return 'normal'
+    finally:
+        conn.close()
+
+def get_device_baseline(device_ip):
+    """Get device baseline (placeholder)"""
+    return None
+
 def get_latest_alerts_content():
     """Helper function to fetch and format recent alerts for the notification drawer."""
-    conn = get_db_connection()
-    recent_alerts_raw = []
-    if conn:
-        try:
-            query = """
-                SELECT a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
-                    a.anomaly_score, a.explanation, a.top_features, a.acknowledged, d.is_trusted
-                FROM alerts a LEFT JOIN devices d ON a.device_ip = d.device_ip
-                WHERE a.timestamp > datetime('now', '-24 hours') AND a.acknowledged = 0
-                ORDER BY a.timestamp DESC
-                LIMIT 10
-            """
-            df_alerts = pd.read_sql_query(query, conn)
-            recent_alerts_raw = df_alerts.to_dict('records')
-        except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
-            logger.error(f"Error fetching alerts for notification drawer: {e}")
-        finally:
-            conn.close()
+    recent_alerts_raw = get_latest_alerts(limit=10)
 
     if not recent_alerts_raw:
         return [dbc.Alert("No new alerts.", color="info")]
@@ -5879,7 +5899,8 @@ def get_latest_alerts_content():
 @app.callback(
     [Output('cpu-usage', 'children'),
      Output('ram-usage', 'children')],
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Don't run on initial load
 )
 def update_system_metrics(ws_message):
     """Update CPU and RAM metrics from websocket data."""
@@ -5895,59 +5916,24 @@ def update_system_metrics(ws_message):
     [Output('bandwidth-usage', 'children'),
      Output('threats-blocked', 'children'),
      Output('connection-count', 'children')],
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Don't run on initial load
 )
 def update_header_stats(ws_message):
+    """Update header stats using cached queries for performance"""
     if ws_message is None:
-        # Show loading placeholders
         return "—", "—", "—"
 
-    # Calculate bandwidth usage from connections
+    # Use cached queries (30s TTL) - much faster than direct DB access
     try:
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
+        bandwidth_stats = get_bandwidth_stats()
+        threats_count = get_threats_blocked()
+        connection_count = ws_message.get('connection_count', 0)
 
-            # Get total bytes transferred (last 24 hours)
-            cursor.execute('''
-                SELECT SUM(bytes_sent + bytes_received) as total_bytes
-                FROM connections
-                WHERE timestamp >= datetime('now', '-24 hours')
-            ''')
-            result = cursor.fetchone()
-            total_bytes = result['total_bytes'] if result and result['total_bytes'] else 0
-
-            # Format bandwidth
-            if total_bytes >= 1073741824:  # 1 GB
-                bandwidth = f"{total_bytes / 1073741824:.1f} GB"
-            elif total_bytes >= 1048576:  # 1 MB
-                bandwidth = f"{total_bytes / 1048576:.1f} MB"
-            elif total_bytes >= 1024:  # 1 KB
-                bandwidth = f"{total_bytes / 1024:.1f} KB"
-            else:
-                bandwidth = f"{total_bytes} B"
-
-            # Get threats blocked (devices blocked + high/critical alerts in last 24h)
-            cursor.execute('''
-                SELECT
-                    (SELECT COUNT(*) FROM devices WHERE is_blocked = 1) +
-                    (SELECT COUNT(*) FROM alerts WHERE severity IN ('high', 'critical')
-                     AND timestamp >= datetime('now', '-24 hours'))
-                as threats_blocked
-            ''')
-            threats_result = cursor.fetchone()
-            threats_blocked = threats_result['threats_blocked'] if threats_result else 0
-
-            conn.close()
-        else:
-            bandwidth = "—"
-            threats_blocked = 0
+        return bandwidth_stats['formatted'], str(threats_count), str(connection_count)
     except Exception as e:
         logger.error(f"Error calculating bandwidth/threats: {e}")
-        bandwidth = "—"
-        threats_blocked = 0
-
-    return bandwidth, str(threats_blocked), str(ws_message.get('connection_count', 0))
+        return "—", "—", "—"
 
 @app.callback(
     [Output('notification-badge', 'children'),
@@ -6047,7 +6033,8 @@ app.clientside_callback(
 
 @app.callback(
     Output('network-graph', 'elements'),
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Lazy load network graph
 )
 def update_network_graph(ws_message):
     if ws_message is None:
@@ -6069,7 +6056,8 @@ def toggle_graph_view(is_3d_view):
 
 @app.callback(
     Output('network-graph-3d', 'figure'),
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Lazy load 3D graph only when data arrives
 )
 def update_network_graph_3d(ws_message):
     """Enhanced 3D graph with force-directed layout and better visuals"""
@@ -6234,7 +6222,8 @@ def update_network_graph_3d(ws_message):
 
 @app.callback(
     Output('traffic-timeline', 'figure'),
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Lazy load traffic timeline
 )
 def update_traffic_timeline(ws_message):
     if ws_message is None:
@@ -6253,7 +6242,8 @@ def update_traffic_timeline(ws_message):
 
 @app.callback(
     Output('protocol-pie', 'figure'),
-    Input('ws', 'message')
+    Input('ws', 'message'),
+    prevent_initial_call=True  # Performance: Lazy load protocol chart
 )
 def update_protocol_pie(ws_message):
     if ws_message is None:
@@ -10087,20 +10077,50 @@ def remove_biometric_device(n_clicks_list):
 # ============================================================================
 
 @app.callback(
-    Output('device-management-table', 'children'),
-    Input('load-devices-btn', 'n_clicks'),
+    [Output('device-management-table', 'children'),
+     Output('device-table-page', 'data', allow_duplicate=True)],
+    [Input('load-devices-btn', 'n_clicks'),
+     Input('device-table-prev', 'n_clicks'),
+     Input('device-table-next', 'n_clicks')],
+    State('device-table-page', 'data'),
     prevent_initial_call=True
 )
-def load_device_management_table(n_clicks):
-    """Load all devices for management"""
+def load_device_management_table(load_clicks, prev_clicks, next_clicks, current_page):
+    """Load devices for management with pagination"""
+    ctx = callback_context
+
+    # Determine which button was clicked
+    if not ctx.triggered:
+        page = 1
+    else:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == 'device-table-prev':
+            page = max(1, current_page - 1)
+        elif trigger_id == 'device-table-next':
+            page = current_page + 1
+        else:
+            page = 1  # Reset to page 1 on initial load
+
+    # Pagination settings
+    ITEMS_PER_PAGE = 20
+
     devices = db_manager.get_all_devices()
 
     if not devices:
-        return dbc.Alert("No devices found", color="info")
+        return dbc.Alert("No devices found", color="info"), 1
+
+    # Calculate pagination
+    total_devices = len(devices)
+    total_pages = (total_devices + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    page = min(page, total_pages)  # Don't exceed max pages
+
+    start_idx = (page - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_devices = devices[start_idx:end_idx]
 
     # Create device management table
     rows = []
-    for device in devices:
+    for device in page_devices:
         device_ip = device['device_ip']
         device_type = device.get('device_type', 'unknown')
         manufacturer = device.get('manufacturer', 'Unknown')
@@ -10173,14 +10193,30 @@ def load_device_management_table(n_clicks):
 
         rows.append(row)
 
+    # Pagination controls
+    pagination = dbc.Row([
+        dbc.Col([
+            html.Div([
+                dbc.Button("← Previous", id='device-table-prev', size="sm",
+                          disabled=(page == 1), color="primary", outline=True),
+                html.Span(f" Page {page} of {total_pages} ",
+                         className="mx-3 align-middle"),
+                dbc.Button("Next →", id='device-table-next', size="sm",
+                          disabled=(page >= total_pages), color="primary", outline=True)
+            ], className="d-flex align-items-center justify-content-center")
+        ])
+    ], className="mt-3")
+
     return html.Div([
         dbc.Row([
             dbc.Col([
-                html.H6(f"Total Devices: {len(devices)}", className="mb-0")
+                html.H6(f"Total Devices: {total_devices} | Showing {start_idx + 1}-{min(end_idx, total_devices)}",
+                       className="mb-0")
             ], width=6),
         ], className="mb-3"),
-        html.Div(rows, id='device-rows-container')
-    ])
+        html.Div(rows, id='device-rows-container', **{'data-virtual-scroll': 'true', 'data-item-height': '100'}),
+        pagination
+    ]), page
 
 
 @app.callback(

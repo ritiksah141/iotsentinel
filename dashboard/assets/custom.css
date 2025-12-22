@@ -86,6 +86,15 @@ body.dark-mode {
   content-visibility: auto;
 }
 
+/* Exception: Cards with dropdowns must not use containment */
+.glass-card:has(.profile-dropdown),
+.glass-card:has(.dropdown),
+.glass-card:has(.dropdown-menu) {
+  contain: none !important;
+  content-visibility: visible !important;
+  overflow: visible !important;
+}
+
 /* Ultra-aggressive scroll optimization - disable expensive effects during scroll only */
 .is-scrolling .glass-card {
   backdrop-filter: none !important;
@@ -2367,12 +2376,7 @@ textarea:focus {
  * UTILITY CLASSES
  * ============================================================================ */
 
-.text-gradient {
-  background: var(--gradient-accent);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+/* text-gradient is now defined in the Logo Styling section */
 
 .cyber-glow {
   animation: cyberGlow 2s ease-in-out infinite;
@@ -2724,29 +2728,442 @@ body.dark-mode .cyber-card:hover {
 }
 
 /* ============================================================================
+ * HEADER FROSTED GLASS BUTTONS - Modern Glassmorphism
+ * ============================================================================ */
+
+/* Base frosted button style for header - LIGHT MODE */
+.glass-card .btn-link,
+.glass-card .btn[color="link"] {
+  background: rgba(255, 255, 255, 0.65) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(203, 213, 225, 0.5) !important;
+  border-radius: 12px !important;
+  color: #475569 !important;
+  padding: 0.5rem 0.85rem !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Subtle inner glow effect */
+.glass-card .btn-link::before,
+.glass-card .btn[color="link"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-radius: 11px;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+/* Hover state - enhanced glow */
+.glass-card .btn-link:hover,
+.glass-card .btn[color="link"]:hover {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(102, 126, 234, 0.4) !important;
+  color: #1e293b !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 0 20px rgba(102, 126, 234, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Active/pressed state */
+.glass-card .btn-link:active,
+.glass-card .btn[color="link"]:active {
+  transform: translateY(0) scale(0.98) !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Focus state for accessibility */
+.glass-card .btn-link:focus,
+.glass-card .btn[color="link"]:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25), 0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Icon styling in header buttons - LIGHT MODE */
+.glass-card .btn-link i,
+.glass-card .btn[color="link"] i {
+  font-size: 1.1rem !important;
+  color: #64748b !important;
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
+  transition: all 0.3s ease !important;
+}
+
+.glass-card .btn-link:hover i,
+.glass-card .btn[color="link"]:hover i {
+  transform: scale(1.1);
+  color: #3b82f6 !important;
+}
+
+/* Notification bell with badge - special styling */
+#notification-bell-button {
+  background: rgba(255, 255, 255, 0.65) !important;
+  border: 1px solid rgba(203, 213, 225, 0.5) !important;
+}
+
+#notification-bell-button i {
+  color: #f59e0b !important;
+}
+
+#notification-bell-button:hover {
+  background: rgba(254, 243, 199, 0.8) !important;
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(251, 191, 36, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#notification-bell-button:hover i {
+  color: #d97706 !important;
+}
+
+/* Chat/AI button */
+#open-chat-button i {
+  color: #8b5cf6 !important;
+}
+
+#open-chat-button:hover {
+  background: rgba(237, 233, 254, 0.8) !important;
+  border-color: rgba(139, 92, 246, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(139, 92, 246, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#open-chat-button:hover i {
+  color: #7c3aed !important;
+}
+
+/* Pause button */
+#pause-button i {
+  color: #10b981 !important;
+}
+
+#pause-button:hover {
+  background: rgba(209, 250, 229, 0.8) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(16, 185, 129, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#pause-button:hover i {
+  color: #059669 !important;
+}
+
+/* Voice alert button */
+#voice-alert-toggle i {
+  color: #06b6d4 !important;
+}
+
+#voice-alert-toggle:hover {
+  background: rgba(207, 250, 254, 0.8) !important;
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(6, 182, 212, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#voice-alert-toggle:hover i {
+  color: #0891b2 !important;
+}
+
+/* Dark mode toggle button */
+#dark-mode-toggle i {
+  color: #6366f1 !important;
+}
+
+#dark-mode-toggle:hover {
+  background: rgba(224, 231, 255, 0.8) !important;
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(99, 102, 241, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#dark-mode-toggle:hover i {
+  color: #4f46e5 !important;
+}
+
+/* Layout customize button */
+#customize-layout-button i {
+  color: #ec4899 !important;
+}
+
+#customize-layout-button:hover {
+  background: rgba(252, 231, 243, 0.8) !important;
+  border-color: rgba(236, 72, 153, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(236, 72, 153, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#customize-layout-button:hover i {
+  color: #db2777 !important;
+}
+
+/* Quick actions button */
+#quick-actions-button i {
+  color: #f59e0b !important;
+}
+
+#quick-actions-button:hover {
+  background: rgba(254, 243, 199, 0.8) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(245, 158, 11, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+#quick-actions-button:hover i {
+  color: #d97706 !important;
+}
+
+/* Profile dropdown toggle button - LIGHT MODE */
+.profile-dropdown .dropdown-toggle {
+  background: rgba(255, 255, 255, 0.65) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(203, 213, 225, 0.5) !important;
+  border-radius: 12px !important;
+  color: #475569 !important;
+  padding: 0.5rem 0.85rem !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+.profile-dropdown .dropdown-toggle i {
+  color: #3b82f6 !important;
+}
+
+.profile-dropdown .dropdown-toggle:hover {
+  background: rgba(219, 234, 254, 0.85) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  color: #1e40af !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 20px rgba(59, 130, 246, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.profile-dropdown .dropdown-toggle:hover i {
+  color: #2563eb !important;
+}
+
+.profile-dropdown.show .dropdown-toggle {
+  background: rgba(191, 219, 254, 0.9) !important;
+  border-color: rgba(59, 130, 246, 0.6) !important;
+}
+
+/* ============================================================================
+ * DARK MODE - Header Frosted Buttons
+ * ============================================================================ */
+
+body.dark-mode .glass-card .btn-link,
+body.dark-mode .glass-card .btn[color="link"] {
+  background: rgba(30, 41, 59, 0.7) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(71, 85, 105, 0.5) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode .glass-card .btn-link::before,
+body.dark-mode .glass-card .btn[color="link"]::before {
+  background: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.1) 0%,
+    rgba(96, 165, 250, 0) 50%,
+    rgba(139, 92, 246, 0.08) 100%
+  );
+}
+
+body.dark-mode .glass-card .btn-link:hover,
+body.dark-mode .glass-card .btn[color="link"]:hover {
+  background: rgba(51, 65, 85, 0.85) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(96, 165, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode .glass-card .btn-link:focus,
+body.dark-mode .glass-card .btn[color="link"]:focus {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Dark mode - Icon colors */
+body.dark-mode .glass-card .btn-link i,
+body.dark-mode .glass-card .btn[color="link"] i {
+  color: #94a3b8 !important;
+}
+
+body.dark-mode .glass-card .btn-link:hover i,
+body.dark-mode .glass-card .btn[color="link"]:hover i {
+  color: #60a5fa !important;
+}
+
+/* Dark mode - specific button colors */
+body.dark-mode #notification-bell-button i {
+  color: #fbbf24 !important;
+}
+
+body.dark-mode #notification-bell-button:hover {
+  background: rgba(251, 191, 36, 0.2) !important;
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(251, 191, 36, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #notification-bell-button:hover i {
+  color: #f59e0b !important;
+}
+
+body.dark-mode #open-chat-button i {
+  color: #a78bfa !important;
+}
+
+body.dark-mode #open-chat-button:hover {
+  background: rgba(167, 139, 250, 0.2) !important;
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(167, 139, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #open-chat-button:hover i {
+  color: #8b5cf6 !important;
+}
+
+body.dark-mode #pause-button i {
+  color: #34d399 !important;
+}
+
+body.dark-mode #pause-button:hover {
+  background: rgba(52, 211, 153, 0.2) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(52, 211, 153, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #pause-button:hover i {
+  color: #10b981 !important;
+}
+
+body.dark-mode #voice-alert-toggle i {
+  color: #22d3ee !important;
+}
+
+body.dark-mode #voice-alert-toggle:hover {
+  background: rgba(34, 211, 238, 0.2) !important;
+  border-color: rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(34, 211, 238, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #voice-alert-toggle:hover i {
+  color: #06b6d4 !important;
+}
+
+body.dark-mode #dark-mode-toggle i {
+  color: #818cf8 !important;
+}
+
+body.dark-mode #dark-mode-toggle:hover {
+  background: rgba(129, 140, 248, 0.2) !important;
+  border-color: rgba(129, 140, 248, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(129, 140, 248, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #dark-mode-toggle:hover i {
+  color: #6366f1 !important;
+}
+
+body.dark-mode #customize-layout-button i {
+  color: #f472b6 !important;
+}
+
+body.dark-mode #customize-layout-button:hover {
+  background: rgba(244, 114, 182, 0.2) !important;
+  border-color: rgba(244, 114, 182, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(244, 114, 182, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #customize-layout-button:hover i {
+  color: #ec4899 !important;
+}
+
+body.dark-mode #quick-actions-button i {
+  color: #fbbf24 !important;
+}
+
+body.dark-mode #quick-actions-button:hover {
+  background: rgba(251, 191, 36, 0.2) !important;
+  border-color: rgba(251, 191, 36, 0.5) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 25px rgba(251, 191, 36, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode #quick-actions-button:hover i {
+  color: #f59e0b !important;
+}
+
+body.dark-mode .profile-dropdown .dropdown-toggle {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid rgba(71, 85, 105, 0.5) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode .profile-dropdown .dropdown-toggle i {
+  color: #60a5fa !important;
+}
+
+body.dark-mode .profile-dropdown .dropdown-toggle:hover {
+  background: rgba(96, 165, 250, 0.2) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  color: #f1f5f9 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), 0 0 25px rgba(96, 165, 250, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode .profile-dropdown.show .dropdown-toggle {
+  background: rgba(96, 165, 250, 0.25) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
+}
+
+/* ============================================================================
+
+/* ============================================================================
  * PROFILE DROPDOWN STYLING (MATCHING METRIC CARDS)
  * ============================================================================ */
 
-/* Dropdown menu glass effect (pure frosted glass) */
+/* Dropdown menu glass effect (matching modal style) */
 .profile-dropdown .dropdown-menu {
   background: var(--glass-bg-solid) !important;
-  backdrop-filter: blur(var(--blur-heavy)) saturate(200%) brightness(1.1) !important;
-  -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%)
-    brightness(1.1) !important;
-  border: 1px solid var(--glass-border-medium) !important;
+  backdrop-filter: blur(var(--blur-light)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-light)) saturate(120%) !important;
+  border: 1px solid var(--glass-border-accent) !important;
   border-radius: var(--radius-md) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12),
-    inset 0 1px 1px rgba(255, 255, 255, 0.2),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--glass-border-medium) inset !important;
   padding: 0.75rem !important;
   min-width: 240px !important;
   margin-top: 0.5rem !important;
   position: relative;
   overflow: visible;
   transform: translateZ(0);
-  /* Add noise texture */
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.03"/></svg>') !important;
-  background-blend-mode: overlay;
 }
 
 .profile-dropdown .dropdown-menu::before {
@@ -2758,25 +3175,27 @@ body.dark-mode .cyber-card:hover {
   bottom: 0;
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.02) 0%,
-    rgba(255, 255, 255, 0.01) 50%,
-    rgba(255, 255, 255, 0.02) 100%
+    rgba(102, 126, 234, 0.03) 0%,
+    rgba(240, 147, 251, 0.03) 50%,
+    rgba(79, 172, 254, 0.03) 100%
   );
   background-size: 300% 300%;
   animation: gradientShift 25s linear infinite;
+  filter: blur(8px);
+  -webkit-filter: blur(8px);
   pointer-events: none;
   z-index: 0;
-  opacity: 1;
+  opacity: 0.3;
   border-radius: 16px;
 }
 
 /* Ensure parent dropdown has proper z-index */
 .profile-dropdown {
-  position: static !important;
+  position: relative !important;
 }
 
 .profile-dropdown.show {
-  position: static !important;
+  position: relative !important;
   z-index: 9999 !important;
 }
 
@@ -2821,47 +3240,46 @@ body.dark-mode .cyber-card:hover {
 
 /* Specifically for profile dropdown menu */
 .profile-dropdown .dropdown-menu {
-  position: fixed !important;
+  position: absolute !important;
   z-index: 99999 !important;
   overflow: visible !important;
   transform: none !important;
+  max-height: none !important;
+  height: auto !important;
 }
 
 .profile-dropdown.show .dropdown-menu {
-  position: fixed !important;
+  position: absolute !important;
   z-index: 99999 !important;
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 body.dark-mode .profile-dropdown .dropdown-menu {
   background: var(--glass-bg-dark-solid) !important;
-  backdrop-filter: blur(var(--blur-heavy)) saturate(200%) brightness(1.2) !important;
-  -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%)
-    brightness(1.2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4),
-    inset 0 1px 1px rgba(255, 255, 255, 0.1),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.2) !important;
-  /* Add noise texture for dark mode */
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.04"/></svg>') !important;
-  background-blend-mode: overlay;
+  backdrop-filter: blur(var(--blur-light)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--blur-light)) saturate(120%) !important;
+  border: 1px solid var(--glass-border-accent) !important;
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--glass-border-light) inset !important;
 }
 
 body.dark-mode .profile-dropdown .dropdown-menu::before {
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.02) 0%,
+    rgba(59, 130, 246, 0.05) 0%,
     rgba(96, 165, 250, 0.05) 50%,
     rgba(79, 172, 254, 0.05) 100%
   );
   opacity: 0.4;
 }
 
-/* Dropdown menu items (matching ultra-frosted glass) */
+/* Dropdown menu items (matching modal form controls) */
 .profile-dropdown .dropdown-item {
-  background: var(--glass-bg-light);
-  backdrop-filter: blur(var(--blur-medium)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--blur-medium)) saturate(180%);
-  border: 1px solid var(--glass-border-light);
+  background: var(--glass-bg-medium);
+  backdrop-filter: blur(var(--blur-light));
+  -webkit-backdrop-filter: blur(var(--blur-light));
+  border: 1px solid var(--glass-border-medium);
   color: #1e293b !important;
   border-radius: var(--radius-sm);
   padding: 10px 14px;
@@ -2876,38 +3294,32 @@ body.dark-mode .profile-dropdown .dropdown-menu::before {
 
 .profile-dropdown .dropdown-item:hover {
   background: var(--glass-bg-medium);
-  border: 1px solid var(--glass-border-medium);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--glass-border-accent);
+  box-shadow: var(--shadow-glow);
   transform: translateX(4px);
   color: #1e293b !important;
-  backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
-  -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
 }
 
 body.dark-mode .profile-dropdown .dropdown-item {
-  background: var(--glass-bg-dark-light);
-  backdrop-filter: blur(var(--blur-medium)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--blur-medium)) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg-dark-medium);
+  border: 1px solid var(--glass-border-light);
   color: rgba(255, 255, 255, 0.95) !important;
   box-shadow: var(--shadow-sm);
 }
 
 body.dark-mode .profile-dropdown .dropdown-item:hover {
   background: var(--glass-bg-dark-medium);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 16px rgba(96, 165, 250, 0.15);
+  border: 1px solid var(--glass-border-accent);
+  box-shadow: var(--shadow-glow);
   color: rgba(255, 255, 255, 1) !important;
-  backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
-  -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
 }
 
-/* Header item styling (ultra-frosted glass) */
+/* Header item styling (matching modal header) */
 .profile-dropdown .dropdown-header {
-  background: rgba(102, 126, 234, 0.05);
-  backdrop-filter: blur(var(--blur-light)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--blur-light)) saturate(150%);
-  border: 1px solid rgba(102, 126, 234, 0.1);
+  background: rgba(102, 126, 234, 0.1);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border: 1px solid rgba(102, 126, 234, 0.2);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 0.5rem;
@@ -2918,7 +3330,7 @@ body.dark-mode .profile-dropdown .dropdown-item:hover {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 body.dark-mode .profile-dropdown .dropdown-header {
@@ -3008,26 +3420,6 @@ body.dark-mode .profile-dropdown .dropdown-item:last-child:hover {
 
 .profile-dropdown .btn:active,
 .profile-dropdown .dropdown-toggle:active,
-.profile-dropdown button:active,
-.profile-dropdown .btn-link:active {
-  color: white !important;
-}
-
-.profile-dropdown i.fa-user-circle,
-.profile-dropdown i {
-  color: white !important;
-}
-
-/* Override Bootstrap default btn-link color */
-.btn-link.text-white,
-button.btn-link.text-white {
-  color: white !important;
-}
-
-.btn-link.text-white:hover,
-button.btn-link.text-white:hover {
-  color: white !important;
-}
 
 /* ============================================================================
    LIGHT MODE THEME
@@ -5248,6 +5640,218 @@ body.dark-mode .bs-tooltip-auto[data-popper-placement^="right"] .arrow::before {
   50% {
     filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.8));
   }
+}
+
+/* ============================================================================
+ * LOGO STYLING - Frosted Glass Integration
+ * ============================================================================ */
+
+/* Logo container - Frosted glass effect */
+.glass-card img[src*="logo"],
+img[src="/assets/logo.png"] {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border-radius: 20px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: logoFloat 6s ease-in-out infinite, logoGlow 3s ease-in-out infinite;
+}
+
+/* Logo hover effect */
+.glass-card img[src*="logo"]:hover,
+img[src="/assets/logo.png"]:hover {
+  transform: scale(1.05) translateY(-4px);
+  box-shadow: 0 12px 48px rgba(102, 126, 234, 0.35),
+    0 8px 24px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border-color: rgba(102, 126, 234, 0.4);
+}
+
+/* Logo floating animation */
+@keyframes logoFloat {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Header logo - smaller, more subtle */
+.glass-card .d-flex img[src*="logo"],
+.d-flex.align-items-center img[src="/assets/logo.png"] {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border-radius: 16px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  animation: logoGlow 3s ease-in-out infinite;
+}
+
+.glass-card .d-flex img[src*="logo"]:hover,
+.d-flex.align-items-center img[src="/assets/logo.png"]:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 28px rgba(102, 126, 234, 0.35),
+    0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Gradient text enhancement for title */
+.gradient-text {
+  background: linear-gradient(
+    135deg,
+    #667eea 0%,
+    #764ba2 40%,
+    #f093fb 70%,
+    #667eea 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  animation: gradientShimmer 8s ease infinite;
+  text-shadow: none;
+  filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.2));
+}
+
+@keyframes gradientShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Text gradient for login page */
+.text-gradient {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  animation: gradientShimmer 6s ease infinite;
+}
+
+/* Logo with brand container */
+.brand-container {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.brand-container .logo-wrapper {
+  position: relative;
+}
+
+.brand-container .logo-wrapper::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+  background: radial-gradient(
+    circle at center,
+    rgba(102, 126, 234, 0.15) 0%,
+    transparent 70%
+  );
+  border-radius: 50%;
+  animation: logoPulse 4s ease-in-out infinite;
+  z-index: -1;
+}
+
+@keyframes logoPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+/* Subtitle styling under logo */
+.glass-card .text-muted,
+.brand-subtitle {
+  color: #64748b !important;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* Dark mode logo adjustments */
+body.dark-mode .glass-card img[src*="logo"],
+body.dark-mode img[src="/assets/logo.png"] {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  box-shadow: 0 8px 32px rgba(96, 165, 250, 0.25), 0 4px 16px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .glass-card img[src*="logo"]:hover,
+body.dark-mode img[src="/assets/logo.png"]:hover {
+  box-shadow: 0 12px 48px rgba(96, 165, 250, 0.4),
+    0 8px 24px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+/* Dark mode header logo */
+body.dark-mode .glass-card .d-flex img[src*="logo"],
+body.dark-mode .d-flex.align-items-center img[src="/assets/logo.png"] {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  box-shadow: 0 4px 20px rgba(96, 165, 250, 0.3), 0 2px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .glass-card .d-flex img[src*="logo"]:hover,
+body.dark-mode .d-flex.align-items-center img[src="/assets/logo.png"]:hover {
+  box-shadow: 0 6px 28px rgba(96, 165, 250, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Dark mode gradient text */
+body.dark-mode .gradient-text {
+  background: linear-gradient(
+    135deg,
+    #60a5fa 0%,
+    #a78bfa 40%,
+    #f472b6 70%,
+    #60a5fa 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 2px 4px rgba(96, 165, 250, 0.3));
+  animation: gradientShimmer 8s ease infinite;
+}
+
+body.dark-mode .text-gradient {
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #f472b6 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShimmer 6s ease infinite;
+}
+
+body.dark-mode .glass-card .text-muted,
+body.dark-mode .brand-subtitle {
+  color: #94a3b8 !important;
 }
 
 /* Loading spinner */
