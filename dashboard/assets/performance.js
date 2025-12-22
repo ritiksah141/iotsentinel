@@ -7,10 +7,8 @@
 let refreshRate = 60; // Default to 60Hz
 let isHighRefresh = false;
 
-// Improved refresh rate detection using requestIdleCallback for accurate measurement
-window.addEventListener("load", function () {
-  // Wait for page to be fully settled before measuring
-  const startMeasurement = function () {
+// Improved refresh rate detection - START IMMEDIATELY for faster optimization
+const startMeasurement = function () {
     let frameCount = 0;
     let lastTimestamp = null;
     let frameTimes = [];
@@ -101,17 +99,33 @@ window.addEventListener("load", function () {
     }
 
     requestAnimationFrame(measureRefreshRate);
-  };
+};
 
-  // Delay measurement to avoid interfering with Dash initialization
-  setTimeout(startMeasurement, 3000);
-});
-
-// Remove no-animations class after initial load
+// Consolidate ALL load event listeners for better performance
 window.addEventListener("load", function () {
+  // Start refresh rate detection immediately (not after 3 seconds)
+  setTimeout(startMeasurement, 100);  // Start after 100ms for faster detection
+
+  // Remove no-animations class after initial load
   setTimeout(function () {
     document.body.classList.remove("no-animations");
   }, 100);
+
+  // Log performance metrics
+  if ("performance" in window && "timing" in performance) {
+    setTimeout(function () {
+      const perfData = performance.timing;
+      const pageLoadTime = perfData.loadEventEnd - perfData.navigationStart;
+      const connectTime = perfData.responseEnd - perfData.requestStart;
+      const renderTime = perfData.domComplete - perfData.domLoading;
+
+      console.log("=== Performance Metrics ===");
+      console.log("Page Load Time:", pageLoadTime, "ms");
+      console.log("Connection Time:", connectTime, "ms");
+      console.log("Render Time:", renderTime, "ms");
+      console.log("==========================");
+    }, 0);
+  }
 });
 
 // Manual refresh rate override function
@@ -308,9 +322,9 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
   },
 });
 
-// Monitor performance metrics (delayed to avoid interfering with load)
+// Monitor performance metrics (consolidated and optimized)
 if ("PerformanceObserver" in window) {
-  // Delay performance monitoring to after page is fully loaded
+  // Start monitoring 2 seconds after load (reduced from 5s for faster feedback)
   setTimeout(() => {
     try {
       // Observe long tasks (only log truly problematic ones >200ms)
@@ -326,14 +340,8 @@ if ("PerformanceObserver" in window) {
         }
       });
       perfObserver.observe({ entryTypes: ["longtask"] });
-    } catch (e) {
-      // Browser doesn't support longtask
-    }
-  }, 5000); // Start monitoring 5 seconds after load
 
-  // Observe layout shifts (delayed)
-  setTimeout(() => {
-    try {
+      // Observe layout shifts in the same callback to reduce overhead
       const clsObserver = new PerformanceObserver(function (list) {
         for (const entry of list.getEntries()) {
           if (!entry.hadRecentInput && entry.value > 0.1) {
@@ -343,28 +351,10 @@ if ("PerformanceObserver" in window) {
       });
       clsObserver.observe({ entryTypes: ["layout-shift"] });
     } catch (e) {
-      // Browser doesn't support layout-shift
+      // Browser doesn't support performance observers
     }
-  }, 5000); // Start monitoring 5 seconds after load
+  }, 2000); // Reduced from 5 seconds to 2 seconds
 }
-
-// Log performance metrics on load
-window.addEventListener("load", function () {
-  if ("performance" in window && "timing" in performance) {
-    setTimeout(function () {
-      const perfData = performance.timing;
-      const pageLoadTime = perfData.loadEventEnd - perfData.navigationStart;
-      const connectTime = perfData.responseEnd - perfData.requestStart;
-      const renderTime = perfData.domComplete - perfData.domLoading;
-
-      console.log("=== Performance Metrics ===");
-      console.log("Page Load Time:", pageLoadTime, "ms");
-      console.log("Connection Time:", connectTime, "ms");
-      console.log("Render Time:", renderTime, "ms");
-      console.log("==========================");
-    }, 0);
-  }
-});
 
 // Real-time FPS monitor (for debugging - set to true to enable)
 let fpsMonitorEnabled = false;
