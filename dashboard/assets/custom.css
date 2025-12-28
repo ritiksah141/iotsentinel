@@ -2676,6 +2676,127 @@ body.light-mode .toast-header .btn-close {
   margin-right: 0.5rem; /* Spacing from text */
 }
 
+/* ============================================================================
+ * ENHANCED TOAST NOTIFICATIONS - Brighter & Above Modals
+ * ============================================================================ */
+
+/* Enhanced toasts with highest z-index for modal overlay */
+.enhanced-toast-notification {
+  z-index: 999999 !important; /* Highest z-index - appears above everything including modals */
+}
+
+/* Default enhanced styles (works without body class) */
+.enhanced-toast-notification.bg-success {
+  background-color: rgba(16, 185, 129, 0.30) !important;
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-danger {
+  background-color: rgba(239, 68, 68, 0.30) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-warning {
+  background-color: rgba(245, 158, 11, 0.30) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-info {
+  background-color: rgba(6, 182, 212, 0.30) !important;
+  border: 1px solid rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Brighter colored glass for Dark Mode - Enhanced visibility */
+body.dark-mode .enhanced-toast-notification.bg-success {
+  background-color: rgba(52, 211, 153, 0.30) !important;
+  border: 1px solid rgba(52, 211, 153, 0.5) !important;
+  box-shadow: 0 0 35px rgba(52, 211, 153, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-danger {
+  background-color: rgba(248, 113, 113, 0.30) !important;
+  border: 1px solid rgba(248, 113, 113, 0.5) !important;
+  box-shadow: 0 0 35px rgba(248, 113, 113, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-warning {
+  background-color: rgba(251, 191, 36, 0.30) !important;
+  border: 1px solid rgba(251, 191, 36, 0.5) !important;
+  box-shadow: 0 0 35px rgba(251, 191, 36, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-info {
+  background-color: rgba(34, 211, 238, 0.30) !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 0 35px rgba(34, 211, 238, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Brighter colored glass for Light Mode - Enhanced visibility */
+body.light-mode .enhanced-toast-notification.bg-success {
+  background-color: rgba(16, 185, 129, 0.30) !important;
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-danger {
+  background-color: rgba(239, 68, 68, 0.30) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-warning {
+  background-color: rgba(245, 158, 11, 0.30) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-info {
+  background-color: rgba(6, 182, 212, 0.30) !important;
+  border: 1px solid rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Toast detail button styling */
+.toast-detail-button {
+  font-size: 0.875rem !important;
+  padding: 0.25rem 0.5rem !important;
+  transition: all 0.2s ease !important;
+}
+
+body.dark-mode .toast-detail-button {
+  color: rgba(96, 165, 250, 0.9) !important;
+}
+
+body.dark-mode .toast-detail-button:hover {
+  color: rgba(147, 197, 253, 1) !important;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+}
+
+body.light-mode .toast-detail-button {
+  color: rgba(59, 130, 246, 0.9) !important;
+}
+
+body.light-mode .toast-detail-button:hover {
+  color: rgba(37, 99, 235, 1) !important;
+}
+
+/* Toast detail modal content styling */
+.toast-detail-content {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 1rem;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  font-family: 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 body.dark-mode .card,
 body.dark-mode .cyber-card {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
@@ -6150,4 +6271,121 @@ body.dark-mode .modal-body #user-list-container .card {
 
 .modal-body .form-check.form-switch .form-check-input:focus {
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+
+/* ============================================================================
+   TABLE ADAPTIVE STYLING - Dark Mode Support (ENHANCED SPECIFICITY)
+   ============================================================================ */
+
+/* Light mode table styling */
+body.light-mode table.table-adaptive,
+body.light-mode table.table-adaptive.table {
+  background-color: white !important;
+  color: #1a202c !important;
+}
+
+body.light-mode table.table-adaptive thead th,
+body.light-mode table.table-adaptive.table thead th {
+  background-color: #2d3748 !important;
+  color: white !important;
+  border-color: #4a5568 !important;
+}
+
+body.light-mode table.table-adaptive tbody tr,
+body.light-mode table.table-adaptive.table tbody tr {
+  background-color: white !important;
+  color: #1a202c !important;
+}
+
+body.light-mode table.table-adaptive tbody tr:hover,
+body.light-mode table.table-adaptive.table tbody tr:hover {
+  background-color: #f7fafc !important;
+}
+
+body.light-mode table.table-adaptive td,
+body.light-mode table.table-adaptive th,
+body.light-mode table.table-adaptive.table td,
+body.light-mode table.table-adaptive.table th {
+  border-color: #e2e8f0 !important;
+}
+
+/* Dark mode table styling */
+body.dark-mode table.table-adaptive,
+body.dark-mode table.table-adaptive.table,
+body.dark-mode table.table.table-adaptive {
+  /* Override Bootstrap's CSS variables for table cells */
+  --bs-table-bg: rgba(30, 41, 59, 0.3);
+  --bs-table-color: rgba(255, 255, 255, 0.9);
+  --bs-table-border-color: rgba(255, 255, 255, 0.1);
+  --bs-table-striped-bg: rgba(30, 41, 59, 0.4);
+  --bs-table-striped-color: rgba(255, 255, 255, 0.9);
+  --bs-table-hover-bg: rgba(59, 130, 246, 0.15);
+  --bs-table-hover-color: rgba(255, 255, 255, 0.95);
+
+  background: rgba(30, 41, 59, 0.3) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode table.table-adaptive thead,
+body.dark-mode table.table-adaptive.table thead,
+body.dark-mode table.table.table-adaptive thead {
+  --bs-table-bg: rgba(30, 41, 59, 0.6);
+  background: rgba(30, 41, 59, 0.6) !important;
+}
+
+body.dark-mode table.table-adaptive thead th,
+body.dark-mode table.table-adaptive.table thead th,
+body.dark-mode table.table.table-adaptive thead th {
+  --bs-table-bg: rgba(30, 41, 59, 0.6);
+  --bs-table-color: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 41, 59, 0.6) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  font-weight: 600;
+}
+
+body.dark-mode table.table-adaptive tbody,
+body.dark-mode table.table-adaptive.table tbody,
+body.dark-mode table.table.table-adaptive tbody {
+  --bs-table-bg: rgba(30, 41, 59, 0.2);
+  background: rgba(30, 41, 59, 0.2) !important;
+}
+
+body.dark-mode table.table-adaptive tbody tr,
+body.dark-mode table.table-adaptive.table tbody tr,
+body.dark-mode table.table.table-adaptive tbody tr {
+  --bs-table-bg: rgba(30, 41, 59, 0.2);
+  --bs-table-color: rgba(255, 255, 255, 0.9);
+  background: rgba(30, 41, 59, 0.2) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode table.table-adaptive tbody tr:hover,
+body.dark-mode table.table-adaptive.table tbody tr:hover,
+body.dark-mode table.table.table-adaptive tbody tr:hover {
+  --bs-table-hover-bg: rgba(59, 130, 246, 0.15);
+  --bs-table-hover-color: rgba(255, 255, 255, 0.95);
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+body.dark-mode table.table-adaptive td,
+body.dark-mode table.table-adaptive th,
+body.dark-mode table.table-adaptive.table td,
+body.dark-mode table.table-adaptive.table th,
+body.dark-mode table.table.table-adaptive td,
+body.dark-mode table.table.table-adaptive th {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Ensure text in cells is visible */
+body.dark-mode table.table-adaptive td strong,
+body.dark-mode table.table-adaptive th strong,
+body.dark-mode table.table-adaptive.table td strong,
+body.dark-mode table.table-adaptive.table th strong {
+  color: rgba(255, 255, 255, 0.95) !important;
 }

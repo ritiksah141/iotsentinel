@@ -2676,6 +2676,127 @@ body.light-mode .toast-header .btn-close {
   margin-right: 0.5rem; /* Spacing from text */
 }
 
+/* ============================================================================
+ * ENHANCED TOAST NOTIFICATIONS - Brighter & Above Modals
+ * ============================================================================ */
+
+/* Enhanced toasts with highest z-index for modal overlay */
+.enhanced-toast-notification {
+  z-index: 999999 !important; /* Highest z-index - appears above everything including modals */
+}
+
+/* Default enhanced styles (works without body class) */
+.enhanced-toast-notification.bg-success {
+  background-color: rgba(16, 185, 129, 0.30) !important;
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-danger {
+  background-color: rgba(239, 68, 68, 0.30) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-warning {
+  background-color: rgba(245, 158, 11, 0.30) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+.enhanced-toast-notification.bg-info {
+  background-color: rgba(6, 182, 212, 0.30) !important;
+  border: 1px solid rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Brighter colored glass for Dark Mode - Enhanced visibility */
+body.dark-mode .enhanced-toast-notification.bg-success {
+  background-color: rgba(52, 211, 153, 0.30) !important;
+  border: 1px solid rgba(52, 211, 153, 0.5) !important;
+  box-shadow: 0 0 35px rgba(52, 211, 153, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-danger {
+  background-color: rgba(248, 113, 113, 0.30) !important;
+  border: 1px solid rgba(248, 113, 113, 0.5) !important;
+  box-shadow: 0 0 35px rgba(248, 113, 113, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-warning {
+  background-color: rgba(251, 191, 36, 0.30) !important;
+  border: 1px solid rgba(251, 191, 36, 0.5) !important;
+  box-shadow: 0 0 35px rgba(251, 191, 36, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode .enhanced-toast-notification.bg-info {
+  background-color: rgba(34, 211, 238, 0.30) !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 0 35px rgba(34, 211, 238, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Brighter colored glass for Light Mode - Enhanced visibility */
+body.light-mode .enhanced-toast-notification.bg-success {
+  background-color: rgba(16, 185, 129, 0.30) !important;
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-danger {
+  background-color: rgba(239, 68, 68, 0.30) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-warning {
+  background-color: rgba(245, 158, 11, 0.30) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-mode .enhanced-toast-notification.bg-info {
+  background-color: rgba(6, 182, 212, 0.30) !important;
+  border: 1px solid rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Toast detail button styling */
+.toast-detail-button {
+  font-size: 0.875rem !important;
+  padding: 0.25rem 0.5rem !important;
+  transition: all 0.2s ease !important;
+}
+
+body.dark-mode .toast-detail-button {
+  color: rgba(96, 165, 250, 0.9) !important;
+}
+
+body.dark-mode .toast-detail-button:hover {
+  color: rgba(147, 197, 253, 1) !important;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+}
+
+body.light-mode .toast-detail-button {
+  color: rgba(59, 130, 246, 0.9) !important;
+}
+
+body.light-mode .toast-detail-button:hover {
+  color: rgba(37, 99, 235, 1) !important;
+}
+
+/* Toast detail modal content styling */
+.toast-detail-content {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 1rem;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  font-family: 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 body.dark-mode .card,
 body.dark-mode .cyber-card {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
@@ -5901,4 +6022,253 @@ body.dark-mode .brand-subtitle {
 
 .cyber-button-modern:active::after {
   animation: ripple 0.6s ease-out;
+}
+/* ============================================================================
+ * ENHANCED MODAL TABS - Profile & User Management
+ * ============================================================================ */
+
+/* Modal tab navigation styling */
+.modal-body .nav-tabs {
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 12px;
+  padding: 6px;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  margin-bottom: 20px;
+}
+
+.modal-body .nav-tabs .nav-link {
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.modal-body .nav-tabs .nav-link::before {
+  display: none;
+}
+
+.modal-body .nav-tabs .nav-link:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.modal-body .nav-tabs .nav-link.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+/* Dark mode modal tabs */
+body.dark-mode .modal-body .nav-tabs {
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.15);
+}
+
+body.dark-mode .modal-body .nav-tabs .nav-link {
+  color: #94a3b8;
+}
+
+body.dark-mode .modal-body .nav-tabs .nav-link:hover {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+}
+
+body.dark-mode .modal-body .nav-tabs .nav-link.active {
+  background: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+/* Modal inner glass cards */
+.modal-body .glass-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+body.dark-mode .modal-body .glass-card {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(96, 165, 250, 0.15);
+}
+
+/* Enhanced InputGroup styling in modals */
+.modal-body .input-group {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
+}
+
+.modal-body .input-group:focus-within {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.modal-body .input-group-text {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-right: none;
+  color: #3b82f6;
+  font-size: 0.9rem;
+  padding: 10px 14px;
+}
+
+.modal-body .input-group .form-control {
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-left: none;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.modal-body .input-group .form-control:focus {
+  box-shadow: none;
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+body.dark-mode .modal-body .input-group-text {
+  background: rgba(96, 165, 250, 0.1);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+body.dark-mode .modal-body .input-group .form-control {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: #f1f5f9;
+}
+
+body.dark-mode .modal-body .input-group .form-control:focus {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(96, 165, 250, 0.4);
+}
+
+body.dark-mode .modal-body .input-group .form-control::placeholder {
+  color: #64748b;
+}
+
+/* Role info card in User Management */
+.modal-body .bg-light {
+  background: rgba(59, 130, 246, 0.05) !important;
+  border-radius: 10px;
+}
+
+body.dark-mode .modal-body .bg-light {
+  background: rgba(30, 41, 59, 0.5) !important;
+}
+
+/* Password strength bar styling */
+.modal-body #password-strength-bar,
+.modal-body .progress {
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.modal-body .progress-bar {
+  border-radius: 6px;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+/* Helper text styling */
+.modal-body .text-muted.small,
+.modal-body small.text-muted {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Select dropdown styling in modals */
+.modal-body .form-select {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+}
+
+.modal-body .form-select:focus {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+body.dark-mode .modal-body .form-select {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: #f1f5f9;
+}
+
+body.dark-mode .modal-body .form-select:focus {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(96, 165, 250, 0.4);
+}
+
+/* User list styling in modal */
+.modal-body #user-list-container .card {
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  transition: all 0.3s ease;
+}
+
+.modal-body #user-list-container .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+body.dark-mode .modal-body #user-list-container .card {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(96, 165, 250, 0.15);
+}
+
+/* Section headers in modals */
+.modal-body h6 {
+  font-size: 0.95rem;
+  letter-spacing: 0.025em;
+}
+
+/* Activity log styling */
+.modal-body #user-activity-log {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+.modal-body #user-activity-log::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body #user-activity-log::-webkit-scrollbar-track {
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 3px;
+}
+
+.modal-body #user-activity-log::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+}
+
+/* Biometric switch styling */
+.modal-body .form-check.form-switch .form-check-input {
+  width: 48px;
+  height: 26px;
+  border-radius: 13px;
+  background-color: rgba(148, 163, 184, 0.3);
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.modal-body .form-check.form-switch .form-check-input:checked {
+  background-color: #10b981;
+}
+
+.modal-body .form-check.form-switch .form-check-input:focus {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
 }
