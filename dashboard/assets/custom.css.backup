@@ -2687,75 +2687,75 @@ body.light-mode .toast-header .btn-close {
 
 /* Default enhanced styles (works without body class) */
 .enhanced-toast-notification.bg-success {
-  background-color: rgba(16, 185, 129, 0.30) !important;
+  background-color: rgba(16, 185, 129, 0.3) !important;
   border: 1px solid rgba(16, 185, 129, 0.5) !important;
   box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-danger {
-  background-color: rgba(239, 68, 68, 0.30) !important;
+  background-color: rgba(239, 68, 68, 0.3) !important;
   border: 1px solid rgba(239, 68, 68, 0.5) !important;
   box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-warning {
-  background-color: rgba(245, 158, 11, 0.30) !important;
+  background-color: rgba(245, 158, 11, 0.3) !important;
   border: 1px solid rgba(245, 158, 11, 0.5) !important;
   box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-info {
-  background-color: rgba(6, 182, 212, 0.30) !important;
+  background-color: rgba(6, 182, 212, 0.3) !important;
   border: 1px solid rgba(6, 182, 212, 0.5) !important;
   box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 /* Brighter colored glass for Dark Mode - Enhanced visibility */
 body.dark-mode .enhanced-toast-notification.bg-success {
-  background-color: rgba(52, 211, 153, 0.30) !important;
+  background-color: rgba(52, 211, 153, 0.3) !important;
   border: 1px solid rgba(52, 211, 153, 0.5) !important;
   box-shadow: 0 0 35px rgba(52, 211, 153, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-danger {
-  background-color: rgba(248, 113, 113, 0.30) !important;
+  background-color: rgba(248, 113, 113, 0.3) !important;
   border: 1px solid rgba(248, 113, 113, 0.5) !important;
   box-shadow: 0 0 35px rgba(248, 113, 113, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-warning {
-  background-color: rgba(251, 191, 36, 0.30) !important;
+  background-color: rgba(251, 191, 36, 0.3) !important;
   border: 1px solid rgba(251, 191, 36, 0.5) !important;
   box-shadow: 0 0 35px rgba(251, 191, 36, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-info {
-  background-color: rgba(34, 211, 238, 0.30) !important;
+  background-color: rgba(34, 211, 238, 0.3) !important;
   border: 1px solid rgba(34, 211, 238, 0.5) !important;
   box-shadow: 0 0 35px rgba(34, 211, 238, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 /* Brighter colored glass for Light Mode - Enhanced visibility */
 body.light-mode .enhanced-toast-notification.bg-success {
-  background-color: rgba(16, 185, 129, 0.30) !important;
+  background-color: rgba(16, 185, 129, 0.3) !important;
   border: 1px solid rgba(16, 185, 129, 0.5) !important;
   box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-danger {
-  background-color: rgba(239, 68, 68, 0.30) !important;
+  background-color: rgba(239, 68, 68, 0.3) !important;
   border: 1px solid rgba(239, 68, 68, 0.5) !important;
   box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-warning {
-  background-color: rgba(245, 158, 11, 0.30) !important;
+  background-color: rgba(245, 158, 11, 0.3) !important;
   border: 1px solid rgba(245, 158, 11, 0.5) !important;
   box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-info {
-  background-color: rgba(6, 182, 212, 0.30) !important;
+  background-color: rgba(6, 182, 212, 0.3) !important;
   border: 1px solid rgba(6, 182, 212, 0.5) !important;
   box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
@@ -2792,9 +2792,270 @@ body.light-mode .toast-detail-button:hover {
   background-color: var(--bg-secondary);
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* ============================================================================
+ * TOAST SYSTEM v2.1 - PERSISTENT, ACTIONS, CATEGORIES, HISTORY
+ * ============================================================================ */
+
+/* Persistent toasts - special pulsing border */
+.toast-persistent {
+  border-left: 4px solid #ffc107 !important;
+  animation: pulse-persistent-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-persistent-border {
+  0%,
+  100% {
+    border-left-color: #ffc107;
+  }
+  50% {
+    border-left-color: #ffdb4d;
+  }
+}
+
+/* Toast action buttons container */
+.toast-action-buttons {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+body.dark-mode .toast-action-buttons {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.light-mode .toast-action-buttons {
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.toast-action-buttons .btn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast-action-buttons .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Category-specific toast border colors matching database categories */
+.toast-category-security {
+  border-left: 3px solid #dc3545 !important;
+}
+.toast-category-network {
+  border-left: 3px solid #17a2b8 !important;
+}
+.toast-category-device {
+  border-left: 3px solid #6c757d !important;
+}
+.toast-category-user {
+  border-left: 3px solid #6f42c1 !important;
+}
+.toast-category-system {
+  border-left: 3px solid #fd7e14 !important;
+}
+.toast-category-export {
+  border-left: 3px solid #20c997 !important;
+}
+.toast-category-scan {
+  border-left: 3px solid #ffc107 !important;
+}
+
+/* Category badges in toast headers */
+.enhanced-toast-notification .badge {
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-size: 0.7em;
+}
+
+/* Toast History Modal - Uses standard modal styling */
+/* Custom styles for history items inside the modal */
+
+/* Toast history list items - Dark mode with GLASSMORPHISM matching main toasts */
+body.dark-mode .toast-history-item {
+  background: rgba(52, 211, 153, 0.15) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(96, 165, 250, 0.1) inset !important;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+body.dark-mode .toast-history-item:hover {
+  transform: translateX(-5px);
+  background: rgba(52, 211, 153, 0.25) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 30px rgba(96, 165, 250, 0.2),
+    0 0 0 1px rgba(96, 165, 250, 0.3) inset !important;
+}
+
+/* Toast history list items - Light mode with GLASSMORPHISM matching main toasts */
+body.light-mode .toast-history-item {
+  background: rgba(16, 185, 129, 0.15) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05) inset !important;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+body.light-mode .toast-history-item:hover {
+  transform: translateX(-5px);
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 30px rgba(59, 130, 246, 0.1),
+    0 0 0 1px rgba(59, 130, 246, 0.2) inset !important;
+}
+
+/* Category-specific glassmorphism colors for history items */
+body.dark-mode .toast-history-item[data-category="security"] {
+  background: rgba(248, 113, 113, 0.2) !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="network"] {
+  background: rgba(34, 211, 238, 0.2) !important;
+  border-color: rgba(34, 211, 238, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="device"] {
+  background: rgba(148, 163, 184, 0.2) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="system"] {
+  background: rgba(251, 146, 60, 0.2) !important;
+  border-color: rgba(251, 146, 60, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="security"] {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="network"] {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="device"] {
+  background: rgba(100, 116, 139, 0.2) !important;
+  border-color: rgba(100, 116, 139, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="system"] {
+  background: rgba(249, 115, 22, 0.2) !important;
+  border-color: rgba(249, 115, 22, 0.3) !important;
+}
+
+/* Toast history item components */
+.toast-history-item-header {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-primary);
+}
+
+.toast-history-item-message {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+  line-height: 1.4;
+}
+
+.toast-history-item-context {
+  font-size: 0.75rem;
+  color: var(--text-muted) !important;
+  margin-bottom: 0.35rem;
+  line-height: 1.3;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.toast-history-item-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Toast type indicators - matching toast colors */
+.toast-history-type-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toast-history-type-success {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.toast-history-type-danger {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.toast-history-type-warning {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.toast-history-type-info {
+  background-color: rgba(6, 182, 212, 0.2);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+/* Empty history state */
+.toast-history-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+}
+
+.toast-history-empty i {
+  font-size: 3rem;
+  opacity: 0.3;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+/* Toast history modal filters styling */
+body.dark-mode .toast-history-modal .form-select,
+body.dark-mode .toast-history-modal .form-control {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+body.light-mode .toast-history-modal .form-select,
+body.light-mode .toast-history-modal .form-control {
+  background-color: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text-primary);
 }
 
 body.dark-mode .card,
@@ -3564,8 +3825,17 @@ body.light-mode .cyber-card {
 }
 
 body.light-mode .modal-content {
-  background: #ffffff;
+  background: var(--glass-bg-solid);
+  backdrop-filter: blur(var(--blur-heavy)) saturate(200%) brightness(1.1);
+  -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%)
+    brightness(1.1);
+  border: 1px solid var(--glass-border-medium);
   color: #2c3e50;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.03"/></svg>');
+  background-blend-mode: overlay;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.05);
 }
 
 body.light-mode .modal-header {
@@ -6271,4 +6541,460 @@ body.dark-mode .modal-body #user-list-container .card {
 
 .modal-body .form-check.form-switch .form-check-input:focus {
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+/* ============================================================================
+   TABLE ADAPTIVE STYLING - Dark Mode Support (ENHANCED SPECIFICITY)
+   ============================================================================ */
+
+/* Light mode table styling */
+body.light-mode table.table-adaptive,
+body.light-mode table.table-adaptive.table {
+  background-color: white !important;
+  color: #1a202c !important;
+}
+
+body.light-mode table.table-adaptive thead th,
+body.light-mode table.table-adaptive.table thead th {
+  background-color: #2d3748 !important;
+  color: white !important;
+  border-color: #4a5568 !important;
+}
+
+body.light-mode table.table-adaptive tbody tr,
+body.light-mode table.table-adaptive.table tbody tr {
+  background-color: white !important;
+  color: #1a202c !important;
+}
+
+body.light-mode table.table-adaptive tbody tr:hover,
+body.light-mode table.table-adaptive.table tbody tr:hover {
+  background-color: #f7fafc !important;
+}
+
+body.light-mode table.table-adaptive td,
+body.light-mode table.table-adaptive th,
+body.light-mode table.table-adaptive.table td,
+body.light-mode table.table-adaptive.table th {
+  border-color: #e2e8f0 !important;
+}
+
+/* Dark mode table styling */
+body.dark-mode table.table-adaptive,
+body.dark-mode table.table-adaptive.table,
+body.dark-mode table.table.table-adaptive {
+  /* Override Bootstrap's CSS variables for table cells */
+  --bs-table-bg: rgba(30, 41, 59, 0.3);
+  --bs-table-color: rgba(255, 255, 255, 0.9);
+  --bs-table-border-color: rgba(255, 255, 255, 0.1);
+  --bs-table-striped-bg: rgba(30, 41, 59, 0.4);
+  --bs-table-striped-color: rgba(255, 255, 255, 0.9);
+  --bs-table-hover-bg: rgba(59, 130, 246, 0.15);
+  --bs-table-hover-color: rgba(255, 255, 255, 0.95);
+
+  background: rgba(30, 41, 59, 0.3) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark-mode table.table-adaptive thead,
+body.dark-mode table.table-adaptive.table thead,
+body.dark-mode table.table.table-adaptive thead {
+  --bs-table-bg: rgba(30, 41, 59, 0.6);
+  background: rgba(30, 41, 59, 0.6) !important;
+}
+
+body.dark-mode table.table-adaptive thead th,
+body.dark-mode table.table-adaptive.table thead th,
+body.dark-mode table.table.table-adaptive thead th {
+  --bs-table-bg: rgba(30, 41, 59, 0.6);
+  --bs-table-color: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 41, 59, 0.6) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  font-weight: 600;
+}
+
+body.dark-mode table.table-adaptive tbody,
+body.dark-mode table.table-adaptive.table tbody,
+body.dark-mode table.table.table-adaptive tbody {
+  --bs-table-bg: rgba(30, 41, 59, 0.2);
+  background: rgba(30, 41, 59, 0.2) !important;
+}
+
+body.dark-mode table.table-adaptive tbody tr,
+body.dark-mode table.table-adaptive.table tbody tr,
+body.dark-mode table.table.table-adaptive tbody tr {
+  --bs-table-bg: rgba(30, 41, 59, 0.2);
+  --bs-table-color: rgba(255, 255, 255, 0.9);
+  background: rgba(30, 41, 59, 0.2) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode table.table-adaptive tbody tr:hover,
+body.dark-mode table.table-adaptive.table tbody tr:hover,
+body.dark-mode table.table.table-adaptive tbody tr:hover {
+  --bs-table-hover-bg: rgba(59, 130, 246, 0.15);
+  --bs-table-hover-color: rgba(255, 255, 255, 0.95);
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+body.dark-mode table.table-adaptive td,
+body.dark-mode table.table-adaptive th,
+body.dark-mode table.table-adaptive.table td,
+body.dark-mode table.table-adaptive.table th,
+body.dark-mode table.table.table-adaptive td,
+body.dark-mode table.table.table-adaptive th {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Ensure text in cells is visible */
+body.dark-mode table.table-adaptive td strong,
+body.dark-mode table.table-adaptive th strong,
+body.dark-mode table.table-adaptive.table td strong,
+body.dark-mode table.table-adaptive.table th strong {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - FLOATING BUTTON
+ * ============================================================================ */
+
+.spotlight-button-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+}
+
+.spotlight-floating-button {
+  border-radius: 50px;
+  padding: 12px 24px;
+  font-weight: 600;
+  backdrop-filter: blur(var(--blur-medium));
+  -webkit-backdrop-filter: blur(var(--blur-medium));
+  background: linear-gradient(
+    135deg,
+    var(--glass-bg-solid),
+    rgba(59, 130, 246, 0.3)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 20px rgba(59, 130, 246, 0.3);
+  transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+  color: white;
+}
+
+.spotlight-floating-button:hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2), 0 0 30px rgba(59, 130, 246, 0.5);
+  color: white;
+}
+
+.spotlight-floating-button:active {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.spotlight-floating-button kbd {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  font-family: monospace;
+}
+
+body.dark-mode .spotlight-floating-button {
+  background: linear-gradient(
+    135deg,
+    rgba(30, 41, 59, 0.7),
+    rgba(96, 165, 250, 0.3)
+  );
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(96, 165, 250, 0.4);
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - MODAL
+ * ============================================================================ */
+
+.spotlight-modal .modal-dialog {
+  max-width: 680px;
+  margin-top: 10vh;
+}
+
+.spotlight-modal .modal-content {
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--blur-heavy));
+  -webkit-backdrop-filter: blur(var(--blur-heavy));
+  background: var(--glass-bg-solid);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+body.dark-mode .spotlight-modal .modal-content {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - INPUT BAR
+ * ============================================================================ */
+
+.spotlight-search-bar {
+  position: relative;
+  padding: 24px;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.3);
+}
+
+body.dark-mode .spotlight-search-bar {
+  border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.spotlight-search-icon {
+  position: absolute;
+  left: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  z-index: 1;
+}
+
+.spotlight-search-input {
+  padding-left: 56px;
+  padding-right: 48px;
+  height: 56px;
+  font-size: 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(203, 213, 225, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+  transition: all var(--transition-fast);
+}
+
+.spotlight-search-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+body.dark-mode .spotlight-search-input {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(71, 85, 105, 0.5);
+  color: var(--dark-text-primary);
+}
+
+body.dark-mode .spotlight-search-input:focus {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: var(--dark-accent);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+}
+
+.spotlight-clear-button {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.spotlight-clear-button:hover {
+  opacity: 1;
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - KEYBOARD HINTS
+ * ============================================================================ */
+
+.spotlight-keyboard-hints {
+  padding: 12px 24px;
+  background: rgba(240, 244, 248, 0.5);
+  border-bottom: 1px solid rgba(203, 213, 225, 0.3);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.dark-mode .spotlight-keyboard-hints {
+  background: rgba(15, 23, 42, 0.5);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.spotlight-keyboard-hints kbd {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(203, 213, 225, 0.5);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+body.dark-mode .spotlight-keyboard-hints kbd {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(71, 85, 105, 0.5);
+  color: var(--dark-text-primary);
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - RESULTS
+ * ============================================================================ */
+
+.spotlight-results {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+
+.spotlight-result-wrapper {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.spotlight-result-card {
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(203, 213, 225, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+  transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.spotlight-result-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  border-color: var(--accent-color);
+}
+
+.spotlight-result-selected {
+  background: rgba(59, 130, 246, 0.1) !important;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2) !important;
+}
+
+body.dark-mode .spotlight-result-card {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(71, 85, 105, 0.5);
+}
+
+body.dark-mode .spotlight-result-card:hover {
+  border-color: var(--dark-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .spotlight-result-selected {
+  background: rgba(96, 165, 250, 0.15) !important;
+  border-color: var(--dark-accent) !important;
+  box-shadow: 0 4px 16px rgba(96, 165, 250, 0.25) !important;
+}
+
+.spotlight-result-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .spotlight-result-icon {
+  background: rgba(96, 165, 250, 0.15);
+}
+
+.spotlight-action-button {
+  transition: all var(--transition-fast);
+}
+
+.spotlight-action-button:hover {
+  transform: translateX(4px);
+}
+
+/* Smooth scrollbar for results */
+.spotlight-results::-webkit-scrollbar {
+  width: 8px;
+}
+
+.spotlight-results::-webkit-scrollbar-track {
+  background: rgba(240, 244, 248, 0.5);
+  border-radius: 4px;
+}
+
+.spotlight-results::-webkit-scrollbar-thumb {
+  background: rgba(203, 213, 225, 0.5);
+  border-radius: 4px;
+}
+
+.spotlight-results::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 213, 225, 0.8);
+}
+
+body.dark-mode .spotlight-results::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+body.dark-mode .spotlight-results::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+}
+
+body.dark-mode .spotlight-results::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.8);
+}
+
+/* Empty state */
+.spotlight-results .text-center {
+  padding: 60px 20px;
+}
+
+/* Animations */
+@keyframes spotlight-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.spotlight-result-wrapper {
+  animation: spotlight-fade-in 0.2s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .spotlight-button-container {
+    bottom: 16px;
+    right: 16px;
+  }
+
+  .spotlight-floating-button {
+    padding: 10px 16px;
+    font-size: 0.9rem;
+  }
+
+  .spotlight-floating-button span {
+    display: none !important;
+  }
+
+  .spotlight-modal .modal-dialog {
+    margin: 16px;
+    max-width: calc(100% - 32px);
+  }
+
+  .spotlight-search-bar {
+    padding: 16px;
+  }
+
+  .spotlight-search-input {
+    height: 48px;
+    font-size: 1rem;
+  }
+
+  .spotlight-keyboard-hints {
+    display: none;
+  }
 }
