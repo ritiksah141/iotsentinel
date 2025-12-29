@@ -84,7 +84,8 @@ app = dash.Dash(
         # Performance optimizations (tested and verified)
         '/assets/debounce.js',  # Debounce search inputs (500ms delay)
         '/assets/virtual-scroll.js',  # Virtual scrolling for long lists
-        '/assets/static-cache.js'  # Cache static assets in memory
+        '/assets/static-cache.js',  # Cache static assets in memory
+        '/assets/spotlight-search.js'  # Spotlight universal search with keyboard shortcuts
     ],
     title="IoTSentinel - Network Security Monitor",
     suppress_callback_exceptions=True,
@@ -2375,6 +2376,104 @@ login_layout = dbc.Container([
 # ============================================================================
 # DASHBOARD LAYOUT
 # ============================================================================
+
+# ============================================================================
+# SPOTLIGHT SEARCH - FEATURE CATALOG & HELPER FUNCTIONS
+# ============================================================================
+
+# Universal Search Feature Catalog for Spotlight-like navigation
+SEARCH_FEATURE_CATALOG = [
+    # Analytics (2 features)
+    {"id": "analytics-modal", "name": "Analytics Dashboard", "description": "View security status, alert timelines, anomaly distribution, and device analytics", "icon": "fa-chart-line", "category": "Analytics", "keywords": ["analytics", "charts", "statistics", "security status", "alerts", "anomaly", "insights", "visualization", "viz"], "action_type": "modal"},
+    {"id": "risk-heatmap-modal", "name": "Risk Heatmap", "description": "Visual heatmap showing network risk distribution and vulnerable areas", "icon": "fa-fire", "category": "Analytics", "keywords": ["risk", "heatmap", "visualization", "viz", "vulnerable", "areas", "security"], "action_type": "modal"},
+    # Device Management (2 features)
+    {"id": "device-mgmt-modal", "name": "Device Management", "description": "Manage network devices, trust levels, groups, and device information", "icon": "fa-network-wired", "category": "Device Management", "keywords": ["devices", "manage", "trust", "network", "groups", "mac", "ip"], "action_type": "modal"},
+    {"id": "user-modal", "name": "User Management", "description": "Manage user accounts, roles, permissions, and access control (Admin only)", "icon": "fa-users-cog", "category": "Device Management", "keywords": ["users", "accounts", "roles", "admin", "permissions", "access"], "action_type": "modal"},
+    # Security (5 features)
+    {"id": "firewall-modal", "name": "Firewall Rules", "description": "Configure and manage firewall rules for network protection", "icon": "fa-shield-alt", "category": "Security", "keywords": ["firewall", "rules", "protection", "block", "allow", "security"], "action_type": "modal"},
+    {"id": "threat-modal", "name": "Threat Intelligence", "description": "View threat analysis, malicious IPs, and security intelligence data", "icon": "fa-bug", "category": "Security", "keywords": ["threat", "intelligence", "malicious", "ips", "security", "analysis"], "action_type": "modal"},
+    {"id": "vuln-scanner-modal", "name": "Vulnerability Scanner", "description": "Scan network for vulnerabilities and security weaknesses", "icon": "fa-search", "category": "Security", "keywords": ["vulnerability", "scanner", "scan", "weaknesses", "security", "cve"], "action_type": "modal"},
+    {"id": "privacy-modal", "name": "Privacy Monitor", "description": "Monitor privacy risks, data exposure, and privacy score", "icon": "fa-user-secret", "category": "Security", "keywords": ["privacy", "monitor", "data", "exposure", "score", "risks"], "action_type": "modal"},
+    {"id": "compliance-modal", "name": "Compliance Dashboard", "description": "Track compliance with security standards and regulations", "icon": "fa-clipboard-check", "category": "Security", "keywords": ["compliance", "standards", "regulations", "gdpr", "hipaa", "audit"], "action_type": "modal"},
+    # System & Configuration (5 features)
+    {"id": "system-modal", "name": "System Information", "description": "View system resources, performance metrics, and hardware details", "icon": "fa-server", "category": "System", "keywords": ["system", "resources", "performance", "cpu", "memory", "hardware"], "action_type": "modal"},
+    {"id": "email-modal", "name": "Email Notifications", "description": "Configure SMTP settings and email alert preferences", "icon": "fa-envelope", "category": "System", "keywords": ["email", "smtp", "notifications", "alerts", "mail", "settings"], "action_type": "modal"},
+    {"id": "preferences-modal", "name": "Dashboard Preferences", "description": "Customize dashboard layout, widgets, and display preferences", "icon": "fa-sliders-h", "category": "System", "keywords": ["preferences", "settings", "customize", "layout", "widgets", "display"], "action_type": "modal"},
+    {"id": "quick-settings-modal", "name": "Quick Settings", "description": "Fast access to common settings: network, notifications, display, and performance", "icon": "fa-cog", "category": "System", "keywords": ["quick", "settings", "config", "preferences", "network", "notifications"], "action_type": "modal"},
+    {"id": "profile-edit-modal", "name": "Edit Profile", "description": "Update your user profile, password, and account settings", "icon": "fa-user-edit", "category": "System", "keywords": ["profile", "edit", "account", "password", "settings", "user"], "action_type": "modal"},
+    # IoT Features (4 features)
+    {"id": "smarthome-modal", "name": "Smart Home Hub Detection", "description": "Detect and manage smart home hubs and IoT devices", "icon": "fa-home", "category": "IoT", "keywords": ["smart home", "hub", "iot", "devices", "detection", "alexa", "google home"], "action_type": "modal"},
+    {"id": "segmentation-modal", "name": "Network Segmentation", "description": "Configure network segmentation and VLAN isolation for IoT devices", "icon": "fa-project-diagram", "category": "IoT", "keywords": ["segmentation", "vlan", "isolation", "network", "iot", "zones"], "action_type": "modal"},
+    {"id": "firmware-modal", "name": "Firmware Management", "description": "Track device firmware versions and security updates", "icon": "fa-microchip", "category": "IoT", "keywords": ["firmware", "updates", "versions", "security", "patches", "iot"], "action_type": "modal"},
+    {"id": "protocol-modal", "name": "Protocol Analyzer", "description": "Analyze network protocols and IoT communication patterns", "icon": "fa-sitemap", "category": "IoT", "keywords": ["protocol", "analyzer", "mqtt", "http", "coap", "communication", "iot"], "action_type": "modal"},
+    # Intelligence & Analysis (4 features)
+    {"id": "threat-map-modal", "name": "3D Threat Map", "description": "Interactive 3D visualization of global threat origins and attack patterns", "icon": "fa-globe", "category": "Intelligence", "keywords": ["threat", "map", "3d", "visualization", "viz", "global", "attacks", "origins"], "action_type": "modal"},
+    {"id": "attack-surface-modal", "name": "Attack Surface Analysis", "description": "Analyze exposed services, open ports, and potential attack vectors", "icon": "fa-crosshairs", "category": "Intelligence", "keywords": ["attack", "surface", "analysis", "ports", "services", "exposure", "vectors"], "action_type": "modal"},
+    {"id": "forensic-timeline-modal", "name": "Forensic Timeline", "description": "Detailed forensic timeline for incident investigation and analysis", "icon": "fa-search-plus", "category": "Intelligence", "keywords": ["forensic", "timeline", "investigation", "incident", "analysis", "events", "visualization", "viz"], "action_type": "modal"},
+    {"id": "auto-response-modal", "name": "Automated Response", "description": "Configure automated responses to security threats and incidents", "icon": "fa-robot", "category": "Intelligence", "keywords": ["automated", "response", "automation", "threats", "incident", "action"], "action_type": "modal"},
+    # Notifications & Alerts (3 features)
+    {"id": "alert-details-modal", "name": "Alert Details", "description": "View detailed information about security alerts and incidents", "icon": "fa-exclamation-triangle", "category": "Notifications", "keywords": ["alert", "details", "incident", "security", "notification", "warning"], "action_type": "modal"},
+    {"id": "toast-history-modal", "name": "Toast History", "description": "View complete history of toast notifications with filtering", "icon": "fa-history", "category": "Notifications", "keywords": ["toast", "history", "notifications", "messages", "log"], "action_type": "modal"},
+    {"id": "toast-detail-modal", "name": "Toast Details", "description": "View detailed information about a specific toast notification", "icon": "fa-info-circle", "category": "Notifications", "keywords": ["toast", "details", "notification", "info", "message"], "action_type": "modal"},
+    # Performance & Monitoring (2 features)
+    {"id": "performance-modal", "name": "Performance Analytics", "description": "Monitor network performance, latency, and throughput metrics", "icon": "fa-tachometer-alt", "category": "Performance", "keywords": ["performance", "analytics", "latency", "throughput", "metrics", "monitoring"], "action_type": "modal"},
+    {"id": "benchmark-modal", "name": "Security Benchmark", "description": "Compare your security posture against industry benchmarks", "icon": "fa-chart-bar", "category": "Performance", "keywords": ["benchmark", "security", "comparison", "standards", "posture", "metrics"], "action_type": "modal"},
+    # Other Features (7 features)
+    {"id": "education-modal", "name": "Security Education", "description": "Learn about threat scenarios, security best practices, and educational content", "icon": "fa-graduation-cap", "category": "Education", "keywords": ["education", "learning", "security", "threats", "best practices", "training"], "action_type": "modal"},
+    {"id": "api-hub-modal", "name": "API Hub", "description": "Access API documentation and integration endpoints", "icon": "fa-code", "category": "Developer", "keywords": ["api", "hub", "documentation", "integration", "endpoints", "developer"], "action_type": "modal"},
+    {"id": "quick-actions-modal", "name": "Quick Actions", "description": "Fast access to common actions: scan, export, backup, and system controls", "icon": "fa-bolt", "category": "Actions", "keywords": ["quick", "actions", "scan", "export", "backup", "controls"], "action_type": "modal"},
+    {"id": "customize-layout-modal", "name": "Customize Layout", "description": "Customize dashboard layout, widgets visibility, and display density", "icon": "fa-cogs", "category": "Customization", "keywords": ["customize", "layout", "widgets", "visibility", "density", "display"], "action_type": "modal"},
+    {"id": "chat-modal", "name": "AI Assistant", "description": "Chat with AI assistant for network security guidance and troubleshooting", "icon": "fa-robot", "category": "Assistance", "keywords": ["ai", "assistant", "chat", "help", "guidance", "troubleshooting"], "action_type": "modal"},
+    {"id": "onboarding-modal", "name": "Onboarding Tour", "description": "Interactive tour of dashboard features and capabilities", "icon": "fa-play-circle", "category": "Help", "keywords": ["onboarding", "tour", "tutorial", "guide", "help", "introduction"], "action_type": "modal"},
+    {"id": "lockdown-modal", "name": "Lockdown Mode", "description": "Emergency lockdown mode to block all untrusted devices", "icon": "fa-lock", "category": "Emergency", "keywords": ["lockdown", "emergency", "block", "security", "protection", "untrusted"], "action_type": "modal"}
+]
+
+def create_spotlight_result_item(feature, index, is_selected=False):
+    """Create a single search result item for spotlight search"""
+    return html.Div([
+        dbc.Card([
+            dbc.CardBody([
+                dbc.Row([
+                    # Icon
+                    dbc.Col([
+                        html.Div([
+                            html.I(className=f"fa {feature['icon']} fa-2x",
+                                  style={"color": "var(--accent-color)"})
+                        ], className="spotlight-result-icon")
+                    ], width=2, className="d-flex align-items-center justify-content-center"),
+
+                    # Content
+                    dbc.Col([
+                        html.Div([
+                            html.H6(feature['name'], className="mb-1 fw-bold"),
+                            html.P(feature['description'],
+                                  className="mb-1 text-muted small"),
+                            dbc.Badge(feature['category'],
+                                     color="info",
+                                     className="me-2",
+                                     pill=True)
+                        ])
+                    ], width=8),
+
+                    # Action Button
+                    dbc.Col([
+                        dbc.Button(
+                            html.I(className="fa fa-arrow-right"),
+                        id={"type": "spotlight-go-to-btn", "index": index, "modal_id": feature['id']},
+                        color="primary",
+                        size="sm",
+                        outline=True,
+                        className="spotlight-action-button",
+                        title="Open"  # Tooltip
+                        )
+                    ], width=2, className="d-flex align-items-center justify-content-end")
+                ])
+            ], className="p-3")
+        ], className=f"spotlight-result-card {'spotlight-result-selected' if is_selected else ''} mb-2")
+    ],
+    id={"type": "spotlight-result-item", "index": index},
+    className="spotlight-result-wrapper"
+    )
 
 dashboard_layout = dbc.Container([
     # Modern Header with Glass Effect
@@ -8345,10 +8444,82 @@ dashboard_layout = dbc.Container([
             target="privacy-score-icon",
             placement="bottom"
         )
-    ], style={"display": "none"})
+    ], style={"display": "none"}),
+
+    # ============================================================================
+    # SPOTLIGHT SEARCH - COMPONENTS
+    # ============================================================================
+
+    # Floating Search Button (Bottom Right)
+    html.Div([
+        dbc.Button([
+            html.I(className="fa fa-search me-2"),
+            html.Span("Search", className="d-none d-md-inline"),
+            html.Kbd("⌘K", className="ms-2 d-none d-lg-inline",
+                     style={"fontSize": "0.75rem", "padding": "2px 6px"})
+        ],
+        id="spotlight-search-button",
+        color="primary",
+        className="spotlight-floating-button shadow-lg",
+        title="Search features (Cmd+K / Ctrl+K)"
+        )
+    ], className="spotlight-button-container"),
+
+    # Spotlight Search Modal
+    dbc.Modal([
+        dbc.ModalBody([
+            # Search Input (No Header - Clean Design)
+            html.Div([
+                html.I(className="fa fa-search spotlight-search-icon"),
+                dbc.Input(
+                    id="spotlight-search-input",
+                    type="text",
+                    placeholder="Search for features, modals, settings...",
+                    className="spotlight-search-input",
+                    autoComplete="off",
+                    debounce=False,  # Real-time search without debounce
+                    n_submit=0  # Track Enter key
+                ),
+                dbc.Button(
+                    html.I(className="fa fa-times"),
+                    id="spotlight-search-clear",
+                    className="spotlight-clear-button",
+                    color="link",
+                    size="sm",
+                    n_clicks=0
+                )
+            ], className="spotlight-search-bar"),
+
+            # Results Container
+            html.Div(id="spotlight-results-container", className="spotlight-results")
+        ], className="p-0"),
+    ],
+    id="spotlight-search-modal",
+    size="lg",
+    is_open=False,
+    backdrop=True,
+    keyboard=True,
+    centered=True,
+    className="spotlight-modal"
+    ),
+
+    # Store for feature catalog (client-side)
+    dcc.Store(id='spotlight-catalog-store', data=SEARCH_FEATURE_CATALOG),
+
+    # Store for filtered search results (client-side fuzzy matching)
+    dcc.Store(id='spotlight-filtered-results', data=SEARCH_FEATURE_CATALOG[:10]),
+
+    # Store for selected result index (for keyboard navigation)
+    dcc.Store(id='spotlight-selected-index', data=0),
+
+    # Store to track which modal to open from spotlight
+    dcc.Store(id='spotlight-modal-trigger', data={})
 
 ], fluid=True, className="dashboard-container p-3")
 
+# ============================================================================
+# MAIN APP LAYOUT - WITH AUTHENTICATION
+# ============================================================================
 # ============================================================================
 # MAIN APP LAYOUT - WITH AUTHENTICATION
 # ============================================================================
@@ -26270,6 +26441,152 @@ def reset_preferences(n_clicks):
         )
 
     return *defaults, toast
+
+
+# ============================================================================
+# SPOTLIGHT SEARCH - CALLBACKS
+# ============================================================================
+
+@app.callback(
+    [Output('spotlight-search-modal', 'is_open'),
+     Output('spotlight-search-input', 'value')],
+    [Input('spotlight-search-button', 'n_clicks'),
+     Input('spotlight-search-clear', 'n_clicks')],
+    [State('spotlight-search-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def toggle_spotlight_modal(btn_clicks, clear_clicks, is_open):
+    """Toggle spotlight search modal and clear input"""
+    ctx = callback_context
+    if not ctx.triggered:
+        return no_update, no_update
+
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if trigger_id == 'spotlight-search-button':
+        return not is_open, "" if not is_open else no_update
+    elif trigger_id == 'spotlight-search-clear':
+        return no_update, ""
+
+    return no_update, no_update
+
+
+# Clientside callback for fuzzy search filtering
+app.clientside_callback(
+    """
+    function(searchQuery, catalog) {
+        if (!catalog || catalog.length === 0) {
+            return [];
+        }
+
+        // Use fuzzy search from spotlight-search.js if available
+        if (window.spotlightSearch && searchQuery && searchQuery.trim()) {
+            const results = window.spotlightSearch.searchFeatures(searchQuery, catalog, 10);
+            return results || [];
+        } else {
+            // No query - show first 10 results
+            return catalog.slice(0, 10);
+        }
+    }
+    """,
+    Output('spotlight-filtered-results', 'data'),
+    [Input('spotlight-search-input', 'value'),
+     Input('spotlight-catalog-store', 'data')],
+    prevent_initial_call=False
+)
+
+# Server-side callback to render the filtered results
+@app.callback(
+    Output('spotlight-results-container', 'children'),
+    Input('spotlight-filtered-results', 'data'),
+    prevent_initial_call=False
+)
+def render_spotlight_results(filtered_results):
+    """Render the filtered search results"""
+    if not filtered_results or len(filtered_results) == 0:
+        return html.Div([
+            html.I(className="fa fa-search fa-3x text-muted mb-3"),
+            html.P("No results found", className="text-muted")
+        ], className="text-center p-5")
+
+    # Create result items
+    result_items = [
+        create_spotlight_result_item(feature, idx, False)
+        for idx, feature in enumerate(filtered_results)
+    ]
+
+    return html.Div(result_items)
+
+
+# Store to track which modal to open from spotlight
+@app.callback(
+    Output('spotlight-modal-trigger', 'data'),
+    Input({'type': 'spotlight-go-to-btn', 'index': ALL, 'modal_id': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+def spotlight_track_modal_click(go_to_clicks):
+    """Track which modal button was clicked"""
+    ctx = callback_context
+    if not ctx.triggered or not any(go_to_clicks):
+        return no_update
+
+    trigger_id = ctx.triggered[0]['prop_id']
+    if 'spotlight-go-to-btn' in trigger_id:
+        import json
+        button_id = json.loads(trigger_id.split('.')[0])
+        return {"modal_id": button_id['modal_id'], "timestamp": time.time()}
+
+    return no_update
+
+
+# Clientside callback to open target modals (simplified without Bootstrap)
+app.clientside_callback(
+    """
+    function(modalData, isOpen) {
+        if (!modalData || !modalData.modal_id) {
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
+
+        // Close spotlight modal by setting is_open to false
+        // The target modal will be opened by finding and clicking its open button
+        const modalId = modalData.modal_id;
+
+        // Find the button that opens this modal
+        // Pattern: {name}-modal → {name}-card-btn
+        const possibleButtonIds = [
+            modalId.replace('-modal', '-card-btn'),  // Main pattern
+            modalId.replace('-modal', '-btn'),
+            modalId.replace('-modal', '-button'),
+            'open-' + modalId
+        ];
+
+        // Try to find and click the button
+        for (let btnId of possibleButtonIds) {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                setTimeout(() => btn.click(), 100);
+                return [false, '']; // Close spotlight and clear input
+            }
+        }
+
+        // If no button found, try to open the modal directly by setting its is_open
+        // This requires the modal to have an id attribute
+        const modalElement = document.getElementById(modalId);
+        if (modalElement) {
+            // Trigger a custom event that modal callbacks can listen to
+            const event = new CustomEvent('openModal', { detail: { modalId: modalId }});
+            document.dispatchEvent(event);
+        }
+
+        return [false, '']; // Close spotlight and clear input
+    }
+    """,
+    [Output('spotlight-search-modal', 'is_open', allow_duplicate=True),
+     Output('spotlight-search-input', 'value', allow_duplicate=True)],
+    Input('spotlight-modal-trigger', 'data'),
+    State('spotlight-search-modal', 'is_open'),
+    prevent_initial_call=True
+)
 
 
 if __name__ == '__main__':
