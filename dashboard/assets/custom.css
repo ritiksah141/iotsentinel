@@ -2687,75 +2687,75 @@ body.light-mode .toast-header .btn-close {
 
 /* Default enhanced styles (works without body class) */
 .enhanced-toast-notification.bg-success {
-  background-color: rgba(16, 185, 129, 0.30) !important;
+  background-color: rgba(16, 185, 129, 0.3) !important;
   border: 1px solid rgba(16, 185, 129, 0.5) !important;
   box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-danger {
-  background-color: rgba(239, 68, 68, 0.30) !important;
+  background-color: rgba(239, 68, 68, 0.3) !important;
   border: 1px solid rgba(239, 68, 68, 0.5) !important;
   box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-warning {
-  background-color: rgba(245, 158, 11, 0.30) !important;
+  background-color: rgba(245, 158, 11, 0.3) !important;
   border: 1px solid rgba(245, 158, 11, 0.5) !important;
   box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 .enhanced-toast-notification.bg-info {
-  background-color: rgba(6, 182, 212, 0.30) !important;
+  background-color: rgba(6, 182, 212, 0.3) !important;
   border: 1px solid rgba(6, 182, 212, 0.5) !important;
   box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 /* Brighter colored glass for Dark Mode - Enhanced visibility */
 body.dark-mode .enhanced-toast-notification.bg-success {
-  background-color: rgba(52, 211, 153, 0.30) !important;
+  background-color: rgba(52, 211, 153, 0.3) !important;
   border: 1px solid rgba(52, 211, 153, 0.5) !important;
   box-shadow: 0 0 35px rgba(52, 211, 153, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-danger {
-  background-color: rgba(248, 113, 113, 0.30) !important;
+  background-color: rgba(248, 113, 113, 0.3) !important;
   border: 1px solid rgba(248, 113, 113, 0.5) !important;
   box-shadow: 0 0 35px rgba(248, 113, 113, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-warning {
-  background-color: rgba(251, 191, 36, 0.30) !important;
+  background-color: rgba(251, 191, 36, 0.3) !important;
   border: 1px solid rgba(251, 191, 36, 0.5) !important;
   box-shadow: 0 0 35px rgba(251, 191, 36, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 body.dark-mode .enhanced-toast-notification.bg-info {
-  background-color: rgba(34, 211, 238, 0.30) !important;
+  background-color: rgba(34, 211, 238, 0.3) !important;
   border: 1px solid rgba(34, 211, 238, 0.5) !important;
   box-shadow: 0 0 35px rgba(34, 211, 238, 0.4), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
 }
 
 /* Brighter colored glass for Light Mode - Enhanced visibility */
 body.light-mode .enhanced-toast-notification.bg-success {
-  background-color: rgba(16, 185, 129, 0.30) !important;
+  background-color: rgba(16, 185, 129, 0.3) !important;
   border: 1px solid rgba(16, 185, 129, 0.5) !important;
   box-shadow: 0 0 35px rgba(16, 185, 129, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-danger {
-  background-color: rgba(239, 68, 68, 0.30) !important;
+  background-color: rgba(239, 68, 68, 0.3) !important;
   border: 1px solid rgba(239, 68, 68, 0.5) !important;
   box-shadow: 0 0 35px rgba(239, 68, 68, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-warning {
-  background-color: rgba(245, 158, 11, 0.30) !important;
+  background-color: rgba(245, 158, 11, 0.3) !important;
   border: 1px solid rgba(245, 158, 11, 0.5) !important;
   box-shadow: 0 0 35px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
 
 body.light-mode .enhanced-toast-notification.bg-info {
-  background-color: rgba(6, 182, 212, 0.30) !important;
+  background-color: rgba(6, 182, 212, 0.3) !important;
   border: 1px solid rgba(6, 182, 212, 0.5) !important;
   box-shadow: 0 0 35px rgba(6, 182, 212, 0.35), 0 8px 32px rgba(0, 0, 0, 0.15) !important;
 }
@@ -2792,9 +2792,270 @@ body.light-mode .toast-detail-button:hover {
   background-color: var(--bg-secondary);
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* ============================================================================
+ * TOAST SYSTEM v2.1 - PERSISTENT, ACTIONS, CATEGORIES, HISTORY
+ * ============================================================================ */
+
+/* Persistent toasts - special pulsing border */
+.toast-persistent {
+  border-left: 4px solid #ffc107 !important;
+  animation: pulse-persistent-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-persistent-border {
+  0%,
+  100% {
+    border-left-color: #ffc107;
+  }
+  50% {
+    border-left-color: #ffdb4d;
+  }
+}
+
+/* Toast action buttons container */
+.toast-action-buttons {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+body.dark-mode .toast-action-buttons {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.light-mode .toast-action-buttons {
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.toast-action-buttons .btn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast-action-buttons .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Category-specific toast border colors matching database categories */
+.toast-category-security {
+  border-left: 3px solid #dc3545 !important;
+}
+.toast-category-network {
+  border-left: 3px solid #17a2b8 !important;
+}
+.toast-category-device {
+  border-left: 3px solid #6c757d !important;
+}
+.toast-category-user {
+  border-left: 3px solid #6f42c1 !important;
+}
+.toast-category-system {
+  border-left: 3px solid #fd7e14 !important;
+}
+.toast-category-export {
+  border-left: 3px solid #20c997 !important;
+}
+.toast-category-scan {
+  border-left: 3px solid #ffc107 !important;
+}
+
+/* Category badges in toast headers */
+.enhanced-toast-notification .badge {
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-size: 0.7em;
+}
+
+/* Toast History Modal - Uses standard modal styling */
+/* Custom styles for history items inside the modal */
+
+/* Toast history list items - Dark mode with GLASSMORPHISM matching main toasts */
+body.dark-mode .toast-history-item {
+  background: rgba(52, 211, 153, 0.15) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(96, 165, 250, 0.1) inset !important;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+body.dark-mode .toast-history-item:hover {
+  transform: translateX(-5px);
+  background: rgba(52, 211, 153, 0.25) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 30px rgba(96, 165, 250, 0.2),
+    0 0 0 1px rgba(96, 165, 250, 0.3) inset !important;
+}
+
+/* Toast history list items - Light mode with GLASSMORPHISM matching main toasts */
+body.light-mode .toast-history-item {
+  background: rgba(16, 185, 129, 0.15) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05) inset !important;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+body.light-mode .toast-history-item:hover {
+  transform: translateX(-5px);
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 30px rgba(59, 130, 246, 0.1),
+    0 0 0 1px rgba(59, 130, 246, 0.2) inset !important;
+}
+
+/* Category-specific glassmorphism colors for history items */
+body.dark-mode .toast-history-item[data-category="security"] {
+  background: rgba(248, 113, 113, 0.2) !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="network"] {
+  background: rgba(34, 211, 238, 0.2) !important;
+  border-color: rgba(34, 211, 238, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="device"] {
+  background: rgba(148, 163, 184, 0.2) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+body.dark-mode .toast-history-item[data-category="system"] {
+  background: rgba(251, 146, 60, 0.2) !important;
+  border-color: rgba(251, 146, 60, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="security"] {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="network"] {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="device"] {
+  background: rgba(100, 116, 139, 0.2) !important;
+  border-color: rgba(100, 116, 139, 0.3) !important;
+}
+
+body.light-mode .toast-history-item[data-category="system"] {
+  background: rgba(249, 115, 22, 0.2) !important;
+  border-color: rgba(249, 115, 22, 0.3) !important;
+}
+
+/* Toast history item components */
+.toast-history-item-header {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-primary);
+}
+
+.toast-history-item-message {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+  line-height: 1.4;
+}
+
+.toast-history-item-context {
+  font-size: 0.75rem;
+  color: var(--text-muted) !important;
+  margin-bottom: 0.35rem;
+  line-height: 1.3;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.toast-history-item-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Toast type indicators - matching toast colors */
+.toast-history-type-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toast-history-type-success {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.toast-history-type-danger {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.toast-history-type-warning {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.toast-history-type-info {
+  background-color: rgba(6, 182, 212, 0.2);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+/* Empty history state */
+.toast-history-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+}
+
+.toast-history-empty i {
+  font-size: 3rem;
+  opacity: 0.3;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+/* Toast history modal filters styling */
+body.dark-mode .toast-history-modal .form-select,
+body.dark-mode .toast-history-modal .form-control {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+body.light-mode .toast-history-modal .form-select,
+body.light-mode .toast-history-modal .form-control {
+  background-color: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text-primary);
 }
 
 body.dark-mode .card,
@@ -6272,7 +6533,6 @@ body.dark-mode .modal-body #user-list-container .card {
 .modal-body .form-check.form-switch .form-check-input:focus {
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
 }
-
 
 /* ============================================================================
    TABLE ADAPTIVE STYLING - Dark Mode Support (ENHANCED SPECIFICITY)

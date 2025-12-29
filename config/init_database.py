@@ -603,6 +603,78 @@ def init_database():
 
     INSERT OR IGNORE INTO schema_migrations (migration_name, version) VALUES ('iot_features_migration', '2.0.0');
 
+    -- =============================================================================
+    -- TOAST SYSTEM ENHANCEMENTS
+    -- =============================================================================
+
+    -- Toast History table - stores all toasts for history view
+    CREATE TABLE IF NOT EXISTS toast_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        toast_id TEXT UNIQUE NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        toast_type TEXT NOT NULL CHECK(toast_type IN ('success', 'error', 'danger', 'warning', 'info')),
+        category TEXT DEFAULT 'general',
+        header TEXT,
+        message TEXT NOT NULL,
+        detail_message TEXT,
+        user_id INTEGER,
+        session_id TEXT,
+        dismissed INTEGER DEFAULT 0,
+        dismissed_at TIMESTAMP,
+        duration INTEGER,
+        action_taken TEXT,
+        metadata TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    -- Indexes for efficient querying
+    CREATE INDEX IF NOT EXISTS idx_toast_history_timestamp ON toast_history(timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_toast_history_user ON toast_history(user_id, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_toast_history_category ON toast_history(category, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_toast_history_type ON toast_history(toast_type, timestamp DESC);
+
+    -- Toast Categories table - defines available categories
+    CREATE TABLE IF NOT EXISTS toast_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_name TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,
+        icon TEXT,
+        color TEXT,
+        description TEXT,
+        priority INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- User Toast Preferences table - per-user toast settings
+    CREATE TABLE IF NOT EXISTS user_toast_preferences (
+        user_id INTEGER PRIMARY KEY,
+        history_enabled INTEGER DEFAULT 1,
+        history_retention_days INTEGER DEFAULT 30,
+        categories_filter TEXT,
+        show_persistent_toasts INTEGER DEFAULT 1,
+        queue_enabled INTEGER DEFAULT 1,
+        max_simultaneous_toasts INTEGER DEFAULT 3,
+        default_duration TEXT DEFAULT 'medium',
+        sound_enabled INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    -- Default toast categories
+    INSERT OR IGNORE INTO toast_categories (category_name, display_name, icon, color, description, priority, enabled)
+    VALUES
+    ('general', 'General', 'fa-info-circle', '#0dcaf0', 'General notifications and messages', 0, 1),
+    ('security', 'Security', 'fa-shield-alt', '#dc3545', 'Security alerts and warnings', 10, 1),
+    ('network', 'Network', 'fa-network-wired', '#17a2b8', 'Network-related notifications', 8, 1),
+    ('device', 'Device', 'fa-microchip', '#6c757d', 'Device management notifications', 7, 1),
+    ('user', 'User', 'fa-user', '#6f42c1', 'User account and authentication', 6, 1),
+    ('system', 'System', 'fa-cog', '#fd7e14', 'System operations and maintenance', 5, 1),
+    ('export', 'Export', 'fa-file-export', '#20c997', 'Data export operations', 3, 1),
+    ('scan', 'Scan', 'fa-radar', '#ffc107', 'Network scanning operations', 4, 1);
+
+    INSERT OR IGNORE INTO schema_migrations (migration_name, version) VALUES ('toast_features_enhancement', '2.1.0');
+
     -- Initialize sample data
     INSERT OR IGNORE INTO botnet_signatures (botnet_name, family, description, exploit_targets, severity)
     VALUES

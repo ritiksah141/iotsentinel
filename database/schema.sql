@@ -690,9 +690,60 @@ schema_migrations (
 )
 
 -- ====================================================================================
+-- TOAST SYSTEM ENHANCEMENTS
+-- ====================================================================================
+
+toast_history (
+    id PRIMARY KEY,
+    toast_id UNIQUE,                    -- Unique identifier for each toast
+    timestamp TIMESTAMP,
+    toast_type,                         -- success/error/danger/warning/info
+    category DEFAULT 'general',         -- general/security/network/device/user/system/export/scan
+    header,                             -- Toast header text
+    message,                            -- Main toast message
+    detail_message,                     -- Detailed message (for "View Details")
+    user_id → users,                    -- User who received the toast
+    session_id,                         -- Session identifier
+    dismissed BOOLEAN DEFAULT 0,        -- Whether toast was manually dismissed
+    dismissed_at TIMESTAMP,             -- When toast was dismissed
+    duration,                           -- Display duration in milliseconds
+    action_taken,                       -- Action button clicked (if any)
+    metadata,                           -- JSON: additional context
+    INDEX(timestamp DESC),
+    INDEX(user_id, timestamp DESC),
+    INDEX(category, timestamp DESC),
+    INDEX(toast_type, timestamp DESC)
+)
+
+toast_categories (
+    id PRIMARY KEY,
+    category_name UNIQUE,               -- Internal category identifier
+    display_name,                       -- User-friendly name
+    icon,                               -- FontAwesome icon class
+    color,                              -- Category color (hex)
+    description,                        -- Category description
+    priority DEFAULT 0,                 -- Display priority (higher = more important)
+    enabled BOOLEAN DEFAULT 1,          -- Whether category is active
+    created_at TIMESTAMP
+)
+
+user_toast_preferences (
+    user_id PRIMARY KEY → users,
+    history_enabled BOOLEAN DEFAULT 1,  -- Enable toast history
+    history_retention_days DEFAULT 30,  -- How long to keep history
+    categories_filter,                  -- JSON: array of enabled categories
+    show_persistent_toasts DEFAULT 1,   -- Show persistent toasts
+    queue_enabled DEFAULT 1,            -- Enable toast queue
+    max_simultaneous_toasts DEFAULT 3,  -- Max toasts shown at once
+    default_duration DEFAULT 'medium',  -- short/medium/long
+    sound_enabled DEFAULT 0,            -- Play sound for toasts
+    updated_at TIMESTAMP
+)
+
+-- ====================================================================================
 -- NOTES:
 -- - This schema is for documentation only
 -- - Actual tables are created by: config/init_database.py
--- - Total tables: 50+ (10 core + 40 IoT security features)
--- - Last updated: December 9, 2025
+-- - Total tables: 53+ (10 core + 40 IoT security features + 3 toast system)
+-- - Last updated: December 28, 2025
 -- ====================================================================================
