@@ -153,3 +153,18 @@ Integrate AbuseIPDB for IP reputation lookups.
     }
     ```
 3.  **Restart the dashboard.** Threat intelligence will now be enabled, and alerts for suspicious connections will be enriched with IP reputation data.
+
+---
+
+## 8. Toast Notification System
+
+IoTSentinel features an advanced toast notification system (v2.1) to provide real-time, interactive feedback to the user.
+
+### Features
+- **Categorization:** Toasts are organized by type (e.g., Security, Network, System) with distinct visual cues.
+- **Interactivity:** Notifications can include action buttons for immediate responses, such as "Block Device" or "Retry".
+- **Persistence & Queuing:** Critical alerts can be set to persist until dismissed, and a queue system manages multiple notifications gracefully.
+- **History:** A complete history of all toasts is stored in the database and can be viewed and filtered through a dedicated UI panel.
+
+### Configuration
+The toast system is enabled by default and requires no initial setup. The behavior is managed through the `ToastManager` utility in `utils/toast_manager.py`. For detailed documentation on implementation, usage, and verification, please see the [Comprehensive Toast System Documentation](./archive/TOAST_SYSTEM_DOCUMENTATION.md).

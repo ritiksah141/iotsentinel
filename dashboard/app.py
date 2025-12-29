@@ -2409,6 +2409,7 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-bell fa-lg"),
                             dbc.Badge(id="notification-badge", color="danger", className="position-absolute top-0 start-100 translate-middle", pill=True, style={"fontSize": "0.6rem"})
                         ], color="link", id="notification-bell-button", className="text-white position-relative px-3"),
+                        dbc.Button(html.I(className="fa fa-history fa-lg"), color="link", id="toast-history-toggle-btn", className="text-white px-3 ms-1", title="Toast History"),
                         dbc.Button(html.I(className="fa fa-robot fa-lg"), color="link", id="open-chat-button", className="text-white px-3 ms-1"),
                         dbc.Button(html.I(className="fa fa-pause fa-lg", id="pause-icon"), color="link", id="pause-button", className="text-white px-3 ms-1"),
                         dbc.Button(html.I(className="fa fa-volume-up fa-lg", id="voice-alert-icon"), color="link", id="voice-alert-toggle", className="text-white px-3 ms-1", title="Toggle Voice Alerts"),
@@ -2459,6 +2460,12 @@ dashboard_layout = dbc.Container([
         "Notifications - View security alerts and system notifications. "
         "Badge shows unread count. Click to open notification drawer.",
         target="notification-bell-button",
+        placement="bottom"
+    ),
+    dbc.Tooltip(
+        "Toast History - View all recent toast notifications. "
+        "Filter by category and type. Access complete notification history.",
+        target="toast-history-toggle-btn",
         placement="bottom"
     ),
     dbc.Tooltip(
@@ -8232,6 +8239,70 @@ dashboard_layout = dbc.Container([
         ])
     ], id="toast-detail-modal", size="lg", is_open=False, backdrop=True, keyboard=True, centered=True),
 
+    # Toast History Modal - Popup modal for toast history (triggered from navbar)
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-history me-2"),
+            "Toast History"
+        ])),
+        dbc.ModalBody([
+            # Filters
+            html.Div([
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Category", size="sm"),
+                        dbc.Select(
+                            id="toast-history-category-filter",
+                            options=[
+                                {"label": "All Categories", "value": "all"},
+                                {"label": "General", "value": "general"},
+                                {"label": "Security", "value": "security"},
+                                {"label": "Network", "value": "network"},
+                                {"label": "Device", "value": "device"},
+                                {"label": "User", "value": "user"},
+                                {"label": "System", "value": "system"},
+                                {"label": "Export", "value": "export"},
+                                {"label": "Scan", "value": "scan"}
+                            ],
+                            value="all",
+                            size="sm"
+                        )
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Label("Type", size="sm"),
+                        dbc.Select(
+                            id="toast-history-type-filter",
+                            options=[
+                                {"label": "All Types", "value": "all"},
+                                {"label": "Success", "value": "success"},
+                                {"label": "Error", "value": "danger"},
+                                {"label": "Warning", "value": "warning"},
+                                {"label": "Info", "value": "info"}
+                            ],
+                            value="all",
+                            size="sm"
+                        )
+                    ], width=6)
+                ], className="mb-3"),
+                dbc.Button(
+                    [html.I(className="fas fa-trash me-2"), "Clear All"],
+                    id="toast-history-clear-btn",
+                    color="danger",
+                    size="sm",
+                    outline=True,
+                    className="w-100 mb-3"
+                )
+            ]),
+
+            # History list with loading
+            dcc.Loading(
+                id="toast-history-loader",
+                type="default",
+                children=html.Div(id="toast-history-list")
+            )
+        ])
+    ], id="toast-history-modal", size="lg", is_open=False, scrollable=True, centered=True),
+
     # Notifications Modal (changed from Offcanvas to Modal)
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
@@ -8987,34 +9058,38 @@ def toggle_device_trust(value):
      Output('toast-detail-modal-summary', 'children'),
      Output('toast-detail-modal-content', 'children')],
     [Input({'type': 'toast-detail-btn', 'toast_id': ALL}, 'n_clicks'),
+     Input({'type': 'toast-history-detail-btn', 'toast_id': ALL}, 'n_clicks'),
      Input('toast-detail-modal-close', 'n_clicks')],
     [State('toast-detail-modal', 'is_open')],
     prevent_initial_call=True
 )
-def handle_toast_detail_modal(detail_clicks, close_clicks, is_open):
+def handle_toast_detail_modal(detail_clicks, history_detail_clicks, close_clicks, is_open):
     """Handle opening and closing of toast detail modal"""
     ctx = callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
 
     trigger_id = ctx.triggered[0]['prop_id']
+    trigger_value = ctx.triggered[0]['value']
+
+    # Prevent trigger on component creation (when n_clicks is None)
+    if trigger_value is None:
+        raise dash.exceptions.PreventUpdate
 
     # Close button clicked
     if 'toast-detail-modal-close' in trigger_id:
         return False, "", "", ""
 
-    # Detail button clicked - check which specific button was clicked
+    # Detail button clicked from regular toast - check which specific button was clicked
     if 'toast-detail-btn' in trigger_id:
-        # Find which button was clicked by finding the non-None n_clicks
-        clicked_index = -1
-        if detail_clicks:
-            for i, n_clicks in enumerate(detail_clicks):
-                if n_clicks is not None:
-                    clicked_index = i
-                    break
-
-        if clicked_index != -1:
-            button_id = ctx.inputs_list[0][clicked_index]['id']
+        # Parse the triggered component ID to get the toast_id
+        import json
+        try:
+            # Extract the ID from the prop_id string like {"index":0,"type":"toast-detail-btn","toast_id":"abc-123"}.n_clicks
+            prop_id_str = ctx.triggered[0]['prop_id']
+            # Remove the .n_clicks suffix and parse JSON
+            id_str = prop_id_str.rsplit('.', 1)[0]
+            button_id = json.loads(id_str)
             toast_id = button_id['toast_id']
 
             # Retrieve detail information from ToastManager
@@ -9023,12 +9098,335 @@ def handle_toast_detail_modal(detail_clicks, close_clicks, is_open):
                 # CRITICAL: Clear the detail from memory to prevent leak
                 ToastManager.clear_detail(toast_id)
 
+                # Build category badge for summary
+                category_info = ""
+                if detail_info.get('category') and detail_info.get('category') != 'general':
+                    category_info = f" • {detail_info.get('category').title()}"
+
                 return (
                     True,  # Open modal
-                    detail_info.get('header', 'Details'),
-                    detail_info.get('message', ''),
+                    detail_info.get('message') or detail_info.get('header', 'Details'),  # Show actual message as title
+                    f"{(detail_info.get('header') or detail_info.get('type', '').title())}{category_info}",  # Show header + category as summary
                     detail_info.get('detail', 'No additional details available.')
                 )
+        except Exception as e:
+            logger.error(f"Error parsing toast detail button ID: {e}")
+            raise dash.exceptions.PreventUpdate
+
+    # Detail button clicked from toast history - retrieve from database
+    if 'toast-history-detail-btn' in trigger_id:
+        # Parse the triggered component ID to get the toast_id
+        import json
+        try:
+            # Extract the ID from the prop_id string
+            prop_id_str = ctx.triggered[0]['prop_id']
+            # Remove the .n_clicks suffix and parse JSON
+            id_str = prop_id_str.rsplit('.', 1)[0]
+            button_id = json.loads(id_str)
+            toast_id = button_id['toast_id']
+
+            # Retrieve detail information from database
+            from utils.toast_manager import ToastHistoryManager
+            import sqlite3
+
+            db_path = ToastHistoryManager.get_db_path()
+            if not db_path:
+                raise Exception("Database path not found")
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT header, message, detail_message, toast_type, category
+                FROM toast_history
+                WHERE toast_id = ?
+            """, (toast_id,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                # Build category badge for summary
+                category_info = ""
+                if row['category'] and row['category'] != 'general':
+                    category_info = f" • {row['category'].title()}"
+
+                return (
+                    True,  # Open modal
+                    row['message'] or row['header'] or 'Details',  # Show actual message as title
+                    f"{(row['header'] or row['toast_type'].title())}{category_info}",  # Show header + category as summary
+                    row['detail_message'] or 'No additional details available.'
+                )
+            else:
+                logger.warning(f"Toast with ID {toast_id} not found in history")
+                return (
+                    True,
+                    'Not Found',
+                    '',
+                    f'Toast details not found for ID: {toast_id}'
+                )
+
+        except Exception as e:
+            logger.error(f"Error retrieving toast history detail: {e}")
+            return (
+                True,
+                'Error',
+                '',
+                f'Failed to load details: {str(e)}'
+            )
+
+    raise dash.exceptions.PreventUpdate
+
+# ============================================================================
+# TOAST HISTORY PANEL CALLBACKS
+# ============================================================================
+
+# Toggle Toast History Modal
+@app.callback(
+    [Output("toast-history-modal", "is_open"),
+     Output("toast-history-list", "children", allow_duplicate=True)],
+    Input("toast-history-toggle-btn", "n_clicks"),
+    State("toast-history-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_toast_history_modal(n_clicks, is_open):
+    """Toggle the toast history modal and load history when opening"""
+    if n_clicks:
+        # When opening, load the history
+        if not is_open:
+            from utils.toast_manager import ToastHistoryManager
+            from datetime import datetime
+
+            # Get history from database
+            try:
+                history = ToastHistoryManager.get_history(limit=50)
+            except Exception as e:
+                logger.error(f"Error loading toast history: {e}")
+                history = []
+
+            # If no history, show empty state
+            if not history:
+                return True, html.Div([
+                    html.I(className="fas fa-inbox fa-3x mb-3"),
+                    html.P("No toast history found", className="mb-0")
+                ], className="toast-history-empty")
+
+            # Build history items
+            items = []
+            for toast in history:
+                # Type badge color mapping
+                type_class_map = {
+                    "success": "toast-history-type-success",
+                    "danger": "toast-history-type-danger",
+                    "warning": "toast-history-type-warning",
+                    "info": "toast-history-type-info"
+                }
+
+                # Format timestamp
+                try:
+                    ts = datetime.fromisoformat(toast['timestamp'])
+                    time_str = ts.strftime("%b %d, %I:%M %p")
+                except:
+                    time_str = toast['timestamp']
+
+                # Create history item with category data attribute for styling
+                # Build context info (header + category)
+                context_parts = []
+                if toast.get('header'):
+                    context_parts.append(toast['header'])
+                if toast.get('category') and toast['category'] != 'general':
+                    context_parts.append(toast['category'].title())
+                context_info = " • ".join(context_parts) if context_parts else toast['toast_type'].title()
+
+                item_content = [
+                    html.Div([
+                        html.Span(toast['message'], className="me-2 fw-bold"),  # Actual message as main title
+                        html.Span(
+                            toast['toast_type'].upper(),
+                            className=f"toast-history-type-badge {type_class_map.get(toast['toast_type'], 'toast-history-type-info')}"
+                        )
+                    ], className="toast-history-item-header"),
+                    html.Div(context_info, className="toast-history-item-context text-muted small"),  # Context as subtitle
+                    html.Div(time_str, className="toast-history-item-time")
+                ]
+
+                # Add "View Details" button if detail_message exists
+                if toast.get('detail_message'):
+                    item_content.append(
+                        html.Div([
+                            dbc.Button(
+                                [html.I(className="fas fa-info-circle me-1"), "View Details"],
+                                id={'type': 'toast-history-detail-btn', 'toast_id': toast['toast_id']},
+                                color="link",
+                                size="sm",
+                                className="p-0 mt-2 text-decoration-none"
+                            )
+                        ], className="mt-2")
+                    )
+
+                item = html.Div(
+                    item_content,
+                    className="toast-history-item",
+                    **{"data-category": toast.get('category', 'general')}
+                )
+
+                items.append(item)
+
+            return True, items
+        else:
+            # Just close, don't reload
+            return False, dash.no_update
+
+    raise dash.exceptions.PreventUpdate
+
+# Load Toast History with Filters
+@app.callback(
+    Output("toast-history-list", "children", allow_duplicate=True),
+    [Input("toast-history-category-filter", "value"),
+     Input("toast-history-type-filter", "value")],
+    prevent_initial_call=True
+)
+def update_toast_history_list(category, toast_type):
+    """Update the toast history list based on filters"""
+    from utils.toast_manager import ToastHistoryManager
+    from datetime import datetime
+
+    # Get history from database
+    try:
+        history = ToastHistoryManager.get_history(
+            category=None if category == "all" else category,
+            toast_type=None if toast_type == "all" else toast_type,
+            limit=50
+        )
+    except Exception as e:
+        logger.error(f"Error loading toast history: {e}")
+        history = []
+
+    # If no history, show empty state
+    if not history:
+        return html.Div([
+            html.I(className="fas fa-inbox fa-3x mb-3"),
+            html.P("No toast history found", className="mb-0")
+        ], className="toast-history-empty")
+
+    # Build history items
+    items = []
+    for toast in history:
+        # Type badge color mapping
+        type_class_map = {
+            "success": "toast-history-type-success",
+            "danger": "toast-history-type-danger",
+            "warning": "toast-history-type-warning",
+            "info": "toast-history-type-info"
+        }
+
+        # Format timestamp
+        try:
+            ts = datetime.fromisoformat(toast['timestamp'])
+            time_str = ts.strftime("%b %d, %I:%M %p")
+        except:
+            time_str = toast['timestamp']
+
+        # Create history item with category data attribute for styling
+        # Build context info (header + category)
+        context_parts = []
+        if toast.get('header'):
+            context_parts.append(toast['header'])
+        if toast.get('category') and toast['category'] != 'general':
+            context_parts.append(toast['category'].title())
+        context_info = " • ".join(context_parts) if context_parts else toast['toast_type'].title()
+
+        item_content = [
+            html.Div([
+                html.Span(toast['message'], className="me-2 fw-bold"),  # Actual message as main title
+                html.Span(
+                    toast['toast_type'].upper(),
+                    className=f"toast-history-type-badge {type_class_map.get(toast['toast_type'], 'toast-history-type-info')}"
+                )
+            ], className="toast-history-item-header"),
+            html.Div(context_info, className="toast-history-item-context text-muted small"),  # Context as subtitle
+            html.Div(time_str, className="toast-history-item-time")
+        ]
+
+        # Add "View Details" button if detail_message exists
+        if toast.get('detail_message'):
+            item_content.append(
+                html.Div([
+                    dbc.Button(
+                        [html.I(className="fas fa-info-circle me-1"), "View Details"],
+                        id={'type': 'toast-history-detail-btn', 'toast_id': toast['toast_id']},
+                        color="link",
+                        size="sm",
+                        className="p-0 mt-2 text-decoration-none"
+                    )
+                ], className="mt-2")
+            )
+
+        item = html.Div(
+            item_content,
+            className="toast-history-item",
+            **{"data-category": toast.get('category', 'general')}  # Add category for CSS styling
+        )
+
+        items.append(item)
+
+    return items
+
+# Clear Toast History
+@app.callback(
+    [Output("toast-container", "children", allow_duplicate=True),
+     Output("toast-history-category-filter", "value"),
+     Output("toast-history-type-filter", "value")],
+    Input("toast-history-clear-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def clear_toast_history(n_clicks):
+    """Clear all toast history from database"""
+    from utils.toast_manager import ToastHistoryManager
+
+    if n_clicks:
+        try:
+            # Get database connection and clear history
+            db_path = ToastHistoryManager.get_db_path()
+            if db_path:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM toast_history")
+                deleted_count = cursor.rowcount
+                conn.commit()
+                conn.close()
+
+                return (
+                    ToastManager.success(
+                        f"Cleared {deleted_count} toast history records",
+                        category="system",
+                        duration="short"
+                    ),
+                    "all",
+                    "all"
+                )
+            else:
+                return (
+                    ToastManager.error(
+                        "Could not connect to database",
+                        category="system"
+                    ),
+                    "all",
+                    "all"
+                )
+        except Exception as e:
+            logger.error(f"Error clearing toast history: {e}")
+            return (
+                ToastManager.error(
+                    "Failed to clear toast history",
+                    category="system",
+                    detail_message=str(e)
+                ),
+                "all",
+                "all"
+            )
 
     raise dash.exceptions.PreventUpdate
 
