@@ -168,3 +168,70 @@ IoTSentinel features an advanced toast notification system (v2.1) to provide rea
 
 ### Configuration
 The toast system is enabled by default and requires no initial setup. The behavior is managed through the `ToastManager` utility in `utils/toast_manager.py`. For detailed documentation on implementation, usage, and verification, please see the [Comprehensive Toast System Documentation](./archive/TOAST_SYSTEM_DOCUMENTATION.md).
+
+---
+
+## 9. Spotlight Search (Enhanced Edition)
+
+IoTSentinel features a powerful macOS Spotlight-like universal search system for instant access to all dashboard features and modals.
+
+### Features
+- **Top Hit:** Best matching result prominently highlighted with a "TOP HIT" badge
+- **Category Grouping:** Results organized by category (Analytics, Security, IoT, System, etc.)
+- **Result Count:** Shows total matches and performance time
+- **Recent Searches:** Stores and displays last 5 searches for quick access
+- **Category Filters:** Click category badges to filter results
+- **Quick Preview:** Shimmer effects and enhanced hover interactions
+- **Search Performance:** Blazing fast clientside search (1-3ms average)
+- **Keyboard Shortcut:** `Cmd+K` (Mac) or `Ctrl+K` (Windows/Linux) to open search
+- **Dark Mode Support:** Full support for light and dark themes
+
+### Usage
+1. **Opening Search:**
+   - Click the floating "Search" button (bottom-right corner)
+   - Press `Cmd+K` / `Ctrl+K` keyboard shortcut
+
+2. **Searching:**
+   - Type your query (e.g., "firewall", "analytics", "security")
+   - See real-time results with top hit highlighted
+   - Results automatically grouped by category
+   - View result count and search performance time
+
+3. **Filtering:**
+   - Click category badges to filter results (e.g., "Security (8)")
+   - Click "All" to clear filter
+   - Active filter shown with blue highlight
+
+4. **Recent Searches:**
+   - Open search modal with empty query
+   - Click any recent search badge to repeat the search
+   - Last 5 searches stored in browser localStorage
+
+### Configuration
+The spotlight search is enabled by default and requires no setup. The search catalog is defined in `SEARCH_FEATURE_CATALOG` in `dashboard/app.py` (37 searchable features). Search behavior is managed through JavaScript in `dashboard/assets/spotlight-search.js`.
+
+**Key Files:**
+- `dashboard/app.py`: Server-side rendering and callbacks (lines 2380-26710)
+- `dashboard/assets/spotlight-search.js`: Clientside search logic and localStorage
+- `dashboard/assets/custom.css`: Styling (lines 6661-6997)
+
+**localStorage Keys:**
+- `iotsentinel_recent_searches`: Stores recent search queries (max 5)
+
+### Customization
+To add new searchable features, edit the `SEARCH_FEATURE_CATALOG` in `dashboard/app.py`:
+```python
+SEARCH_FEATURE_CATALOG = [
+    {
+        "id": "your-modal-id",
+        "name": "Feature Name",
+        "description": "Feature description",
+        "icon": "fa-icon-name",
+        "category": "Category Name",
+        "keywords": ["keyword1", "keyword2", "keyword3"],
+        "action_type": "modal"
+    }
+]
+```
+
+For complete implementation details, architecture, and API reference, see the [Spotlight Search Enhancement Documentation](./archive/SPOTLIGHT_SEARCH_ENHANCEMENT.md).
