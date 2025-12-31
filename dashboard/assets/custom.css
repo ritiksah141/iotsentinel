@@ -297,7 +297,8 @@ html:not(.is-scrolling) .glass-card {
     background: color-mix(in srgb, var(--success-color) 25%, transparent);
     border-color: color-mix(in srgb, var(--success-color) 35%, transparent);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--success-color) 20%, transparent);
+    box-shadow: 0 4px 12px
+      color-mix(in srgb, var(--success-color) 20%, transparent);
   }
 
   .custom-checkbox input[type="checkbox"] {
@@ -362,7 +363,8 @@ html:not(.is-scrolling) .glass-card {
     border-color: color-mix(in srgb, var(--warning-color) 35%, transparent);
     text-decoration: none !important;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--warning-color) 20%, transparent);
+    box-shadow: 0 4px 12px
+      color-mix(in srgb, var(--warning-color) 20%, transparent);
   }
 
   /* Dark mode for Forgot Password */
@@ -383,11 +385,11 @@ html:not(.is-scrolling) .glass-card {
   /* Input focus animations */
   .form-control:focus {
     border-color: var(--accent-color) !important;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 10%, transparent) !important;
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--accent-color) 10%, transparent) !important;
     transform: translateY(-1px);
     transition: all 0.2s ease;
   }
-
 
   /* Password strength meter colors */
   .password-weak {
@@ -422,7 +424,11 @@ html:not(.is-scrolling) .glass-card {
   }
 
   .cyber-button-modern {
-    background: color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 20%,
+      transparent
+    ) !important;
     backdrop-filter: blur(var(--blur-medium)) !important;
     -webkit-backdrop-filter: blur(var(--blur-medium)) !important;
     border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
@@ -431,8 +437,16 @@ html:not(.is-scrolling) .glass-card {
   }
 
   .cyber-button-modern:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
-    border-color: color-mix(in srgb, var(--accent-color) 40%, transparent) !important;
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 30%,
+      transparent
+    ) !important;
+    border-color: color-mix(
+      in srgb,
+      var(--accent-color) 40%,
+      transparent
+    ) !important;
     box-shadow: var(--shadow-md) !important;
   }
 
@@ -548,7 +562,11 @@ html:not(.is-scrolling) .glass-card {
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
-    background: color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 20%,
+      transparent
+    ) !important;
     backdrop-filter: blur(var(--blur-medium)) !important;
     -webkit-backdrop-filter: blur(var(--blur-medium)) !important;
     border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
@@ -558,8 +576,16 @@ html:not(.is-scrolling) .glass-card {
 
   .cyber-button-modern:hover:not(:disabled) {
     transform: translateY(-2px);
-    background: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
-    border-color: color-mix(in srgb, var(--accent-color) 40%, transparent) !important;
+    background: color-mix(
+      in srgb,
+      var(--accent-color) 30%,
+      transparent
+    ) !important;
+    border-color: color-mix(
+      in srgb,
+      var(--accent-color) 40%,
+      transparent
+    ) !important;
     box-shadow: var(--shadow-md) !important;
   }
 
@@ -623,7 +649,11 @@ html:not(.is-scrolling) .glass-card {
   }
 
   body.dark-mode .text-gradient {
-    background: linear-gradient(135deg, var(--dark-accent) 0%, var(--dark-accent-secondary) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--dark-accent) 0%,
+      var(--dark-accent-secondary) 100%
+    );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -1594,7 +1624,8 @@ select:focus,
 textarea:focus {
   background: var(--bg-tertiary) !important;
   border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 5%, transparent), var(--shadow-md) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 5%, transparent),
+    var(--shadow-md) !important;
   outline: none;
   transform: translateY(-1px);
   backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
@@ -6802,7 +6833,7 @@ body.dark-mode table.table-adaptive.table th strong {
   background: rgba(255, 255, 255, 0.15) !important;
   border: 1px solid rgba(255, 255, 255, 0.25) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1),
-              inset 0 1px 1px rgba(255, 255, 255, 0.3);
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
   transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-primary) !important;
 }
@@ -6811,7 +6842,7 @@ body.dark-mode table.table-adaptive.table th strong {
   transform: translateY(-4px) scale(1.05);
   background: rgba(255, 255, 255, 0.25) !important;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15),
-              inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    inset 0 1px 1px rgba(255, 255, 255, 0.4);
   color: var(--text-primary) !important;
 }
 
@@ -6831,13 +6862,13 @@ body.dark-mode .spotlight-floating-button {
   background: rgba(30, 41, 59, 0.3) !important;
   border: 1px solid rgba(71, 85, 105, 0.4) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
-              inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
 }
 
 body.dark-mode .spotlight-floating-button:hover {
   background: rgba(30, 41, 59, 0.4) !important;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4),
-              inset 0 1px 1px rgba(255, 255, 255, 0.15);
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
 }
 
 body.dark-mode .spotlight-floating-button kbd {
@@ -6967,21 +6998,25 @@ body.dark-mode .spotlight-result-selected {
 
 /* Top Hit Card - Prominent styling using theme variables */
 .spotlight-top-hit-card {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--success-color) 5%, transparent),
     color-mix(in srgb, var(--accent-color) 5%, transparent)
   ) !important;
   border: 2px solid color-mix(in srgb, var(--success-color) 30%, transparent) !important;
-  box-shadow: 0 4px 20px color-mix(in srgb, var(--success-color) 15%, transparent) !important;
+  box-shadow: 0 4px 20px
+    color-mix(in srgb, var(--success-color) 15%, transparent) !important;
 }
 
 .spotlight-top-hit-card:hover {
   transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--success-color) 25%, transparent) !important;
+  box-shadow: 0 12px 32px
+    color-mix(in srgb, var(--success-color) 25%, transparent) !important;
 }
 
 body.dark-mode .spotlight-top-hit-card {
-  background: linear-gradient(135deg,
+  background: linear-gradient(
+    135deg,
     color-mix(in srgb, var(--success-color) 8%, transparent),
     color-mix(in srgb, var(--accent-color) 8%, transparent)
   ) !important;
@@ -6997,11 +7032,16 @@ body.dark-mode .spotlight-top-hit-card {
   text-transform: uppercase;
   background: var(--light-gradient-success) !important;
   border: none !important;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--success-color) 30%, transparent);
+  box-shadow: 0 2px 8px
+    color-mix(in srgb, var(--success-color) 30%, transparent);
 }
 
 body.dark-mode .spotlight-top-hit-badge {
-  background: linear-gradient(135deg, var(--dark-success), color-mix(in srgb, var(--dark-success) 80%, #000)) !important;
+  background: linear-gradient(
+    135deg,
+    var(--dark-success),
+    color-mix(in srgb, var(--dark-success) 80%, #000)
+  ) !important;
 }
 
 /* Category Headers using theme variables */
@@ -7045,7 +7085,11 @@ body.dark-mode .spotlight-top-hit-badge {
 .spotlight-recent-search-badge:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-  background: color-mix(in srgb, var(--accent-color) 10%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--accent-color) 10%,
+    transparent
+  ) !important;
   border-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
 }
 
@@ -7062,13 +7106,14 @@ body.dark-mode .spotlight-top-hit-badge {
 }
 
 .spotlight-result-card::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     transparent,
     color-mix(in srgb, var(--accent-color) 10%, transparent),
     transparent
@@ -7077,7 +7122,8 @@ body.dark-mode .spotlight-top-hit-badge {
 }
 
 body.dark-mode .spotlight-result-card::before {
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     transparent,
     color-mix(in srgb, var(--dark-accent) 15%, transparent),
     transparent
@@ -7107,7 +7153,11 @@ body.dark-mode .spotlight-result-card::before {
 }
 
 body.dark-mode .spotlight-filter-badge.badge-primary {
-  background: linear-gradient(135deg, var(--dark-accent), color-mix(in srgb, var(--dark-accent) 80%, #000)) !important;
+  background: linear-gradient(
+    135deg,
+    var(--dark-accent),
+    color-mix(in srgb, var(--dark-accent) 80%, #000)
+  ) !important;
   border-color: var(--dark-accent);
 }
 
@@ -7129,8 +7179,16 @@ body.dark-mode .spotlight-filter-badge.badge-light {
 
 .badge.badge-light.spotlight-filter-badge:hover,
 .spotlight-filter-badge.badge-light:hover {
-  background: color-mix(in srgb, var(--accent-color) 15%, transparent) !important;
-  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--accent-color) 15%,
+    transparent
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent-color) 30%,
+    transparent
+  ) !important;
   color: var(--accent-color) !important;
   transform: translateY(-1px);
 }
@@ -7221,5 +7279,501 @@ body.dark-mode .spotlight-filter-badge.badge-light {
 
   .spotlight-keyboard-hints {
     display: none;
+  }
+}
+/* ============================================================================
+ * ENHANCED MASONRY LAYOUT - CATEGORY TABS & VIEW TOGGLE
+ * ============================================================================ */
+
+/* Category Tab Buttons - Glassmorphism/Liquid Glass Design */
+.category-tabs .btn {
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 600;
+  padding: 0.5rem 1.25rem;
+  /* Liquid glass effect */
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  color: var(--text-primary) !important;
+}
+
+.category-tab-btn.active {
+  /* Enhanced liquid glass for active state */
+  backdrop-filter: blur(20px) saturate(180%) brightness(1.1);
+  -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.1);
+  background: rgba(102, 126, 234, 0.2) !important;
+  border: 1px solid rgba(102, 126, 234, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3),
+    inset 0 1px 2px rgba(255, 255, 255, 0.3);
+  color: #667eea !important;
+  font-weight: 700;
+}
+
+.category-tab-btn:not(.active):hover {
+  backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Dark mode glassmorphism adjustments */
+body.dark-mode .category-tab-btn {
+  background: rgba(30, 41, 59, 0.4) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .category-tab-btn.active {
+  background: rgba(96, 165, 250, 0.25) !important;
+  border: 1px solid rgba(96, 165, 250, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(96, 165, 250, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.15);
+  color: #60a5fa !important;
+}
+
+body.dark-mode .category-tab-btn:not(.active):hover {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+/* View Toggle Buttons - Glassmorphism Design */
+.view-toggle-group .btn {
+  border-radius: 8px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0.5rem 0.75rem;
+  /* Liquid glass effect */
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  color: var(--text-secondary) !important;
+}
+
+.view-toggle-btn.active {
+  backdrop-filter: blur(16px) saturate(180%) brightness(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.1);
+  background: rgba(99, 102, 241, 0.18) !important;
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  color: #6366f1 !important;
+}
+
+.view-toggle-btn:not(.active):hover {
+  backdrop-filter: blur(16px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.05);
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+/* Dark mode for view toggle */
+body.dark-mode .view-toggle-btn {
+  background: rgba(30, 41, 59, 0.35) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .view-toggle-btn.active {
+  background: rgba(99, 102, 241, 0.22) !important;
+  border: 1px solid rgba(99, 102, 241, 0.45) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  color: #818cf8 !important;
+}
+
+body.dark-mode .view-toggle-btn:not(.active):hover {
+  background: rgba(30, 41, 59, 0.5) !important;
+  border: 1px solid rgba(148, 163, 184, 0.25) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+/* ============================================================================
+ * GRID VIEW LAYOUT
+ * ============================================================================ */
+
+.features-grid-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.features-grid-view .masonry-item {
+  margin-bottom: 0;
+  height: 100%;
+}
+
+.features-grid-view .masonry-item .glass-card {
+  height: 100%;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.features-grid-view .masonry-item.xl-card,
+.features-grid-view .masonry-item.large,
+.features-grid-view .masonry-item.medium,
+.features-grid-view .masonry-item.small,
+.features-grid-view .masonry-item.compact {
+  min-height: auto;
+}
+
+@media (max-width: 1400px) {
+  .features-grid-view {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 992px) {
+  .features-grid-view {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .features-grid-view {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================================
+ * LIST VIEW LAYOUT
+ * ============================================================================ */
+
+.features-list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem;
+}
+
+.features-list-view .masonry-item {
+  margin-bottom: 0;
+  width: 100% !important;
+  break-inside: auto;
+}
+
+.features-list-view .masonry-item .glass-card {
+  border-radius: 12px !important;
+}
+
+.features-list-view .masonry-item .card-body {
+  padding: 1rem 1.5rem !important;
+}
+
+.features-list-view .masonry-item .text-center {
+  text-align: left !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 1.5rem;
+}
+
+.features-list-view .masonry-item .fa {
+  font-size: 2rem !important;
+  margin-bottom: 0 !important;
+  flex-shrink: 0;
+}
+
+.features-list-view .masonry-item h4,
+.features-list-view .masonry-item h5,
+.features-list-view .masonry-item h6 {
+  margin-bottom: 0.25rem !important;
+  text-align: left;
+}
+
+.features-list-view .masonry-item p {
+  margin-bottom: 0 !important;
+  text-align: left;
+}
+
+.features-list-view .masonry-item.xl-card,
+.features-list-view .masonry-item.large,
+.features-list-view .masonry-item.medium,
+.features-list-view .masonry-item.small,
+.features-list-view .masonry-item.compact {
+  min-height: auto;
+}
+
+/* ============================================================================
+ * HOVER PREVIEW FUNCTIONALITY
+ * ============================================================================ */
+
+/* Hide short description on hover */
+.masonry-item:hover .card-short-desc {
+  display: none;
+}
+
+/* Show preview content on hover */
+.masonry-item:hover .hover-preview-content {
+  display: block !important;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hover Open Button */
+.hover-open-btn {
+  transition: all 0.25s ease;
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 0.5rem 1.25rem;
+}
+
+.hover-open-btn:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* Enhanced card expansion on hover */
+.masonry-item:hover .glass-card {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2) !important;
+  z-index: 10;
+  position: relative;
+}
+
+/* Dark mode adjustments */
+body.dark-mode .masonry-item:hover .glass-card {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ============================================================================
+ * CATEGORY FILTERING - HIDE/SHOW CARDS
+ * ============================================================================ */
+
+.masonry-item.hidden-by-filter {
+  display: none !important;
+}
+
+/* Smooth transitions when filtering */
+.masonry-grid .masonry-item,
+.features-grid-view .masonry-item,
+.features-list-view .masonry-item {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* Responsive adjustments for category tabs */
+@media (max-width: 768px) {
+  .category-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .category-tabs .btn {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+  }
+
+  .category-tabs .btn i {
+    display: none;
+  }
+
+  .view-toggle-group {
+    margin-top: 0.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .d-flex.justify-content-between.align-items-center {
+    flex-direction: column !important;
+    gap: 1rem;
+  }
+
+  .float-end {
+    float: none !important;
+  }
+}
+
+/* Override Bootstrap default button styles for glassmorphism buttons */
+.category-tab-btn,
+.view-toggle-btn {
+  /* Remove Bootstrap defaults */
+  background-image: none !important;
+  border-style: solid !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure buttons are clickable */
+.category-tab-btn:active,
+.view-toggle-btn:active {
+  transform: scale(0.98);
+}
+
+/* Remove Bootstrap outline button overrides */
+.btn-outline-primary,
+.btn-outline-secondary {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Ensure category tabs button group doesn't add conflicting styles */
+.category-tabs.btn-group .btn,
+.view-toggle-group.btn-group .btn {
+  margin: 0 !important;
+  position: relative !important;
+}
+
+/* Fix button group borders */
+.category-tabs.btn-group > .btn:not(:last-child),
+.view-toggle-group.btn-group > .btn:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.category-tabs.btn-group > .btn:not(:first-child),
+.view-toggle-group.btn-group > .btn:not(:first-child) {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+}
+
+.category-tabs.btn-group > .btn:first-child,
+.view-toggle-group.btn-group > .btn:first-child {
+  border-top-left-radius: 12px !important;
+  border-bottom-left-radius: 12px !important;
+}
+
+.category-tabs.btn-group > .btn:last-child,
+.view-toggle-group.btn-group > .btn:last-child {
+  border-top-right-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+}
+
+/* ============================================================================
+ * CATEGORY TABS - SEPARATE BUTTONS STYLING (Updated)
+ * ============================================================================ */
+
+/* Category tabs container */
+.category-tabs-container {
+  gap: 0.75rem !important;
+}
+
+/* Individual category tab buttons - Glassmorphism Design */
+.category-tab-btn {
+  border-radius: 12px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 600;
+  padding: 0.6rem 1.5rem !important;
+  /* Liquid glass effect */
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  color: var(--text-primary) !important;
+  cursor: pointer;
+  position: relative;
+  margin: 0 !important;
+}
+
+.category-tab-btn.active {
+  /* Enhanced liquid glass for active state */
+  backdrop-filter: blur(20px) saturate(180%) brightness(1.1);
+  -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.1);
+  background: rgba(102, 126, 234, 0.2) !important;
+  border: 1px solid rgba(102, 126, 234, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3),
+    inset 0 1px 2px rgba(255, 255, 255, 0.3);
+  color: #667eea !important;
+  font-weight: 700;
+}
+
+.category-tab-btn:not(.active):hover {
+  backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+  -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.category-tab-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Dark mode glassmorphism adjustments */
+body.dark-mode .category-tab-btn {
+  background: rgba(30, 41, 59, 0.4) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .category-tab-btn.active {
+  background: rgba(96, 165, 250, 0.25) !important;
+  border: 1px solid rgba(96, 165, 250, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(96, 165, 250, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.15);
+  color: #60a5fa !important;
+}
+
+body.dark-mode .category-tab-btn:not(.active):hover {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Remove old button group styles */
+.category-tabs.btn-group,
+.category-tabs.btn-group .btn {
+  margin: 0 !important;
+  border-radius: 12px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .category-tabs-container {
+    gap: 0.5rem !important;
+  }
+
+  .category-tab-btn {
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem !important;
+  }
+
+  .category-tab-btn i {
+    display: none;
+  }
+}
+
+@media (max-width: 576px) {
+  .category-tabs-container {
+    flex-wrap: wrap;
   }
 }
