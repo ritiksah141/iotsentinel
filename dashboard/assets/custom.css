@@ -267,27 +267,127 @@ html:not(.is-scrolling) .glass-card {
     padding: 0 0.5rem;
   }
 
-  /* Custom checkbox styling */
-  .custom-checkbox input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent-color);
+  /* Remember Me & Forgot Password - Pill-shaped buttons aligned horizontally */
+
+  /* Container for horizontal alignment */
+  .auth-options-container {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 16px 0;
+  }
+
+  /* Remember Me - Pill-shaped button with green accent */
+  .custom-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     cursor: pointer;
+    user-select: none;
+    transition: all var(--transition-fast) ease;
+    background: color-mix(in srgb, var(--success-color) 15%, transparent);
+    padding: 12px 20px;
+    border-radius: 50px; /* Oval/pill shape */
+    border: 1px solid color-mix(in srgb, var(--success-color) 25%, transparent);
+    flex: 1;
+  }
+
+  .custom-checkbox:hover {
+    background: color-mix(in srgb, var(--success-color) 25%, transparent);
+    border-color: color-mix(in srgb, var(--success-color) 35%, transparent);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--success-color) 20%, transparent);
+  }
+
+  .custom-checkbox input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    accent-color: var(--success-color);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all var(--transition-fast) ease;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    -moz-appearance: checkbox;
+  }
+
+  .custom-checkbox label {
+    color: var(--text-primary) !important;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin: 0 !important;
+    transition: color var(--transition-fast) ease;
+  }
+
+  /* Dark mode for Remember Me */
+  body.dark-mode .custom-checkbox {
+    background: color-mix(in srgb, var(--dark-success) 20%, transparent);
+    border-color: color-mix(in srgb, var(--dark-success) 30%, transparent);
+  }
+
+  body.dark-mode .custom-checkbox:hover {
+    background: color-mix(in srgb, var(--dark-success) 30%, transparent);
+    border-color: color-mix(in srgb, var(--dark-success) 40%, transparent);
+  }
+
+  body.dark-mode .custom-checkbox label {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Forgot Password - Pill-shaped button with amber/warning accent */
+  a[id="forgot-password-link"],
+  a[href*="forgot"] {
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 12px 20px;
+    border-radius: 50px; /* Oval/pill shape */
+    transition: all var(--transition-fast) ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--warning-color) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning-color) 25%, transparent);
+    flex: 1;
+  }
+
+  a[id="forgot-password-link"]:hover,
+  a[href*="forgot"]:hover {
+    color: var(--text-primary) !important;
+    background: color-mix(in srgb, var(--warning-color) 25%, transparent);
+    border-color: color-mix(in srgb, var(--warning-color) 35%, transparent);
+    text-decoration: none !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--warning-color) 20%, transparent);
+  }
+
+  /* Dark mode for Forgot Password */
+  body.dark-mode a[id="forgot-password-link"],
+  body.dark-mode a[href*="forgot"] {
+    background: color-mix(in srgb, var(--dark-warning) 20%, transparent);
+    border-color: color-mix(in srgb, var(--dark-warning) 30%, transparent);
+    color: var(--dark-text-primary) !important;
+  }
+
+  body.dark-mode a[id="forgot-password-link"]:hover,
+  body.dark-mode a[href*="forgot"]:hover {
+    background: color-mix(in srgb, var(--dark-warning) 30%, transparent);
+    border-color: color-mix(in srgb, var(--dark-warning) 40%, transparent);
+    color: var(--dark-text-primary) !important;
   }
 
   /* Input focus animations */
   .form-control:focus {
     border-color: var(--accent-color) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 10%, transparent) !important;
     transform: translateY(-1px);
     transition: all 0.2s ease;
   }
 
-  /* Forgot password link hover */
-  a[id="forgot-password-link"]:hover {
-    color: var(--accent-secondary) !important;
-    text-decoration: underline !important;
-  }
 
   /* Password strength meter colors */
   .password-weak {
@@ -322,17 +422,17 @@ html:not(.is-scrolling) .glass-card {
   }
 
   .cyber-button-modern {
-    background: rgba(59, 130, 246, 0.2) !important;
+    background: color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
     backdrop-filter: blur(var(--blur-medium)) !important;
     -webkit-backdrop-filter: blur(var(--blur-medium)) !important;
-    border: 1px solid rgba(59, 130, 246, 0.3) !important;
-    color: #3b82f6 !important;
+    border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+    color: var(--accent-color) !important;
     font-weight: 600;
   }
 
   .cyber-button-modern:hover:not(:disabled) {
-    background: rgba(59, 130, 246, 0.3) !important;
-    border-color: rgba(59, 130, 246, 0.4) !important;
+    background: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+    border-color: color-mix(in srgb, var(--accent-color) 40%, transparent) !important;
     box-shadow: var(--shadow-md) !important;
   }
 
@@ -448,18 +548,18 @@ html:not(.is-scrolling) .glass-card {
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
-    background: rgba(59, 130, 246, 0.2) !important;
+    background: color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
     backdrop-filter: blur(var(--blur-medium)) !important;
     -webkit-backdrop-filter: blur(var(--blur-medium)) !important;
-    border: 1px solid rgba(59, 130, 246, 0.3) !important;
-    color: #3b82f6 !important;
+    border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+    color: var(--accent-color) !important;
     font-weight: 600;
   }
 
   .cyber-button-modern:hover:not(:disabled) {
     transform: translateY(-2px);
-    background: rgba(59, 130, 246, 0.3) !important;
-    border-color: rgba(59, 130, 246, 0.4) !important;
+    background: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+    border-color: color-mix(in srgb, var(--accent-color) 40%, transparent) !important;
     box-shadow: var(--shadow-md) !important;
   }
 
@@ -516,7 +616,14 @@ html:not(.is-scrolling) .glass-card {
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+    background: var(--light-gradient-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  body.dark-mode .text-gradient {
+    background: linear-gradient(135deg, var(--dark-accent) 0%, var(--dark-accent-secondary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -1458,7 +1565,7 @@ body.dark-mode .glass-heading-container {
 }
 
 /* ============================================================================
- * GLASSMORPHIC FORMS AND INPUTS
+ * GLASSMORPHIC FORMS AND INPUTS - Fully Adaptive Dark Mode
  * ============================================================================ */
 
 .form-control,
@@ -1469,11 +1576,11 @@ input[type="password"],
 input[type="number"],
 select,
 textarea {
-  background: var(--glass-bg-light);
+  background: var(--bg-secondary) !important;
   backdrop-filter: blur(var(--blur-medium)) saturate(180%);
   -webkit-backdrop-filter: blur(var(--blur-medium)) saturate(180%);
-  border: 1px solid var(--glass-border-light);
-  color: var(--text-primary);
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
   border-radius: var(--radius-sm);
   padding: 12px 16px;
   transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
@@ -1485,25 +1592,40 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  background: var(--glass-bg-medium);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.05), var(--shadow-md);
+  background: var(--bg-tertiary) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 5%, transparent), var(--shadow-md) !important;
   outline: none;
   transform: translateY(-1px);
   backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
   -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(200%);
+  color: var(--text-primary) !important;
 }
 
 .form-label {
-  color: var(--text-primary);
+  color: var(--text-primary) !important;
   font-weight: 600;
   margin-bottom: 8px;
   font-size: 0.95rem;
 }
 
 ::placeholder {
-  color: var(--text-secondary);
-  opacity: 0.6;
+  color: var(--text-secondary) !important;
+  opacity: 0.7;
+}
+
+/* Dark mode specific adjustments for better visibility */
+body.dark-mode .form-control,
+body.dark-mode .cyber-input,
+body.dark-mode input[type="text"],
+body.dark-mode input[type="email"],
+body.dark-mode input[type="password"],
+body.dark-mode input[type="number"],
+body.dark-mode select,
+body.dark-mode textarea {
+  background: var(--dark-bg-secondary) !important;
+  border-color: var(--dark-border) !important;
+  color: var(--dark-text-primary) !important;
 }
 
 /* ============================================================================
@@ -6818,8 +6940,13 @@ body.dark-mode .spotlight-floating-button kbd {
   cursor: pointer;
 }
 
+.spotlight-result-card {
+  transition: all var(--transition-fast) ease;
+}
+
 .spotlight-result-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: var(--shadow-lg) !important;
 }
 
 .spotlight-result-selected {
@@ -6832,6 +6959,195 @@ body.dark-mode .spotlight-result-selected {
   background: rgba(96, 165, 250, 0.15) !important;
   border-color: var(--dark-accent) !important;
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2) !important;
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - ENHANCED FEATURES
+ * ============================================================================ */
+
+/* Top Hit Card - Prominent styling using theme variables */
+.spotlight-top-hit-card {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--success-color) 5%, transparent),
+    color-mix(in srgb, var(--accent-color) 5%, transparent)
+  ) !important;
+  border: 2px solid color-mix(in srgb, var(--success-color) 30%, transparent) !important;
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--success-color) 15%, transparent) !important;
+}
+
+.spotlight-top-hit-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--success-color) 25%, transparent) !important;
+}
+
+body.dark-mode .spotlight-top-hit-card {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--success-color) 8%, transparent),
+    color-mix(in srgb, var(--accent-color) 8%, transparent)
+  ) !important;
+  border: 2px solid color-mix(in srgb, var(--success-color) 40%, transparent) !important;
+}
+
+/* Top Hit Badge using theme gradient */
+.spotlight-top-hit-badge {
+  font-weight: 600;
+  font-size: 0.7rem !important;
+  padding: 4px 10px !important;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--light-gradient-success) !important;
+  border: none !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--success-color) 30%, transparent);
+}
+
+body.dark-mode .spotlight-top-hit-badge {
+  background: linear-gradient(135deg, var(--dark-success), color-mix(in srgb, var(--dark-success) 80%, #000)) !important;
+}
+
+/* Category Headers using theme variables */
+.spotlight-category-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Category Badge in results */
+.spotlight-category-badge {
+  font-size: 0.75rem !important;
+  font-weight: 500;
+  padding: 4px 10px !important;
+  cursor: pointer;
+  transition: all var(--transition-fast) ease;
+}
+
+.spotlight-category-badge:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+/* Result Count */
+.spotlight-result-count {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Recent Search Badges using theme variables */
+.spotlight-recent-search-badge {
+  transition: all var(--transition-fast) ease;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.spotlight-recent-search-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
+}
+
+/* Enhanced Visual Hierarchy - Larger icons for top results */
+.spotlight-top-hit-card .spotlight-result-icon {
+  width: 64px;
+  height: 64px;
+}
+
+/* Preview Expansion on Hover using theme variables */
+.spotlight-result-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.spotlight-result-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--accent-color) 10%, transparent),
+    transparent
+  );
+  transition: left var(--transition-medium) ease;
+}
+
+body.dark-mode .spotlight-result-card::before {
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--dark-accent) 15%, transparent),
+    transparent
+  );
+}
+
+.spotlight-result-card:hover::before {
+  left: 100%;
+}
+
+/* Category Filter Badges using theme variables */
+.spotlight-filter-badge {
+  font-weight: 500;
+  padding: 6px 12px !important;
+  transition: all var(--transition-fast) ease;
+  border: 1px solid transparent;
+}
+
+.spotlight-filter-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.spotlight-filter-badge.badge-primary {
+  background: var(--light-gradient-accent) !important;
+  border-color: var(--accent-color);
+}
+
+body.dark-mode .spotlight-filter-badge.badge-primary {
+  background: linear-gradient(135deg, var(--dark-accent), color-mix(in srgb, var(--dark-accent) 80%, #000)) !important;
+  border-color: var(--dark-accent);
+}
+
+/* Filter badges - inactive state with high contrast */
+.badge.badge-light.spotlight-filter-badge,
+.spotlight-filter-badge.badge-light {
+  background: rgba(240, 240, 240, 0.9) !important;
+  color: #000000 !important; /* Pure black text for light mode */
+  border: 1px solid rgba(0, 0, 0, 0.15) !important;
+  font-weight: 600 !important;
+}
+
+body.dark-mode .badge.badge-light.spotlight-filter-badge,
+body.dark-mode .spotlight-filter-badge.badge-light {
+  background: var(--bg-secondary) !important;
+  color: #ffffff !important; /* Pure white text for dark mode */
+  border: 1px solid var(--border-color) !important;
+}
+
+.badge.badge-light.spotlight-filter-badge:hover,
+.spotlight-filter-badge.badge-light:hover {
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent) !important;
+  color: var(--accent-color) !important;
+  transform: translateY(-1px);
+}
+
+/* Clear recent searches button styling */
+#spotlight-clear-recent-searches {
+  font-size: 0.8rem !important;
+  font-weight: 500;
+  padding: 4px 8px !important;
+  text-decoration: none !important;
+  transition: all var(--transition-fast) ease;
+}
+
+#spotlight-clear-recent-searches:hover {
+  text-decoration: none !important;
+  transform: scale(1.05);
+  opacity: 0.8;
 }
 
 .spotlight-result-icon {

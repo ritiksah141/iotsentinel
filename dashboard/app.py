@@ -1728,7 +1728,7 @@ login_layout = dbc.Container([
                 # Features list with badge design
                 html.Div([
                     html.Div([
-                        html.I(className="fa fa-network-wired", style={
+                        html.I(className="fa fa-diagram-project", style={
                             "fontSize": "1.5rem",
                             "color": "#667eea",
                             "marginBottom": "0.4rem"
@@ -1772,7 +1772,7 @@ login_layout = dbc.Container([
                     }),
 
                     html.Div([
-                        html.I(className="fa fa-chart-line", style={
+                        html.I(className="fa fa-chart-network", style={
                             "fontSize": "1.5rem",
                             "color": "#4facfe",
                             "marginBottom": "0.4rem"
@@ -1794,7 +1794,7 @@ login_layout = dbc.Container([
                     }),
 
                     html.Div([
-                        html.I(className="fa fa-tachometer-alt", style={
+                        html.I(className="fa fa-gauge-high", style={
                             "fontSize": "1.5rem",
                             "color": "#10b981",
                             "marginBottom": "0.4rem"
@@ -1825,7 +1825,7 @@ login_layout = dbc.Container([
                 # Trust Signals & Security Badges
                 html.Div([
                     html.Div([
-                        html.I(className="fa fa-shield-alt", style={
+                        html.I(className="fa fa-shield-halved", style={
                             "fontSize": "1.5rem",
                             "color": "#10b981",
                             "marginBottom": "0.4rem"
@@ -1847,7 +1847,7 @@ login_layout = dbc.Container([
                     }),
 
                     html.Div([
-                        html.I(className="fa fa-lock", style={
+                        html.I(className="fa fa-shield-keyhole", style={
                             "fontSize": "1.5rem",
                             "color": "#3b82f6",
                             "marginBottom": "0.4rem"
@@ -1977,29 +1977,16 @@ login_layout = dbc.Container([
                                     html.Div([
                                         dbc.Checkbox(
                                             id="remember-me-checkbox",
-                                            label="Remember me for 7 days",
-                                            value=False,
-                                            className="custom-checkbox",
-                                            style={"fontSize": "0.9rem"}
+                                            label="Remember me",
+                                            value=False
                                         )
-                                    ], style={"flex": "1"}),
-                                    html.Div([
-                                        html.A(
-                                            "Forgot password?",
-                                            id="forgot-password-link",
-                                            href="#",
-                                            style={
-                                                "color": "var(--accent-color)",
-                                                "fontSize": "0.9rem",
-                                                "textDecoration": "none",
-                                                "cursor": "pointer",
-                                                "fontWeight": "500"
-                                            }
-                                        )
-                                    ], style={"textAlign": "right"})
-                                ], className="d-flex justify-content-between align-items-center mb-3", style={
-                                    "marginTop": "0.75rem"
-                                }),
+                                    ], className="custom-checkbox"),
+                                    html.A(
+                                        "Forgot password?",
+                                        id="forgot-password-link",
+                                        href="#"
+                                    )
+                                ], className="auth-options-container"),
 
                                 # Login Button
                                 dbc.Button(
@@ -2384,17 +2371,17 @@ login_layout = dbc.Container([
 # Universal Search Feature Catalog for Spotlight-like navigation
 SEARCH_FEATURE_CATALOG = [
     # Analytics (2 features)
-    {"id": "analytics-modal", "name": "Analytics Dashboard", "description": "View security status, alert timelines, anomaly distribution, and device analytics", "icon": "fa-chart-line", "category": "Analytics", "keywords": ["analytics", "charts", "statistics", "security status", "alerts", "anomaly", "insights", "visualization", "viz"], "action_type": "modal"},
-    {"id": "risk-heatmap-modal", "name": "Risk Heatmap", "description": "Visual heatmap showing network risk distribution and vulnerable areas", "icon": "fa-fire", "category": "Analytics", "keywords": ["risk", "heatmap", "visualization", "viz", "vulnerable", "areas", "security"], "action_type": "modal"},
+    {"id": "analytics-modal", "name": "Analytics Dashboard", "description": "View security status, alert timelines, anomaly distribution, and device analytics", "icon": "fa-chart-pie", "category": "Analytics", "keywords": ["analytics", "charts", "statistics", "security status", "alerts", "anomaly", "insights", "visualization", "viz"], "action_type": "modal"},
+    {"id": "risk-heatmap-modal", "name": "Risk Heatmap", "description": "Visual heatmap showing network risk distribution and vulnerable areas", "icon": "fa-fire-flame-curved", "category": "Analytics", "keywords": ["risk", "heatmap", "visualization", "viz", "vulnerable", "areas", "security"], "action_type": "modal"},
     # Device Management (2 features)
-    {"id": "device-mgmt-modal", "name": "Device Management", "description": "Manage network devices, trust levels, groups, and device information", "icon": "fa-network-wired", "category": "Device Management", "keywords": ["devices", "manage", "trust", "network", "groups", "mac", "ip"], "action_type": "modal"},
-    {"id": "user-modal", "name": "User Management", "description": "Manage user accounts, roles, permissions, and access control (Admin only)", "icon": "fa-users-cog", "category": "Device Management", "keywords": ["users", "accounts", "roles", "admin", "permissions", "access"], "action_type": "modal"},
+    {"id": "device-mgmt-modal", "name": "Device Management", "description": "Manage network devices, trust levels, groups, and device information", "icon": "fa-diagram-project", "category": "Device Management", "keywords": ["devices", "manage", "trust", "network", "groups", "mac", "ip"], "action_type": "modal"},
+    {"id": "user-modal", "name": "User Management", "description": "Manage user accounts, roles, permissions, and access control (Admin only)", "icon": "fa-users-gear", "category": "Device Management", "keywords": ["users", "accounts", "roles", "admin", "permissions", "access"], "action_type": "modal"},
     # Security (5 features)
-    {"id": "firewall-modal", "name": "Firewall Rules", "description": "Configure and manage firewall rules for network protection", "icon": "fa-shield-alt", "category": "Security", "keywords": ["firewall", "rules", "protection", "block", "allow", "security"], "action_type": "modal"},
-    {"id": "threat-modal", "name": "Threat Intelligence", "description": "View threat analysis, malicious IPs, and security intelligence data", "icon": "fa-bug", "category": "Security", "keywords": ["threat", "intelligence", "malicious", "ips", "security", "analysis"], "action_type": "modal"},
-    {"id": "vuln-scanner-modal", "name": "Vulnerability Scanner", "description": "Scan network for vulnerabilities and security weaknesses", "icon": "fa-search", "category": "Security", "keywords": ["vulnerability", "scanner", "scan", "weaknesses", "security", "cve"], "action_type": "modal"},
-    {"id": "privacy-modal", "name": "Privacy Monitor", "description": "Monitor privacy risks, data exposure, and privacy score", "icon": "fa-user-secret", "category": "Security", "keywords": ["privacy", "monitor", "data", "exposure", "score", "risks"], "action_type": "modal"},
-    {"id": "compliance-modal", "name": "Compliance Dashboard", "description": "Track compliance with security standards and regulations", "icon": "fa-clipboard-check", "category": "Security", "keywords": ["compliance", "standards", "regulations", "gdpr", "hipaa", "audit"], "action_type": "modal"},
+    {"id": "firewall-modal", "name": "Firewall Rules", "description": "Configure and manage firewall rules for network protection", "icon": "fa-shield-halved", "category": "Security", "keywords": ["firewall", "rules", "protection", "block", "allow", "security"], "action_type": "modal"},
+    {"id": "threat-modal", "name": "Threat Intelligence", "description": "View threat analysis, malicious IPs, and security intelligence data", "icon": "fa-shield-virus", "category": "Security", "keywords": ["threat", "intelligence", "malicious", "ips", "security", "analysis"], "action_type": "modal"},
+    {"id": "vuln-scanner-modal", "name": "Vulnerability Scanner", "description": "Scan network for vulnerabilities and security weaknesses", "icon": "fa-magnifying-glass-chart", "category": "Security", "keywords": ["vulnerability", "scanner", "scan", "weaknesses", "security", "cve"], "action_type": "modal"},
+    {"id": "privacy-modal", "name": "Privacy Monitor", "description": "Monitor privacy risks, data exposure, and privacy score", "icon": "fa-user-shield", "category": "Security", "keywords": ["privacy", "monitor", "data", "exposure", "score", "risks"], "action_type": "modal"},
+    {"id": "compliance-modal", "name": "Compliance Dashboard", "description": "Track compliance with security standards and regulations", "icon": "fa-list-check", "category": "Security", "keywords": ["compliance", "standards", "regulations", "gdpr", "hipaa", "audit"], "action_type": "modal"},
     # System & Configuration (5 features)
     {"id": "system-modal", "name": "System Information", "description": "View system resources, performance metrics, and hardware details", "icon": "fa-server", "category": "System", "keywords": ["system", "resources", "performance", "cpu", "memory", "hardware"], "action_type": "modal"},
     {"id": "email-modal", "name": "Email Notifications", "description": "Configure SMTP settings and email alert preferences", "icon": "fa-envelope", "category": "System", "keywords": ["email", "smtp", "notifications", "alerts", "mail", "settings"], "action_type": "modal"},
@@ -2402,42 +2389,42 @@ SEARCH_FEATURE_CATALOG = [
     {"id": "quick-settings-modal", "name": "Quick Settings", "description": "Fast access to common settings: network, notifications, display, and performance", "icon": "fa-cog", "category": "System", "keywords": ["quick", "settings", "config", "preferences", "network", "notifications"], "action_type": "modal"},
     {"id": "profile-edit-modal", "name": "Edit Profile", "description": "Update your user profile, password, and account settings", "icon": "fa-user-edit", "category": "System", "keywords": ["profile", "edit", "account", "password", "settings", "user"], "action_type": "modal"},
     # IoT Features (4 features)
-    {"id": "smarthome-modal", "name": "Smart Home Hub Detection", "description": "Detect and manage smart home hubs and IoT devices", "icon": "fa-home", "category": "IoT", "keywords": ["smart home", "hub", "iot", "devices", "detection", "alexa", "google home"], "action_type": "modal"},
-    {"id": "segmentation-modal", "name": "Network Segmentation", "description": "Configure network segmentation and VLAN isolation for IoT devices", "icon": "fa-project-diagram", "category": "IoT", "keywords": ["segmentation", "vlan", "isolation", "network", "iot", "zones"], "action_type": "modal"},
+    {"id": "smarthome-modal", "name": "Smart Home Hub Detection", "description": "Detect and manage smart home hubs and IoT devices", "icon": "fa-house-signal", "category": "IoT", "keywords": ["smart home", "hub", "iot", "devices", "detection", "alexa", "google home"], "action_type": "modal"},
+    {"id": "segmentation-modal", "name": "Network Segmentation", "description": "Configure network segmentation and VLAN isolation for IoT devices", "icon": "fa-layer-group", "category": "IoT", "keywords": ["segmentation", "vlan", "isolation", "network", "iot", "zones"], "action_type": "modal"},
     {"id": "firmware-modal", "name": "Firmware Management", "description": "Track device firmware versions and security updates", "icon": "fa-microchip", "category": "IoT", "keywords": ["firmware", "updates", "versions", "security", "patches", "iot"], "action_type": "modal"},
-    {"id": "protocol-modal", "name": "Protocol Analyzer", "description": "Analyze network protocols and IoT communication patterns", "icon": "fa-sitemap", "category": "IoT", "keywords": ["protocol", "analyzer", "mqtt", "http", "coap", "communication", "iot"], "action_type": "modal"},
+    {"id": "protocol-modal", "name": "Protocol Analyzer", "description": "Analyze network protocols and IoT communication patterns", "icon": "fa-network-wired", "category": "IoT", "keywords": ["protocol", "analyzer", "mqtt", "http", "coap", "communication", "iot"], "action_type": "modal"},
     # Intelligence & Analysis (4 features)
-    {"id": "threat-map-modal", "name": "3D Threat Map", "description": "Interactive 3D visualization of global threat origins and attack patterns", "icon": "fa-globe", "category": "Intelligence", "keywords": ["threat", "map", "3d", "visualization", "viz", "global", "attacks", "origins"], "action_type": "modal"},
-    {"id": "attack-surface-modal", "name": "Attack Surface Analysis", "description": "Analyze exposed services, open ports, and potential attack vectors", "icon": "fa-crosshairs", "category": "Intelligence", "keywords": ["attack", "surface", "analysis", "ports", "services", "exposure", "vectors"], "action_type": "modal"},
-    {"id": "forensic-timeline-modal", "name": "Forensic Timeline", "description": "Detailed forensic timeline for incident investigation and analysis", "icon": "fa-search-plus", "category": "Intelligence", "keywords": ["forensic", "timeline", "investigation", "incident", "analysis", "events", "visualization", "viz"], "action_type": "modal"},
-    {"id": "auto-response-modal", "name": "Automated Response", "description": "Configure automated responses to security threats and incidents", "icon": "fa-robot", "category": "Intelligence", "keywords": ["automated", "response", "automation", "threats", "incident", "action"], "action_type": "modal"},
+    {"id": "threat-map-modal", "name": "3D Threat Map", "description": "Interactive 3D visualization of global threat origins and attack patterns", "icon": "fa-earth-americas", "category": "Intelligence", "keywords": ["threat", "map", "3d", "visualization", "viz", "global", "attacks", "origins"], "action_type": "modal"},
+    {"id": "attack-surface-modal", "name": "Attack Surface Analysis", "description": "Analyze exposed services, open ports, and potential attack vectors", "icon": "fa-bullseye", "category": "Intelligence", "keywords": ["attack", "surface", "analysis", "ports", "services", "exposure", "vectors"], "action_type": "modal"},
+    {"id": "forensic-timeline-modal", "name": "Forensic Timeline", "description": "Detailed forensic timeline for incident investigation and analysis", "icon": "fa-microscope", "category": "Intelligence", "keywords": ["forensic", "timeline", "investigation", "incident", "analysis", "events", "visualization", "viz"], "action_type": "modal"},
+    {"id": "auto-response-modal", "name": "Automated Response", "description": "Configure automated responses to security threats and incidents", "icon": "fa-wand-magic-sparkles", "category": "Intelligence", "keywords": ["automated", "response", "automation", "threats", "incident", "action"], "action_type": "modal"},
     # Notifications & Alerts (3 features)
-    {"id": "alert-details-modal", "name": "Alert Details", "description": "View detailed information about security alerts and incidents", "icon": "fa-exclamation-triangle", "category": "Notifications", "keywords": ["alert", "details", "incident", "security", "notification", "warning"], "action_type": "modal"},
-    {"id": "toast-history-modal", "name": "Toast History", "description": "View complete history of toast notifications with filtering", "icon": "fa-history", "category": "Notifications", "keywords": ["toast", "history", "notifications", "messages", "log"], "action_type": "modal"},
-    {"id": "toast-detail-modal", "name": "Toast Details", "description": "View detailed information about a specific toast notification", "icon": "fa-info-circle", "category": "Notifications", "keywords": ["toast", "details", "notification", "info", "message"], "action_type": "modal"},
+    {"id": "alert-details-modal", "name": "Alert Details", "description": "View detailed information about security alerts and incidents", "icon": "fa-triangle-exclamation", "category": "Notifications", "keywords": ["alert", "details", "incident", "security", "notification", "warning"], "action_type": "modal"},
+    {"id": "toast-history-modal", "name": "Toast History", "description": "View complete history of toast notifications with filtering", "icon": "fa-clock-rotate-left", "category": "Notifications", "keywords": ["toast", "history", "notifications", "messages", "log"], "action_type": "modal"},
+    {"id": "toast-detail-modal", "name": "Toast Details", "description": "View detailed information about a specific toast notification", "icon": "fa-circle-info", "category": "Notifications", "keywords": ["toast", "details", "notification", "info", "message"], "action_type": "modal"},
     # Performance & Monitoring (2 features)
-    {"id": "performance-modal", "name": "Performance Analytics", "description": "Monitor network performance, latency, and throughput metrics", "icon": "fa-tachometer-alt", "category": "Performance", "keywords": ["performance", "analytics", "latency", "throughput", "metrics", "monitoring"], "action_type": "modal"},
-    {"id": "benchmark-modal", "name": "Security Benchmark", "description": "Compare your security posture against industry benchmarks", "icon": "fa-chart-bar", "category": "Performance", "keywords": ["benchmark", "security", "comparison", "standards", "posture", "metrics"], "action_type": "modal"},
+    {"id": "performance-modal", "name": "Performance Analytics", "description": "Monitor network performance, latency, and throughput metrics", "icon": "fa-gauge-high", "category": "Performance", "keywords": ["performance", "analytics", "latency", "throughput", "metrics", "monitoring"], "action_type": "modal"},
+    {"id": "benchmark-modal", "name": "Security Benchmark", "description": "Compare your security posture against industry benchmarks", "icon": "fa-chart-column", "category": "Performance", "keywords": ["benchmark", "security", "comparison", "standards", "posture", "metrics"], "action_type": "modal"},
     # Other Features (7 features)
-    {"id": "education-modal", "name": "Security Education", "description": "Learn about threat scenarios, security best practices, and educational content", "icon": "fa-graduation-cap", "category": "Education", "keywords": ["education", "learning", "security", "threats", "best practices", "training"], "action_type": "modal"},
+    {"id": "education-modal", "name": "Security Education", "description": "Learn about threat scenarios, security best practices, and educational content", "icon": "fa-user-graduate", "category": "Education", "keywords": ["education", "learning", "security", "threats", "best practices", "training"], "action_type": "modal"},
     {"id": "api-hub-modal", "name": "API Hub", "description": "Access API documentation and integration endpoints", "icon": "fa-code", "category": "Developer", "keywords": ["api", "hub", "documentation", "integration", "endpoints", "developer"], "action_type": "modal"},
-    {"id": "quick-actions-modal", "name": "Quick Actions", "description": "Fast access to common actions: scan, export, backup, and system controls", "icon": "fa-bolt", "category": "Actions", "keywords": ["quick", "actions", "scan", "export", "backup", "controls"], "action_type": "modal"},
-    {"id": "customize-layout-modal", "name": "Customize Layout", "description": "Customize dashboard layout, widgets visibility, and display density", "icon": "fa-cogs", "category": "Customization", "keywords": ["customize", "layout", "widgets", "visibility", "density", "display"], "action_type": "modal"},
+    {"id": "quick-actions-modal", "name": "Quick Actions", "description": "Fast access to common actions: scan, export, backup, and system controls", "icon": "fa-bolt-lightning", "category": "Actions", "keywords": ["quick", "actions", "scan", "export", "backup", "controls"], "action_type": "modal"},
+    {"id": "customize-layout-modal", "name": "Customize Layout", "description": "Customize dashboard layout, widgets visibility, and display density", "icon": "fa-gears", "category": "Customization", "keywords": ["customize", "layout", "widgets", "visibility", "density", "display"], "action_type": "modal"},
     {"id": "chat-modal", "name": "AI Assistant", "description": "Chat with AI assistant for network security guidance and troubleshooting", "icon": "fa-robot", "category": "Assistance", "keywords": ["ai", "assistant", "chat", "help", "guidance", "troubleshooting"], "action_type": "modal"},
-    {"id": "onboarding-modal", "name": "Onboarding Tour", "description": "Interactive tour of dashboard features and capabilities", "icon": "fa-play-circle", "category": "Help", "keywords": ["onboarding", "tour", "tutorial", "guide", "help", "introduction"], "action_type": "modal"},
-    {"id": "lockdown-modal", "name": "Lockdown Mode", "description": "Emergency lockdown mode to block all untrusted devices", "icon": "fa-lock", "category": "Emergency", "keywords": ["lockdown", "emergency", "block", "security", "protection", "untrusted"], "action_type": "modal"}
+    {"id": "onboarding-modal", "name": "Onboarding Tour", "description": "Interactive tour of dashboard features and capabilities", "icon": "fa-circle-play", "category": "Help", "keywords": ["onboarding", "tour", "tutorial", "guide", "help", "introduction"], "action_type": "modal"},
+    {"id": "lockdown-modal", "name": "Lockdown Mode", "description": "Emergency lockdown mode to block all untrusted devices", "icon": "fa-shield-keyhole", "category": "Emergency", "keywords": ["lockdown", "emergency", "block", "security", "protection", "untrusted"], "action_type": "modal"}
 ]
 
-def create_spotlight_result_item(feature, index, is_selected=False):
-    """Create a single search result item for spotlight search"""
+def create_spotlight_result_item(feature, index, is_selected=False, is_top_hit=False):
+    """Create a single search result item for spotlight search with enhanced metadata"""
     return html.Div([
         dbc.Card([
             dbc.CardBody([
                 dbc.Row([
-                    # Icon
+                    # Icon (larger for top hit)
                     dbc.Col([
                         html.Div([
-                            html.I(className=f"fa {feature['icon']} fa-2x",
+                            html.I(className=f"fa {feature['icon']} {'fa-3x' if is_top_hit else 'fa-2x'}",
                                   style={"color": "var(--accent-color)"})
                         ], className="spotlight-result-icon")
                     ], width=2, className="d-flex align-items-center justify-content-center"),
@@ -2445,12 +2432,20 @@ def create_spotlight_result_item(feature, index, is_selected=False):
                     # Content
                     dbc.Col([
                         html.Div([
-                            html.H6(feature['name'], className="mb-1 fw-bold"),
+                            # Top Hit Badge + Name
+                            html.Div([
+                                dbc.Badge("Top Hit", color="success", className="me-2 spotlight-top-hit-badge",
+                                         style={"display": "inline-block"}) if is_top_hit else None,
+                                html.H6(feature['name'],
+                                       className="d-inline-block mb-1 fw-bold",
+                                       style={"fontSize": "1.1rem" if is_top_hit else "1rem"})
+                            ], className="mb-1"),
                             html.P(feature['description'],
-                                  className="mb-1 text-muted small"),
+                                  className="mb-1 text-muted small",
+                                  style={"fontSize": "0.9rem" if is_top_hit else "0.85rem"}),
                             dbc.Badge(feature['category'],
                                      color="info",
-                                     className="me-2",
+                                     className="me-2 spotlight-category-badge",
                                      pill=True)
                         ])
                     ], width=8),
@@ -2469,7 +2464,7 @@ def create_spotlight_result_item(feature, index, is_selected=False):
                     ], width=2, className="d-flex align-items-center justify-content-end")
                 ])
             ], className="p-3")
-        ], className=f"spotlight-result-card {'spotlight-result-selected' if is_selected else ''} mb-2")
+        ], className=f"spotlight-result-card {'spotlight-top-hit-card' if is_top_hit else ''} {'spotlight-result-selected' if is_selected else ''} mb-2")
     ],
     id={"type": "spotlight-result-item", "index": index},
     className="spotlight-result-wrapper"
@@ -2686,7 +2681,7 @@ dashboard_layout = dbc.Container([
             # Network Activity Card (moved above devices)
             dbc.Card([
                 dbc.CardHeader([
-                    html.I(className="fa fa-chart-line me-2", style={"color": "#6366f1"}),
+                    html.I(className="fa fa-chart-network me-2", style={"color": "#6366f1"}),
                     html.Span("Network Activity", className="fw-bold")
                 ], className="bg-gradient-primary text-white", style={"padding": "0.5rem 0.75rem", "fontSize": "0.9rem"}),
                 dbc.CardBody([
@@ -3034,7 +3029,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-chart-line fa-4x mb-3", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-chart-pie fa-4x mb-3", style={"color": "#8b5cf6"}),
                             html.H4("Analytics & Deep Insights", className="fw-bold mb-2"),
                             html.P("AI-powered analytics, alerts timeline, anomaly detection, and bandwidth monitoring", className="text-muted mb-0")
                         ], className="text-center")
@@ -3064,7 +3059,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-shield-alt fa-2x mb-2", style={"color": "#ef4444"}),
+                            html.I(className="fa fa-shield-halved fa-2x mb-2", style={"color": "#ef4444"}),
                             html.H6("Firewall Control", className="fw-bold mb-1"),
                             html.P("Lockdown mode & security", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3079,7 +3074,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-mobile-alt fa-4x mb-3", style={"color": "#f59e0b"}),
+                            html.I(className="fa fa-diagram-project fa-4x mb-3", style={"color": "#f59e0b"}),
                             html.H4("Device Management", className="fw-bold mb-2"),
                             html.P("Manage all IoT devices with bulk operations and trust levels", className="text-muted mb-0")
                         ], className="text-center")
@@ -3109,7 +3104,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-users fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-users-gear fa-2x mb-2", style={"color": "#8b5cf6"}),
                             html.H6("User Management", className="fw-bold mb-1"),
                             html.P("Accounts & passwords", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3139,7 +3134,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-chart-line fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-timeline fa-2x mb-2", style={"color": "#8b5cf6"}),
                             html.H6("Timeline Viz", className="fw-bold mb-1"),
                             html.P("Activity history", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3154,7 +3149,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-graduation-cap fa-2x mb-2", style={"color": "#06b6d4"}),
+                            html.I(className="fa fa-user-graduate fa-2x mb-2", style={"color": "#06b6d4"}),
                             html.H6("Education", className="fw-bold mb-1"),
                             html.P("Security tips", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3184,7 +3179,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-broadcast-tower fa-3x mb-3", style={"color": "#06b6d4"}),
+                            html.I(className="fa fa-network-wired fa-3x mb-3", style={"color": "#06b6d4"}),
                             html.H5("IoT Protocol Analysis", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
                             html.P("MQTT, CoAP, Zigbee protocol monitoring", className="small text-muted mb-0")
                         ], className="text-center")
@@ -3199,7 +3194,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-shield-alt fa-2x mb-2", style={"color": "#ef4444"}),
+                            html.I(className="fa fa-shield-virus fa-2x mb-2", style={"color": "#ef4444"}),
                             html.H6("Threat Intelligence", className="fw-bold mb-1"),
                             html.P("Mirai, DDoS & botnet", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3214,7 +3209,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-lock fa-2x mb-2", style={"color": "#f59e0b"}),
+                            html.I(className="fa fa-user-shield fa-2x mb-2", style={"color": "#f59e0b"}),
                             html.H6("Privacy Monitor", className="fw-bold mb-1"),
                             html.P("Cloud tracking", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3229,7 +3224,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-home fa-3x mb-3", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-house-signal fa-3x mb-3", style={"color": "#8b5cf6"}),
                             html.H5("Smart Home Context", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
                             html.P("Hub management & ecosystem", className="small text-muted mb-0")
                         ], className="text-center")
@@ -3244,7 +3239,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-network-wired fa-2x mb-2", style={"color": "#10b981"}),
+                            html.I(className="fa fa-layer-group fa-2x mb-2", style={"color": "#10b981"}),
                             html.H6("Segmentation", className="fw-bold mb-1"),
                             html.P("VLAN & isolation", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3274,7 +3269,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-fire fa-2x mb-2", style={"color": "#f59e0b"}),
+                            html.I(className="fa fa-fire-flame-curved fa-2x mb-2", style={"color": "#f59e0b"}),
                             html.H6("Risk Heat Map", className="fw-bold mb-1"),
                             html.P("Device vulnerabilities", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3304,7 +3299,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-history fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-microscope fa-2x mb-2", style={"color": "#8b5cf6"}),
                             html.H6("Forensic Timeline", className="fw-bold mb-1"),
                             html.P("Attack reconstruction", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3319,7 +3314,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-clipboard-check fa-3x mb-3", style={"color": "#10b981"}),
+                            html.I(className="fa fa-list-check fa-3x mb-3", style={"color": "#10b981"}),
                             html.H5("Compliance Dashboard", className="fw-bold mb-2", style={"fontSize": "1.1rem"}),
                             html.P("GDPR, NIST, IoT Cybersecurity Act", className="small text-muted mb-0")
                         ], className="text-center")
@@ -3334,7 +3329,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-robot fa-2x mb-2", style={"color": "#6366f1"}),
+                            html.I(className="fa fa-wand-magic-sparkles fa-2x mb-2", style={"color": "#6366f1"}),
                             html.H6("Auto Response", className="fw-bold mb-1"),
                             html.P("Automated actions", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3349,7 +3344,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-bug fa-2x mb-2", style={"color": "#dc2626"}),
+                            html.I(className="fa fa-magnifying-glass-chart fa-2x mb-2", style={"color": "#dc2626"}),
                             html.H6("Vuln Scanner", className="fw-bold mb-1"),
                             html.P("CVE & firmware check", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3364,7 +3359,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-plug fa-2x mb-2", style={"color": "#8b5cf6"}),
+                            html.I(className="fa fa-code fa-2x mb-2", style={"color": "#8b5cf6"}),
                             html.H6("API Hub", className="fw-bold mb-1"),
                             html.P("Threat intel APIs", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3379,7 +3374,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-chart-bar fa-2x mb-2", style={"color": "#10b981"}),
+                            html.I(className="fa fa-chart-column fa-2x mb-2", style={"color": "#10b981"}),
                             html.H6("Benchmarking", className="fw-bold mb-1"),
                             html.P("Industry comparison", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3394,7 +3389,7 @@ dashboard_layout = dbc.Container([
                 dbc.Card([
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-tachometer-alt fa-2x mb-2", style={"color": "#06b6d4"}),
+                            html.I(className="fa fa-gauge-high fa-2x mb-2", style={"color": "#06b6d4"}),
                             html.H6("Performance", className="fw-bold mb-1"),
                             html.P("Latency & throughput", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
                         ], className="text-center")
@@ -3424,7 +3419,7 @@ dashboard_layout = dbc.Container([
     # Analytics Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-chart-line me-2 text-primary"),
+            html.I(className="fa fa-chart-pie me-2 text-primary"),
             "Analytics & Deep Insights"
         ]), close_button=True),
         dbc.ModalBody([
@@ -3434,7 +3429,7 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-shield-alt me-2 text-success"), "IoT Security Status"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-shield-halved me-2 text-success"), "IoT Security Status"], className="mb-3"),
                                 html.Div(id='iot-security-widget')
                             ])
                         ], className="glass-card border-0 shadow-sm")
@@ -4054,7 +4049,7 @@ dashboard_layout = dbc.Container([
     # Firewall Control Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-shield-alt me-2"),
+            html.I(className="fa fa-shield-halved me-2"),
             "Firewall Control"
         ]), close_button=True),
         dbc.ModalBody([
@@ -4323,7 +4318,7 @@ dashboard_layout = dbc.Container([
     # User Management Modal (Admin Only) - Enhanced Design
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-users-cog me-2 text-primary"),
+            html.I(className="fa fa-users-gear me-2 text-primary"),
             "User Management"
         ])),
         dbc.ModalBody([
@@ -4485,7 +4480,7 @@ dashboard_layout = dbc.Container([
     # Device Management Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-mobile-alt me-2 text-primary"),
+            html.I(className="fa fa-diagram-project me-2 text-primary"),
             "Device Management"
         ]), close_button=True),
         dbc.ModalBody([
@@ -4994,7 +4989,7 @@ dashboard_layout = dbc.Container([
     # IoT Protocol Analysis Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-broadcast-tower me-2 text-info"),
+            html.I(className="fa fa-network-wired me-2 text-info"),
             "IoT Protocol Analysis - MQTT, CoAP & Zigbee Traffic"
         ]), close_button=True),
         dbc.ModalBody([
@@ -5163,7 +5158,7 @@ dashboard_layout = dbc.Container([
     # Threat Intelligence Modal - Enhanced
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-shield-alt me-2 text-danger"),
+            html.I(className="fa fa-shield-virus me-2 text-danger"),
             "IoT Threat Intelligence & Analysis"
         ]), close_button=True),
         dbc.ModalBody([
@@ -5300,7 +5295,7 @@ dashboard_layout = dbc.Container([
     # Device Timeline Visualization Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-chart-line me-2"),
+            html.I(className="fa fa-chart-network me-2"),
             "Device Activity Timeline"
         ])),
         dbc.ModalBody([
@@ -5356,7 +5351,7 @@ dashboard_layout = dbc.Container([
     # Privacy Monitoring Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-lock me-2 text-primary"),
+            html.I(className="fa fa-user-shield me-2 text-primary"),
             "Privacy Monitoring"
         ]), close_button=True),
         dbc.ModalBody([
@@ -5366,7 +5361,7 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-shield-alt me-2 text-success"), "Privacy Score Overview"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-user-shield me-2 text-success"), "Privacy Score Overview"], className="mb-3"),
 
                                 # Privacy Score Gauge - Dynamic
                                 dbc.Row([
@@ -5542,7 +5537,7 @@ dashboard_layout = dbc.Container([
     # Smart Home Context Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-home me-2 text-primary"),
+            html.I(className="fa fa-house-signal me-2 text-primary"),
             "Smart Home Context"
         ]), close_button=True),
         dbc.ModalBody([
@@ -5639,7 +5634,7 @@ dashboard_layout = dbc.Container([
     # Network Segmentation Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-network-wired me-2 text-primary"),
+            html.I(className="fa fa-layer-group me-2 text-primary"),
             "Network Segmentation - VLAN & Isolation Management"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6007,7 +6002,7 @@ dashboard_layout = dbc.Container([
     # Security Education Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-graduation-cap me-2 text-success"),
+            html.I(className="fa fa-user-graduate me-2 text-success"),
             "Security Education & Resources"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6220,7 +6215,7 @@ dashboard_layout = dbc.Container([
     # Geographic Threat Map Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-globe-americas me-2 text-danger"),
+            html.I(className="fa fa-earth-americas me-2 text-danger"),
             "Geographic Threat Map - Attack Origins"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6296,7 +6291,7 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-chart-line me-2 text-warning"), "Attack Timeline"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-chart-network me-2 text-warning"), "Attack Timeline"], className="mb-3"),
                                 html.Div(id='threat-map-details', children=[
                                     html.P("Attack timeline and detailed statistics", className="text-muted text-center py-4")
                                 ])
@@ -6321,7 +6316,7 @@ dashboard_layout = dbc.Container([
     # Device Risk Heat Map Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-fire me-2 text-warning"),
+            html.I(className="fa fa-fire-flame-curved me-2 text-warning"),
             "Device Risk Assessment Heat Map & Analysis"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6600,7 +6595,7 @@ dashboard_layout = dbc.Container([
     # Forensic Timeline Modal - Enhanced
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-history me-2 text-purple"),
+            html.I(className="fa fa-microscope me-2 text-purple"),
             "Forensic Timeline - Attack Reconstruction"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6763,7 +6758,7 @@ dashboard_layout = dbc.Container([
     # Timeline Visualization Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-chart-line me-2 text-primary"),
+            html.I(className="fa fa-timeline me-2 text-primary"),
             "Timeline Visualization - Activity History"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6864,7 +6859,7 @@ dashboard_layout = dbc.Container([
     # Compliance Dashboard Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-clipboard-check me-2 text-success"),
+            html.I(className="fa fa-list-check me-2 text-success"),
             "Compliance Dashboard"
         ]), close_button=True),
         dbc.ModalBody([
@@ -6950,7 +6945,7 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-shield-alt me-2 text-info"), "NIST Cybersecurity Framework"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-shield-halved me-2 text-info"), "NIST Cybersecurity Framework"], className="mb-3"),
                                 dbc.Alert([
                                     html.I(className="fa fa-info-circle me-2"),
                                     "NIST Cybersecurity Framework implementation and compliance status."
@@ -6993,7 +6988,7 @@ dashboard_layout = dbc.Container([
     # Automated Response Dashboard Modal - Enhanced with Tabs
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-robot me-2 text-primary"),
+            html.I(className="fa fa-wand-magic-sparkles me-2 text-primary"),
             "Automated Response Dashboard - Rule Management & Analytics"
         ]), close_button=True),
         dbc.ModalBody([
@@ -7105,7 +7100,7 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-chart-line me-2 text-purple"), "Rule Performance Analytics"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-chart-network me-2 text-purple"), "Rule Performance Analytics"], className="mb-3"),
 
                                 dbc.Alert([
                                     html.I(className="fa fa-info-circle me-2"),
@@ -7134,7 +7129,7 @@ dashboard_layout = dbc.Container([
     # Vulnerability Scanner Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-bug me-2 text-danger"),
+            html.I(className="fa fa-magnifying-glass-chart me-2 text-danger"),
             "Vulnerability Scanner - CVE Detection & Security Analysis"
         ]), close_button=True),
         dbc.ModalBody([
@@ -7271,7 +7266,7 @@ dashboard_layout = dbc.Container([
     # API Integration Hub Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-plug me-2 text-primary"),
+            html.I(className="fa fa-code me-2 text-primary"),
             "API Integration Hub"
         ])),
         dbc.ModalBody([
@@ -7287,7 +7282,7 @@ dashboard_layout = dbc.Container([
     # Benchmarking Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-chart-bar me-2 text-success"),
+            html.I(className="fa fa-chart-column me-2 text-success"),
             "Network Security Benchmarking & Compliance"
         ]), close_button=True),
         dbc.ModalBody([
@@ -7398,7 +7393,7 @@ dashboard_layout = dbc.Container([
     # Network Performance Analytics Modal - Enhanced
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-tachometer-alt me-2 text-info"),
+            html.I(className="fa fa-gauge-high me-2 text-info"),
             "Network Performance Analytics & Optimization"
         ]), close_button=True),
         dbc.ModalBody([
@@ -7916,7 +7911,7 @@ dashboard_layout = dbc.Container([
     # Customize Layout Modal - Enhanced
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-cogs me-2"),
+            html.I(className="fa fa-gears me-2"),
             "Widget & Layout Customization"
         ]), close_button=True),
         dbc.ModalBody([
@@ -7928,7 +7923,7 @@ dashboard_layout = dbc.Container([
                         dbc.Checklist(
                             id="widget-toggles",
                             options=[
-                                {"label": html.Span([html.I(className="fa fa-chart-line me-2"), "Metrics Cards"], className="d-flex align-items-center"), "value": "metrics"},
+                                {"label": html.Span([html.I(className="fa fa-chart-network me-2"), "Metrics Cards"], className="d-flex align-items-center"), "value": "metrics"},
                                 {"label": html.Span([html.I(className="fa fa-th-large me-2"), "Feature Cards"], className="d-flex align-items-center"), "value": "features"},
                                 {"label": html.Span([html.I(className="fa fa-sidebar me-2"), "Right Panel (Alerts & Feed)"], className="d-flex align-items-center"), "value": "rightPanel"}
                             ],
@@ -8045,7 +8040,7 @@ dashboard_layout = dbc.Container([
 
                         html.Hr(),
 
-                        html.H6([html.I(className="fa fa-chart-line me-2"), "Chart Preferences"], className="mb-3"),
+                        html.H6([html.I(className="fa fa-chart-network me-2"), "Chart Preferences"], className="mb-3"),
                         dbc.Checklist(
                             id="chart-preferences",
                             options=[
@@ -8159,7 +8154,7 @@ dashboard_layout = dbc.Container([
     # Quick Actions Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-bolt me-2 text-primary"),
+            html.I(className="fa fa-bolt-lightning me-2 text-primary"),
             "Quick Actions"
         ])),
         dbc.ModalBody([
@@ -8179,7 +8174,7 @@ dashboard_layout = dbc.Container([
             html.Hr(),
 
             # Security & Monitoring
-            html.H6([html.I(className="fa fa-shield-alt me-2 text-danger"), "Security & Monitoring"], className="fw-bold mb-2"),
+            html.H6([html.I(className="fa fa-shield-halved me-2 text-danger"), "Security & Monitoring"], className="fw-bold mb-2"),
             dbc.Row([
                 dbc.Col([
                     dbc.Button([html.I(className="fa fa-search me-2"), "Network Scan"], id="quick-scan-btn", color="info", size="sm", className="w-100")
@@ -8513,7 +8508,10 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='spotlight-selected-index', data=0),
 
     # Store to track which modal to open from spotlight
-    dcc.Store(id='spotlight-modal-trigger', data={})
+    dcc.Store(id='spotlight-modal-trigger', data={}),
+
+    # Store for category filter
+    dcc.Store(id='spotlight-category-filter', data=None)
 
 ], fluid=True, className="dashboard-container p-3")
 
@@ -26471,51 +26469,244 @@ def toggle_spotlight_modal(btn_clicks, clear_clicks, is_open):
     return no_update, no_update
 
 
-# Clientside callback for fuzzy search filtering
+# Clientside callback for fuzzy search filtering (Enhanced with category filter)
 app.clientside_callback(
     """
-    function(searchQuery, catalog) {
+    function(searchQuery, catalog, categoryFilter) {
         if (!catalog || catalog.length === 0) {
-            return [];
+            return {results: [], totalCount: 0, hasMore: false, query: "", categories: {}, topHit: null, recentSearches: [], searchTime: "0.00", categoryFilter: null};
         }
 
-        // Use fuzzy search from spotlight-search.js if available
-        if (window.spotlightSearch && searchQuery && searchQuery.trim()) {
-            const results = window.spotlightSearch.searchFeatures(searchQuery, catalog, 10);
-            return results || [];
+        // Use enhanced fuzzy search from spotlight-search.js if available
+        if (window.spotlightSearch) {
+            const searchData = window.spotlightSearch.searchFeatures(searchQuery || "", catalog, 50, categoryFilter);
+
+            // Add recent searches to the result
+            searchData.recentSearches = window.spotlightSearch.getRecentSearches();
+
+            return searchData;
         } else {
-            // No query - show first 10 results
-            return catalog.slice(0, 10);
+            // Fallback - return simple format
+            const results = catalog.slice(0, 10);
+            return {
+                results: results,
+                totalCount: results.length,
+                hasMore: false,
+                query: searchQuery || "",
+                categories: {},
+                topHit: results[0] || null,
+                recentSearches: [],
+                searchTime: "0.00",
+                categoryFilter: null
+            };
         }
     }
     """,
     Output('spotlight-filtered-results', 'data'),
     [Input('spotlight-search-input', 'value'),
-     Input('spotlight-catalog-store', 'data')],
+     Input('spotlight-catalog-store', 'data'),
+     Input('spotlight-category-filter', 'data')],
     prevent_initial_call=False
 )
 
-# Server-side callback to render the filtered results
+# Server-side callback to render the filtered results (Enhanced with grouping)
 @app.callback(
     Output('spotlight-results-container', 'children'),
     Input('spotlight-filtered-results', 'data'),
     prevent_initial_call=False
 )
-def render_spotlight_results(filtered_results):
-    """Render the filtered search results"""
+def render_spotlight_results(search_data):
+    """Render the filtered search results with category grouping and metadata"""
+
+    # Handle dict vs legacy list format
+    if isinstance(search_data, dict):
+        filtered_results = search_data.get('results', [])
+        total_count = search_data.get('totalCount', 0)
+        has_more = search_data.get('hasMore', False)
+        query = search_data.get('query', '')
+        categories = search_data.get('categories', {})
+        top_hit_id = search_data.get('topHit', {}).get('id') if search_data.get('topHit') else None
+        recent_searches = search_data.get('recentSearches', [])
+    else:
+        # Legacy format fallback
+        filtered_results = search_data if search_data else []
+        total_count = len(filtered_results)
+        has_more = False
+        query = ''
+        categories = {}
+        top_hit_id = filtered_results[0].get('id') if filtered_results else None
+        recent_searches = []
+
+    # Empty state - show recent searches if no query
+    if not query or query.strip() == "":
+        empty_state_items = []
+
+        # Show recent searches section with clear button
+        if recent_searches:
+            empty_state_items.append(
+                html.Div([
+                    html.Div([
+                        html.H6([
+                            html.I(className="fa fa-history me-2 text-muted"),
+                            "Recent Searches"
+                        ], className="mb-0"),
+                        dbc.Button([
+                            html.I(className="fa fa-times-circle me-1"),
+                            "Clear All"
+                        ], id="spotlight-clear-recent-searches",
+                           color="link",
+                           size="sm",
+                           className="text-danger p-0",
+                           style={"fontSize": "0.85rem"})
+                    ], className="d-flex justify-content-between align-items-center mb-3 mt-2"),
+                    html.Div([
+                        dbc.Badge([
+                            html.I(className="fa fa-search me-2"),
+                            search
+                        ], color="light", className="me-2 mb-2 p-2 spotlight-recent-search-badge",
+                           style={"fontSize": "0.9rem", "cursor": "pointer"})
+                        for search in recent_searches
+                    ])
+                ], className="mb-4")
+            )
+
+        # Show featured items
+        if filtered_results:
+            empty_state_items.append(
+                html.Div([
+                    html.H6([
+                        html.I(className="fa fa-star me-2 text-warning"),
+                        "Featured"
+                    ], className="mb-3")
+                ])
+            )
+
+            # Create result items for featured
+            for idx, feature in enumerate(filtered_results):
+                empty_state_items.append(
+                    create_spotlight_result_item(feature, idx, False, False)
+                )
+
+        if empty_state_items:
+            return html.Div(empty_state_items)
+        else:
+            return html.Div([
+                html.I(className="fa fa-search fa-3x text-muted mb-3"),
+                html.P("Start typing to search features...", className="text-muted")
+            ], className="text-center p-5")
+
+    # No results for search query
     if not filtered_results or len(filtered_results) == 0:
         return html.Div([
             html.I(className="fa fa-search fa-3x text-muted mb-3"),
-            html.P("No results found", className="text-muted")
+            html.P(f"No results found for '{query}'", className="text-muted"),
+            html.P("Try a different search term", className="text-muted small")
         ], className="text-center p-5")
 
-    # Create result items
-    result_items = [
-        create_spotlight_result_item(feature, idx, False)
-        for idx, feature in enumerate(filtered_results)
-    ]
+    # Get search time and category filter
+    search_time = search_data.get('searchTime', '0.00') if isinstance(search_data, dict) else '0.00'
+    category_filter = search_data.get('categoryFilter') if isinstance(search_data, dict) else None
+
+    # Results header with count and search stats
+    result_header = html.Div([
+        html.Div([
+            html.Span(f"{total_count} result{'s' if total_count != 1 else ''}",
+                     className="spotlight-result-count text-muted small fw-bold"),
+            html.Span(f" • Showing top {len(filtered_results)}",
+                     className="text-muted small") if has_more else None,
+            html.Span(f" • {search_time}ms",
+                     className="text-muted small ms-2",
+                     title="Search performance time"),
+        ], className="mb-2 d-flex align-items-center justify-content-between"),
+
+        # Category filter badges (show all categories from search results)
+        html.Div(
+            [
+                html.Span("Filter: ", className="text-muted small me-2"),
+                dbc.Badge(
+                    "All",
+                    id="spotlight-filter-all",
+                    color="primary" if not category_filter else "light",
+                    className="me-2 spotlight-filter-badge",
+                    style={"cursor": "pointer", "fontSize": "0.75rem"}
+                ),
+            ] + [
+                dbc.Badge(
+                    f"{cat} ({len(features)})",
+                    id={"type": "spotlight-filter-badge", "category": cat},
+                    color="primary" if category_filter == cat else "light",
+                    className="me-2 spotlight-filter-badge",
+                    style={"cursor": "pointer", "fontSize": "0.75rem"}
+                )
+                for cat, features in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
+            ] if categories else [],
+            className="mb-3 pb-2 border-bottom"
+        ) if query else None
+    ])
+
+    result_items = [result_header]
+
+    # Group by category if we have category data
+    if categories and len(categories) > 1:
+        # Sort categories by count (descending)
+        sorted_categories = sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
+
+        for category_name, category_features in sorted_categories:
+            # Category header
+            result_items.append(
+                html.Div([
+                    html.H6([
+                        html.I(className="fa fa-folder me-2 text-info"),
+                        category_name,
+                        html.Span(f" ({len(category_features)})", className="text-muted small ms-2")
+                    ], className="mb-2 mt-3 spotlight-category-header")
+                ])
+            )
+
+            # Category results
+            for idx, feature in enumerate(category_features):
+                is_top_hit = feature.get('id') == top_hit_id
+                result_items.append(
+                    create_spotlight_result_item(feature, idx, False, is_top_hit)
+                )
+    else:
+        # No grouping - flat list with top hit highlighted
+        for idx, feature in enumerate(filtered_results):
+            is_top_hit = feature.get('id') == top_hit_id
+            result_items.append(
+                create_spotlight_result_item(feature, idx, False, is_top_hit)
+            )
 
     return html.Div(result_items)
+
+
+# Callback to handle category filter badge clicks
+@app.callback(
+    Output('spotlight-category-filter', 'data'),
+    [Input('spotlight-filter-all', 'n_clicks'),
+     Input({'type': 'spotlight-filter-badge', 'category': ALL}, 'n_clicks')],
+    [State({'type': 'spotlight-filter-badge', 'category': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def update_category_filter(all_clicks, badge_clicks, badge_ids):
+    """Update category filter when filter badges are clicked"""
+    ctx = callback_context
+    if not ctx.triggered:
+        return no_update
+
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # If "All" badge was clicked, clear filter
+    if 'spotlight-filter-all' in trigger_id:
+        return None
+
+    # If a category badge was clicked
+    if 'spotlight-filter-badge' in trigger_id:
+        import json
+        button_id = json.loads(trigger_id)
+        return button_id['category']
+
+    return no_update
 
 
 # Store to track which modal to open from spotlight
@@ -26537,6 +26728,39 @@ def spotlight_track_modal_click(go_to_clicks):
         return {"modal_id": button_id['modal_id'], "timestamp": time.time()}
 
     return no_update
+
+
+# Clientside callback to clear recent searches
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+
+        // Clear recent searches from localStorage
+        if (window.spotlightSearch) {
+            window.spotlightSearch.clearRecentSearches();
+        }
+
+        // Return empty object to trigger re-render
+        return {
+            results: [],
+            totalCount: 0,
+            hasMore: false,
+            query: "",
+            categories: {},
+            topHit: null,
+            recentSearches: [],
+            searchTime: "0.00",
+            categoryFilter: null
+        };
+    }
+    """,
+    Output('spotlight-filtered-results', 'data', allow_duplicate=True),
+    Input('spotlight-clear-recent-searches', 'n_clicks'),
+    prevent_initial_call=True
+)
 
 
 # Clientside callback to open target modals (simplified without Bootstrap)
