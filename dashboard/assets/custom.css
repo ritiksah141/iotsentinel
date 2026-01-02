@@ -177,7 +177,7 @@ html:not(.is-scrolling) .glass-card {
   --light-gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
   --light-gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 
-  /* Dark Theme Colors - Cyberpunk Enhanced */
+  /* Dark Theme Colors */
   --dark-bg-primary: #0f172a;
   --dark-bg-secondary: rgba(30, 41, 59, 0.85);
   --dark-bg-tertiary: rgba(51, 65, 85, 0.6);
@@ -792,22 +792,6 @@ html:not(.is-scrolling) .glass-card {
     border-color: rgba(96, 165, 250, 0.8) !important;
     box-shadow: 0 8px 20px rgba(96, 165, 250, 0.3);
   }
-
-  /* ============================================================================
- * CYBERPUNK THEME SUPPORT
- * ============================================================================ */
-
-  body.cyberpunk-theme
-    body.cyberpunk-theme
-    body.cyberpunk-theme
-    .gradient-text {
-    background: linear-gradient(135deg, #00ffcc 0%, #f0f 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  body.cyberpunk-theme
 
   /* ============================================================================
  * MODERN CARD ENHANCEMENTS

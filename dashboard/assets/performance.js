@@ -111,19 +111,45 @@ window.addEventListener("load", function () {
     document.body.classList.remove("no-animations");
   }, 100);
 
-  // Log performance metrics
+  // Log detailed performance metrics with network breakdown
   if ("performance" in window && "timing" in performance) {
     setTimeout(function () {
       const perfData = performance.timing;
       const pageLoadTime = perfData.loadEventEnd - perfData.navigationStart;
-      const connectTime = perfData.responseEnd - perfData.requestStart;
+      const networkTime = perfData.responseEnd - perfData.fetchStart;
       const renderTime = perfData.domComplete - perfData.domLoading;
 
-      console.log("=== Performance Metrics ===");
-      console.log("Page Load Time:", pageLoadTime, "ms");
-      console.log("Connection Time:", connectTime, "ms");
-      console.log("Render Time:", renderTime, "ms");
-      console.log("==========================");
+      // Calculate percentages
+      const networkPercent = ((networkTime / pageLoadTime) * 100).toFixed(1);
+      const renderPercent = ((renderTime / pageLoadTime) * 100).toFixed(1);
+
+      console.log("╔═══════════════════════════════════════════════╗");
+      console.log("║      📊 PERFORMANCE BREAKDOWN                ║");
+      console.log("╠═══════════════════════════════════════════════╣");
+      console.log("║ 📡 Network Time:  " + networkTime + "ms (" + networkPercent + "%)".padEnd(31) + "║");
+      console.log("║ 🎨 Render Time:   " + renderTime + "ms (" + renderPercent + "%)".padEnd(31) + "║");
+      console.log("║ ⏱️  Total Load:    " + pageLoadTime + "ms (100%)".padEnd(31) + "║");
+      console.log("╚═══════════════════════════════════════════════╝");
+
+      // Recommendations
+      if (networkTime > 300) {
+        console.warn("⚠️  Network is slow (>" + networkTime + "ms) - Check connection");
+      }
+      if (renderTime > 300) {
+        console.warn("⚠️  Rendering is slow (>" + renderTime + "ms) - Check DOM complexity");
+      }
+      if (pageLoadTime < 500) {
+        console.log("✅ Excellent performance! Page loaded in under 500ms");
+      }
+
+      // Store metrics globally for inspection
+      window.performanceMetrics = {
+        network: networkTime,
+        render: renderTime,
+        total: pageLoadTime,
+        networkPercent: parseFloat(networkPercent),
+        renderPercent: parseFloat(renderPercent)
+      };
     }, 0);
   }
 });

@@ -4618,7 +4618,10 @@ dashboard_layout = dbc.Container([
                                     html.I(className="fa fa-check-circle me-2"),
                                     html.Span("0", id='selected-count-display'),
                                     " devices selected"
-                                ], color="info", className="mb-4"),
+                                ], color="info", className="mb-3"),
+
+                                # Selected devices list
+                                html.Div(id='selected-devices-list', className="mb-4"),
 
                                 # Bulk Action Buttons
                                 html.Div([
@@ -11272,7 +11275,7 @@ app.clientside_callback(
         }
 
         // Remove all theme classes
-        document.body.classList.remove('dark-mode', 'dark-theme', 'light-mode', 'light-theme', 'cyberpunk-theme');
+        document.body.classList.remove('dark-mode', 'dark-theme', 'light-mode', 'light-theme');
 
         // Apply the selected theme
         if (theme === 'dark') {
@@ -11282,9 +11285,6 @@ app.clientside_callback(
         } else if (theme === 'light') {
             document.body.classList.add('light-mode');
             localStorage.setItem('iotsentinel-theme', 'light');
-        } else if (theme === 'cyberpunk') {
-            document.body.classList.add('cyberpunk-theme');
-            localStorage.setItem('iotsentinel-theme', 'cyberpunk');
         }
 
         console.log('Theme applied:', theme);
@@ -13378,16 +13378,20 @@ def update_device_counts(is_open):
 
 @app.callback(
     [Output('device-management-table', 'children'),
-     Output('device-table-page', 'data', allow_duplicate=True)],
+     Output('device-table-page', 'data', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('device-mgmt-modal', 'is_open'),
      Input('device-mgmt-tabs', 'active_tab'),
      Input('load-devices-btn', 'n_clicks'),
      Input('device-table-prev', 'n_clicks'),
-     Input('device-table-next', 'n_clicks')],
-    State('device-table-page', 'data'),
+     Input('device-table-next', 'n_clicks'),
+     Input('device-search-input', 'value'),
+     Input('device-status-filter', 'value')],
+    [State('device-table-page', 'data'),
+     State('selected-devices-store', 'data')],
     prevent_initial_call=True
 )
-def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, next_clicks, current_page):
+def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, next_clicks, search_text, status_filter, current_page, selected_devices):
     """Load devices for management with pagination"""
     ctx = callback_context
 
@@ -13398,6 +13402,9 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
     if active_tab != 'devices-list-tab':
         raise dash.exceptions.PreventUpdate
 
+    # Check if refresh button was clicked for toast notification
+    show_refresh_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'load-devices-btn.n_clicks'
+
     # Determine which button was clicked
     if not ctx.triggered:
         page = 1
@@ -13407,6 +13414,8 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
             page = max(1, current_page - 1)
         elif trigger_id == 'device-table-next':
             page = current_page + 1
+        elif trigger_id in ['device-search-input', 'device-status-filter']:
+            page = 1  # Reset to page 1 when search or filter changes
         else:
             page = 1  # Reset to page 1 on initial load
 
@@ -13416,7 +13425,41 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
     devices = db_manager.get_all_devices()
 
     if not devices:
-        return dbc.Alert("No devices found", color="info"), 1
+        return dbc.Alert("No devices found", color="info"), 1, dash.no_update
+
+    # Apply status filter
+    if status_filter and status_filter != 'all':
+        if status_filter == 'trusted':
+            devices = [d for d in devices if d.get('is_trusted', False)]
+        elif status_filter == 'blocked':
+            devices = [d for d in devices if d.get('is_blocked', False)]
+        elif status_filter == 'unknown':
+            devices = [d for d in devices if not d.get('is_trusted', False) and not d.get('is_blocked', False)]
+
+    # Apply search filter
+    if search_text and search_text.strip():
+        search_text = search_text.strip().lower()
+        filtered_devices = []
+        for device in devices:
+            device_ip = (device.get('device_ip') or '').lower()
+            device_type = (device.get('device_type') or '').lower()
+            manufacturer = (device.get('manufacturer') or '').lower()
+            custom_name = (device.get('custom_name') or device.get('device_name') or '').lower()
+            category = (device.get('category') or '').lower()
+            mac_address = (device.get('mac_address') or '').lower()
+
+            # Search in multiple fields
+            if (search_text in device_ip or
+                search_text in device_type or
+                search_text in manufacturer or
+                search_text in custom_name or
+                search_text in category or
+                search_text in mac_address):
+                filtered_devices.append(device)
+        devices = filtered_devices
+
+    if not devices:
+        return dbc.Alert("No devices match your search criteria", color="info"), 1, dash.no_update
 
     # Calculate pagination
     total_devices = len(devices)
@@ -13426,6 +13469,10 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
     start_idx = (page - 1) * ITEMS_PER_PAGE
     end_idx = start_idx + ITEMS_PER_PAGE
     page_devices = devices[start_idx:end_idx]
+
+    # Ensure selected_devices is a list
+    if not selected_devices:
+        selected_devices = []
 
     # Create device management table
     rows = []
@@ -13441,6 +13488,9 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
         groups = db_manager.get_device_groups(device_ip)
         group_names = ', '.join([g['name'] for g in groups]) if groups else 'None'
 
+        # Check if device is selected
+        is_selected = device_ip in selected_devices
+
         row = dbc.Card([
             dbc.CardBody([
                 dbc.Row([
@@ -13448,7 +13498,8 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
                     dbc.Col([
                         dbc.Checkbox(
                             id={'type': 'device-checkbox', 'ip': device_ip},
-                            className="device-select-checkbox"
+                            className="device-select-checkbox",
+                            value=is_selected
                         )
                     ], width=1, className="d-flex align-items-center justify-content-center"),
 
@@ -13510,6 +13561,12 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
         ])
     ], className="mt-3")
 
+    # Generate success toast if refresh button was clicked
+    toast = ToastManager.success(
+        "Device list refreshed",
+        detail_message=f"Displaying {total_devices} device(s)"
+    ) if show_refresh_toast else dash.no_update
+
     return html.Div([
         dbc.Row([
             dbc.Col([
@@ -13519,7 +13576,7 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
         ], className="mb-3"),
         html.Div(rows, id='device-rows-container', **{'data-virtual-scroll': 'true', 'data-item-height': '100'}),
         pagination
-    ]), page
+    ]), page, toast
 
 
 @app.callback(
@@ -13865,15 +13922,25 @@ def bulk_block_suspicious(n_clicks):
     [Output('bulk-trust-btn', 'disabled'),
      Output('bulk-block-btn', 'disabled'),
      Output('bulk-delete-btn', 'disabled'),
-     Output('selected-count-display', 'children')],
-    Input({'type': 'device-checkbox', 'ip': ALL}, 'value')
+     Output('selected-count-display', 'children'),
+     Output('selected-devices-store', 'data')],
+    [Input({'type': 'device-checkbox', 'ip': ALL}, 'value')],
+    [State({'type': 'device-checkbox', 'ip': ALL}, 'id')]
 )
-def toggle_bulk_buttons(checkbox_values):
-    """Enable/disable bulk action buttons based on selections and update count"""
+def toggle_bulk_buttons(checkbox_values, checkbox_ids):
+    """Enable/disable bulk action buttons based on selections, update count, and sync store"""
     selected_count = sum(1 for val in checkbox_values if val) if checkbox_values else 0
     has_selection = selected_count > 0
+
+    # Build list of selected device IPs
+    selected_ips = []
+    if checkbox_values and checkbox_ids:
+        for i, val in enumerate(checkbox_values):
+            if val and i < len(checkbox_ids):
+                selected_ips.append(checkbox_ids[i]['ip'])
+
     # Disabled = NOT has_selection
-    return not has_selection, not has_selection, not has_selection, str(selected_count)
+    return not has_selection, not has_selection, not has_selection, str(selected_count), selected_ips
 
 
 
@@ -13892,6 +13959,61 @@ def select_all_devices(select_all):
 
     # Return a list of True or False values for each checkbox
     return [select_all] * len(all_checkbox_ids)
+
+
+@app.callback(
+    Output('selected-devices-list', 'children'),
+    Input('selected-devices-store', 'data')
+)
+def display_selected_devices(selected_ips):
+    """Display the list of selected devices in the Bulk Actions tab"""
+    if not selected_ips:
+        return html.Div([
+            html.I(className="fa fa-info-circle me-2 text-muted"),
+            html.Span("No devices selected. Go to the Devices tab and check the boxes next to devices you want to manage.", className="text-muted")
+        ], className="text-center py-3")
+
+    # Get all devices and filter for selected IPs
+    all_devices = db_manager.get_all_devices()
+    devices_info = [d for d in all_devices if d.get('device_ip') in selected_ips]
+
+    if not devices_info:
+        return html.Div("Selected devices not found", className="text-muted text-center")
+
+    # Create cards for each selected device
+    device_cards = []
+    for device in devices_info:
+        device_ip = device.get('device_ip', '')
+        device_name = device.get('custom_name') or device.get('device_name') or device_ip
+        manufacturer = device.get('manufacturer', 'Unknown')
+        device_type = device.get('device_type', 'Unknown')
+        icon = device.get('icon', '❓')
+
+        card = dbc.Card([
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.Span(icon, style={'fontSize': '1.5rem', 'marginRight': '10px'}),
+                        html.Strong(device_name),
+                        html.Br(),
+                        html.Small(f"{manufacturer} • {device_type}", className="text-muted")
+                    ], width=8),
+                    dbc.Col([
+                        html.Small("IP:", className="text-muted d-block"),
+                        html.Span(device_ip, className="font-monospace small")
+                    ], width=4, className="text-end")
+                ])
+            ])
+        ], className="mb-2")
+        device_cards.append(card)
+
+    return html.Div([
+        html.H6([
+            html.I(className="fa fa-list me-2"),
+            f"Selected Devices ({len(devices_info)})"
+        ], className="mb-3"),
+        html.Div(device_cards, style={'maxHeight': '400px', 'overflowY': 'auto'})
+    ])
 
 
 @app.callback(
@@ -26276,7 +26398,7 @@ def toggle_dark_mode(n_clicks, current_theme_data):
         current_theme = current_theme_data.get('theme', 'light') if current_theme_data else 'light'
 
         # Cycle through: light → dark → auto → light
-        if current_theme in ['light', 'cyberpunk']:  # Treat cyberpunk as light for compatibility
+        if current_theme == 'light':
             new_theme = "dark"
             icon_class = "fa fa-moon fa-lg"  # Moon icon for dark mode
         elif current_theme == "dark":
@@ -26290,7 +26412,7 @@ def toggle_dark_mode(n_clicks, current_theme_data):
 
     # Get current theme for icon - icon represents CURRENT state
     current_theme = current_theme_data.get('theme', 'light') if current_theme_data else 'light'
-    if current_theme in ['light', 'cyberpunk']:
+    if current_theme == 'light':
         icon_class = "fa fa-sun fa-lg"  # Sun for light mode
     elif current_theme == "dark":
         icon_class = "fa fa-moon fa-lg"  # Moon for dark mode
@@ -26307,7 +26429,7 @@ def toggle_dark_mode(n_clicks, current_theme_data):
 def update_dark_mode_icon(theme_data):
     """Update dark mode icon based on current theme - syncs with Dashboard Preferences."""
     current_theme = theme_data.get('theme', 'light') if theme_data else 'light'
-    if current_theme in ['light', 'cyberpunk']:
+    if current_theme == 'light':
         return "fa fa-sun fa-lg"  # Sun for light mode
     elif current_theme == "dark":
         return "fa fa-moon fa-lg"  # Moon for dark mode
