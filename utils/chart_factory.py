@@ -375,3 +375,322 @@ class ChartFactory:
                 'margin': {'l': 80, 'r': 80, 't': 20, 'b': 80}
             }
         }
+
+    @staticmethod
+    def create_area_chart(x_values, y_values, fill_color='#17a2b8', line_color='#0d6efd',
+                          title='', x_title='', y_title='', show_line=True):
+        """
+        Create an area chart for trend visualization
+
+        Args:
+            x_values: List of x-axis values (usually time periods)
+            y_values: List of y-axis values
+            fill_color: Color for the filled area
+            line_color: Color for the border line
+            title: Chart title
+            x_title: X-axis title
+            y_title: Y-axis title
+            show_line: Show border line on top of area
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        layout = ChartFactory._get_base_layout(title)
+        layout.update({
+            'xaxis': {
+                'title': x_title,
+                'gridcolor': 'rgba(128,128,128,0.2)',
+                'showgrid': True
+            },
+            'yaxis': {
+                'title': y_title,
+                'gridcolor': 'rgba(128,128,128,0.2)',
+                'showgrid': True
+            },
+            'hovermode': 'x unified'
+        })
+
+        return {
+            'data': [{
+                'type': 'scatter',
+                'mode': 'lines' if show_line else 'none',
+                'x': x_values,
+                'y': y_values,
+                'fill': 'tozeroy',
+                'fillcolor': fill_color,
+                'line': {'color': line_color, 'width': 2} if show_line else {}
+            }],
+            'layout': layout
+        }
+
+    @staticmethod
+    def create_trend_chart(x_values, y_values, show_moving_avg=True, ma_period=7,
+                          title='', x_title='', y_title='', trend_color='#17a2b8',
+                          ma_color='#ffc107'):
+        """
+        Create a trend chart with optional moving average overlay
+
+        Args:
+            x_values: List of x-axis values (time periods)
+            y_values: List of y-axis values (actual data)
+            show_moving_avg: Show moving average line
+            ma_period: Moving average period (default 7)
+            title: Chart title
+            x_title: X-axis title
+            y_title: Y-axis title
+            trend_color: Color for actual data line
+            ma_color: Color for moving average line
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        layout = ChartFactory._get_base_layout(title)
+        layout.update({
+            'xaxis': {
+                'title': x_title,
+                'gridcolor': 'rgba(128,128,128,0.2)',
+                'showgrid': True
+            },
+            'yaxis': {
+                'title': y_title,
+                'gridcolor': 'rgba(128,128,128,0.2)',
+                'showgrid': True
+            },
+            'hovermode': 'x unified',
+            'legend': {
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.02,
+                'xanchor': 'right',
+                'x': 1
+            }
+        })
+
+        # Actual data trace
+        data = [{
+            'type': 'scatter',
+            'mode': 'lines+markers',
+            'x': x_values,
+            'y': y_values,
+            'name': 'Actual',
+            'line': {'color': trend_color, 'width': 2},
+            'marker': {'size': 6}
+        }]
+
+        # Calculate and add moving average if requested
+        if show_moving_avg and len(y_values) >= ma_period:
+            moving_avg = []
+            for i in range(len(y_values)):
+                if i < ma_period - 1:
+                    moving_avg.append(None)
+                else:
+                    avg = sum(y_values[i-ma_period+1:i+1]) / ma_period
+                    moving_avg.append(avg)
+
+            data.append({
+                'type': 'scatter',
+                'mode': 'lines',
+                'x': x_values,
+                'y': moving_avg,
+                'name': f'{ma_period}-Period MA',
+                'line': {'color': ma_color, 'width': 3, 'dash': 'dash'}
+            })
+
+        return {
+            'data': data,
+            'layout': layout
+        }
+
+    @staticmethod
+    def create_heatmap(x_labels, y_labels, z_values, title='', x_title='', y_title='',
+                       colorscale='RdYlGn_r'):
+        """
+        Create a heatmap for pattern visualization
+
+        Args:
+            x_labels: List of x-axis labels
+            y_labels: List of y-axis labels
+            z_values: 2D array of values (rows = y_labels, cols = x_labels)
+            title: Chart title
+            x_title: X-axis title
+            y_title: Y-axis title
+            colorscale: Color scale ('RdYlGn_r' for red-yellow-green reversed)
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        layout = ChartFactory._get_base_layout(title, {'l': 100, 'r': 20, 't': 60, 'b': 100})
+        layout.update({
+            'xaxis': {
+                'title': x_title,
+                'side': 'bottom'
+            },
+            'yaxis': {
+                'title': y_title
+            }
+        })
+
+        return {
+            'data': [{
+                'type': 'heatmap',
+                'x': x_labels,
+                'y': y_labels,
+                'z': z_values,
+                'colorscale': colorscale,
+                'hoverongaps': False,
+                'colorbar': {
+                    'title': 'Count',
+                    'titleside': 'right'
+                }
+            }],
+            'layout': layout
+        }
+
+    @staticmethod
+    def create_gauge_chart(value, max_value=100, title='', thresholds=None,
+                          colors=None):
+        """
+        Create a gauge/indicator chart for KPI visualization
+
+        Args:
+            value: Current value
+            max_value: Maximum value for the gauge
+            title: Gauge title
+            thresholds: List of threshold values [low, medium, high]
+            colors: List of colors for each threshold range
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        if thresholds is None:
+            thresholds = [max_value * 0.33, max_value * 0.66, max_value]
+        if colors is None:
+            colors = ['#28a745', '#ffc107', '#dc3545']
+
+        # Create steps for color ranges
+        steps = []
+        prev_threshold = 0
+        for i, (threshold, color) in enumerate(zip(thresholds, colors)):
+            steps.append({
+                'range': [prev_threshold, threshold],
+                'color': color
+            })
+            prev_threshold = threshold
+
+        return {
+            'data': [{
+                'type': 'indicator',
+                'mode': 'gauge+number',
+                'value': value,
+                'title': {'text': title, 'font': {'size': 16}},
+                'gauge': {
+                    'axis': {'range': [0, max_value]},
+                    'bar': {'color': '#0d6efd'},
+                    'steps': steps,
+                    'threshold': {
+                        'line': {'color': 'red', 'width': 4},
+                        'thickness': 0.75,
+                        'value': max_value * 0.9
+                    }
+                }
+            }],
+            'layout': {
+                'margin': {'l': 20, 'r': 20, 't': 60, 'b': 20},
+                'height': 250
+            }
+        }
+
+    @staticmethod
+    def create_waterfall_chart(categories, values, title='', x_title='', y_title=''):
+        """
+        Create a waterfall chart showing cumulative changes
+
+        Args:
+            categories: List of category labels
+            values: List of values (positive or negative changes)
+            title: Chart title
+            x_title: X-axis title
+            y_title: Y-axis title
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 100})
+        layout.update({
+            'xaxis': {
+                'title': x_title,
+                'tickangle': -30
+            },
+            'yaxis': {
+                'title': y_title,
+                'gridcolor': 'rgba(128,128,128,0.2)'
+            },
+            'showlegend': False
+        })
+
+        # Calculate measures (relative for changes, total for final)
+        measure = ['relative'] * (len(categories) - 1) + ['total']
+
+        # Color code: green for positive, red for negative
+        colors = []
+        for val in values[:-1]:
+            colors.append('#28a745' if val >= 0 else '#dc3545')
+        colors.append('#17a2b8')  # Blue for total
+
+        return {
+            'data': [{
+                'type': 'waterfall',
+                'x': categories,
+                'y': values,
+                'measure': measure,
+                'text': [f'{v:+.0f}' if v != values[-1] else f'{v:.0f}' for v in values],
+                'textposition': 'outside',
+                'connector': {
+                    'line': {'color': 'rgba(128,128,128,0.5)', 'width': 2}
+                },
+                'increasing': {'marker': {'color': '#28a745'}},
+                'decreasing': {'marker': {'color': '#dc3545'}},
+                'totals': {'marker': {'color': '#17a2b8'}}
+            }],
+            'layout': layout
+        }
+
+    @staticmethod
+    def create_box_plot(data_groups, labels, title='', y_title='', show_outliers=True):
+        """
+        Create a box plot for distribution analysis
+
+        Args:
+            data_groups: List of data arrays (one array per box)
+            labels: List of labels for each box
+            title: Chart title
+            y_title: Y-axis title
+            show_outliers: Show outlier points
+
+        Returns:
+            dict: Plotly figure dictionary
+        """
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 80})
+        layout.update({
+            'yaxis': {
+                'title': y_title,
+                'gridcolor': 'rgba(128,128,128,0.2)'
+            },
+            'showlegend': False
+        })
+
+        data = []
+        colors = ['#17a2b8', '#28a745', '#ffc107', '#dc3545']
+        for i, (values, label) in enumerate(zip(data_groups, labels)):
+            data.append({
+                'type': 'box',
+                'y': values,
+                'name': label,
+                'marker': {'color': colors[i % len(colors)]},
+                'boxpoints': 'outliers' if show_outliers else False
+            })
+
+        return {
+            'data': data,
+            'layout': layout
+        }

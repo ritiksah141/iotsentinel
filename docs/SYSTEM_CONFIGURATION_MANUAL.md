@@ -235,3 +235,25 @@ SEARCH_FEATURE_CATALOG = [
 ```
 
 For complete implementation details, architecture, and API reference, see the [Spotlight Search Enhancement Documentation](./archive/SPOTLIGHT_SEARCH_ENHANCEMENT.md).
+
+---
+
+## 10. Advanced Export & Reporting
+
+IoTSentinel includes an enterprise-grade system for advanced data exporting, reporting, and analytics.
+
+### Features
+- **Universal Export:** Export devices, alerts, and connection data in multiple formats (CSV, JSON, PDF, and Excel).
+- **Advanced Analytics:** Perform time-series trend analysis, detect anomalies using statistical methods, and generate executive summaries.
+- **Custom Reports:** Use pre-defined professional templates (e.g., Security Audit, Network Activity) or build custom reports.
+- **Scheduled Reporting:** Automate report generation on a flexible schedule using cron expressions or time intervals.
+- **Rich Visualizations:** Leverage over 12 chart types for comprehensive data visualization in reports and on the dashboard.
+
+### Configuration & Usage
+The export and reporting system is enabled by default and integrated throughout the dashboard. Core logic is managed by utilities in `utils/` and the scheduler in `alerts/`.
+
+- **UI Integration:** Export controls are available in the Devices, Alerts, and Connections modals, allowing users to select a format and download data.
+- **Scheduling:** Automated reports can be configured programmatically via the `ReportScheduler` (`alerts/report_scheduler.py`).
+- **Customization:** Report templates and content can be modified in `utils/report_templates.py` and `utils/report_builder.py`.
+
+For a complete implementation guide, feature deep-dive, architecture, and API reference, see the [Advanced Export & Reporting System Guide](./archive/ADVANCED_EXPORT_AND_REPORTING_GUIDE.md).
