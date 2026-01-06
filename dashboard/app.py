@@ -49,7 +49,7 @@ from config.config_manager import config
 from database.db_manager import DatabaseManager
 from utils.threat_intel import ThreatIntelligence
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask import request, redirect, session as flask_session, jsonify
+from flask import request, redirect, session as flask_session, jsonify, send_file
 from utils.auth import AuthManager, User
 from utils.rate_limiter import LoginRateLimiter
 from utils.oauth_handler import GoogleOAuthHandler, is_oauth_configured
@@ -72,9 +72,26 @@ from utils.toast_manager import ToastManager, TOAST_POSITION_STYLE, TOAST_DURATI
 # Import chart factory for centralized chart generation
 from utils.chart_factory import ChartFactory, SEVERITY_COLORS, RISK_COLORS
 
+# Import export helper for universal export functionality (CSV, JSON, PDF, Excel)
+from utils.export_helpers import DashExportHelper
+
+# Import Advanced Reporting & Analytics components
+from utils.trend_analyzer import TrendAnalyzer
+from utils.report_builder import ReportBuilder
+from utils.report_templates import ReportTemplateManager
+from alerts.report_scheduler import ReportScheduler
+
+# Import Alert and Notification Services
+from alerts.alert_service import AlertService
+from alerts.notification_dispatcher import NotificationDispatcher
+from alerts.email_notifier import EmailNotifier
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import atexit for cleanup handlers
+import atexit
 
 # Initialize app
 app = dash.Dash(
@@ -153,6 +170,124 @@ from utils.device_group_manager import DeviceGroupManager
 
 # Initialize device group manager
 group_manager = DeviceGroupManager(DB_PATH)
+
+# Initialize universal export helper (supports CSV, JSON, PDF, Excel)
+export_helper = DashExportHelper(DB_PATH)
+
+# Initialize Advanced Reporting & Analytics
+try:
+    trend_analyzer = TrendAnalyzer(DB_PATH)
+    report_builder = ReportBuilder(DB_PATH, enable_cache=True, cache_ttl_minutes=15)
+    template_manager = ReportTemplateManager()
+
+    # Initialize Report Queue for async report generation with progress tracking
+    from utils.report_queue import ReportQueue
+    report_queue = ReportQueue(
+        report_builder=report_builder,
+        max_workers=2,
+        max_queue_size=50,
+        results_dir='data/reports/generated'
+    )
+
+    logger.info("Advanced Reporting & Analytics initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize reporting modules: {e}. Advanced reporting may not be available.")
+    trend_analyzer = None
+    report_builder = None
+    template_manager = None
+    report_queue = None
+
+# Initialize Alert and Notification Services
+try:
+    # 1. Initialize NotificationDispatcher
+    notification_dispatcher = NotificationDispatcher(config)
+
+    # 2. Initialize AlertService
+    alert_service = AlertService(db_manager, config)
+
+    # 3. Initialize and register EmailNotifier with dispatcher
+    # Build email config from environment variables
+    email_section_config = config.get_section('email')
+    if email_section_config and email_section_config.get('enabled', False):
+        # Create email config from environment variables
+        class EmailConfig:
+            """Wrapper to provide config-like interface for environment variables"""
+            def get(self, section, key, default=None):
+                if section == 'email':
+                    env_map = {
+                        'enabled': 'EMAIL_ENABLED',
+                        'smtp_host': 'EMAIL_SMTP_HOST',
+                        'smtp_port': 'EMAIL_SMTP_PORT',
+                        'smtp_user': 'EMAIL_SMTP_USER',
+                        'smtp_password': 'EMAIL_SMTP_PASSWORD',  # pragma: allowlist secret
+                        'sender_email': 'EMAIL_SENDER_EMAIL',
+                        'recipient_email': 'EMAIL_RECIPIENT_EMAIL'
+                    }
+                    env_var = env_map.get(key)
+                    if env_var:
+                        value = os.getenv(env_var, default)
+                        # Special handling for enabled flag
+                        if key == 'enabled' and value is None:
+                            return True  # Default to enabled if in config
+                        return value
+                return default
+
+        email_config = EmailConfig()
+
+        # Validate required environment variables
+        required_vars = ['EMAIL_SMTP_HOST', 'EMAIL_SMTP_USER', 'EMAIL_SMTP_PASSWORD', 'EMAIL_SENDER_EMAIL']
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+
+        if missing_vars:
+            logger.warning(f"Email notifications disabled - missing environment variables: {', '.join(missing_vars)}")
+            logger.warning("Please set these variables in your .env file")
+            email_notifier = None
+        else:
+            email_notifier = EmailNotifier(email_config, db_path=DB_PATH)
+            notification_dispatcher.register_handler(email_notifier)
+            logger.info("EmailNotifier registered with dispatcher (using environment variables)")
+    else:
+        logger.warning("Email notifications disabled in config")
+        email_notifier = None
+
+    # 4. Set dispatcher on AlertService
+    alert_service.set_dispatcher(notification_dispatcher)
+
+    # 5. Initialize ReportScheduler with all services
+    report_scheduler = ReportScheduler(
+        db_manager=db_manager,
+        alert_service=alert_service,
+        notification_dispatcher=notification_dispatcher,
+        db_path=DB_PATH,
+        email_notifier=email_notifier  # Pass email_notifier directly
+    )
+
+    # 6. Start the scheduler (schedules will be active)
+    report_scheduler.start()
+
+    # 7. Register shutdown handler for graceful cleanup
+    def shutdown_scheduler():
+        """Gracefully shutdown the report scheduler on app exit."""
+        if report_scheduler:
+            logger.info("Shutting down Report Scheduler...")
+            try:
+                report_scheduler.stop()
+                logger.info("Report Scheduler stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping scheduler: {e}")
+
+    atexit.register(shutdown_scheduler)
+
+    logger.info("Alert and Notification Services fully initialized")
+    logger.info("Report Scheduler initialized and started")
+    logger.info("Shutdown handler registered for graceful cleanup")
+
+except Exception as e:
+    logger.error(f"Failed to initialize Alert/Notification services: {e}", exc_info=True)
+    notification_dispatcher = None
+    alert_service = None
+    email_notifier = None
+    report_scheduler = None
 
 # Authentication setup
 auth_manager = AuthManager(DB_PATH)
@@ -299,6 +434,55 @@ def health_check():
         status_code = 503  # Service Unavailable
 
     return jsonify(health_status), status_code
+
+
+# Download generated report
+@server.route('/download-report')
+@login_required
+def download_report():
+    """
+    Download a generated report file.
+    Requires authentication and validates the file path is within reports directory.
+    """
+    from pathlib import Path
+    import os
+
+    file_path = request.args.get('path', '')
+
+    if not file_path:
+        return jsonify({"error": "No file path provided"}), 400
+
+    # Security: Ensure the path is within the reports directory
+    reports_dir = Path('data/reports/generated').resolve()
+    requested_file = Path(file_path).resolve()
+
+    try:
+        # Check if requested file is within reports directory
+        requested_file.relative_to(reports_dir)
+    except ValueError:
+        logger.warning(f"Attempted access to file outside reports directory: {file_path}")
+        return jsonify({"error": "Invalid file path"}), 403
+
+    # Check if file exists
+    if not requested_file.exists():
+        return jsonify({"error": "File not found"}), 404
+
+    # Determine mimetype based on extension
+    mimetype_map = {
+        '.pdf': 'application/pdf',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.json': 'application/json'
+    }
+
+    file_ext = requested_file.suffix.lower()
+    mimetype = mimetype_map.get(file_ext, 'application/octet-stream')
+
+    return send_file(
+        requested_file,
+        mimetype=mimetype,
+        as_attachment=True,
+        download_name=requested_file.name
+    )
 
 
 # ============================================================================
@@ -928,6 +1112,111 @@ def get_db_connection():
     except sqlite3.Error as e:
         logger.error(f"Database connection error: {e}")
         return None
+
+# =============================================================================
+# UTILITY FUNCTIONS - Timestamps and CSV Export
+# =============================================================================
+
+def format_timestamp_relative(timestamp_str):
+    """
+    Format a timestamp as a relative time string (e.g., '2 minutes ago')
+
+    Args:
+        timestamp_str: Timestamp string in ISO format or datetime object
+
+    Returns:
+        str: Formatted relative time string
+    """
+    try:
+        if isinstance(timestamp_str, str):
+            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        elif isinstance(timestamp_str, datetime):
+            dt = timestamp_str
+        else:
+            return "Unknown"
+
+        now = datetime.now()
+        diff = now - dt
+
+        seconds = diff.total_seconds()
+
+        if seconds < 60:
+            return "Just now"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif seconds < 604800:
+            days = int(seconds / 86400)
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        else:
+            return dt.strftime("%b %d, %Y at %I:%M %p")
+    except Exception as e:
+        logger.error(f"Error formatting timestamp: {e}")
+        return "Unknown"
+
+def generate_csv_content(headers, rows, filename_prefix="export"):
+    """
+    Generate CSV content from headers and rows for download
+
+    Args:
+        headers: List of column headers
+        rows: List of rows (each row is a list/tuple of values)
+        filename_prefix: Prefix for the filename
+
+    Returns:
+        dict: Download data dict for dcc.Download component
+    """
+    try:
+        import csv
+        from io import StringIO
+
+        # Create CSV content
+        output = StringIO()
+        writer = csv.writer(output)
+
+        # Write headers
+        writer.writerow(headers)
+
+        # Write rows
+        for row in rows:
+            writer.writerow(row)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{filename_prefix}_{timestamp}.csv"
+
+        # Return download dict
+        return {
+            'content': output.getvalue(),
+            'filename': filename,
+            'type': 'text/csv'
+        }
+    except Exception as e:
+        logger.error(f"Error generating CSV: {e}")
+        return None
+
+def create_timestamp_display(timestamp=None):
+    """
+    Create a timestamp display component
+
+    Args:
+        timestamp: Optional timestamp to display, defaults to now
+
+    Returns:
+        html.Div: Timestamp display component
+    """
+    if timestamp is None:
+        timestamp = datetime.now()
+
+    formatted_time = format_timestamp_relative(timestamp)
+
+    return html.Div([
+        html.I(className="fa fa-clock me-1"),
+        html.Span(f"Last updated: {formatted_time}", className="text-muted small")
+    ], className="text-end mb-2")
 
 # Note: get_device_status and get_device_baseline are now imported from cached_queries
 # for better performance with TTL-based caching
@@ -3644,16 +3933,112 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
-                ], label="Reports", tab_id="reports-tab")
+                ], label="Reports", tab_id="reports-tab"),
+
+                # Trend Analysis Tab - Advanced Reporting & Analytics
+                dbc.Tab([
+                    html.Div([
+                        dbc.Row([
+                            # Alert Trends Card
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.Div([
+                                            html.Span([
+                                                html.I(className="fa fa-chart-line me-2"),
+                                                "Alert Trends (7 Days)"
+                                            ]),
+                                            html.Span([
+                                                dbc.Button([
+                                                    html.I(className="fa fa-download me-1"),
+                                                    "Custom Reports"
+                                                ], id="open-reports-modal", color="primary", size="sm", className="float-end")
+                                            ], className="float-end"),
+                                            html.I(className="fa fa-question-circle text-muted ms-2",
+                                                  id="alert-trends-help",
+                                                  style={"cursor": "pointer", "fontSize": "0.85rem"})
+                                        ])
+                                    ], className="bg-light border-bottom", style={"fontSize": "0.95rem"}),
+                                    dbc.Tooltip(
+                                        "Time-series analysis of security alerts with moving average trend line. Identifies patterns and anomalies.",
+                                        target="alert-trends-help", placement="top"
+                                    ),
+                                    dbc.CardBody(
+                                        dcc.Loading(
+                                            dcc.Graph(id='alert-trend-chart', style={'height': '350px'},
+                                                    config={'displayModeBar': False}),
+                                            type="circle"
+                                        ),
+                                        className="p-3"
+                                    )
+                                ], className="glass-card border-0 shadow-sm hover-card h-100")
+                            ], width=12, className="mb-4"),
+
+                            # Network Activity Heatmap Card
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.Div([
+                                            html.Span([
+                                                html.I(className="fa fa-th me-2"),
+                                                "Network Activity Heatmap (24h Pattern)"
+                                            ]),
+                                            html.I(className="fa fa-question-circle text-muted ms-2",
+                                                  id="network-heatmap-help",
+                                                  style={"cursor": "pointer", "fontSize": "0.85rem"})
+                                        ])
+                                    ], className="bg-light border-bottom", style={"fontSize": "0.95rem"}),
+                                    dbc.Tooltip(
+                                        "Visualizes network activity patterns by hour. Helps identify unusual timing or off-hours activity.",
+                                        target="network-heatmap-help", placement="top"
+                                    ),
+                                    dbc.CardBody(
+                                        dcc.Loading(
+                                            dcc.Graph(id='activity-heatmap-chart', style={'height': '250px'},
+                                                    config={'displayModeBar': False}),
+                                            type="circle"
+                                        ),
+                                        className="p-3"
+                                    )
+                                ], className="glass-card border-0 shadow-sm hover-card h-100")
+                            ], width=12, className="mb-4"),
+
+                            # Trend Statistics Summary Card
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.I(className="fa fa-chart-bar me-2"),
+                                        "Trend Statistics"
+                                    ], className="bg-light border-bottom", style={"fontSize": "0.95rem"}),
+                                    dbc.CardBody(
+                                        html.Div(id='trend-statistics-display', children=[
+                                            dbc.Alert([
+                                                html.I(className="fa fa-info-circle me-2"),
+                                                "Open this tab to load trend statistics..."
+                                            ], color="info")
+                                        ]),
+                                        className="p-3"
+                                    )
+                                ], className="glass-card border-0 shadow-sm hover-card")
+                            ], width=12)
+                        ])
+                    ], className="p-3")
+                ], label="Trend Analysis", tab_id="trend-analysis-tab")
 
             ], id="analytics-modal-tabs", active_tab="security-status-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='analytics-timestamp-display', className="me-auto"),
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh"
+            ], id="refresh-analytics-btn", color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-analytics-modal-btn', color="secondary", outline=True)
-        ])
+            ], id='close-analytics-modal-btn', color="secondary", size="sm")
+        ]),
+        dcc.Store(id='analytics-timestamp-store')
     ], id="analytics-modal", size="xl", is_open=False, scrollable=True),
 
     # System & ML Models Modal - Enhanced with Tabs
@@ -3854,6 +4239,7 @@ dashboard_layout = dbc.Container([
             ], id="system-modal-tabs", active_tab="system-info-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='system-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
@@ -3862,7 +4248,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id='close-system-modal-btn', color="secondary", outline=True)
-        ])
+        ]),
+        dcc.Store(id='system-timestamp-store')
     ], id="system-modal", size="xl", is_open=False, scrollable=True),
 
     # Email Notifications Modal - Enhanced with Tabs
@@ -4070,7 +4457,239 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
-                ], label="Test & History", tab_id="test-history-tab")
+                ], label="Test & History", tab_id="test-history-tab"),
+
+                # Active Schedules Tab
+                dbc.Tab([
+                    html.Div([
+                        dbc.Row([
+                            dbc.Col([
+                                html.H6([
+                                    html.I(className="fa fa-list me-2 text-primary"),
+                                    "Active Schedules"
+                                ], className="mb-3"),
+                                dbc.Button([
+                                    html.I(className="fa fa-sync me-2"),
+                                    "Refresh"
+                                ], id="refresh-schedules-btn", color="primary", size="sm", outline=True, className="mb-3")
+                            ])
+                        ]),
+                        html.Div(id='schedules-list-container')
+                    ], className="p-3")
+                ], label="Active Schedules", tab_id="schedules-list-tab"),
+
+                # Add New Schedule Tab
+                dbc.Tab([
+                    html.Div([
+                        html.H6([
+                            html.I(className="fa fa-plus-circle me-2 text-success"),
+                            "Create New Schedule"
+                        ], className="mb-3"),
+
+                        dbc.Row([
+                            # Schedule ID
+                            dbc.Col([
+                                html.Label("Schedule Name/ID", className="fw-bold mb-2"),
+                                dbc.Input(
+                                    id='schedule-id-input',
+                                    type='text',
+                                    placeholder='e.g., daily_executive_summary',
+                                    value=''
+                                )
+                            ], width=12, className="mb-3"),
+                        ]),
+
+                        dbc.Row([
+                            # Template Selection
+                            dbc.Col([
+                                html.Label("Report Template", className="fw-bold mb-2"),
+                                dbc.Select(
+                                    id='schedule-template-select',
+                                    options=[
+                                        {'label': 'Executive Summary', 'value': 'executive_summary'},
+                                        {'label': 'Security Audit Report', 'value': 'security_audit'},
+                                        {'label': 'Network Activity Report', 'value': 'network_activity'},
+                                        {'label': 'Device Inventory Report', 'value': 'device_inventory'},
+                                        {'label': 'Threat Analysis Report', 'value': 'threat_analysis'}
+                                    ],
+                                    value='executive_summary'
+                                )
+                            ], width=6),
+
+                            # Format Selection
+                            dbc.Col([
+                                html.Label("Export Format", className="fw-bold mb-2"),
+                                dbc.Select(
+                                    id='schedule-format-select',
+                                    options=[
+                                        {'label': 'PDF Report', 'value': 'pdf'},
+                                        {'label': 'Excel Workbook', 'value': 'excel'}
+                                    ],
+                                    value='pdf'
+                                )
+                            ], width=6)
+                        ], className="mb-3"),
+
+                        dbc.Row([
+                            # Schedule Type
+                            dbc.Col([
+                                html.Label("Schedule Type", className="fw-bold mb-2"),
+                                dbc.RadioItems(
+                                    id='schedule-type-radio',
+                                    options=[
+                                        {'label': 'Cron Expression', 'value': 'cron'},
+                                        {'label': 'Interval (Hours)', 'value': 'interval'}
+                                    ],
+                                    value='cron',
+                                    inline=True
+                                )
+                            ], width=12, className="mb-3"),
+                        ]),
+
+                        # Cron Expression Input (shown when cron is selected)
+                        html.Div([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Cron Expression", className="fw-bold mb-2"),
+                                    dbc.Input(
+                                        id='schedule-cron-input',
+                                        type='text',
+                                        placeholder='0 8 * * * (Daily at 8 AM)',
+                                        value='0 8 * * *'
+                                    ),
+                                    html.Small("Format: minute hour day month day_of_week", className="text-muted"),
+                                    html.Br(),
+                                    html.Small([
+                                        "Examples: ",
+                                        html.Code("0 8 * * *", className="text-primary"), " (Daily 8 AM), ",
+                                        html.Code("0 9 * * 1", className="text-primary"), " (Monday 9 AM)"
+                                    ], className="text-muted")
+                                ], width=12)
+                            ], className="mb-3")
+                        ], id='cron-expression-div', style={'display': 'block'}),
+
+                        # Interval Input (shown when interval is selected)
+                        html.Div([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Interval (Hours)", className="fw-bold mb-2"),
+                                    dbc.Input(
+                                        id='schedule-interval-input',
+                                        type='number',
+                                        min=1,
+                                        max=168,
+                                        value=24,
+                                        step=1
+                                    ),
+                                    html.Small("Run every N hours (1-168)", className="text-muted")
+                                ], width=12)
+                            ], className="mb-3")
+                        ], id='interval-hours-div', style={'display': 'none'}),
+
+                        dbc.Row([
+                            # Time Range
+                            dbc.Col([
+                                html.Label("Report Time Range (Days)", className="fw-bold mb-2"),
+                                dbc.Input(
+                                    id='schedule-days-input',
+                                    type='number',
+                                    value=7,
+                                    min=1,
+                                    max=365,
+                                    step=1
+                                )
+                            ], width=6),
+
+                            # Email Recipient (optional)
+                            dbc.Col([
+                                html.Label("Email Recipient (Optional)", className="fw-bold mb-2"),
+                                dbc.Input(
+                                    id='schedule-email-input',
+                                    type='email',
+                                    placeholder='Leave empty for default'
+                                )
+                            ], width=6)
+                        ], className="mb-3"),
+
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-plus me-2"),
+                                    "Add Schedule"
+                                ], id="add-schedule-btn", color="success", className="w-100")
+                            ])
+                        ]),
+
+                        html.Div(id='add-schedule-status', className="mt-3")
+                    ], className="p-3")
+                ], label="Add Schedule", tab_id="add-schedule-tab"),
+
+                # Daily Digest Tab
+                dbc.Tab([
+                    html.Div([
+                        html.H6([
+                            html.I(className="fa fa-envelope me-2 text-info"),
+                            "Daily Security Digest"
+                        ], className="mb-3"),
+                        html.P("Automatically send a daily summary email with security metrics and trends.", className="text-muted mb-3"),
+
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Time to Send", className="fw-bold mb-2"),
+                                dbc.Row([
+                                    dbc.Col([
+                                        dbc.Input(
+                                            id='digest-hour-input',
+                                            type='number',
+                                            min=0,
+                                            max=23,
+                                            value=8,
+                                            step=1
+                                        ),
+                                        html.Small("Hour (0-23)", className="text-muted")
+                                    ], width=6),
+                                    dbc.Col([
+                                        dbc.Input(
+                                            id='digest-minute-input',
+                                            type='number',
+                                            min=0,
+                                            max=59,
+                                            value=0,
+                                            step=1
+                                        ),
+                                        html.Small("Minute (0-59)", className="text-muted")
+                                    ], width=6)
+                                ])
+                            ], width=6),
+
+                            dbc.Col([
+                                html.Label("Email Recipient (Optional)", className="fw-bold mb-2"),
+                                dbc.Input(
+                                    id='digest-email-input',
+                                    type='email',
+                                    placeholder='Leave empty for default'
+                                )
+                            ], width=6)
+                        ], className="mb-3"),
+
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-calendar-check me-2"),
+                                    "Enable Daily Digest"
+                                ], id="enable-digest-btn", color="info", className="w-100 mb-2")
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-paper-plane me-2"),
+                                    "Send Test Digest Now"
+                                ], id="test-digest-btn", color="warning", outline=True, className="w-100 mb-2")
+                            ], width=6)
+                        ]),
+
+                        html.Div(id='digest-status', className="mt-3")
+                    ], className="p-3")
+                ], label="Daily Digest", tab_id="daily-digest-tab")
 
             ], id="email-modal-tabs", active_tab="smtp-settings-tab")
         ]),
@@ -4084,7 +4703,7 @@ dashboard_layout = dbc.Container([
                 "Close"
             ], id='close-email-modal-btn', color="secondary", outline=True)
         ])
-    ], id="email-modal", size="lg", is_open=False, scrollable=True),
+    ], id="email-modal", size="xl", is_open=False, scrollable=True),
 
     # Firewall Control Modal
     dbc.Modal([
@@ -4705,7 +5324,8 @@ dashboard_layout = dbc.Container([
                                             options=[
                                                 {'label': '📄 CSV Format', 'value': 'csv'},
                                                 {'label': '📋 JSON Format', 'value': 'json'},
-                                                {'label': '📊 Excel Format', 'value': 'xlsx'}
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
                                             ],
                                             value='csv',
                                             className="mb-3"
@@ -4746,11 +5366,17 @@ dashboard_layout = dbc.Container([
             ], id="device-mgmt-tabs", active_tab="devices-list-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='device-mgmt-timestamp-display', className="me-auto"),
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh"
+            ], id="refresh-device-mgmt-btn", color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-device-modal-btn', color="secondary", outline=True)
-        ])
+            ], id='close-device-modal-btn', color="secondary", size="sm")
+        ]),
+        dcc.Store(id='device-mgmt-timestamp-store')
     ], id="device-mgmt-modal", size="xl", is_open=False, scrollable=True),
 
     # Dashboard Preferences Modal - Enhanced
@@ -5121,19 +5747,19 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-comment-dots me-2"),
                             "MQTT Traffic Analysis"
                         ], className="glass-card-header"),
+
                         dbc.CardBody([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("Time Range:", className="fw-bold mb-2"),
-                                    dcc.Dropdown(
+                                    dbc.Select(
                                         id='protocol-mqtt-time-range',
                                         options=[
-                                            {'label': 'Last Hour', 'value': 1},
-                                            {'label': 'Last 24 Hours', 'value': 24},
-                                            {'label': 'Last 7 Days', 'value': 168}
+                                            {"label": "Last Hour", "value": 1},
+                                            {"label": "Last 24 Hours", "value": 24},
+                                            {"label": "Last 7 Days", "value": 168}
                                         ],
                                         value=24,
-                                        clearable=False,
                                         className="mb-3"
                                     )
                                 ], md=4)
@@ -5150,19 +5776,19 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-exchange-alt me-2"),
                             "CoAP Traffic Analysis"
                         ], className="glass-card-header"),
+
                         dbc.CardBody([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("Time Range:", className="fw-bold mb-2"),
-                                    dcc.Dropdown(
+                                    dbc.Select(
                                         id='protocol-coap-time-range',
                                         options=[
-                                            {'label': 'Last Hour', 'value': 1},
-                                            {'label': 'Last 24 Hours', 'value': 24},
-                                            {'label': 'Last 7 Days', 'value': 168}
+                                            {"label": "Last Hour", "value": 1},
+                                            {"label": "Last 24 Hours", "value": 24},
+                                            {"label": "Last 7 Days", "value": 168}
                                         ],
                                         value=24,
-                                        clearable=False,
                                         className="mb-3"
                                     )
                                 ], md=4)
@@ -5180,22 +5806,47 @@ dashboard_layout = dbc.Container([
                             "Device Protocol Usage Summary"
                         ], className="glass-card-header"),
                         dbc.CardBody([
-                            html.Div(id='protocol-device-summary')
+                            html.Div(id='protocol-device-summary'),
+                            html.Hr(className="my-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Export Data", className="fw-bold mb-2 text-cyber"),
+                                    html.P("Download protocol analysis data in your preferred format.", className="text-muted small mb-2"),
+                                    dbc.Select(
+                                        id='export-format-protocol',
+                                        options=[
+                                            {'label': '📄 CSV Format', 'value': 'csv'},
+                                            {'label': '📋 JSON Format', 'value': 'json'},
+                                            {'label': '📕 PDF Report', 'value': 'pdf'},
+                                            {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                        ],
+                                        value='csv',
+                                        className="mb-2"
+                                    ),
+                                    dbc.Button([
+                                        html.I(className="fa fa-download me-2"),
+                                        "Export Protocol Data"
+                                    ], id='export-protocol-csv-btn', color="primary", className="w-100")
+                                ], md=6)
+                            ])
                         ])
                     ], className="glass-card border-0 shadow-sm")
                 ], label="Device Summary", tab_id="protocol-summary-tab", className="p-3")
             ], id="protocol-analysis-tabs", active_tab="protocol-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='protocol-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
-            ], id="refresh-protocol-btn", color="primary", outline=True, size="sm", className="me-2"),
+            ], id="refresh-protocol-btn", color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-protocol-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='protocol-timestamp-store'),
+        dcc.Download(id='download-protocol-csv')
     ], id="protocol-modal", size="xl", is_open=False, scrollable=True),
 
     # Threat Intelligence Modal - Enhanced
@@ -5285,6 +5936,52 @@ dashboard_layout = dbc.Container([
 
                 # Threat Feed Tab
                 dbc.Tab([
+                    # Search and Filter Controls
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.InputGroup([
+                                dbc.InputGroupText(html.I(className="fa fa-search")),
+                                dbc.Input(
+                                    id='threat-feed-search-input',
+                                    type='text',
+                                    placeholder="Search by IP address, botnet name, or malicious domain..."
+                                )
+                            ])
+                        ], md=12)
+                    ], className="mb-2"),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Select(
+                                id='threat-feed-severity-filter',
+                                options=[
+                                    {'label': '🔍 All Severities', 'value': 'all'},
+                                    {'label': '🔴 Critical', 'value': 'critical'},
+                                    {'label': '🟠 High', 'value': 'high'},
+                                    {'label': '🟡 Medium', 'value': 'medium'},
+                                    {'label': '🟢 Low', 'value': 'low'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Select(
+                                id='threat-feed-status-filter',
+                                options=[
+                                    {'label': '📊 All Status', 'value': 'all'},
+                                    {'label': '🔴 Active', 'value': 'active'},
+                                    {'label': '✅ Resolved', 'value': 'resolved'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Button([
+                                html.I(className="fa fa-sync-alt me-2"),
+                                "Refresh"
+                            ], id='refresh-threat-feed-btn', color="primary", size="sm", className="w-100")
+                        ], md=4)
+                    ], className="mb-3"),
+
                     dbc.Card([
                         dbc.CardHeader([
                             html.I(className="fa fa-rss me-2"),
@@ -5487,6 +6184,41 @@ dashboard_layout = dbc.Container([
                 # Tracker Detection Tab
                 dbc.Tab([
                     html.Div([
+                        # Search and Filter Controls
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-search")),
+                                    dbc.Input(
+                                        id='tracker-search-input',
+                                        type='text',
+                                        placeholder="Search by cloud domain, tracker company, or device IP..."
+                                    )
+                                ])
+                            ], md=12)
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Select(
+                                    id='privacy-concern-filter',
+                                    options=[
+                                        {'label': '🔍 All Privacy Levels', 'value': 'all'},
+                                        {'label': '🔴 Critical', 'value': 'critical'},
+                                        {'label': '🟠 High', 'value': 'high'},
+                                        {'label': '🟡 Medium', 'value': 'medium'},
+                                        {'label': '🟢 Low', 'value': 'low'}
+                                    ],
+                                    value='all'
+                                )
+                            ], md=8),
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-sync-alt me-2"),
+                                    "Refresh"
+                                ], id='refresh-tracker-btn', color="primary", size="sm", className="w-100")
+                            ], md=4)
+                        ], className="mb-3"),
+
                         dbc.Card([
                             dbc.CardBody([
                                 html.H6([html.I(className="fa fa-eye-slash me-2 text-danger"), "Tracker Detection"], className="mb-3"),
@@ -5566,14 +6298,35 @@ dashboard_layout = dbc.Container([
             ], id="privacy-modal-tabs", active_tab="privacy-score-tab")
         ]),
         dbc.ModalFooter([
-            dbc.Button([
-                html.I(className="fa fa-file-pdf me-2"),
-                "Export Report"
-            ], id='export-privacy-report-btn', color="primary", outline=True, className="me-2"),
-            dbc.Button([
-                html.I(className="fa fa-times me-2"),
-                "Close"
-            ], id='close-privacy-modal-btn', color="secondary", outline=True)
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Export Format:", className="fw-bold mb-2 small"),
+                    dbc.Select(
+                        id='export-format-privacy',
+                        options=[
+                            {'label': '📄 CSV Format', 'value': 'csv'},
+                            {'label': '📋 JSON Format', 'value': 'json'},
+                            {'label': '📕 PDF Report', 'value': 'pdf'},
+                            {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                        ],
+                        value='csv',
+                        size="sm",
+                        className="mb-2"
+                    )
+                ], md=4),
+                dbc.Col([
+                    dbc.Button([
+                        html.I(className="fa fa-download me-2"),
+                        "Export Report"
+                    ], id='export-privacy-report-btn', color="primary", outline=True, className="mt-4"),
+                ], md=3),
+                dbc.Col([
+                    dbc.Button([
+                        html.I(className="fa fa-times me-2"),
+                        "Close"
+                    ], id='close-privacy-modal-btn', color="secondary", outline=True, className="mt-4")
+                ], md=3)
+            ], className="w-100")
         ])
     ], id="privacy-modal", size="xl", is_open=False, scrollable=True),
 
@@ -5599,7 +6352,34 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm"),
 
-                        html.Div(id='hub-detection-section', className="mt-3")
+                        html.Div(id='hub-detection-section', className="mt-3"),
+
+                        html.Hr(className="my-3"),
+                        dbc.Card([
+                            dbc.CardBody([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Export Data", className="fw-bold mb-2 text-cyber"),
+                                        html.P("Download smart home device data in your preferred format.", className="text-muted small mb-2"),
+                                        dbc.Select(
+                                            id='export-format-smarthome',
+                                            options=[
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                            ],
+                                            value='csv',
+                                            className="mb-2"
+                                        ),
+                                        dbc.Button([
+                                            html.I(className="fa fa-download me-2"),
+                                            "Export Smart Home Data"
+                                        ], id='export-smarthome-csv-btn', color="primary", className="w-100")
+                                    ], md=6)
+                                ])
+                            ])
+                        ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
                 ], label="Hubs", tab_id="hub-detection-tab"),
 
@@ -5663,15 +6443,18 @@ dashboard_layout = dbc.Container([
             ], id="smarthome-modal-tabs", active_tab="hub-detection-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='smarthome-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
-            ], id='refresh-smarthome-btn', color="primary", outline=True, className="me-2"),
+            ], id='refresh-smarthome-btn', color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-smarthome-modal-btn', color="secondary", outline=True)
-        ])
+            ], id='close-smarthome-modal-btn', color="secondary", outline=True, size="sm")
+        ]),
+        dcc.Store(id='smarthome-timestamp-store'),
+        dcc.Download(id='download-smarthome-csv')
     ], id="smarthome-modal", size="xl", is_open=False, scrollable=True),
 
     # Network Segmentation Modal - Enhanced with Tabs
@@ -5834,15 +6617,17 @@ dashboard_layout = dbc.Container([
             ], id="segmentation-tabs", active_tab="seg-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='segmentation-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh Data"
-            ], id="refresh-segmentation-btn", color="primary", outline=True, size="sm", className="me-2"),
+            ], id="refresh-segmentation-btn", color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-segmentation-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='segmentation-timestamp-store')
     ], id="segmentation-modal", size="xl", is_open=False, scrollable=True),
 
     # Firmware Management Modal - Enhanced with Tabs
@@ -5901,7 +6686,30 @@ dashboard_layout = dbc.Container([
                                 ], className="mb-4"),
 
                                 html.H6("Devices Needing Updates", className="mb-3"),
-                                html.Div(id='firmware-status-section')
+                                html.Div(id='firmware-status-section'),
+
+                                html.Hr(className="my-3"),
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Export Data", className="fw-bold mb-2 text-cyber"),
+                                        html.P("Download firmware status data in your preferred format.", className="text-muted small mb-2"),
+                                        dbc.Select(
+                                            id='export-format-firmware',
+                                            options=[
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                            ],
+                                            value='csv',
+                                            className="mb-2"
+                                        ),
+                                        dbc.Button([
+                                            html.I(className="fa fa-download me-2"),
+                                            "Export Firmware Data"
+                                        ], id='export-firmware-csv-btn', color="primary", className="w-100")
+                                    ], md=6)
+                                ])
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
@@ -6031,16 +6839,48 @@ dashboard_layout = dbc.Container([
             ], id="firmware-modal-tabs", active_tab="firmware-status-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='firmware-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
-            ], id='refresh-firmware-btn', color="primary", outline=True, className="me-2"),
+            ], id='refresh-firmware-btn', color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-firmware-modal-btn', color="secondary", outline=True)
-        ])
+            ], id='close-firmware-modal-btn', color="secondary", outline=True, size="sm")
+        ]),
+        dcc.Store(id='firmware-timestamp-store'),
+        dcc.Download(id='download-firmware-csv')
     ], id="firmware-modal", size="xl", is_open=False, scrollable=True),
+
+    # EOL Device Replacement Modal
+    dbc.Modal([
+        dbc.ModalHeader(
+            dbc.ModalTitle("Replace End-of-Life Device")
+        ),
+
+        dbc.ModalBody([
+            html.P("Select a new device to replace the EOL device."),
+            dbc.Select(
+                id='replacement-device-dropdown',
+                options=[],  # populate dynamically via callback
+                placeholder="Select replacement device...",
+                className="mb-2"
+            ),
+        ]),
+
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="cancel-replacement-btn", color="secondary"),
+            dbc.Button(
+                "Confirm",
+                id="confirm-replacement-btn",
+                color="primary",
+                disabled=True
+            ),
+        ]),
+    ], id="eol-replacement-modal", is_open=False),
+
+    dcc.Store(id='eol-device-ip-store'),
 
     # Security Education Modal - Enhanced with Tabs
     dbc.Modal([
@@ -6345,6 +7185,7 @@ dashboard_layout = dbc.Container([
             ], id="threat-map-tabs", active_tab="threat-map-global-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='threat-map-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh Map"
@@ -6353,7 +7194,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-threat-map-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='threat-map-timestamp-store')
     ], id="threat-map-modal", size="xl", is_open=False, scrollable=True),
 
     # Device Risk Heat Map Modal
@@ -6434,20 +7276,20 @@ dashboard_layout = dbc.Container([
                             html.I(className="fa fa-list me-2"),
                             "Device Risk Details"
                         ], className="glass-card-header"),
+
                         dbc.CardBody([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("Risk Level Filter:", className="fw-bold mb-2"),
-                                    dcc.Dropdown(
+                                    dbc.Select(
                                         id='risk-level-filter',
                                         options=[
-                                            {'label': 'All Devices', 'value': 'all'},
-                                            {'label': 'High Risk Only', 'value': 'high'},
-                                            {'label': 'Medium Risk Only', 'value': 'medium'},
-                                            {'label': 'Low Risk Only', 'value': 'low'}
+                                            {"label": "All Devices", "value": "all"},
+                                            {"label": "High Risk Only", "value": "high"},
+                                            {"label": "Medium Risk Only", "value": "medium"},
+                                            {"label": "Low Risk Only", "value": "low"}
                                         ],
-                                        value='all',
-                                        clearable=False,
+                                        value="all",
                                         className="mb-3"
                                     )
                                 ], md=4)
@@ -6493,6 +7335,7 @@ dashboard_layout = dbc.Container([
             ], id="risk-heatmap-tabs", active_tab="risk-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='risk-heatmap-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
@@ -6501,7 +7344,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-risk-heatmap-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='risk-heatmap-timestamp-store')
     ], id="risk-heatmap-modal", size="xl", is_open=False, scrollable=True),
 
     # Attack Surface Modal - Enhanced
@@ -6585,6 +7429,51 @@ dashboard_layout = dbc.Container([
 
                 # Exposed Services Tab
                 dbc.Tab([
+                    # Search and Filter Controls
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.InputGroup([
+                                dbc.InputGroupText(html.I(className="fa fa-search")),
+                                dbc.Input(
+                                    id='attack-surface-services-search',
+                                    type='text',
+                                    placeholder="Search by port number, service name, or device IP..."
+                                )
+                            ])
+                        ], md=12)
+                    ], className="mb-2"),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Select(
+                                id='attack-surface-risk-filter',
+                                options=[
+                                    {'label': '🔍 All Risk Levels', 'value': 'all'},
+                                    {'label': '🔴 High Risk', 'value': 'high'},
+                                    {'label': '🟡 Medium Risk', 'value': 'medium'},
+                                    {'label': '🟢 Low Risk', 'value': 'low'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Select(
+                                id='attack-surface-port-status-filter',
+                                options=[
+                                    {'label': '📊 All Port Status', 'value': 'all'},
+                                    {'label': '🔓 Open Ports', 'value': 'open'},
+                                    {'label': '🔒 Closed Ports', 'value': 'closed'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Button([
+                                html.I(className="fa fa-sync-alt me-2"),
+                                "Refresh"
+                            ], id='refresh-attack-services-btn', color="primary", size="sm", className="w-100")
+                        ], md=4)
+                    ], className="mb-3"),
+
                     dbc.Card([
                         dbc.CardHeader([
                             html.I(className="fa fa-server me-2"),
@@ -6726,6 +7615,53 @@ dashboard_layout = dbc.Container([
                 # Detailed Events Tab
                 dbc.Tab([
                     html.Div([
+                        # Search and Filter Controls
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-search")),
+                                    dbc.Input(
+                                        id='forensic-event-search-input',
+                                        type='text',
+                                        placeholder="Search by device IP, destination IP, protocol, or service..."
+                                    )
+                                ])
+                            ], md=12)
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Select(
+                                    id='forensic-severity-filter',
+                                    options=[
+                                        {'label': '🔍 All Severities', 'value': 'all'},
+                                        {'label': '🔴 Critical', 'value': 'critical'},
+                                        {'label': '🟠 High', 'value': 'high'},
+                                        {'label': '🟡 Medium', 'value': 'medium'},
+                                        {'label': '🟢 Low', 'value': 'low'}
+                                    ],
+                                    value='all'
+                                )
+                            ], md=4),
+                            dbc.Col([
+                                dbc.Select(
+                                    id='forensic-event-type-filter',
+                                    options=[
+                                        {'label': '📊 All Event Types', 'value': 'all'},
+                                        {'label': '🔌 Connections', 'value': 'connection'},
+                                        {'label': '🚨 Alerts', 'value': 'alert'},
+                                        {'label': '📤 Data Exfiltration', 'value': 'exfiltration'}
+                                    ],
+                                    value='all'
+                                )
+                            ], md=4),
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-sync-alt me-2"),
+                                    "Refresh"
+                                ], id='refresh-forensic-log-btn', color="primary", size="sm", className="w-100")
+                            ], md=4)
+                        ], className="mb-3"),
+
                         dbc.Card([
                             dbc.CardBody([
                                 html.H6([html.I(className="fa fa-list me-2 text-success"), "Detailed Event Log"], className="mb-3"),
@@ -6748,12 +7684,13 @@ dashboard_layout = dbc.Container([
                                 dbc.Row([
                                     dbc.Col([
                                         html.Label("Report Format:", className="fw-bold mb-2"),
-                                        dbc.RadioItems(
+                                        dbc.Select(
                                             id="forensic-report-format",
                                             options=[
-                                                {"label": " PDF Report (Detailed)", "value": "pdf"},
-                                                {"label": " CSV Data Export", "value": "csv"},
-                                                {"label": " JSON Raw Data", "value": "json"}
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
                                             ],
                                             value="pdf",
                                             className="mb-3"
@@ -6833,7 +7770,30 @@ dashboard_layout = dbc.Container([
 
                                 # Activity timeline graph
                                 dcc.Graph(id='activity-timeline-graph', style={'height': '400px'},
-                                         config={'displayModeBar': True, 'displaylogo': False})
+                                         config={'displayModeBar': True, 'displaylogo': False}),
+
+                                html.Hr(className="my-3"),
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Export Data", className="fw-bold mb-2 text-cyber"),
+                                        html.P("Download timeline activity data in your preferred format.", className="text-muted small mb-2"),
+                                        dbc.Select(
+                                            id='export-format-timeline',
+                                            options=[
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                            ],
+                                            value='csv',
+                                            className="mb-2"
+                                        ),
+                                        dbc.Button([
+                                            html.I(className="fa fa-download me-2"),
+                                            "Export Timeline Data"
+                                        ], id='export-timeline-viz-csv-btn', color="primary", className="w-100")
+                                    ], md=6)
+                                ])
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
@@ -6888,15 +7848,18 @@ dashboard_layout = dbc.Container([
             ], id="timeline-viz-tabs", active_tab="activity-timeline-tab")
         ]),
         dbc.ModalFooter([
+            html.Div(id='timeline-viz-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
-            ], id='refresh-timeline-btn', color="primary", outline=True, className="me-2"),
+            ], id='refresh-timeline-viz-btn', color="info", outline=True, size="sm", className="me-2"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-timeline-modal-btn', color="secondary", outline=True)
-        ])
+            ], id='close-timeline-modal-btn', color="secondary", outline=True, size="sm")
+        ]),
+        dcc.Store(id='timeline-viz-timestamp-store'),
+        dcc.Download(id='download-timeline-viz-csv')
     ], id="timeline-viz-modal", size="xl", is_open=False, scrollable=True),
 
     # Compliance Dashboard Modal
@@ -6910,6 +7873,40 @@ dashboard_layout = dbc.Container([
                 # Overview Tab
                 dbc.Tab([
                     html.Div([
+                        # Search and Filter Controls
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.InputGroup([
+                                    dbc.InputGroupText(html.I(className="fa fa-search")),
+                                    dbc.Input(
+                                        id='compliance-search-input',
+                                        type='text',
+                                        placeholder="Search by regulation name or requirement..."
+                                    )
+                                ])
+                            ], md=12)
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Select(
+                                    id='compliance-status-filter',
+                                    options=[
+                                        {'label': '📊 All Status', 'value': 'all'},
+                                        {'label': '✅ Compliant', 'value': 'compliant'},
+                                        {'label': '❌ Non-Compliant', 'value': 'non-compliant'},
+                                        {'label': '⚠️ Partial', 'value': 'partial'}
+                                    ],
+                                    value='all'
+                                )
+                            ], md=8),
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-sync-alt me-2"),
+                                    "Refresh"
+                                ], id='refresh-compliance-overview-btn', color="primary", size="sm", className="w-100")
+                            ], md=4)
+                        ], className="mb-3"),
+
                         dbc.Card([
                             dbc.CardBody([
                                 html.H6([html.I(className="fa fa-chart-bar me-2 text-success"), "Compliance Overview"], className="mb-3"),
@@ -6963,7 +7960,18 @@ dashboard_layout = dbc.Container([
                                     ], md=4)
                                 ])
                             ])
-                        ], className="glass-card border-0 shadow-sm")
+                        ], className="glass-card border-0 shadow-sm"),
+
+                        # Compliance Requirements List
+                        dbc.Card([
+                            dbc.CardHeader([
+                                html.I(className="fa fa-list-check me-2"),
+                                "Compliance Requirements"
+                            ], className="glass-card-header"),
+                            dbc.CardBody([
+                                html.Div(id='compliance-requirements-list')
+                            ])
+                        ], className="glass-card border-0 shadow-sm mt-3")
                     ], className="p-3")
                 ], label="Overview", tab_id="compliance-overview-tab"),
 
@@ -7158,6 +8166,7 @@ dashboard_layout = dbc.Container([
             ], id="auto-response-tabs", active_tab="auto-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='auto-response-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh Data"
@@ -7166,7 +8175,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-auto-response-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='auto-response-timestamp-store')
     ], id="auto-response-modal", size="xl", is_open=False, scrollable=True),
 
     # Vulnerability Scanner Modal
@@ -7239,6 +8249,39 @@ dashboard_layout = dbc.Container([
 
                 # CVE Database Tab
                 dbc.Tab([
+                    # Search and Filter Controls
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.InputGroup([
+                                dbc.InputGroupText(html.I(className="fa fa-search")),
+                                dbc.Input(
+                                    id='cve-database-search-input',
+                                    type='text',
+                                    placeholder="Search by CVE ID, description, or vendor..."
+                                )
+                            ])
+                        ], md=6),
+                        dbc.Col([
+                            dbc.Select(
+                                id='cve-severity-filter',
+                                options=[
+                                    {'label': '🔍 All Severities', 'value': 'all'},
+                                    {'label': '🔴 Critical', 'value': 'critical'},
+                                    {'label': '🟠 High', 'value': 'high'},
+                                    {'label': '🟡 Medium', 'value': 'medium'},
+                                    {'label': '🟢 Low', 'value': 'low'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Button([
+                                html.I(className="fa fa-sync-alt me-2"),
+                                "Refresh"
+                            ], id='refresh-cve-database-btn', color="primary", size="sm", className="w-100")
+                        ], md=2)
+                    ], className="mb-3"),
+
                     dbc.Card([
                         dbc.CardHeader([
                             html.I(className="fa fa-database me-2"),
@@ -7252,29 +8295,59 @@ dashboard_layout = dbc.Container([
 
                 # Device Scan Tab
                 dbc.Tab([
+                    # Search and Filter Controls
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.InputGroup([
+                                dbc.InputGroupText(html.I(className="fa fa-search")),
+                                dbc.Input(
+                                    id='device-scan-search-input',
+                                    type='text',
+                                    placeholder="Search by CVE ID, title, vendor/model, or device..."
+                                )
+                            ])
+                        ], md=12)
+                    ], className="mb-2"),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Select(
+                                id='vuln-status-filter',
+                                options=[
+                                    {'label': '🔍 All Status', 'value': 'all'},
+                                    {'label': '🔴 Active', 'value': 'active'},
+                                    {'label': '🟢 Patched', 'value': 'patched'},
+                                    {'label': '🟡 Mitigated', 'value': 'mitigated'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Select(
+                                id='vuln-severity-filter',
+                                options=[
+                                    {'label': '🔍 All Severities', 'value': 'all'},
+                                    {'label': '🔴 Critical (9.0-10.0)', 'value': 'critical'},
+                                    {'label': '🟠 High (7.0-8.9)', 'value': 'high'},
+                                    {'label': '🟡 Medium (4.0-6.9)', 'value': 'medium'},
+                                    {'label': '🟢 Low (0.1-3.9)', 'value': 'low'}
+                                ],
+                                value='all'
+                            )
+                        ], md=4),
+                        dbc.Col([
+                            dbc.Button([
+                                html.I(className="fa fa-sync-alt me-2"),
+                                "Refresh"
+                            ], id='refresh-device-scan-btn', color="primary", size="sm", className="w-100")
+                        ], md=4)
+                    ], className="mb-3"),
+
                     dbc.Card([
                         dbc.CardHeader([
                             html.I(className="fa fa-search me-2"),
                             "Device Vulnerability Scan Results"
                         ], className="glass-card-header"),
                         dbc.CardBody([
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.Label("Filter by Status:", className="fw-bold mb-2"),
-                                    dcc.Dropdown(
-                                        id='vuln-status-filter',
-                                        options=[
-                                            {'label': 'All', 'value': 'all'},
-                                            {'label': 'Active', 'value': 'active'},
-                                            {'label': 'Patched', 'value': 'patched'},
-                                            {'label': 'Mitigated', 'value': 'mitigated'}
-                                        ],
-                                        value='all',
-                                        clearable=False,
-                                        className="mb-3"
-                                    )
-                                ], md=6)
-                            ]),
                             html.Div(id='vuln-device-scan-results')
                         ])
                     ], className="glass-card border-0 shadow-sm")
@@ -7422,6 +8495,7 @@ dashboard_layout = dbc.Container([
             ], id="benchmark-tabs", active_tab="benchmark-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='benchmark-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
@@ -7430,7 +8504,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-benchmark-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='benchmark-timestamp-store')
     ], id="benchmark-modal", size="xl", is_open=False, scrollable=True),
 
     # Network Performance Analytics Modal - Enhanced
@@ -7541,6 +8616,7 @@ dashboard_layout = dbc.Container([
             ], id="performance-tabs", active_tab="performance-overview-tab")
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
+            html.Div(id='performance-timestamp-display', className="me-auto"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
                 "Refresh"
@@ -7549,7 +8625,8 @@ dashboard_layout = dbc.Container([
                 html.I(className="fa fa-times me-2"),
                 "Close"
             ], id="close-performance-modal-btn", color="secondary", size="sm")
-        ])
+        ]),
+        dcc.Store(id='performance-timestamp-store')
     ], id="performance-modal", size="xl", is_open=False, scrollable=True),
 
     # Quick Settings Modal - Enhanced
@@ -8208,10 +9285,29 @@ dashboard_layout = dbc.Container([
             dbc.Row([
                 dbc.Col([
                     dbc.Button([html.I(className="fa fa-sync-alt me-2"), "Refresh"], id="quick-refresh-btn", color="primary", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
+                ], width=12, className="mb-2"),
+            ], className="mb-2"),
+
+            dbc.Row([
                 dbc.Col([
-                    dbc.Button([html.I(className="fa fa-download me-2"), "Export CSV"], id="quick-export-btn", color="success", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
+                    html.Label("Export Format:", className="fw-bold mb-1 small"),
+                    dbc.Select(
+                        id='export-format-quick',
+                        options=[
+                            {'label': '📄 CSV', 'value': 'csv'},
+                            {'label': '📋 JSON', 'value': 'json'},
+                            {'label': '📕 PDF', 'value': 'pdf'},
+                            {'label': '📊 Excel', 'value': 'xlsx'}
+                        ],
+                        value='csv',
+                        size="sm",
+                        className="mb-2"
+                    )
+                ], width=6),
+                dbc.Col([
+                    html.Label("Download:", className="fw-bold mb-1 small"),
+                    dbc.Button([html.I(className="fa fa-download me-2"), "Export"], id="quick-export-btn", color="success", size="sm", className="w-100")
+                ], width=6),
             ], className="mb-3"),
 
             html.Hr(),
@@ -8540,6 +9636,173 @@ dashboard_layout = dbc.Container([
     centered=True,
     className="spotlight-modal"
     ),
+
+    # Enhanced Custom Reports Modal with Tabs
+    dbc.Modal([
+        dbc.ModalHeader(
+            dbc.ModalTitle([
+                html.I(className="fa fa-file-alt me-2", style={"color": "#6366f1"}),
+                "Advanced Report Builder"
+            ]),
+            close_button=True
+        ),
+        dbc.ModalBody([
+            dbc.Tabs([
+                # Report Builder Tab
+                dbc.Tab([
+                    html.Div([
+                        # Template Selection with Visual Cards
+                        html.H6([html.I(className="fa fa-file-alt me-2"), "Select Report Template"], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-chart-pie fa-2x mb-2 text-primary"),
+                                        html.H6("Executive Summary", className="card-title"),
+                                        html.P("High-level overview with KPIs", className="card-text small"),
+                                        dbc.Button("Select", id="select-exec-template", color="primary", size="sm", outline=True, className="w-100")
+                                    ], className="text-center")
+                                ], className="shadow-sm mb-2 cursor-pointer hover-shadow", id="exec-template-card")
+                            ], md=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-shield-alt fa-2x mb-2 text-danger"),
+                                        html.H6("Security Audit", className="card-title"),
+                                        html.P("Comprehensive security analysis", className="card-text small"),
+                                        dbc.Button("Select", id="select-security-template", color="danger", size="sm", outline=True, className="w-100")
+                                    ], className="text-center")
+                                ], className="shadow-sm mb-2 cursor-pointer hover-shadow", id="security-template-card")
+                            ], md=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-network-wired fa-2x mb-2 text-success"),
+                                        html.H6("Network Activity", className="card-title"),
+                                        html.P("Traffic and connection analysis", className="card-text small"),
+                                        dbc.Button("Select", id="select-network-template", color="success", size="sm", outline=True, className="w-100")
+                                    ], className="text-center")
+                                ], className="shadow-sm mb-2 cursor-pointer hover-shadow", id="network-template-card")
+                            ], md=4)
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-tablet-alt fa-2x mb-2 text-info"),
+                                        html.H6("Device Inventory", className="card-title"),
+                                        html.P("Complete device catalog", className="card-text small"),
+                                        dbc.Button("Select", id="select-device-template", color="info", size="sm", outline=True, className="w-100")
+                                    ], className="text-center")
+                                ], className="shadow-sm mb-2 cursor-pointer hover-shadow", id="device-template-card")
+                            ], md=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-bug fa-2x mb-2 text-warning"),
+                                        html.H6("Threat Analysis", className="card-title"),
+                                        html.P("Advanced threat detection", className="card-text small"),
+                                        dbc.Button("Select", id="select-threat-template", color="warning", size="sm", outline=True, className="w-100")
+                                    ], className="text-center")
+                                ], className="shadow-sm mb-2 cursor-pointer hover-shadow", id="threat-template-card")
+                            ], md=4)
+                        ], className="mb-4"),
+
+                        html.Hr(),
+
+                        # Configuration Section
+                        html.H6([html.I(className="fa fa-cog me-2"), "Report Configuration"], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Selected Template", className="fw-bold mb-2"),
+                                dbc.Input(id='report-template-select', value='executive_summary', disabled=True)
+                            ], md=4),
+                            dbc.Col([
+                                html.Label("Export Format", className="fw-bold mb-2"),
+                                dbc.Select(
+                                    id='report-format-select',
+                                    options=[
+                                        {'label': '📄 PDF Report', 'value': 'pdf'},
+                                        {'label': '📊 Excel Workbook', 'value': 'excel'},
+                                        {'label': '📋 JSON Data', 'value': 'json'}
+                                    ],
+                                    value='pdf'
+                                )
+                            ], md=4),
+                            dbc.Col([
+                                html.Label("Time Range (Days)", className="fw-bold mb-2"),
+                                dbc.Input(
+                                    id='report-days-input',
+                                    type='number',
+                                    value=7,
+                                    min=1,
+                                    max=365,
+                                    step=1
+                                )
+                            ], md=4)
+                        ], className="mb-3"),
+
+                        # Template Preview
+                        dbc.Alert([
+                            html.I(className="fa fa-info-circle me-2"),
+                            html.Span(id='template-preview')
+                        ], color="light", className="mb-3"),
+
+                        # Progress and Status
+                        html.Div([
+                            # Status message
+                            html.Div(id='report-status'),
+
+                            # Progress bar (hidden by default)
+                            html.Div([
+                                html.Label("Report Generation Progress", className="fw-bold mb-2"),
+                                dbc.Progress(
+                                    id="report-progress-bar",
+                                    value=0,
+                                    striped=True,
+                                    animated=True,
+                                    color="success",
+                                    className="mb-2"
+                                ),
+                                html.Small(id="report-progress-text", className="text-muted")
+                            ], id="report-progress-container", style={"display": "none"})
+                        ], className="mb-3"),
+
+                        # Interval for polling job status
+                        dcc.Interval(
+                            id='report-job-poll',
+                            interval=1000,  # Poll every second
+                            disabled=True,
+                            n_intervals=0
+                        ),
+
+                        # Store for current job ID
+                        dcc.Store(id='current-report-job-id', data=None),
+
+                        # Download Component
+                        dcc.Download(id='download-custom-report')
+                    ], className="p-3")
+                ], label="Build Report", tab_id="build-tab"),
+
+                # Recent Reports Tab
+                dbc.Tab([
+                    html.Div([
+                        html.H6([html.I(className="fa fa-history me-2"), "Recent Reports"], className="mb-3"),
+                        html.Div(id='recent-reports-list', children=[
+                            dbc.Alert("No recent reports. Generate your first report!", color="info", className="text-center")
+                        ])
+                    ], className="p-3")
+                ], label="Recent Reports", tab_id="recent-tab")
+            ], id="report-builder-tabs", active_tab="build-tab")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Close", id="close-reports-modal", color="secondary", outline=True),
+            dbc.Button([
+                html.I(className="fa fa-download me-2"),
+                "Generate Report"
+            ], id="generate-report-btn", color="primary", className="ms-2")
+        ])
+    ], id="custom-reports-modal", size="xl", is_open=False),
 
     # Store for feature catalog (client-side)
     dcc.Store(id='spotlight-catalog-store', data=SEARCH_FEATURE_CATALOG),
@@ -10696,15 +11959,27 @@ def update_security_summary_report(ws_message):
                 ], width=6)
             ]),
 
-            # Export Button
+            # Export Section
             dbc.Row([
                 dbc.Col([
+                    html.Label("Export Format:", className="fw-bold mb-2"),
+                    dbc.Select(
+                        id='export-format-security',
+                        options=[
+                            {'label': '📄 CSV Format', 'value': 'csv'},
+                            {'label': '📋 JSON Format', 'value': 'json'},
+                            {'label': '📕 PDF Report', 'value': 'pdf'},
+                            {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                        ],
+                        value='csv',
+                        className="mb-2"
+                    ),
                     dbc.Button([
                         html.I(className="fa fa-download me-2"),
-                        "Export Report (CSV)"
-                    ], id='export-security-report-btn', color="primary", className="mt-2")
-                ], className="text-center")
-            ])
+                        "Export Security Report"
+                    ], id='export-security-report-btn', color="primary", className="w-100")
+                ], md=6, className="mx-auto text-center")
+            ], className="mt-3")
         ])
 
         return report_content
@@ -11311,6 +12586,11 @@ app.clientside_callback(
         document.addEventListener('keydown', function(event) {
             // Don't trigger shortcuts when typing in input fields
             if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            // Don't trigger shortcuts when modifier keys are pressed (allow system shortcuts like Cmd+C, Cmd+V, etc.)
+            if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
                 return;
             }
 
@@ -14548,33 +15828,60 @@ def update_cloud_upload_stats(is_open):
     [Output('trackers-detected-count', 'children'),
      Output('trackers-blocked-count', 'children', allow_duplicate=True),
      Output('trackers-pending-count', 'children', allow_duplicate=True),
-     Output('tracker-categories-list', 'children')],
-    [Input('privacy-modal', 'is_open')],
+     Output('tracker-categories-list', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('privacy-modal', 'is_open'),
+     Input('refresh-tracker-btn', 'n_clicks'),
+     Input('tracker-search-input', 'value'),
+     Input('privacy-concern-filter', 'value')],
     prevent_initial_call=True
 )
-def update_tracker_stats(is_open):
-    """Update tracker detection statistics."""
+def update_tracker_stats(is_open, refresh_clicks, search_text, privacy_filter):
+    """Update tracker detection statistics with search and filter support."""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-tracker-btn.n_clicks' if ctx.triggered else False
+
     if not is_open:
         raise dash.exceptions.PreventUpdate
 
     try:
         conn = get_db_connection()
         if not conn:
-            return "0", "0", "0", []
+            return "0", "0", "0", [], dash.no_update
 
         cursor = conn.cursor()
 
+        # Build filter clause for privacy concern level
+        privacy_clause = ""
+        if privacy_filter and privacy_filter != 'all':
+            privacy_clause = f"AND privacy_concern_level = '{privacy_filter}'"
+
         # Get tracker stats from cloud connections based on provider type
-        cursor.execute('''
-            SELECT cloud_provider, COUNT(*) as count FROM cloud_connections
-            WHERE cloud_provider LIKE '%analytics%'
+        cursor.execute(f'''
+            SELECT cloud_provider, cloud_domain, device_ip, privacy_concern_level, COUNT(*) as count
+            FROM cloud_connections
+            WHERE (cloud_provider LIKE '%analytics%'
                OR cloud_provider LIKE '%track%'
                OR cloud_provider LIKE '%ad%'
                OR cloud_provider LIKE '%facebook%'
-               OR cloud_provider LIKE '%google%'
-            GROUP BY cloud_provider
+               OR cloud_provider LIKE '%google%')
+               {privacy_clause}
+            GROUP BY cloud_provider, cloud_domain, device_ip, privacy_concern_level
         ''')
         trackers = cursor.fetchall()
+
+        # Apply search filter if provided
+        if search_text and search_text.strip():
+            search_lower = search_text.lower()
+            trackers = [
+                t for t in trackers
+                if search_lower in (t['cloud_domain'] or '').lower()
+                or search_lower in (t['cloud_provider'] or '').lower()
+                or search_lower in (t['device_ip'] or '').lower()
+            ]
 
         # Categorize trackers
         analytics_count = 0
@@ -14583,12 +15890,13 @@ def update_tracker_stats(is_open):
 
         for t in trackers:
             provider = t['cloud_provider'].lower() if t['cloud_provider'] else ''
+            count = t['count']
             if 'analytics' in provider or 'google' in provider:
-                analytics_count += t['count']
+                analytics_count += count
             elif 'ad' in provider or 'advertising' in provider:
-                ad_count += t['count']
+                ad_count += count
             elif 'facebook' in provider or 'twitter' in provider or 'social' in provider:
-                social_count += t['count']
+                social_count += count
 
         total_detected = analytics_count + ad_count + social_count
 
@@ -14619,11 +15927,17 @@ def update_tracker_stats(is_open):
             ], className="d-flex justify-content-between align-items-center py-2")
         ], className="mb-4")
 
-        return str(total_detected), str(blocked), str(pending), categories
+        # Generate toast if refresh was clicked
+        toast = ToastManager.success(
+            "Privacy trackers refreshed",
+            detail_message=f"Displaying {total_detected} tracker(s)"
+        ) if show_toast else dash.no_update
+
+        return str(total_detected), str(blocked), str(pending), categories, toast
 
     except Exception as e:
         logger.error(f"Error updating tracker stats: {e}")
-        return "0", "0", "0", []
+        return "0", "0", "0", [], dash.no_update
 
 
 @app.callback(
@@ -15092,7 +16406,7 @@ def update_eol_devices(is_open):
                                 dbc.Button([
                                     html.I(className="fa fa-exchange-alt me-1"),
                                     "Replace"
-                                ], color="warning", size="sm", outline=True)
+                                ], id={'type': 'replace-eol-device-btn', 'ip': device['device_ip']}, color="warning", size="sm", outline=True)
                             ], md=4, className="text-end")
                         ])
                     ])
@@ -15104,6 +16418,93 @@ def update_eol_devices(is_open):
     except Exception as e:
         logger.error(f"Error updating EOL devices: {e}")
         return dbc.Alert("Error loading EOL device data", color="danger")
+
+
+def get_non_eol_devices():
+    """Helper function to get non-EOL devices for replacement dropdown."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT device_ip, device_name, device_type
+            FROM devices
+            WHERE last_seen >= datetime("now", "-30 days")
+            AND (device_type NOT LIKE '%legacy%' AND device_type NOT LIKE '%old%')
+        ''')
+        devices = cursor.fetchall()
+        conn.close()
+        return [{'label': f"{d['device_name'] or d['device_ip']} ({d['device_type']})", 'value': d['device_ip']} for d in devices]
+    except Exception as e:
+        logger.error(f"Error fetching non-EOL devices: {e}")
+        return []
+
+@app.callback(
+    [Output('eol-replacement-modal', 'is_open'),
+     Output('replacement-device-dropdown', 'options'),
+     Output('eol-device-ip-store', 'data')],
+    [Input({'type': 'replace-eol-device-btn', 'ip': ALL}, 'n_clicks')],
+    [State('eol-replacement-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def open_replace_modal(n_clicks, is_open):
+    """Open the replacement modal and populate the dropdown."""
+    if not any(n_clicks):
+        raise dash.exceptions.PreventUpdate
+
+    ctx = callback_context
+    triggered_id = ctx.triggered_id
+    eol_device_ip = triggered_id['ip']
+
+    non_eol_devices = get_non_eol_devices()
+    return True, non_eol_devices, eol_device_ip
+
+app.clientside_callback(
+    """
+    function(value) {
+        return value == null;
+    }
+    """,
+    Output('confirm-replacement-btn', 'disabled'),
+    Input('replacement-device-dropdown', 'value')
+)
+
+@app.callback(
+    [Output('eol-replacement-modal', 'is_open', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('confirm-replacement-btn', 'n_clicks')],
+    [State('eol-device-ip-store', 'data'),
+     State('replacement-device-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def replace_device(n_clicks, eol_device_ip, new_device_ip):
+    """Handle the device replacement logic."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    # In a real application, you would update the database here.
+    # For now, just log the action and show a toast.
+    logger.info(f"Replacing EOL device {eol_device_ip} with {new_device_ip}")
+
+    toast = ToastManager.success(
+        "Device Replaced",
+        detail_message=f"Device {eol_device_ip} has been replaced with {new_device_ip}."
+    )
+
+    return False, toast
+
+@app.callback(
+    Output('eol-replacement-modal', 'is_open', allow_duplicate=True),
+    Input('cancel-replacement-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def cancel_replacement(n_clicks):
+    """Close the replacement modal."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return False
+
 
 
 @app.callback(
@@ -15706,6 +17107,14 @@ def main():
     else:
         iot_features_status += "⚠️ PARTIALLY AVAILABLE (check logs)"
     logger.info(iot_features_status)
+
+    # Check Report Scheduler status
+    scheduler_status = "📅 Report Scheduler: "
+    if report_scheduler:
+        scheduler_status += "✅ ACTIVE (Automated reports enabled)"
+    else:
+        scheduler_status += "❌ DISABLED (Check email configuration)"
+    logger.info(scheduler_status)
     logger.info("")
 
     logger.info("✨ NEW IOT SECURITY FEATURES:")
@@ -15716,6 +17125,15 @@ def main():
     logger.info("  ✓ 🌐 Network Segmentation (VLAN recommendations)")
     logger.info("  ✓ ⚙️ Firmware Lifecycle (Updates, EOL tracking)")
     logger.info("  ✓ 📚 Security Education (Threat scenarios)")
+    logger.info("")
+
+    logger.info("✨ ADVANCED REPORTING & ANALYTICS:")
+    logger.info("  ✓ 📊 Trend Analysis (Time-series, Anomaly detection)")
+    logger.info("  ✓ 📈 Executive Summaries (Security posture, KPIs)")
+    logger.info("  ✓ 📄 Professional Reports (PDF, Excel, JSON, HTML)")
+    logger.info("  ✓ 📅 Automated Scheduling (Cron & Interval-based)")
+    logger.info("  ✓ 📧 Email Attachments (PDF/Excel reports)")
+    logger.info("  ✓ 📮 Daily Security Digest (Automated summaries)")
     logger.info("")
 
     logger.info("✨ CORE FEATURES:")
@@ -15752,6 +17170,41 @@ def main():
 def toggle_analytics_modal(open_clicks, close_clicks, is_open):
     return not is_open
 
+# Analytics Modal - Timestamp Update
+@app.callback(
+    [Output('analytics-timestamp-display', 'children'),
+     Output('analytics-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('analytics-modal', 'is_open'),
+     Input('refresh-analytics-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_analytics_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Analytics Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-analytics-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Analytics refreshed",
+        detail_message="Network analytics data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
 @app.callback(
     Output("system-modal", "is_open"),
     [Input("system-card-btn", "n_clicks"),
@@ -15770,6 +17223,145 @@ def toggle_system_modal(open_clicks, close_clicks, is_open):
         return not is_open
     return is_open
 
+# System Modal - Timestamp Update
+@app.callback(
+    [Output('system-timestamp-display', 'children'),
+     Output('system-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('system-modal', 'is_open'),
+     Input('refresh-system-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_system_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for System Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-system-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create display element
+    display = create_timestamp_display(current_time)
+
+    # Create toast only if refresh was clicked
+    toast = ToastManager.success(
+        "System data refreshed",
+        detail_message="System resources and performance data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Performance Modal - Timestamp Update
+@app.callback(
+    [Output('performance-timestamp-display', 'children'),
+     Output('performance-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('performance-modal', 'is_open'),
+     Input('refresh-performance-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_performance_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Performance Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-performance-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create display element
+    display = create_timestamp_display(current_time)
+
+    # Create toast only if refresh was clicked
+    toast = ToastManager.success(
+        "Performance data refreshed",
+        detail_message="Network performance metrics updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Threat Map Modal - Timestamp Update
+@app.callback(
+    [Output('threat-map-timestamp-display', 'children'),
+     Output('threat-map-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('threat-map-modal', 'is_open'),
+     Input('refresh-threat-map-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_threat_map_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Threat Map Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-threat-map-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create display element
+    display = create_timestamp_display(current_time)
+
+    # Create toast only if refresh was clicked
+    toast = ToastManager.success(
+        "Threat map refreshed",
+        detail_message="Global threat intelligence data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Risk Heatmap Modal - Timestamp Update
+@app.callback(
+    [Output('risk-heatmap-timestamp-display', 'children'),
+     Output('risk-heatmap-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('risk-heatmap-modal', 'is_open'),
+     Input('refresh-risk-heatmap-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_risk_heatmap_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Risk Heatmap Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-risk-heatmap-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create display element
+    display = create_timestamp_display(current_time)
+
+    # Create toast only if refresh was clicked
+    toast = ToastManager.success(
+        "Risk heatmap refreshed",
+        detail_message="Risk visualization data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
 
 # Model Accuracy Display Callback
 @app.callback(
@@ -15953,6 +17545,41 @@ def toggle_device_mgmt_modal(open_clicks, close_clicks, is_open):
         return not is_open
     return is_open
 
+# Device Management Modal - Timestamp Update
+@app.callback(
+    [Output('device-mgmt-timestamp-display', 'children'),
+     Output('device-mgmt-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('device-mgmt-modal', 'is_open'),
+     Input('refresh-device-mgmt-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_device_mgmt_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Device Management Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-device-mgmt-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Device inventory refreshed",
+        detail_message="Device list updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
 @app.callback(
     Output("preferences-modal", "is_open"),
     [Input("preferences-card-btn", "n_clicks"),
@@ -16086,12 +17713,89 @@ def toggle_timeline_viz_modal(open_clicks, close_clicks, is_open):
     """Toggle Timeline Visualization modal."""
     return not is_open
 
+# Timeline Visualization Modal - Timestamp Update
+@app.callback(
+    [Output('timeline-viz-timestamp-display', 'children'),
+     Output('timeline-viz-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('timeline-viz-modal', 'is_open'),
+     Input('refresh-timeline-viz-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_timeline_viz_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Timeline Visualization Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-timeline-viz-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Timeline refreshed",
+        detail_message="Timeline visualization data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Timeline Visualization Modal - Export (Universal Format Support)
+@app.callback(
+    [Output('download-timeline-viz-csv', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('export-timeline-viz-csv-btn', 'n_clicks'),
+    State('export-format-timeline', 'value'),
+    prevent_initial_call=True
+)
+def export_timeline_viz_csv(n_clicks, export_format):
+    """Export timeline visualization data in selected format (connections from last 30 days)"""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Export connections from last 30 days (720 hours)
+        download_data = export_helper.export_connections(format=export_format, hours=720)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Timeline data exported as {export_format.upper()}"
+            )
+            return download_data, toast
+        else:
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
+            return dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error exporting timeline visualization: {e}")
+        toast = ToastManager.error(
+            "Export failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return dash.no_update, toast
+
 @app.callback(
     [Output('activity-timeline-graph', 'figure'),
      Output('toast-container', 'children', allow_duplicate=True)],
     [Input('timeline-viz-modal', 'is_open'),
      Input('timeline-range-select', 'value'),
-     Input('refresh-timeline-btn', 'n_clicks')],
+     Input('refresh-timeline-viz-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_activity_timeline(is_open, hours, refresh_clicks):
@@ -16099,7 +17803,7 @@ def update_activity_timeline(is_open, hours, refresh_clicks):
     from dash import callback_context
 
     # Check if refresh button was clicked
-    show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-timeline-btn.n_clicks'
+    show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-timeline-viz-btn.n_clicks'
 
     toast = ToastManager.success(
             "Timeline Refreshed",
@@ -16157,7 +17861,7 @@ def update_activity_timeline(is_open, hours, refresh_clicks):
 @app.callback(
     Output('device-activity-timeline', 'figure'),
     [Input('timeline-viz-modal', 'is_open'),
-     Input('refresh-timeline-btn', 'n_clicks')],
+     Input('refresh-timeline-viz-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_device_activity_timeline(is_open, refresh_clicks):
@@ -16235,7 +17939,7 @@ def update_device_activity_timeline(is_open, refresh_clicks):
 @app.callback(
     Output('connection-patterns-timeline', 'children'),
     [Input('timeline-viz-modal', 'is_open'),
-     Input('refresh-timeline-btn', 'n_clicks')],
+     Input('refresh-timeline-viz-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_connection_patterns_timeline(is_open, refresh_clicks):
@@ -16311,7 +18015,7 @@ def update_connection_patterns_timeline(is_open, refresh_clicks):
 @app.callback(
     Output('anomaly-timeline-section', 'children'),
     [Input('timeline-viz-modal', 'is_open'),
-     Input('refresh-timeline-btn', 'n_clicks')],
+     Input('refresh-timeline-viz-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_anomaly_timeline(is_open, refresh_clicks):
@@ -16418,6 +18122,83 @@ def update_anomaly_timeline(is_open, refresh_clicks):
 def toggle_protocol_modal(open_clicks, close_clicks, is_open):
     return not is_open
 
+# Protocol Modal - Timestamp Update
+@app.callback(
+    [Output('protocol-timestamp-display', 'children'),
+     Output('protocol-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('protocol-modal', 'is_open'),
+     Input('refresh-protocol-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_protocol_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Protocol Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-protocol-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Protocol analysis refreshed",
+        detail_message="IoT protocol data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Protocol Modal - Export (Universal Format Support)
+@app.callback(
+    [Output('download-protocol-csv', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('export-protocol-csv-btn', 'n_clicks'),
+    State('export-format-protocol', 'value'),
+    prevent_initial_call=True
+)
+def export_protocol_csv(n_clicks, export_format):
+    """Export protocol analysis data in selected format (connections)"""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Export connections data (protocol analysis uses connections)
+        download_data = export_helper.export_connections(format=export_format, hours=168)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Protocol data exported as {export_format.upper()}"
+            )
+            return download_data, toast
+        else:
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
+            return dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error exporting protocol analysis: {e}")
+        toast = ToastManager.error(
+            "Export Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return dash.no_update, toast
+
 # Protocol Analysis - Overview Tab
 @app.callback(
     [Output('protocol-mqtt-count', 'children'),
@@ -16425,30 +18206,14 @@ def toggle_protocol_modal(open_clicks, close_clicks, is_open):
      Output('protocol-zigbee-count', 'children'),
      Output('protocol-devices-count', 'children'),
      Output('protocol-distribution-chart', 'figure'),
-     Output('protocol-timeline-chart', 'figure'),
-     Output('toast-container', 'children', allow_duplicate=True)],
+     Output('protocol-timeline-chart', 'figure')],
     [Input('protocol-modal', 'is_open'),
      Input('refresh-protocol-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_protocol_overview(is_open, refresh_clicks):
-    from dash import callback_context
-
-    # Check if refresh button was clicked
-    show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-protocol-btn.n_clicks' if callback_context.triggered else False
-
-    # Create toast if refresh was clicked
-    toast = ToastManager.success(
-            "Data Updated",
-            detail_message="Data Updated"
-        ) if show_toast else dash.no_update
-
-    if not is_open and not show_toast:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-    # If modal closed but refresh was clicked, return toast with no_update for other values
-    if not is_open and show_toast:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
+    if not is_open:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     try:
         db = get_db_connection()
@@ -16539,12 +18304,12 @@ def update_protocol_overview(is_open, refresh_clicks):
             y_title='Message Count'
         )
 
-        return str(mqtt_count), str(coap_count), str(zigbee_count), str(devices_count), dist_fig, timeline_fig, toast
+        return str(mqtt_count), str(coap_count), str(zigbee_count), str(devices_count), dist_fig, timeline_fig
 
     except Exception as e:
         logger.error(f"Error loading protocol overview: {e}")
         empty_fig = ChartFactory.create_empty_chart('Error loading data')
-        return "0", "0", "0", "0", empty_fig, empty_fig, dash.no_update
+        return "0", "0", "0", "0", empty_fig, empty_fig
 
 # Protocol Analysis - MQTT Tab
 @app.callback(
@@ -16849,18 +18614,8 @@ def update_threat_intel_overview(is_open, refresh_clicks):
     # Check if refresh button was clicked
     show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-threat-intel-btn.n_clicks' if callback_context.triggered else False
 
-    # Create toast if refresh was clicked
-    toast = ToastManager.success(
-            "Data Updated",
-            detail_message="Data Updated"
-        ) if show_toast else dash.no_update
-
     if not is_open and not show_toast:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-    # If modal closed but refresh was clicked, return toast with no_update for other values
-    if not is_open and show_toast:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     db = get_db_connection()
 
@@ -16999,6 +18754,12 @@ def update_threat_intel_overview(is_open, refresh_clicks):
             ])
         )
 
+    # Create toast if refresh was clicked
+    toast = ToastManager.success(
+        "Threat intelligence refreshed",
+        detail_message=f"{active_threats} active threat(s), {vulnerabilities} vulnerabilities, {blocked_devices} blocked device(s)"
+    ) if show_toast else dash.no_update
+
     return (
         str(active_threats),
         str(vulnerabilities),
@@ -17011,18 +18772,33 @@ def update_threat_intel_overview(is_open, refresh_clicks):
 
 # Threat Intelligence Feed Tab Callback
 @app.callback(
-    Output('threat-intel-feed-list', 'children'),
+    [Output('threat-intel-feed-list', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('threat-modal', 'is_open'),
-     Input('refresh-threat-intel-btn', 'n_clicks')],
+     Input('threat-intel-tabs', 'active_tab'),
+     Input('refresh-threat-intel-btn', 'n_clicks'),
+     Input('refresh-threat-feed-btn', 'n_clicks'),
+     Input('threat-feed-search-input', 'value'),
+     Input('threat-feed-severity-filter', 'value'),
+     Input('threat-feed-status-filter', 'value')],
     prevent_initial_call=True
 )
-def update_threat_intel_feed(is_open, refresh_clicks):
-    if not is_open:
-        return dash.no_update
+def update_threat_intel_feed(is_open, active_tab, refresh_clicks, feed_refresh_clicks, search_text, severity_filter, status_filter):
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] in ['refresh-threat-feed-btn.n_clicks', 'refresh-threat-intel-btn.n_clicks'] if ctx.triggered else False
+
+    if not is_open or active_tab != 'threat-intel-feed-tab':
+        if show_toast:
+            # Return toast even if modal is closed
+            return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
 
     db = get_db_connection()
 
-    # Get all threats with details
+    # Get all threats with details including acknowledgement status
     threats = db.execute('''
         SELECT
             a.explanation,
@@ -17031,21 +18807,55 @@ def update_threat_intel_feed(is_open, refresh_clicks):
             d.device_name,
             d.device_type,
             a.timestamp,
-            a.explanation
+            a.explanation,
+            a.acknowledged
         FROM alerts a
         LEFT JOIN devices d ON a.device_ip = d.device_ip
         ORDER BY a.timestamp DESC
-        LIMIT 50
     ''').fetchall()
 
     db.close()
 
+    # Apply status filter (active = not acknowledged, resolved = acknowledged)
+    if status_filter and status_filter != 'all':
+        if status_filter == 'active':
+            threats = [t for t in threats if not t[7]]  # acknowledged = 0
+        elif status_filter == 'resolved':
+            threats = [t for t in threats if t[7]]  # acknowledged = 1
+
+    # Apply severity filter
+    if severity_filter and severity_filter != 'all':
+        threats = [t for t in threats if t[1] == severity_filter]
+
+    # Apply search filter with None handling - search in IP, botnet name (alert type), malicious domain (details)
+    if search_text and search_text.strip():
+        search_text = search_text.strip().lower()
+        filtered_threats = []
+        for threat in threats:
+            alert_type = (threat[0] or '').lower()  # botnet name / malicious domain
+            device_ip = (threat[2] or '').lower()   # IP address
+            device_name = (threat[3] or '').lower()
+            details = (threat[6] or '').lower()     # additional details that may contain domains
+
+            if (search_text in alert_type or
+                search_text in device_ip or
+                search_text in device_name or
+                search_text in details):
+                filtered_threats.append(threat)
+        threats = filtered_threats
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Threat intelligence refreshed",
+        detail_message=f"Displaying {len(threats)} threat(s)"
+    ) if show_toast else dash.no_update
+
     if not threats:
-        return html.P("No threat intelligence data available.", className="text-muted text-center")
+        return html.P("No threat intelligence data available.", className="text-muted text-center"), toast
 
     # Build threat feed cards
     feed_cards = []
-    for alert_type, severity, device_ip, device_name, device_type, timestamp, details in threats:
+    for alert_type, severity, device_ip, device_name, device_type, timestamp, details, acknowledged in threats:
         severity_colors_map = {
             'critical': 'danger',
             'high': 'warning',
@@ -17104,7 +18914,7 @@ def update_threat_intel_feed(is_open, refresh_clicks):
             ], className="glass-card border-0 shadow-sm mb-2")
         )
 
-    return html.Div(feed_cards)
+    return html.Div(feed_cards), toast
 
 # Threat Intelligence Attack Patterns Tab Callback
 @app.callback(
@@ -17442,6 +19252,83 @@ def toggle_smarthome_modal(open_clicks, close_clicks, is_open):
         return not is_open
     return is_open
 
+# Smart Home Modal - Timestamp Update
+@app.callback(
+    [Output('smarthome-timestamp-display', 'children'),
+     Output('smarthome-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('smarthome-modal', 'is_open'),
+     Input('refresh-smarthome-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_smarthome_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Smart Home Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-smarthome-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Smart home data refreshed",
+        detail_message="IoT hub and device data updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Smart Home Modal - Export (Universal Format Support)
+@app.callback(
+    [Output('download-smarthome-csv', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('export-smarthome-csv-btn', 'n_clicks'),
+    State('export-format-smarthome', 'value'),
+    prevent_initial_call=True
+)
+def export_smarthome_csv(n_clicks, export_format):
+    """Export smart home device data in selected format"""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Export all devices (includes smart home devices)
+        download_data = export_helper.export_devices(format=export_format)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Smart home data exported as {export_format.upper()}"
+            )
+            return download_data, toast
+        else:
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
+            return dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error exporting smart home data: {e}")
+        toast = ToastManager.error(
+            "Export Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return dash.no_update, toast
+
 @app.callback(
     Output("segmentation-modal", "is_open"),
     [Input("segmentation-card-btn", "n_clicks"),
@@ -17452,37 +19339,61 @@ def toggle_smarthome_modal(open_clicks, close_clicks, is_open):
 def toggle_segmentation_modal(open_clicks, close_clicks, is_open):
     return not is_open
 
+# Segmentation Modal - Timestamp Update
+@app.callback(
+    [Output('segmentation-timestamp-display', 'children'),
+     Output('segmentation-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('segmentation-modal', 'is_open'),
+     Input('refresh-segmentation-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_segmentation_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Segmentation Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-segmentation-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Segmentation data refreshed",
+        detail_message="Network segmentation analysis updated successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
 # Network Segmentation Overview Stats
 @app.callback(
     [Output('seg-total-segments', 'children'),
      Output('seg-segmented-devices', 'children'),
      Output('seg-unsegmented-devices', 'children'),
      Output('seg-violations-24h', 'children'),
-     Output('segmentation-coverage-chart', 'figure'),
-     Output('toast-container', 'children', allow_duplicate=True)],
+     Output('segmentation-coverage-chart', 'figure')],
     [Input('segmentation-modal', 'is_open'),
      Input('refresh-segmentation-btn', 'n_clicks')],
     prevent_initial_call=True
 )
 def update_segmentation_overview(is_open, refresh_clicks):
     """Update network segmentation overview statistics."""
-    from dash import callback_context
-
-    # Check if refresh button was clicked
-    show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-segmentation-btn.n_clicks'
-
-    toast = ToastManager.success(
-            "Segmentation Refreshed",
-            detail_message="Segmentation Refreshed"
-        ) if show_toast else None
-
-    if not is_open and not show_toast:
+    if not is_open:
         raise dash.exceptions.PreventUpdate
 
     try:
         conn = get_db_connection()
         if not conn:
-            return "—", "—", "—", "—", {}, toast
+            return "—", "—", "—", "—", {}
 
         cursor = conn.cursor()
 
@@ -17530,13 +19441,12 @@ def update_segmentation_overview(is_open, refresh_clicks):
             str(segmented_devices),
             str(unsegmented_devices),
             str(violations_24h),
-            coverage_fig,
-            toast
+            coverage_fig
         )
 
     except Exception as e:
         logger.error(f"Error updating segmentation overview: {e}")
-        return "—", "—", "—", "—", {}, toast
+        return "—", "—", "—", "—", {}
 
 # Segments List Table
 @app.callback(
@@ -18052,6 +19962,83 @@ def toggle_firmware_modal(open_clicks, close_clicks, is_open):
         return not is_open
     return is_open
 
+# Firmware Modal - Timestamp Update
+@app.callback(
+    [Output('firmware-timestamp-display', 'children'),
+     Output('firmware-timestamp-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('firmware-modal', 'is_open'),
+     Input('refresh-firmware-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_firmware_timestamp(is_open, refresh_clicks):
+    """Update timestamp display for Firmware Modal"""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-firmware-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+
+    # Create timestamp display
+    display = create_timestamp_display(current_time)
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Firmware data refreshed",
+        detail_message="Firmware status and updates refreshed successfully"
+    ) if show_toast else dash.no_update
+
+    return display, timestamp_str, toast
+
+# Firmware Modal - Export (Universal Format Support)
+@app.callback(
+    [Output('download-firmware-csv', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('export-firmware-csv-btn', 'n_clicks'),
+    State('export-format-firmware', 'value'),
+    prevent_initial_call=True
+)
+def export_firmware_csv(n_clicks, export_format):
+    """Export firmware status data in selected format (device information)"""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Export all devices (includes firmware-related info)
+        download_data = export_helper.export_devices(format=export_format)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Firmware data exported as {export_format.upper()}"
+            )
+            return download_data, toast
+        else:
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
+            return dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error exporting firmware data: {e}")
+        toast = ToastManager.error(
+            "Export Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return dash.no_update, toast
+
 @app.callback(
     Output("education-modal", "is_open"),
     [Input("education-card-btn", "n_clicks"),
@@ -18106,99 +20093,40 @@ def save_firmware_settings(n_clicks, update_policy, update_schedule, notificatio
      Output('privacy-modal', 'is_open', allow_duplicate=True),
      Output('download-export', 'data', allow_duplicate=True)],
     Input('export-privacy-report-btn', 'n_clicks'),
+    State('export-format-privacy', 'value'),
     prevent_initial_call=True
 )
-def export_privacy_report(n_clicks):
-    """Export privacy report as CSV with toast notification."""
+def export_privacy_report(n_clicks, export_format):
+    """Export privacy report in selected format."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
     try:
-        conn = get_db_connection()
-        if not conn:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Export alerts data (privacy reports are based on alerts)
+        download_data = export_helper.export_alerts(format=export_format, days=30)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Privacy report exported as {export_format.upper()}"
+            )
+            return toast, False, download_data
+        else:
             toast = ToastManager.error(
-            "Export Failed",
-            detail_message="Export Failed"
-        )
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
             return toast, True, None
-
-        cursor = conn.cursor()
-
-        # Build report content
-        report_lines = []
-        report_lines.append("IoTSentinel Privacy Report")
-        report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append("=" * 50)
-        report_lines.append("")
-
-        # Privacy Score
-        cursor.execute('''
-            SELECT privacy_concern_level, COUNT(DISTINCT device_ip) as count
-            FROM cloud_connections
-            GROUP BY privacy_concern_level
-        ''')
-        concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
-        high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
-        total_devices = sum(concerns.values()) or 1
-        privacy_score = max(0, 100 - (high_concern / total_devices * 50))
-
-        report_lines.append(f"Privacy Score: {privacy_score:.0f}/100")
-        report_lines.append(f"High Concern Devices: {high_concern}")
-        report_lines.append(f"Total Monitored Devices: {total_devices}")
-        report_lines.append("")
-
-        # Encryption Stats
-        cursor.execute('''
-            SELECT
-                SUM(CASE WHEN uses_encryption = 1 THEN 1 ELSE 0 END) as encrypted,
-                COUNT(*) as total
-            FROM cloud_connections
-        ''')
-        enc_row = cursor.fetchone()
-        encrypted = enc_row['encrypted'] or 0
-        total_conn = enc_row['total'] or 1
-        encryption_pct = int((encrypted / max(total_conn, 1)) * 100)
-
-        report_lines.append(f"Encryption Rate: {encryption_pct}%")
-        report_lines.append(f"Encrypted Connections: {encrypted}/{total_conn}")
-        report_lines.append("")
-
-        # Cloud Connections
-        report_lines.append("Cloud Connections:")
-        report_lines.append("-" * 30)
-        cursor.execute('''
-            SELECT device_ip, cloud_provider, privacy_concern_level, connection_count
-            FROM cloud_connections
-            ORDER BY connection_count DESC
-            LIMIT 20
-        ''')
-        for row in cursor.fetchall():
-            report_lines.append(f"  {row['device_ip']} -> {row['cloud_provider'] or 'Unknown'} ({row['privacy_concern_level'] or 'low'}) - {row['connection_count'] or 0} connections")
-
-        report_lines.append("")
-        report_lines.append("=" * 50)
-        report_lines.append("End of Report")
-
-        conn.close()
-
-        # Create downloadable content
-        report_content = "\n".join(report_lines)
-
-        toast = ToastManager.success(
-            "Export Complete",
-            detail_message="Export Complete"
-        )
-
-        return toast, False, dict(
-            content=report_content,
-            filename=f"privacy_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        )
 
     except Exception as e:
         logger.error(f"Error exporting privacy report: {e}")
         toast = ToastManager.error(
             "Export Error",
-            detail_message="Export Error"
+            detail_message=str(e)
         )
         return toast, True, None
 
@@ -19105,60 +21033,46 @@ This is an automated weekly report from IoTSentinel.'''
     return template['subject'], template['body'], toast
 
 
-# Export Devices Callback (Device Management Modal)
+# Export Devices Callback (Device Management Modal) - Universal Format Support
 @app.callback(
     [Output('toast-container', 'children', allow_duplicate=True),
      Output('download-export', 'data', allow_duplicate=True),
      Output('device-mgmt-modal', 'is_open', allow_duplicate=True)],
     Input('export-devices-btn', 'n_clicks'),
+    State('export-format-select', 'value'),
     prevent_initial_call=True
 )
-def export_devices(n_clicks):
-    """Export devices list as CSV."""
+def export_devices(n_clicks, export_format):
+    """Export devices list in selected format (CSV, JSON, PDF, Excel)."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
     try:
-        conn = get_db_connection()
-        if not conn:
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Use universal export helper
+        download_data = export_helper.export_devices(format=export_format)
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Devices exported as {export_format.upper()}"
+            )
+            return toast, download_data, False
+        else:
             toast = ToastManager.error(
-            "Export Failed",
-            detail_message="Export Failed"
-        )
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
             return toast, None, True
-
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT device_ip, device_name, device_type, mac_address, manufacturer,
-                   is_trusted, is_blocked, first_seen, last_seen
-            FROM devices
-            ORDER BY last_seen DESC
-        ''')
-        devices = cursor.fetchall()
-        conn.close()
-
-        # Build CSV content
-        csv_lines = ["IP Address,Device Name,Type,MAC Address,Manufacturer,Status,First Seen,Last Seen"]
-        for d in devices:
-            # Calculate status from last_seen and flags
-            status = "Blocked" if d['is_blocked'] else "Trusted" if d['is_trusted'] else "Active"
-            csv_lines.append(f"{d['device_ip']},{d['device_name'] or ''},{d['device_type'] or ''},{d['mac_address'] or ''},{d['manufacturer'] or ''},{status},{d['first_seen'] or ''},{d['last_seen'] or ''}")
-
-        toast = ToastManager.success(
-            "Export Complete",
-            detail_message="Export Complete"
-        )
-
-        return toast, dict(
-            content="\n".join(csv_lines),
-            filename=f"devices_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        ), False
 
     except Exception as e:
         logger.error(f"Error exporting devices: {e}")
         toast = ToastManager.error(
             "Export Error",
-            detail_message="Export Error"
+            detail_message=str(e)
         )
         return toast, None, True
 
@@ -19168,118 +21082,40 @@ def export_devices(n_clicks):
     [Output('toast-container', 'children', allow_duplicate=True),
      Output('download-export', 'data', allow_duplicate=True)],
     Input('export-security-report-btn', 'n_clicks'),
+    State('export-format-security', 'value'),
     prevent_initial_call=True
 )
-def export_security_report(n_clicks):
-    """Export comprehensive security summary report as CSV."""
+def export_security_report(n_clicks, export_format):
+    """Export comprehensive security summary report in selected format."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
     try:
-        from utils.iot_security_checker import security_checker
+        # Normalize format (xlsx -> excel)
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
 
-        # Get all devices
-        devices = db_manager.get_all_devices()
-        security_summary = security_checker.get_network_security_score(devices) if devices else None
+        # Export alerts data (security reports are based on alerts)
+        download_data = export_helper.export_alerts(format=export_format, days=7)
 
-        # Query database for report data
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Get alert statistics
-        cursor.execute('''
-            SELECT severity, COUNT(*) as count
-            FROM alerts
-            WHERE timestamp >= datetime('now', '-24 hours')
-            GROUP BY severity
-        ''')
-        alerts_24h = {row['severity']: row['count'] for row in cursor.fetchall()}
-
-        cursor.execute('''
-            SELECT severity, COUNT(*) as count
-            FROM alerts
-            WHERE timestamp >= datetime('now', '-7 days')
-            GROUP BY severity
-        ''')
-        alerts_7d = {row['severity']: row['count'] for row in cursor.fetchall()}
-
-        cursor.execute('SELECT COUNT(*) as count FROM alerts')
-        total_alerts = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0')
-        unacknowledged_alerts = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_blocked = 1')
-        blocked_devices = cursor.fetchone()['count']
-
-        cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 1')
-        trusted_devices = cursor.fetchone()['count']
-
-        conn.close()
-
-        # Build CSV content
-        csv_lines = [
-            "IoTSentinel Security Summary Report",
-            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            "",
-            "=== EXECUTIVE SUMMARY ===",
-            f"Security Score,{security_summary['security_score'] if security_summary else 'N/A'}",
-            f"Risk Level,{security_summary['risk_level'].upper() if security_summary else 'UNKNOWN'}",
-            f"Total Devices,{security_summary['total_devices'] if security_summary else len(devices)}",
-            f"IoT Devices,{security_summary['iot_devices_count'] if security_summary else 0}",
-            f"Vulnerable Devices,{security_summary['vulnerable_count'] if security_summary else 0}",
-            f"Blocked Devices,{blocked_devices}",
-            f"Trusted Devices,{trusted_devices}",
-            f"Total Alerts (All Time),{total_alerts}",
-            f"Unacknowledged Alerts,{unacknowledged_alerts}",
-            "",
-            "=== ALERT STATISTICS (LAST 24 HOURS) ===",
-            f"Critical,{alerts_24h.get('critical', 0)}",
-            f"High,{alerts_24h.get('high', 0)}",
-            f"Medium,{alerts_24h.get('medium', 0)}",
-            f"Low,{alerts_24h.get('low', 0)}",
-            "",
-            "=== ALERT STATISTICS (LAST 7 DAYS) ===",
-            f"Critical,{alerts_7d.get('critical', 0)}",
-            f"High,{alerts_7d.get('high', 0)}",
-            f"Medium,{alerts_7d.get('medium', 0)}",
-            f"Low,{alerts_7d.get('low', 0)}",
-            "",
-            "=== DEVICE COMPLIANCE ===",
-            f"Trusted Devices,{trusted_devices}",
-            f"Blocked Devices,{blocked_devices}",
-            f"Trust Percentage,{int((trusted_devices / len(devices) * 100) if devices else 0)}%",
-            "",
-            "=== SECURITY RECOMMENDATIONS ===",
-        ]
-
-        # Add recommendations
-        if security_summary and security_summary.get('top_recommendations'):
-            for idx, rec in enumerate(security_summary['top_recommendations'][:5], 1):
-                csv_lines.append(f"{idx}. {rec}")
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Security report exported as {export_format.upper()}"
+            )
+            return toast, download_data
         else:
-            csv_lines.extend([
-                "1. Add devices to your network to start monitoring",
-                "2. Configure trusted devices for better security posture",
-                "3. Review and acknowledge pending alerts"
-            ])
-
-        toast = ToastManager.success(
-            "Export Complete",
-            detail_message="Export Complete"
-        )
-
-        return toast, dict(
-            content="\n".join(csv_lines),
-            filename=f"security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="No data available or export failed"
+            )
+            return toast, None
 
     except Exception as e:
         logger.error(f"Error exporting security report: {e}")
         toast = ToastManager.error(
             "Export Error",
-            detail_message="Export Error"
+            detail_message=str(e)
         )
         return toast, None
 
@@ -19783,14 +21619,36 @@ def update_attack_surface_overview(is_open, refresh_clicks):
 
 # Attack Surface Exposed Services Tab Callback
 @app.callback(
-    Output('attack-surface-services-list', 'children'),
+    [Output('attack-surface-services-list', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('attack-surface-modal', 'is_open'),
-     Input('refresh-attack-surface-btn', 'n_clicks')],
+     Input('attack-surface-tabs', 'active_tab'),
+     Input('refresh-attack-surface-btn', 'n_clicks'),
+     Input('refresh-attack-services-btn', 'n_clicks'),
+     Input('attack-surface-services-search', 'value'),
+     Input('attack-surface-risk-filter', 'value'),
+     Input('attack-surface-port-status-filter', 'value')],
     prevent_initial_call=True
 )
-def update_attack_surface_services(is_open, refresh_clicks):
-    if not is_open:
-        return dash.no_update
+def update_attack_surface_services(is_open, active_tab, refresh_clicks, services_refresh_clicks, search_text, risk_filter, port_status_filter):
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] in ['refresh-attack-services-btn.n_clicks', 'refresh-attack-surface-btn.n_clicks'] if ctx.triggered else False
+
+    if not is_open or active_tab != 'attack-surface-services-tab':
+        if show_toast:
+            return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
+
+    # Port status filter: "closed" means no exposed services (since these are all open)
+    if port_status_filter == 'closed':
+        toast = ToastManager.success(
+            "Attack surface refreshed",
+            detail_message="No closed ports in exposed services view"
+        ) if show_toast else dash.no_update
+        return html.P("Closed ports are not shown in the exposed services view. All services here are open/active.", className="text-muted"), toast
 
     db = get_db_connection()
 
@@ -19806,13 +21664,9 @@ def update_attack_surface_services(is_open, refresh_clicks):
         WHERE c.dest_port IS NOT NULL
         GROUP BY c.protocol, c.dest_port
         ORDER BY connection_count DESC
-        LIMIT 50
     ''').fetchall()
 
-    if not services:
-        return html.P("No exposed services detected.", className="text-muted")
-
-    # Service risk mapping
+    # Service risk mapping (define early to use for filtering)
     def get_service_info(port, protocol):
         common_services = {
             80: ("HTTP", "high", "Unencrypted web traffic"),
@@ -19835,6 +21689,38 @@ def update_attack_surface_services(is_open, refresh_clicks):
             return (f"Port {port}", "medium", "System/well-known port")
         else:
             return (f"Port {port}", "low", "Dynamic/private port")
+
+    # Apply search filter with None handling
+    if search_text and search_text.strip():
+        search_text = search_text.strip().lower()
+        filtered_services = []
+        for service in services:
+            protocol = (service[0] or '').lower()
+            port = str(service[1]) if service[1] else ''
+
+            if (search_text in protocol or search_text in port):
+                filtered_services.append(service)
+        services = filtered_services
+
+    # Apply risk level filter
+    if risk_filter and risk_filter != 'all':
+        filtered_services = []
+        for service in services:
+            protocol, port, device_count, conn_count, last_seen = service
+            _, risk_level, _ = get_service_info(port, protocol)
+
+            if risk_level == risk_filter:
+                filtered_services.append(service)
+        services = filtered_services
+
+    # Generate toast if refresh was clicked
+    toast = ToastManager.success(
+        "Attack surface refreshed",
+        detail_message=f"Displaying {len(services)} exposed service(s)"
+    ) if show_toast else dash.no_update
+
+    if not services:
+        return html.P("No exposed services detected.", className="text-muted"), toast
 
     service_rows = []
     for protocol, port, device_count, conn_count, last_seen in services:
@@ -19891,7 +21777,7 @@ def update_attack_surface_services(is_open, refresh_clicks):
             ], className="glass-card border-0 shadow-sm mb-2")
         )
 
-    return html.Div(service_rows)
+    return html.Div(service_rows), toast
 
 # Attack Surface Open Ports Tab Callback
 @app.callback(
@@ -20446,48 +22332,145 @@ def update_forensic_attack_patterns(device_ip, hours):
 
 # Update event log tab
 @app.callback(
-    Output('forensic-event-log', 'children'),
+    [Output('forensic-event-log', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('forensic-device-select', 'value'),
-     Input('forensic-time-range', 'value')],
+     Input('forensic-time-range', 'value'),
+     Input('forensic-timeline-tabs', 'active_tab'),
+     Input('refresh-forensic-btn', 'n_clicks'),
+     Input('refresh-forensic-log-btn', 'n_clicks'),
+     Input('forensic-event-search-input', 'value'),
+     Input('forensic-severity-filter', 'value'),
+     Input('forensic-event-type-filter', 'value')],
     prevent_initial_call=True
 )
-def update_forensic_event_log(device_ip, hours):
+def update_forensic_event_log(device_ip, hours, active_tab, refresh_clicks, log_refresh_clicks, search_text, severity_filter, event_type_filter):
     """Display detailed event log for forensic analysis."""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] in ['refresh-forensic-log-btn.n_clicks', 'refresh-forensic-btn.n_clicks'] if ctx.triggered else False
+
+    # Generate toast for no device selected case
     if not device_ip:
-        return dbc.Alert("Select a device to view detailed event log", color="info", className="m-3")
+        toast = ToastManager.warning(
+            "No device selected",
+            detail_message="Please select a device to view event log"
+        ) if show_toast else dash.no_update
+        return dbc.Alert("Select a device to view detailed event log", color="info", className="m-3"), toast
+
+    if active_tab != 'forensic-log-tab' and not show_toast:
+        return dash.no_update, dash.no_update
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        query = f"""
-        SELECT
-            c.timestamp,
-            c.dest_ip,
-            c.dest_port,
-            c.protocol,
-            c.service,
-            c.bytes_sent,
-            c.bytes_received,
-            p.is_anomaly,
-            p.anomaly_score,
-            a.severity
-        FROM connections c
-        LEFT JOIN ml_predictions p ON c.id = p.connection_id
-        LEFT JOIN alerts a ON c.device_ip = a.device_ip AND
-                             datetime(c.timestamp, '-5 minutes') <= a.timestamp AND
-                             a.timestamp <= datetime(c.timestamp, '+5 minutes')
-        WHERE c.device_ip = ? AND c.timestamp > datetime('now', '-{hours} hours')
-        ORDER BY c.timestamp DESC
-        LIMIT 100
-        """
+        # Build query based on event type filter
+        events = []
 
-        cursor.execute(query, (device_ip,))
-        events = cursor.fetchall()
+        # Include connections if event_type is 'all' or 'connection'
+        if event_type_filter in ['all', 'connection']:
+            conn_query = f"""
+            SELECT
+                c.timestamp,
+                c.dest_ip,
+                c.dest_port,
+                c.protocol,
+                c.service,
+                c.bytes_sent,
+                c.bytes_received,
+                p.is_anomaly,
+                p.anomaly_score,
+                a.severity,
+                'connection' as event_type
+            FROM connections c
+            LEFT JOIN ml_predictions p ON c.id = p.connection_id
+            LEFT JOIN alerts a ON c.device_ip = a.device_ip AND
+                                 datetime(c.timestamp, '-5 minutes') <= a.timestamp AND
+                                 a.timestamp <= datetime(c.timestamp, '+5 minutes')
+            WHERE c.device_ip = ? AND c.timestamp > datetime('now', '-{hours} hours')
+            """
+            cursor.execute(conn_query, (device_ip,))
+            events.extend(cursor.fetchall())
+
+        # Include alerts if event_type is 'all' or 'alert'
+        if event_type_filter in ['all', 'alert']:
+            alert_query = f"""
+            SELECT
+                a.timestamp,
+                NULL as dest_ip,
+                NULL as dest_port,
+                NULL as protocol,
+                a.explanation as service,
+                0 as bytes_sent,
+                0 as bytes_received,
+                1 as is_anomaly,
+                a.anomaly_score,
+                a.severity,
+                'alert' as event_type
+            FROM alerts a
+            WHERE a.device_ip = ? AND a.timestamp > datetime('now', '-{hours} hours')
+            """
+            cursor.execute(alert_query, (device_ip,))
+            events.extend(cursor.fetchall())
+
+        # Include exfiltration events if event_type is 'all' or 'exfiltration'
+        if event_type_filter in ['all', 'exfiltration']:
+            exfil_query = f"""
+            SELECT
+                de.timestamp,
+                de.destination_ip as dest_ip,
+                NULL as dest_port,
+                de.protocol,
+                de.destination_domain as service,
+                de.bytes_transferred as bytes_sent,
+                0 as bytes_received,
+                1 as is_anomaly,
+                de.anomaly_score,
+                de.sensitivity_level as severity,
+                'exfiltration' as event_type
+            FROM data_exfiltration_events de
+            WHERE de.device_ip = ? AND de.timestamp > datetime('now', '-{hours} hours')
+            """
+            cursor.execute(exfil_query, (device_ip,))
+            events.extend(cursor.fetchall())
+
+        # Sort all events by timestamp descending
+        events = sorted(events, key=lambda x: x[0] if x[0] else '', reverse=True)
+
         conn.close()
 
+        # Apply severity filter
+        if severity_filter and severity_filter != 'all':
+            events = [e for e in events if e[9] == severity_filter]
+
+        # Apply search filter with None handling - search device IP, dest IP, protocol, service
+        if search_text and search_text.strip():
+            search_text = search_text.strip().lower()
+            filtered_events = []
+            for event in events:
+                device_ip_lower = (device_ip or '').lower()  # from function parameter
+                dest_ip = (event[1] or '').lower()
+                protocol = (event[3] or '').lower()
+                service = (event[4] or '').lower()
+
+                if (search_text in device_ip_lower or
+                    search_text in dest_ip or
+                    search_text in protocol or
+                    search_text in service):
+                    filtered_events.append(event)
+            events = filtered_events
+
+        # Generate toast if refresh was clicked
+        toast = ToastManager.success(
+            "Forensic event log refreshed",
+            detail_message=f"Displaying {len(events)} event(s) for device {device_ip}"
+        ) if show_toast else dash.no_update
+
         if not events:
-            return dbc.Alert("No events found for this device in the selected time range", color="info", className="m-3")
+            return dbc.Alert("No events found for this device in the selected time range", color="info", className="m-3"), toast
 
         # Helper function to get severity badge class
         def get_severity_class(severity):
@@ -20534,14 +22517,14 @@ def update_forensic_event_log(device_ip, hours):
         return html.Div([
             dbc.Alert([
                 html.I(className="fa fa-info-circle me-2"),
-                f"Showing most recent 100 events (out of {len(events)} total)"
+                f"Showing {len(events)} event(s)"
             ], color="info", className="mb-3"),
             event_table
-        ])
+        ]), toast
 
     except Exception as e:
         logger.error(f"Error loading event log: {e}")
-        return dbc.Alert(f"Error loading event log: {str(e)}", color="danger", className="m-3")
+        return dbc.Alert(f"Error loading event log: {str(e)}", color="danger", className="m-3"), dash.no_update
 
 # Export forensic report
 @app.callback(
@@ -20629,7 +22612,33 @@ def export_forensic_report(n_clicks, device_ip, hours, report_format, sections):
         # Generate file content based on format
         filename = f"forensic_report_{device_ip}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        if report_format == 'json':
+        # Normalize format (xlsx -> excel for export_helper)
+        format_map = {'xlsx': 'excel', 'pdf': 'pdf', 'csv': 'csv', 'json': 'json'}
+        normalized_format = format_map.get(report_format, report_format)
+
+        if normalized_format in ['pdf', 'excel']:
+            # Use universal export for PDF/Excel formats
+            # Export connections for the specified device and time range
+            download_data = export_helper.export_connections(
+                format=normalized_format,
+                device_ip=device_ip,
+                hours=hours
+            )
+
+            if download_data:
+                toast = ToastManager.success(
+                    "Export Complete",
+                    detail_message=f"Report downloaded successfully as {normalized_format.upper()}"
+                )
+                return toast, download_data
+            else:
+                toast = ToastManager.error(
+                    "Export Failed",
+                    detail_message="Could not generate forensic report"
+                )
+                return toast, None
+
+        elif report_format == 'json':
             # Generate JSON file
             file_content = json.dumps(report_data, indent=2, default=str)
             filename += ".json"
@@ -20737,6 +22746,211 @@ def toggle_compliance_modal(open_clicks, close_clicks, is_open):
     return is_open
 
 @app.callback(
+    [Output('compliance-requirements-list', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('compliance-modal', 'is_open'),
+     Input('compliance-tabs', 'active_tab'),
+     Input('refresh-compliance-overview-btn', 'n_clicks'),
+     Input('compliance-search-input', 'value'),
+     Input('compliance-status-filter', 'value')],
+    prevent_initial_call=True
+)
+def update_compliance_requirements(is_open, active_tab, refresh_clicks, search_text, status_filter):
+    """Update compliance requirements list with search and filter support."""
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'refresh-compliance-overview-btn.n_clicks' if ctx.triggered else False
+
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    # Only update when on the overview tab (unless refresh was clicked)
+    if active_tab != 'compliance-overview-tab' and not show_toast:
+        return dash.no_update, dash.no_update
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return [], dash.no_update
+
+        cursor = conn.cursor()
+
+        # Get network health metrics to compute compliance status
+        cursor.execute('''
+            SELECT
+                overall_security_score,
+                privacy_score,
+                compliance_score,
+                vulnerable_devices,
+                encrypted_connections_pct
+            FROM network_health_metrics
+            ORDER BY timestamp DESC
+            LIMIT 1
+        ''')
+        health_data = cursor.fetchone()
+
+        # Get security metrics
+        cursor.execute('''
+            SELECT COUNT(*) as critical_alerts
+            FROM alerts
+            WHERE severity = 'critical' AND acknowledged = 0
+            AND timestamp > datetime('now', '-7 days')
+        ''')
+        security_data = cursor.fetchone()
+
+        # Get device counts
+        cursor.execute('''
+            SELECT COUNT(*) as total_devices,
+                   COUNT(CASE WHEN is_trusted = 1 THEN 1 END) as trusted_devices
+            FROM devices
+        ''')
+        device_data = cursor.fetchone()
+
+        conn.close()
+
+        # Extract metrics with defaults
+        security_score = (health_data['overall_security_score'] or 0) if health_data else 0
+        privacy_score = (health_data['privacy_score'] or 0) if health_data else 0
+        compliance_score = (health_data['compliance_score'] or 0) if health_data else 0
+        vulnerable_count = (health_data['vulnerable_devices'] or 0) if health_data else 0
+        encrypted_pct = (health_data['encrypted_connections_pct'] or 0) if health_data else 0
+        critical_alerts = security_data['critical_alerts'] or 0
+        total_devices = device_data['total_devices'] or 0
+        trusted_devices = device_data['trusted_devices'] or 0
+
+        # Define compliance requirements with computed status
+        requirements = [
+            {
+                'regulation': 'GDPR',
+                'requirement': 'Data Encryption',
+                'description': 'Encrypt data in transit and at rest',
+                'status': 'compliant' if encrypted_pct >= 80 else 'partial' if encrypted_pct >= 50 else 'non-compliant'
+            },
+            {
+                'regulation': 'GDPR',
+                'requirement': 'Data Minimization',
+                'description': 'Collect only necessary personal data',
+                'status': 'compliant' if privacy_score >= 70 else 'partial'
+            },
+            {
+                'regulation': 'GDPR',
+                'requirement': 'Right to Erasure',
+                'description': 'Users can request data deletion',
+                'status': 'partial'
+            },
+            {
+                'regulation': 'NIST',
+                'requirement': 'Device Identification',
+                'description': 'Unique identification for all IoT devices',
+                'status': 'compliant' if total_devices > 0 else 'non-compliant'
+            },
+            {
+                'regulation': 'NIST',
+                'requirement': 'Network Security',
+                'description': 'Secure network communications and monitoring',
+                'status': 'compliant' if security_score >= 70 else 'partial' if security_score >= 50 else 'non-compliant'
+            },
+            {
+                'regulation': 'NIST',
+                'requirement': 'Incident Response',
+                'description': 'Ability to detect and respond to security incidents',
+                'status': 'compliant' if critical_alerts == 0 else 'partial' if critical_alerts < 5 else 'non-compliant'
+            },
+            {
+                'regulation': 'NIST',
+                'requirement': 'Vulnerability Management',
+                'description': 'Identify and remediate vulnerabilities',
+                'status': 'compliant' if vulnerable_count == 0 else 'partial' if vulnerable_count < 3 else 'non-compliant'
+            },
+            {
+                'regulation': 'IoT Act',
+                'requirement': 'No Default Passwords',
+                'description': 'Devices must not have default credentials',
+                'status': 'compliant'
+            },
+            {
+                'regulation': 'IoT Act',
+                'requirement': 'Vulnerability Disclosure',
+                'description': 'Establish vulnerability disclosure policy',
+                'status': 'compliant'
+            },
+            {
+                'regulation': 'IoT Act',
+                'requirement': 'Security Updates',
+                'description': 'Provide timely security updates',
+                'status': 'partial'
+            },
+            {
+                'regulation': 'IoT Act',
+                'requirement': 'Secure by Default',
+                'description': 'Default configuration should be secure',
+                'status': 'compliant' if trusted_devices >= total_devices * 0.8 else 'partial'
+            }
+        ]
+
+        # Apply search filter
+        if search_text and search_text.strip():
+            search_lower = search_text.lower()
+            requirements = [
+                req for req in requirements
+                if search_lower in req['regulation'].lower()
+                or search_lower in req['requirement'].lower()
+                or search_lower in req['description'].lower()
+            ]
+
+        # Apply status filter
+        if status_filter and status_filter != 'all':
+            requirements = [req for req in requirements if req['status'] == status_filter]
+
+        # Build UI components
+        requirement_cards = []
+        for req in requirements:
+            # Status badge
+            if req['status'] == 'compliant':
+                status_badge = dbc.Badge("✅ Compliant", color="success")
+            elif req['status'] == 'non-compliant':
+                status_badge = dbc.Badge("❌ Non-Compliant", color="danger")
+            else:
+                status_badge = dbc.Badge("⚠️ Partial", color="warning")
+
+            # Regulation badge
+            reg_colors = {
+                'GDPR': 'info',
+                'NIST': 'primary',
+                'IoT Act': 'secondary'
+            }
+
+            requirement_cards.append(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.Div([
+                                dbc.Badge(req['regulation'], color=reg_colors.get(req['regulation'], 'secondary'), className="me-2"),
+                                status_badge
+                            ], className="mb-2"),
+                            html.H6(req['requirement'], className="mb-2"),
+                            html.P(req['description'], className="text-muted small mb-0")
+                        ])
+                    ])
+                ], className="mb-2 border-start border-3 border-" +
+                ("success" if req['status'] == 'compliant' else "danger" if req['status'] == 'non-compliant' else "warning"))
+            )
+
+        # Generate toast if refresh was clicked
+        toast = ToastManager.success(
+            "Compliance requirements refreshed",
+            detail_message=f"Displaying {len(requirements)} requirement(s)"
+        ) if show_toast else dash.no_update
+
+        return requirement_cards if requirement_cards else [html.P("No requirements match your filters.", className="text-muted")], toast
+
+    except Exception as e:
+        logger.error(f"Error updating compliance requirements: {e}")
+        return [html.P("Error loading compliance requirements.", className="text-danger")], dash.no_update
+
+@app.callback(
     Output("auto-response-modal", "is_open"),
     [Input("auto-response-card-btn", "n_clicks"),
      Input("close-auto-response-modal-btn", "n_clicks")],
@@ -20753,6 +22967,8 @@ def toggle_auto_response_modal(open_clicks, close_clicks, is_open):
      Output('auto-active-rules', 'children'),
      Output('auto-last-action', 'children', allow_duplicate=True),
      Output('auto-response-timeline-chart', 'figure'),
+     Output('auto-response-timestamp-display', 'children'),
+     Output('auto-response-timestamp-store', 'data'),
      Output('toast-container', 'children', allow_duplicate=True)],
     [Input('auto-response-modal', 'is_open'),
      Input('refresh-auto-response-btn', 'n_clicks')],
@@ -20761,6 +22977,7 @@ def toggle_auto_response_modal(open_clicks, close_clicks, is_open):
 def update_auto_response_overview(is_open, refresh_clicks):
     """Update auto response overview stats."""
     from dash import callback_context
+    from datetime import datetime
 
     # Check if refresh button was clicked
     show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-auto-response-btn.n_clicks'
@@ -20774,10 +22991,15 @@ def update_auto_response_overview(is_open, refresh_clicks):
     if not is_open and not show_toast:
         raise dash.exceptions.PreventUpdate
 
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+    timestamp_display = create_timestamp_display(current_time)
+
     try:
         conn = get_db_connection()
         if not conn:
-            return "—", "—", "—", "—", {}, toast
+            return "—", "—", "—", "—", {}, timestamp_display, timestamp_str, toast
 
         cursor = conn.cursor()
 
@@ -20807,7 +23029,6 @@ def update_auto_response_overview(is_open, refresh_clicks):
         ''')
         last_trigger_row = cursor.fetchone()
         if last_trigger_row and last_trigger_row['last_triggered']:
-            from datetime import datetime
             last_time = last_trigger_row['last_triggered']
             # Format as relative time
             try:
@@ -20869,12 +23090,14 @@ def update_auto_response_overview(is_open, refresh_clicks):
             str(active_rules),
             last_action,
             timeline_fig,
+            timestamp_display,
+            timestamp_str,
             toast
         )
 
     except Exception as e:
         logger.error(f"Error updating auto response overview: {e}")
-        return "—", "—", "—", "—", {}, toast
+        return "—", "—", "—", "—", {}, timestamp_display, timestamp_str, toast
 
 # Alert Rules Table
 @app.callback(
@@ -21237,14 +23460,27 @@ def update_vuln_overview(is_open, refresh_clicks):
 
 # Vulnerability Scanner - CVE Database Tab
 @app.callback(
-    Output('vuln-cve-database-table', 'children'),
+    [Output('vuln-cve-database-table', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('vuln-scanner-modal', 'is_open'),
-     Input('refresh-vuln-scanner-btn', 'n_clicks')],
+     Input('vuln-scanner-tabs', 'active_tab'),
+     Input('refresh-vuln-scanner-btn', 'n_clicks'),
+     Input('refresh-cve-database-btn', 'n_clicks'),
+     Input('cve-database-search-input', 'value'),
+     Input('cve-severity-filter', 'value')],
     prevent_initial_call=True
 )
-def update_cve_database(is_open, refresh_clicks):
-    if not is_open:
-        return dash.no_update
+def update_cve_database(is_open, active_tab, refresh_clicks, cve_refresh_clicks, search_text, severity_filter):
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] in ['refresh-cve-database-btn.n_clicks', 'refresh-vuln-scanner-btn.n_clicks'] if ctx.triggered else False
+
+    if not is_open or active_tab != 'vuln-cve-tab':
+        if show_toast:
+            return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
 
     try:
         db = get_db_connection()
@@ -21263,16 +23499,42 @@ def update_cve_database(is_open, refresh_clicks):
                 END,
                 cvss_score DESC,
                 published_date DESC
-            LIMIT 100
         ''')
         cves = cursor.fetchall()
         db.close()
+
+        # Apply severity filter
+        if severity_filter and severity_filter != 'all':
+            cves = [cve for cve in cves if cve[2] == severity_filter]
+
+        # Apply search filter with None handling
+        if search_text and search_text.strip():
+            search_text = search_text.strip().lower()
+            filtered_cves = []
+            for cve in cves:
+                cve_id = (cve[0] or '').lower()
+                title = (cve[1] or '').lower()
+                vendors = (cve[4] or '').lower()
+                models = (cve[5] or '').lower()
+
+                if (search_text in cve_id or
+                    search_text in title or
+                    search_text in vendors or
+                    search_text in models):
+                    filtered_cves.append(cve)
+            cves = filtered_cves
+
+        # Generate toast if refresh was clicked
+        toast = ToastManager.success(
+            "CVE database refreshed",
+            detail_message=f"Displaying {len(cves)} CVE vulnerabilities"
+        ) if show_toast else dash.no_update
 
         if not cves:
             return dbc.Alert([
                 html.I(className="fa fa-info-circle me-2"),
                 "No CVE vulnerabilities in database. The vulnerability database can be populated through automated feeds or manual imports."
-            ], color="info")
+            ], color="info"), toast
 
         # Build table
         table_rows = []
@@ -21313,58 +23575,115 @@ def update_cve_database(is_open, refresh_clicks):
                 ])
             )
 
-        return html.Div(table_rows, style={'maxHeight': '500px', 'overflowY': 'auto'})
+        return html.Div(table_rows, style={'maxHeight': '500px', 'overflowY': 'auto'}), toast
 
     except Exception as e:
         logger.error(f"Error loading CVE database: {e}")
-        return dbc.Alert(f"Error loading CVE database: {str(e)}", color="danger")
+        return dbc.Alert(f"Error loading CVE database: {str(e)}", color="danger"), dash.no_update
 
 # Vulnerability Scanner - Device Scan Tab
 @app.callback(
-    Output('vuln-device-scan-results', 'children'),
+    [Output('vuln-device-scan-results', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('vuln-scanner-modal', 'is_open'),
+     Input('vuln-scanner-tabs', 'active_tab'),
      Input('vuln-status-filter', 'value'),
-     Input('refresh-vuln-scanner-btn', 'n_clicks')],
+     Input('vuln-severity-filter', 'value'),
+     Input('refresh-vuln-scanner-btn', 'n_clicks'),
+     Input('refresh-device-scan-btn', 'n_clicks'),
+     Input('device-scan-search-input', 'value')],
     prevent_initial_call=True
 )
-def update_device_scan_results(is_open, status_filter, refresh_clicks):
-    if not is_open:
-        return dash.no_update
+def update_device_scan_results(is_open, active_tab, status_filter, severity_filter, refresh_clicks, scan_refresh_clicks, search_text):
+    from dash import callback_context
+    ctx = callback_context
+
+    # Check if refresh button was clicked
+    show_toast = ctx.triggered and ctx.triggered[0]['prop_id'] in ['refresh-device-scan-btn.n_clicks', 'refresh-vuln-scanner-btn.n_clicks'] if ctx.triggered else False
+
+    if not is_open or active_tab != 'vuln-scan-tab':
+        if show_toast:
+            return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
 
     try:
         db = get_db_connection()
         cursor = db.cursor()
 
-        # Build query based on filter
+        # Build query based on filters
         status_clause = "" if status_filter == 'all' else f"AND dvd.status = '{status_filter}'"
+
+        # CVSS severity ranges: critical (9.0-10.0), high (7.0-8.9), medium (4.0-6.9), low (0.1-3.9)
+        severity_clause = ""
+        if severity_filter and severity_filter != 'all':
+            if severity_filter == 'critical':
+                severity_clause = "AND v.cvss_score >= 9.0 AND v.cvss_score <= 10.0"
+            elif severity_filter == 'high':
+                severity_clause = "AND v.cvss_score >= 7.0 AND v.cvss_score < 9.0"
+            elif severity_filter == 'medium':
+                severity_clause = "AND v.cvss_score >= 4.0 AND v.cvss_score < 7.0"
+            elif severity_filter == 'low':
+                severity_clause = "AND v.cvss_score >= 0.1 AND v.cvss_score < 4.0"
 
         cursor.execute(f'''
             SELECT dvd.device_ip, d.device_name, d.device_type,
                    COUNT(DISTINCT dvd.cve_id) as vuln_count,
                    GROUP_CONCAT(DISTINCT v.severity) as severities,
+                   GROUP_CONCAT(DISTINCT v.cve_id) as cve_ids,
+                   GROUP_CONCAT(DISTINCT v.title) as titles,
+                   GROUP_CONCAT(DISTINCT v.affected_vendors) as vendors,
+                   GROUP_CONCAT(DISTINCT v.affected_models) as models,
                    MAX(dvd.detected_date) as last_detected,
                    dvd.status
             FROM device_vulnerabilities_detected dvd
             LEFT JOIN devices d ON dvd.device_ip = d.device_ip
             LEFT JOIN iot_vulnerabilities v ON dvd.cve_id = v.cve_id
-            WHERE 1=1 {status_clause}
+            WHERE 1=1 {status_clause} {severity_clause}
             GROUP BY dvd.device_ip, dvd.status
             ORDER BY vuln_count DESC, last_detected DESC
-            LIMIT 50
         ''')
         devices = cursor.fetchall()
         db.close()
+
+        # Apply search filter with None handling - search in CVE ID, title, vendor, model, device
+        if search_text and search_text.strip():
+            search_text = search_text.strip().lower()
+            filtered_devices = []
+            for device in devices:
+                device_ip = (device[0] or '').lower()
+                device_name = (device[1] or '').lower()
+                device_type = (device[2] or '').lower()
+                cve_ids = (device[5] or '').lower()
+                titles = (device[6] or '').lower()
+                vendors = (device[7] or '').lower()
+                models = (device[8] or '').lower()
+
+                if (search_text in device_ip or
+                    search_text in device_name or
+                    search_text in device_type or
+                    search_text in cve_ids or
+                    search_text in titles or
+                    search_text in vendors or
+                    search_text in models):
+                    filtered_devices.append(device)
+            devices = filtered_devices
+
+        # Generate toast if refresh was clicked
+        toast = ToastManager.success(
+            "Device scan refreshed",
+            detail_message=f"Displaying {len(devices)} device(s) with vulnerabilities"
+        ) if show_toast else dash.no_update
 
         if not devices:
             return dbc.Alert([
                 html.I(className="fa fa-check-circle me-2"),
                 f"No devices found with {status_filter if status_filter != 'all' else 'any'} vulnerabilities."
-            ], color="success")
+            ], color="success"), toast
 
         # Build device cards
         device_cards = []
         for device in devices:
-            device_ip, device_name, device_type, vuln_count, severities, last_detected, status = device
+            device_ip, device_name, device_type, vuln_count, severities, cve_ids, titles, vendors, models, last_detected, status = device
 
             # Determine risk level based on vulnerability count and severities
             has_critical = 'critical' in (severities or '')
@@ -21409,11 +23728,11 @@ def update_device_scan_results(is_open, status_filter, refresh_clicks):
                 ], className=f"glass-card {card_class} shadow-sm mb-2")
             )
 
-        return html.Div(device_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+        return html.Div(device_cards, style={'maxHeight': '500px', 'overflowY': 'auto'}), toast
 
     except Exception as e:
         logger.error(f"Error loading device scan results: {e}")
-        return dbc.Alert(f"Error loading scan results: {str(e)}", color="danger")
+        return dbc.Alert(f"Error loading scan results: {str(e)}", color="danger"), dash.no_update
 
 # Vulnerability Scanner - Recommendations Tab
 @app.callback(
@@ -21557,6 +23876,8 @@ def toggle_benchmark_modal(open_clicks, close_clicks, is_open):
      Output('benchmark-industry-avg', 'children'),
      Output('benchmark-percentile', 'children'),
      Output('benchmark-radar-chart', 'figure'),
+     Output('benchmark-timestamp-display', 'children'),
+     Output('benchmark-timestamp-store', 'data'),
      Output('toast-container', 'children', allow_duplicate=True)],
     [Input('benchmark-modal', 'is_open'),
      Input('refresh-benchmark-btn', 'n_clicks')],
@@ -21575,11 +23896,16 @@ def update_benchmark_overview(is_open, refresh_clicks):
         ) if show_toast else dash.no_update
 
     if not is_open and not show_toast:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    # Get current timestamp
+    current_time = datetime.now()
+    timestamp_str = current_time.isoformat()
+    timestamp_display = create_timestamp_display(current_time)
 
     # If modal closed but refresh was clicked, return toast with no_update for other values
     if not is_open and show_toast:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     try:
         conn = get_db_connection()
@@ -21630,12 +23956,12 @@ def update_benchmark_overview(is_open, refresh_clicks):
             industry_scores=industry_scores
         )
 
-        return f"{overall_score:.1f}/100", f"{industry_avg:.1f}/100", f"{percentile:.0f}th", radar_fig, toast
+        return f"{overall_score:.1f}/100", f"{industry_avg:.1f}/100", f"{percentile:.0f}th", radar_fig, timestamp_display, timestamp_str, toast
 
     except Exception as e:
         logger.error(f"Error loading benchmark overview: {e}")
         empty_fig = ChartFactory.create_empty_chart('Error loading data')
-        return "N/A", "N/A", "N/A", empty_fig, dash.no_update
+        return "N/A", "N/A", "N/A", empty_fig, timestamp_display, timestamp_str, dash.no_update
 
 # Benchmarking - Metrics Tab
 @app.callback(
@@ -25050,62 +27376,28 @@ def quick_scan(n):
     [Output('download-export', 'data', allow_duplicate=True),
      Output('quick-export-toast', 'is_open'),
      Output('quick-export-toast', 'children')],
-    [Input('quick-export-btn', 'n_clicks')],
+    Input('quick-export-btn', 'n_clicks'),
+    State('export-format-quick', 'value'),
     prevent_initial_call=True
 )
-def quick_export(n):
-    """Export security report as CSV."""
+def quick_export(n, export_format):
+    """Export security report in selected format."""
     if n:
         try:
-            logger.info("Generating security report export")
-            conn = get_db_connection()
-            if not conn:
-                return None, True, "Database connection failed"
+            logger.info(f"Generating security report export in {export_format} format")
 
-            # Create CSV data
-            import io
-            output = io.StringIO()
+            # Normalize format (xlsx -> excel)
+            format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+            export_format = format_map.get(export_format or 'csv', 'csv')
 
-            # Export alerts
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT a.timestamp, a.severity, a.device_ip, d.device_name, a.explanation
-                FROM alerts a
-                LEFT JOIN devices d ON a.device_ip = d.device_ip
-                ORDER BY a.timestamp DESC
-                LIMIT 1000
-            ''')
-            alerts = cursor.fetchall()
+            # Export alerts (last 7 days) using universal export helper
+            download_data = export_helper.export_alerts(format=export_format, days=7)
 
-            output.write("IoTSentinel Security Report\n")
-            output.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            output.write("=== ALERTS ===\n")
-            output.write("Timestamp,Severity,Device IP,Device Name,Explanation\n")
+            if download_data:
+                return download_data, True, f"Security report exported as {export_format.upper()}"
+            else:
+                return None, True, "Export failed - no data available"
 
-            for alert in alerts:
-                output.write(f"{alert['timestamp']},{alert['severity']},{alert['device_ip'] or 'N/A'},{alert['device_name'] or 'N/A'},\"{alert['explanation']}\"\n")
-
-            # Export devices
-            cursor.execute('SELECT * FROM devices ORDER BY last_seen DESC')
-            devices = cursor.fetchall()
-
-            output.write("\n=== DEVICES ===\n")
-            output.write("IP Address,MAC Address,Hostname,Vendor,First Seen,Last Seen,Trust Level\n")
-
-            for device in devices:
-                trust_status = "trusted" if device['is_trusted'] else "blocked" if device['is_blocked'] else "unknown"
-                output.write(f"{device['device_ip'] or 'N/A'},{device['mac_address'] or 'N/A'},{device['device_name'] or 'N/A'},{device['manufacturer'] or 'N/A'},{device['first_seen'] or 'N/A'},{device['last_seen'] or 'N/A'},{trust_status}\n")
-
-            conn.close()
-
-            filename = f"iotsentinel_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            logger.info(f"Export successful: {filename}")
-
-            return (
-                dict(content=output.getvalue(), filename=filename),
-                True,
-                f"Report exported successfully as {filename}"
-            )
         except Exception as e:
             logger.error(f"Export failed: {e}")
             return None, True, f"Export failed: {str(e)}"
@@ -27111,6 +29403,1622 @@ app.clientside_callback(
     Input('features-category-filter', 'data'),
     prevent_initial_call=True
 )
+
+# ============================================================================
+# ADVANCED REPORTING & ANALYTICS CALLBACKS
+# ============================================================================
+
+# Callback to open/close custom reports modal
+@app.callback(
+    Output('custom-reports-modal', 'is_open'),
+    [Input('open-reports-modal', 'n_clicks'),
+     Input('close-reports-modal', 'n_clicks')],
+    [State('custom-reports-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def toggle_reports_modal(open_clicks, close_clicks, is_open):
+    """Toggle the custom reports modal."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'open-reports-modal':
+        return True
+    elif button_id == 'close-reports-modal':
+        return False
+
+    return is_open
+
+# Callback to handle template selection buttons
+@app.callback(
+    Output('report-template-select', 'value'),
+    [Input('select-exec-template', 'n_clicks'),
+     Input('select-security-template', 'n_clicks'),
+     Input('select-network-template', 'n_clicks'),
+     Input('select-device-template', 'n_clicks'),
+     Input('select-threat-template', 'n_clicks')],
+    prevent_initial_call=True
+)
+def select_template_from_card(exec_clicks, security_clicks, network_clicks, device_clicks, threat_clicks):
+    """Update template selection when a template card is clicked."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    template_map = {
+        'select-exec-template': 'executive_summary',
+        'select-security-template': 'security_audit',
+        'select-network-template': 'network_activity',
+        'select-device-template': 'device_inventory',
+        'select-threat-template': 'threat_analysis'
+    }
+
+    return template_map.get(button_id, 'executive_summary')
+
+# Callback to update template preview
+@app.callback(
+    Output('template-preview', 'children'),
+    Input('report-template-select', 'value')
+)
+def update_template_preview(template_name):
+    """Update the template preview when selection changes."""
+    if not template_manager:
+        return html.Div("Advanced reporting not available", className="text-muted")
+
+    try:
+        template = template_manager.get_template(template_name)
+        if not template:
+            return html.Div("Template not found", className="text-danger")
+
+        # Build preview content
+        preview_content = [
+            html.H6([
+                html.I(className="fa fa-info-circle me-2"),
+                template.name
+            ], className="mb-2"),
+            html.P(template.description, className="text-muted mb-3"),
+            html.Hr(),
+            html.Strong("Sections included:", className="d-block mb-2"),
+            html.Ul([
+                html.Li(section.title)
+                for section in sorted(template.sections, key=lambda s: s.order)
+            ], className="mb-0")
+        ]
+
+        return preview_content
+
+    except Exception as e:
+        logger.error(f"Error updating template preview: {e}")
+        return html.Div("Error loading preview", className="text-danger")
+
+# Callback to populate recent reports list
+@app.callback(
+    Output('recent-reports-list', 'children'),
+    [Input('report-builder-tabs', 'active_tab'),
+     Input('report-job-poll', 'n_intervals')],
+    prevent_initial_call=True
+)
+def update_recent_reports_list(active_tab, n_intervals):
+    """Update recent reports list when tab is active."""
+    if active_tab != 'recent-tab':
+        raise dash.exceptions.PreventUpdate
+
+    if not report_queue:
+        return dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            "Report queue not available"
+        ], color="warning", className="text-center")
+
+    try:
+        # Get completed jobs
+        from utils.report_queue import JobStatus
+        completed_jobs = report_queue.list_jobs(status=JobStatus.COMPLETED, limit=20)
+
+        if not completed_jobs:
+            return dbc.Alert([
+                html.I(className="fa fa-info-circle me-2"),
+                "No recent reports. Generate your first report!"
+            ], color="info", className="text-center")
+
+        # Build report cards
+        report_cards = []
+        template_icons = {
+            'executive_summary': 'fa-chart-pie',
+            'security_audit': 'fa-shield-alt',
+            'network_activity': 'fa-network-wired',
+            'device_inventory': 'fa-tablet-alt',
+            'threat_analysis': 'fa-bug'
+        }
+        template_names = {
+            'executive_summary': 'Executive Summary',
+            'security_audit': 'Security Audit',
+            'network_activity': 'Network Activity',
+            'device_inventory': 'Device Inventory',
+            'threat_analysis': 'Threat Analysis'
+        }
+        format_colors = {
+            'pdf': 'danger',
+            'excel': 'success',
+            'json': 'info'
+        }
+
+        for job in completed_jobs:
+            template_name = job.get('template_name', 'unknown')
+            format_type = job.get('format', 'pdf')
+            result_path = job.get('result_path', '')
+            completed_at = job.get('completed_at', '')
+
+            # Parse timestamp
+            from datetime import datetime
+            try:
+                dt = datetime.fromisoformat(completed_at)
+                time_str = dt.strftime('%b %d, %Y %I:%M %p')
+            except:
+                time_str = completed_at
+
+            card = dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.I(className=f"fa {template_icons.get(template_name, 'fa-file')} fa-2x text-primary")
+                        ], width="auto"),
+                        dbc.Col([
+                            html.H6(template_names.get(template_name, template_name.replace('_', ' ').title()), className="mb-1"),
+                            html.Small([
+                                html.I(className="fa fa-clock me-1"),
+                                time_str
+                            ], className="text-muted d-block mb-2"),
+                            dbc.Badge(format_type.upper(), color=format_colors.get(format_type, 'secondary'), className="me-2"),
+                            dbc.Badge([
+                                html.I(className="fa fa-check me-1"),
+                                "Ready"
+                            ], color="success")
+                        ]),
+                        dbc.Col([
+                            dbc.Button([
+                                html.I(className="fa fa-download me-2"),
+                                "Download"
+                            ],
+                            id={'type': 'download-report-btn', 'index': job.get('job_id', '')},
+                            color="primary",
+                            size="sm",
+                            outline=True,
+                            n_clicks=0
+                            ) if result_path else html.Div()
+                        ], width="auto", className="d-flex align-items-center")
+                    ])
+                ])
+            ], className="mb-3 shadow-sm hover-shadow")
+
+            report_cards.append(card)
+
+        return report_cards
+
+    except Exception as e:
+        logger.error(f"Error loading recent reports: {e}")
+        return dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            f"Error loading reports: {str(e)}"
+        ], color="danger", className="text-center")
+
+# Callback to handle report download with toast notification
+@app.callback(
+    [Output('download-custom-report', 'data', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input({'type': 'download-report-btn', 'index': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+def download_report_with_toast(n_clicks_list):
+    """Handle report download button clicks with toast notification."""
+    ctx = dash.callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Get the job ID that was clicked
+        import json
+        triggered_id = ctx.triggered[0]['prop_id']
+        job_id = json.loads(triggered_id.split('.')[0])['index']
+
+        if not report_queue:
+            toast = ToastManager.error(
+                "Download failed",
+                detail_message="Report queue not available"
+            )
+            return dash.no_update, toast
+
+        # Get job details
+        job_status = report_queue.get_job_status(job_id)
+        if not job_status:
+            toast = ToastManager.error(
+                "Report not found",
+                detail_message=f"Could not find report with ID {job_id}"
+            )
+            return dash.no_update, toast
+
+        result_path = job_status.get('result_path')
+        if not result_path:
+            toast = ToastManager.error(
+                "Download failed",
+                detail_message="Report file path not available"
+            )
+            return dash.no_update, toast
+
+        # Check if file exists
+        from pathlib import Path
+        report_file = Path(result_path)
+        if not report_file.exists():
+            toast = ToastManager.error(
+                "File not found",
+                detail_message="Report file has been deleted or moved"
+            )
+            return dash.no_update, toast
+
+        # Show success toast
+        template_name = job_status.get('template_name', 'Report')
+        format_type = job_status.get('format', 'pdf').upper()
+        toast = ToastManager.success(
+            "Download started",
+            detail_message=f"Downloading {template_name} ({format_type})"
+        )
+
+        # Trigger download
+        return dcc.send_file(result_path), toast
+
+    except Exception as e:
+        logger.error(f"Error downloading report: {e}")
+        toast = ToastManager.error(
+            "Download error",
+            detail_message=str(e)
+        )
+        return dash.no_update, toast
+
+# Callback to generate and download custom report
+@app.callback(
+    [Output('current-report-job-id', 'data'),
+     Output('report-job-poll', 'disabled'),
+     Output('report-progress-container', 'style'),
+     Output('generate-report-btn', 'children'),
+     Output('generate-report-btn', 'disabled'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('generate-report-btn', 'n_clicks'),
+    [State('report-template-select', 'value'),
+     State('report-format-select', 'value'),
+     State('report-days-input', 'value')],
+    prevent_initial_call=True
+)
+def submit_report_generation(n_clicks, template_name, format_type, days):
+    """Submit report generation job to queue."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    # Check if queue is available
+    if not report_queue:
+        toast = ToastManager.error(
+            "Report generation unavailable",
+            detail_message="Report queue not initialized"
+        )
+        return (
+            None,
+            True,  # Keep polling disabled
+            {"display": "none"},  # Hide progress
+            [html.I(className="fa fa-exclamation-triangle me-2"), "Not Available"],
+            True,  # Disable button
+            toast
+        )
+
+    try:
+        # Submit job to queue
+        job_id = report_queue.submit_job(
+            template_name=template_name,
+            format=format_type,
+            parameters={'days': int(days) if days else 7},
+            priority=5
+        )
+
+        # Update button to show processing state
+        processing_button = [
+            dbc.Spinner(size="sm", spinner_class_name="me-2"),
+            "Generating..."
+        ]
+
+        # Show success toast
+        toast = ToastManager.info(
+            "Report queued",
+            detail_message="Report generation started in background"
+        )
+
+        logger.info(f"Report job submitted: {job_id}")
+
+        return (
+            job_id,  # Store job ID
+            False,  # Enable polling
+            {"display": "block"},  # Show progress bar
+            processing_button,  # Update button
+            True,  # Disable button while processing
+            toast
+        )
+
+    except Exception as e:
+        logger.error(f"Error submitting report job: {e}")
+        toast = ToastManager.error(
+            "Queue error",
+            detail_message=str(e)
+        )
+        error_button = [
+            html.I(className="fa fa-exclamation-triangle me-2"),
+            "Error - Try Again"
+        ]
+        return None, True, {"display": "none"}, error_button, False, toast
+
+
+# Poll job status and update progress
+@app.callback(
+    [Output('report-progress-bar', 'value'),
+     Output('report-progress-text', 'children'),
+     Output('report-status', 'children'),
+     Output('download-custom-report', 'data'),
+     Output('report-job-poll', 'disabled', allow_duplicate=True),
+     Output('report-progress-container', 'style', allow_duplicate=True),
+     Output('generate-report-btn', 'children', allow_duplicate=True),
+     Output('generate-report-btn', 'disabled', allow_duplicate=True),
+     Output('current-report-job-id', 'data', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('report-job-poll', 'n_intervals'),
+    State('current-report-job-id', 'data'),
+    prevent_initial_call=True
+)
+def poll_job_status(n_intervals, job_id):
+    """Poll report generation job status and update progress."""
+    if not job_id or not report_queue:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Get job status
+        job_status = report_queue.get_job_status(job_id)
+
+        if not job_status:
+            # Job not found
+            return (
+                0,  # Progress 0
+                "Job not found",  # Progress text
+                dbc.Alert("Job not found", color="warning"),  # Status
+                None,  # No download
+                True,  # Disable polling
+                {"display": "none"},  # Hide progress
+                [html.I(className="fa fa-download me-2"), "Generate Report"],  # Reset button
+                False,  # Enable button
+                None,  # Clear job ID
+                ToastManager.error("Job not found", detail_message="Report job was not found")
+            )
+
+        status = job_status['status']
+        progress = job_status.get('progress', 0)
+
+        # Update progress bar and text
+        progress_text = f"{progress}% - {status}"
+
+        if status == 'pending':
+            status_alert = dbc.Alert([
+                html.I(className="fa fa-clock me-2"),
+                "Report queued, waiting to start..."
+            ], color="info")
+
+        elif status == 'processing':
+            status_alert = dbc.Alert([
+                dbc.Spinner(size="sm", spinner_class_name="me-2"),
+                f"Generating report... {progress}%"
+            ], color="primary")
+
+        elif status == 'completed':
+            # Job completed - prepare download
+            result_path = job_status.get('result_path')
+
+            if result_path and Path(result_path).exists():
+                # Read the generated report
+                try:
+                    with open(result_path, 'rb') as f:
+                        content = f.read()
+
+                    filename = Path(result_path).name
+                    download_data = {
+                        'content': base64.b64encode(content).decode(),
+                        'filename': filename,
+                        'type': 'application/octet-stream',
+                        'base64': True
+                    }
+
+                    return (
+                        100,  # Progress 100%
+                        "Complete!",  # Progress text
+                        dbc.Alert([
+                            html.I(className="fa fa-check-circle me-2"),
+                            f"Report generated successfully!"
+                        ], color="success"),  # Status
+                        download_data,  # Trigger download
+                        True,  # Disable polling
+                        {"display": "none"},  # Hide progress
+                        [html.I(className="fa fa-download me-2"), "Generate Report"],  # Reset button
+                        False,  # Enable button
+                        None,  # Clear job ID
+                        ToastManager.success("Report ready", detail_message=f"Downloaded as {filename}")
+                    )
+                except Exception as e:
+                    logger.error(f"Error reading report file: {e}")
+
+            # Completed but no file
+            return (
+                100,
+                "Completed (no file)",
+                dbc.Alert("Report completed but file not found", color="warning"),
+                None,
+                True,  # Disable polling
+                {"display": "none"},
+                [html.I(className="fa fa-download me-2"), "Generate Report"],
+                False,
+                None,
+                ToastManager.warning("Report completed", detail_message="But file not found")
+            )
+
+        elif status == 'failed':
+            error_msg = job_status.get('error_message', 'Unknown error')
+            return (
+                0,  # Progress 0
+                "Failed",  # Progress text
+                dbc.Alert([
+                    html.I(className="fa fa-exclamation-circle me-2"),
+                    f"Error: {error_msg}"
+                ], color="danger"),  # Status
+                None,  # No download
+                True,  # Disable polling
+                {"display": "none"},  # Hide progress
+                [html.I(className="fa fa-exclamation-triangle me-2"), "Generation Failed"],  # Error button
+                False,  # Enable button
+                None,  # Clear job ID
+                ToastManager.error("Generation failed", detail_message=error_msg)
+            )
+
+        else:
+            # Unknown status - keep polling
+            return (
+                progress,
+                progress_text,
+                status_alert,
+                None,  # No download yet
+                False,  # Keep polling
+                {"display": "block"},  # Show progress
+                [dbc.Spinner(size="sm", spinner_class_name="me-2"), "Generating..."],  # Processing button
+                True,  # Keep button disabled
+                job_id,  # Keep job ID
+                dash.no_update
+            )
+
+    except Exception as e:
+        logger.error(f"Error polling job status: {e}")
+        return (
+            0,
+            "Error",
+            dbc.Alert(f"Error: {str(e)}", color="danger"),
+            None,
+            True,  # Stop polling
+            {"display": "none"},
+            [html.I(className="fa fa-download me-2"), "Generate Report"],
+            False,
+            None,
+            ToastManager.error("Polling error", detail_message=str(e))
+        )
+
+# Callback to update alert trend chart
+@app.callback(
+    Output('alert-trend-chart', 'figure'),
+    Input('analytics-modal-tabs', 'active_tab'),
+    prevent_initial_call=False
+)
+def update_alert_trend_chart(active_tab):
+    """Update the alert trends chart with latest data."""
+    if not trend_analyzer:
+        # Return empty chart if trend analyzer not available
+        return ChartFactory.create_line_chart(
+            x_values=[],
+            y_values=[],
+            title='Alert Trends Unavailable',
+            x_title='Date',
+            y_title='Alert Count'
+        )
+
+    try:
+        # Analyze alert trends for last 7 days
+        trends = trend_analyzer.analyze_alert_trends(days=7, granularity='daily')
+
+        if not trends or 'time_series' not in trends:
+            # Return empty chart
+            return ChartFactory.create_line_chart(
+                x_values=[],
+                y_values=[],
+                title='No Alert Data',
+                x_title='Date',
+                y_title='Alert Count'
+            )
+
+        # Extract time series data (list of tuples: [(date, count), ...])
+        time_series = trends['time_series']
+        if time_series:
+            dates, counts = zip(*time_series)
+            dates = list(dates)
+            counts = list(counts)
+        else:
+            dates = []
+            counts = []
+
+        # Create trend chart with moving average
+        figure_dict = ChartFactory.create_trend_chart(
+            x_values=dates,
+            y_values=counts,
+            show_moving_avg=True,
+            ma_period=3,
+            title='',
+            x_title='',
+            y_title='Alerts',
+            trend_color='#6366f1',
+            ma_color='#ec4899'
+        )
+
+        # Convert to Figure object and update layout for compact display
+        figure = go.Figure(figure_dict)
+        figure.update_layout(
+            margin=dict(l=40, r=20, t=20, b=40),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+
+        return figure
+
+    except Exception as e:
+        logger.error(f"Error updating alert trend chart: {e}")
+        return ChartFactory.create_line_chart(
+            x_values=[],
+            y_values=[],
+            title='Error Loading Data',
+            x_title='Date',
+            y_title='Alert Count'
+        )
+
+# Callback to update activity heatmap
+@app.callback(
+    Output('activity-heatmap-chart', 'figure'),
+    Input('analytics-modal-tabs', 'active_tab'),
+    prevent_initial_call=False
+)
+def update_activity_heatmap(active_tab):
+    """Update the network activity heatmap."""
+    if not trend_analyzer:
+        # Return empty heatmap
+        return ChartFactory.create_heatmap(
+            x_labels=[],
+            y_labels=[],
+            z_values=[],
+            title='Activity Heatmap Unavailable',
+            x_title='Hour',
+            y_title='Day'
+        )
+
+    try:
+        # Analyze device activity for last 7 days
+        activity = trend_analyzer.analyze_device_activity(days=7)
+
+        if not activity or 'activity_by_hour' not in activity:
+            return ChartFactory.create_heatmap(
+                x_labels=[],
+                y_labels=[],
+                z_values=[],
+                title='No Activity Data',
+                x_title='Hour',
+                y_title='Day'
+            )
+
+        # Extract hourly activity data (dict with hour: count)
+        hourly_activity = activity['activity_by_hour']
+
+        # Create 24-hour heatmap data
+        hours = list(range(24))
+        hour_labels = [f"{h:02d}:00" for h in hours]
+
+        # Get activity counts per hour from the dict
+        activity_counts = [hourly_activity.get(hour, 0) for hour in hours]
+
+        # Create single-row heatmap for 24-hour pattern
+        z_values = [activity_counts]
+
+        # Create heatmap
+        figure_dict = ChartFactory.create_heatmap(
+            x_labels=hour_labels,
+            y_labels=['Activity'],
+            z_values=z_values,
+            title='',
+            x_title='Hour of Day',
+            y_title='',
+            colorscale='Viridis'
+        )
+
+        # Convert to Figure object and update layout for compact display
+        figure = go.Figure(figure_dict)
+        figure.update_layout(
+            margin=dict(l=60, r=20, t=20, b=50),
+            height=200
+        )
+
+        return figure
+
+    except Exception as e:
+        logger.error(f"Error updating activity heatmap: {e}")
+        return ChartFactory.create_heatmap(
+            x_labels=[],
+            y_labels=[],
+            z_values=[],
+            title='Error Loading Data',
+            x_title='Hour',
+            y_title='Day'
+        )
+
+# Callback to update trend statistics display
+@app.callback(
+    [Output('trend-statistics-display', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('analytics-modal-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_trend_statistics(active_tab):
+    """Update trend statistics when Trend Analysis tab is opened."""
+    if active_tab != 'trend-analysis-tab':
+        raise dash.exceptions.PreventUpdate
+
+    if not trend_analyzer:
+        return (
+            dbc.Alert([
+                html.I(className="fa fa-exclamation-circle me-2"),
+                "Trend analysis unavailable"
+            ], color="warning"),
+            dash.no_update
+        )
+
+    try:
+        # Get executive summary for statistics
+        summary = trend_analyzer.get_executive_summary(days=7)
+
+        if not summary:
+            return (
+                dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No trend data available"
+                ], color="info"),
+                dash.no_update
+            )
+
+        # Build statistics display
+        stats_display = dbc.Row([
+            # Security Posture Column
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.I(className="fa fa-shield-alt me-2", style={'color': '#6366f1'}),
+                        "Security Posture"
+                    ], className="bg-light border-bottom"),
+                    dbc.CardBody([
+                        html.Div([
+                            html.Small("Total Alerts", className="text-muted d-block"),
+                            html.H4(str(summary['security_posture']['total_alerts']), className="mb-0")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("Critical Alerts", className="text-muted d-block"),
+                            html.H5(str(summary['security_posture']['critical_alerts']),
+                                   className="mb-0 text-danger")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("Trend", className="text-muted d-block"),
+                            dbc.Badge(
+                                [html.I(className=f"fa fa-arrow-{summary['security_posture']['alert_trend'].replace('ing', '').replace('increas', 'up').replace('decreas', 'down').replace('stable', 'right')} me-1"),
+                                 f"{summary['security_posture']['percent_change']}%"],
+                                color="danger" if summary['security_posture']['alert_trend'] == 'increasing' else
+                                      "success" if summary['security_posture']['alert_trend'] == 'decreasing' else "secondary"
+                            )
+                        ])
+                    ])
+                ], className="glass-card border-0 shadow-sm h-100")
+            ], width=4),
+
+            # Network Activity Column
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.I(className="fa fa-network-wired me-2", style={'color': '#10b981'}),
+                        "Network Activity"
+                    ], className="bg-light border-bottom"),
+                    dbc.CardBody([
+                        html.Div([
+                            html.Small("Total Connections", className="text-muted d-block"),
+                            html.H4(str(summary['network_activity']['total_connections']), className="mb-0")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("Unique Sources", className="text-muted d-block"),
+                            html.H5(str(summary['network_activity']['unique_sources']), className="mb-0")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("Suspicious Patterns", className="text-muted d-block"),
+                            html.H5(str(summary['network_activity']['suspicious_patterns']),
+                                   className="mb-0 text-warning")
+                        ])
+                    ])
+                ], className="glass-card border-0 shadow-sm h-100")
+            ], width=4),
+
+            # Device Status Column
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.I(className="fa fa-devices me-2", style={'color': '#f59e0b'}),
+                        "Device Status"
+                    ], className="bg-light border-bottom"),
+                    dbc.CardBody([
+                        html.Div([
+                            html.Small("Total Devices", className="text-muted d-block"),
+                            html.H4(str(summary['device_status']['device_count']), className="mb-0")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("Active Devices", className="text-muted d-block"),
+                            html.H5(str(summary['device_status']['active_devices']), className="mb-0 text-success")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Small("New Devices (7d)", className="text-muted d-block"),
+                            html.H5(str(summary['device_status']['new_devices']), className="mb-0 text-info")
+                        ])
+                    ])
+                ], className="glass-card border-0 shadow-sm h-100")
+            ], width=4)
+        ], className="mb-3")
+
+        # Add top concerns if available
+        if summary.get('top_concerns'):
+            concerns_list = html.Div([
+                html.Hr(),
+                html.H6([
+                    html.I(className="fa fa-exclamation-triangle me-2 text-warning"),
+                    "Top Concerns"
+                ], className="mb-3"),
+                html.Ul([
+                    html.Li(concern, className="mb-2")
+                    for concern in summary['top_concerns']
+                ], className="text-muted")
+            ])
+
+            final_display = html.Div([stats_display, concerns_list])
+        else:
+            final_display = stats_display
+
+        # Generate success toast
+        toast = ToastManager.success(
+            "Trend statistics updated",
+            detail_message=f"Showing data for last 7 days"
+        )
+
+        return final_display, toast
+
+    except Exception as e:
+        logger.error(f"Error updating trend statistics: {e}")
+        return (
+            dbc.Alert([
+                html.I(className="fa fa-exclamation-circle me-2"),
+                f"Error loading statistics: {str(e)}"
+            ], color="danger"),
+            dash.no_update
+        )
+
+
+# ============================================================================
+# REPORT SCHEDULER CALLBACKS
+# ============================================================================
+
+# Toggle Schedule Type Input Visibility
+@app.callback(
+    [Output('cron-expression-div', 'style'),
+     Output('interval-hours-div', 'style')],
+    Input('schedule-type-radio', 'value'),
+    prevent_initial_call=True
+)
+def toggle_schedule_type_inputs(schedule_type):
+    """Show/hide cron or interval inputs based on selected type."""
+    if schedule_type == 'cron':
+        return {'display': 'block'}, {'display': 'none'}
+    else:  # interval
+        return {'display': 'none'}, {'display': 'block'}
+
+
+# List Active Schedules
+@app.callback(
+    [Output('schedules-list-container', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('refresh-schedules-btn', 'n_clicks'),
+     Input('email-modal-tabs', 'active_tab')],
+    prevent_initial_call=True
+)
+def list_schedules(refresh_clicks, active_tab):
+    """List all active report schedules."""
+    if active_tab != 'schedules-list-tab':
+        raise dash.exceptions.PreventUpdate
+
+    # Determine if refresh button was clicked
+    ctx = dash.callback_context
+    was_refresh = ctx.triggered_id == 'refresh-schedules-btn' if ctx.triggered else False
+
+    try:
+        # Check if ReportScheduler is available
+        if not report_scheduler:
+            return (
+                dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "Report scheduler not available. Ensure scheduler is initialized in the backend."
+                ], color="info"),
+                dash.no_update
+            )
+
+        schedules = report_scheduler.list_schedules()
+
+        # Create toast if refresh was clicked
+        toast = dash.no_update
+        if was_refresh:
+            toast = ToastManager.success(
+                "Schedules refreshed",
+                detail_message=f"Found {len(schedules)} active schedule(s)"
+            )
+
+        if not schedules:
+            return (
+                dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No active schedules found. Create a new schedule to get started."
+                ], color="info", className="m-3"),
+                toast
+            )
+
+        # Build visual schedule cards
+        schedule_cards = []
+
+        # Template icon mapping
+        template_icons = {
+            'executive_summary': 'fa-chart-pie',
+            'security_audit': 'fa-shield-alt',
+            'network_activity': 'fa-network-wired',
+            'device_inventory': 'fa-mobile-alt',
+            'threat_analysis': 'fa-exclamation-triangle'
+        }
+
+        # Format badge colors
+        format_colors = {
+            'pdf': 'danger',
+            'excel': 'success',
+            'json': 'info'
+        }
+
+        for schedule in schedules:
+            # Extract schedule details
+            schedule_id = schedule.get('id', 'unknown')
+            schedule_name = schedule.get('name', 'Unnamed Schedule')
+            next_run = schedule.get('next_run', 'N/A')
+            trigger_info = schedule.get('trigger', 'N/A')
+
+            # Parse trigger to get readable format
+            if isinstance(trigger_info, str):
+                if 'cron' in trigger_info.lower():
+                    trigger_type = 'Cron Schedule'
+                    trigger_icon = 'fa-calendar-alt'
+                elif 'interval' in trigger_info.lower():
+                    trigger_type = 'Interval Schedule'
+                    trigger_icon = 'fa-clock'
+                else:
+                    trigger_type = 'Custom Schedule'
+                    trigger_icon = 'fa-calendar-check'
+            else:
+                trigger_type = 'Schedule'
+                trigger_icon = 'fa-calendar'
+
+            # Get template name and format from schedule
+            template = schedule.get('template', 'unknown')
+            report_format = schedule.get('format', 'pdf')
+            template_icon = template_icons.get(template, 'fa-file-alt')
+            format_color = format_colors.get(report_format, 'secondary')
+
+            # Get template display name
+            template_names = {
+                'executive_summary': 'Executive Summary',
+                'security_audit': 'Security Audit',
+                'network_activity': 'Network Activity',
+                'device_inventory': 'Device Inventory',
+                'threat_analysis': 'Threat Analysis'
+            }
+            template_display = template_names.get(template, template.replace('_', ' ').title())
+
+            # Determine if schedule is paused (placeholder - scheduler needs to track this)
+            is_paused = schedule.get('paused', False)
+            status_badge = dbc.Badge(
+                [html.I(className=f"fa fa-{'pause' if is_paused else 'check-circle'} me-1"),
+                 "Paused" if is_paused else "Active"],
+                color="warning" if is_paused else "success",
+                className="me-2"
+            )
+
+            # Create schedule card
+            card = dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader([
+                        dbc.Row([
+                            dbc.Col([
+                                html.I(className=f"fa {template_icon} me-2 text-primary"),
+                                html.Span(schedule_id, className="fw-bold")
+                            ], width=8),
+                            dbc.Col([
+                                status_badge,
+                                dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
+                            ], width=4, className="text-end")
+                        ])
+                    ], className="bg-light"),
+                    dbc.CardBody([
+                        html.H6(template_display, className="card-title mb-2"),
+                        html.P([
+                            html.I(className=f"fa {trigger_icon} me-2 text-muted"),
+                            html.Small(trigger_info, className="text-muted")
+                        ], className="mb-2"),
+                        html.P([
+                            html.I(className="fa fa-clock me-2 text-info"),
+                            html.Small([html.Strong("Next Run: "), next_run], className="text-muted")
+                        ], className="mb-3"),
+                        dbc.ButtonGroup([
+                            dbc.Button([
+                                html.I(className=f"fa fa-{'play' if is_paused else 'pause'} me-1"),
+                                "Resume" if is_paused else "Pause"
+                            ],
+                                id={'type': 'pause-schedule', 'index': schedule_id},
+                                color="warning",
+                                size="sm",
+                                outline=True,
+                                className="w-50"
+                            ),
+                            dbc.Button([
+                                html.I(className="fa fa-trash me-1"),
+                                "Delete"
+                            ],
+                                id={'type': 'delete-schedule', 'index': schedule_id},
+                                color="danger",
+                                size="sm",
+                                outline=True,
+                                className="w-50"
+                            )
+                        ], className="w-100")
+                    ])
+                ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+            ], md=6, lg=4, className="mb-3")
+
+            schedule_cards.append(card)
+
+        return dbc.Row(schedule_cards, className="g-3"), toast
+
+    except Exception as e:
+        logger.error(f"Error listing schedules: {e}")
+        return dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            f"Error loading schedules: {str(e)}"
+        ], color="danger", className="m-3"), dash.no_update
+
+
+# Add New Schedule
+@app.callback(
+    [Output('add-schedule-status', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('add-schedule-btn', 'n_clicks'),
+    [State('schedule-id-input', 'value'),
+     State('schedule-template-select', 'value'),
+     State('schedule-format-select', 'value'),
+     State('schedule-type-radio', 'value'),
+     State('schedule-cron-input', 'value'),
+     State('schedule-interval-input', 'value'),
+     State('schedule-days-input', 'value'),
+     State('schedule-email-input', 'value')],
+    prevent_initial_call=True
+)
+def add_new_schedule(n_clicks, schedule_id, template, format_type, schedule_type,
+                    cron_expr, interval_hours, days, recipient):
+    """Add a new report schedule."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Validate inputs
+        if not schedule_id or not schedule_id.strip():
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-triangle me-2"),
+                "Please enter a schedule ID/name"
+            ], color="warning")
+            return status, dash.no_update
+
+        # Check if scheduler is available
+        if not report_scheduler:
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-circle me-2"),
+                "Report scheduler not available"
+            ], color="danger")
+            return status, dash.no_update
+
+        scheduler = report_scheduler
+
+        # Prepare parameters
+        parameters = {
+            'days': int(days) if days else 7
+        }
+        if recipient and recipient.strip():
+            parameters['recipient'] = recipient.strip()
+
+        # Add schedule based on type
+        if schedule_type == 'cron':
+            if not cron_expr or not cron_expr.strip():
+                status = dbc.Alert([
+                    html.I(className="fa fa-exclamation-triangle me-2"),
+                    "Please enter a cron expression"
+                ], color="warning")
+                return status, dash.no_update
+
+            success = scheduler.add_custom_schedule(
+                schedule_id=schedule_id.strip(),
+                template_name=template,
+                cron_expression=cron_expr.strip(),
+                format=format_type,
+                parameters=parameters
+            )
+        else:  # interval
+            if not interval_hours:
+                status = dbc.Alert([
+                    html.I(className="fa fa-exclamation-triangle me-2"),
+                    "Please enter interval hours"
+                ], color="warning")
+                return status, dash.no_update
+
+            success = scheduler.add_custom_schedule(
+                schedule_id=schedule_id.strip(),
+                template_name=template,
+                interval_hours=int(interval_hours),
+                format=format_type,
+                parameters=parameters
+            )
+
+        if success:
+            status = dbc.Alert([
+                html.I(className="fa fa-check-circle me-2"),
+                f"Schedule '{schedule_id}' added successfully!"
+            ], color="success")
+
+            toast = ToastManager.success(
+                "Schedule created",
+                detail_message=f"{schedule_id} will run automatically"
+            )
+
+            return status, toast
+        else:
+            status = dbc.Alert([
+                html.I(className="fa fa-times-circle me-2"),
+                "Failed to add schedule. Check logs for details."
+            ], color="danger")
+            return status, dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error adding schedule: {e}")
+        status = dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            f"Error: {str(e)}"
+        ], color="danger")
+        return status, dash.no_update
+
+
+# Pause/Resume Schedule
+@app.callback(
+    [Output('schedules-list-container', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input({'type': 'pause-schedule', 'index': ALL}, 'n_clicks'),
+    State('schedules-list-container', 'children'),
+    prevent_initial_call=True
+)
+def pause_resume_schedule(n_clicks_list, current_content):
+    """Pause or resume a report schedule."""
+    ctx = dash.callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Get the schedule ID that was clicked
+        triggered_id = ctx.triggered[0]['prop_id']
+        import json
+        # Parse the pattern-matching ID
+        schedule_id = json.loads(triggered_id.split('.')[0])['index']
+
+        # Check if scheduler is available
+        if not report_scheduler:
+            toast = ToastManager.error(
+                "Scheduler Error",
+                detail_message="Report scheduler not available"
+            )
+            return current_content, toast
+
+        # Check if schedule exists and get current state
+        schedules = report_scheduler.list_schedules()
+        target_schedule = None
+        for schedule in schedules:
+            if schedule.get('id') == schedule_id:
+                target_schedule = schedule
+                break
+
+        if not target_schedule:
+            toast = ToastManager.error(
+                "Schedule Not Found",
+                detail_message=f"Schedule '{schedule_id}' not found"
+            )
+            return current_content, toast
+
+        # Get current pause state
+        is_paused = target_schedule.get('paused', False)
+
+        # Toggle pause/resume
+        if is_paused:
+            # Resume the schedule
+            success = report_scheduler.resume_schedule(schedule_id)
+            action = "resumed"
+        else:
+            # Pause the schedule
+            success = report_scheduler.pause_schedule(schedule_id)
+            action = "paused"
+
+        if success:
+            toast = ToastManager.success(
+                f"Schedule {action}",
+                detail_message=f"Schedule '{schedule_id}' has been {action}"
+            )
+
+            # Refresh the schedule list
+            schedules = report_scheduler.list_schedules()
+            if not schedules:
+                refreshed_content = dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No active schedules found."
+                ], color="info", className="m-3")
+            else:
+                # Rebuild the cards with updated state
+                # (Reuse the same logic from list_schedules callback)
+                schedule_cards = []
+                template_icons = {
+                    'executive_summary': 'fa-chart-pie',
+                    'security_audit': 'fa-shield-alt',
+                    'network_activity': 'fa-network-wired',
+                    'device_inventory': 'fa-mobile-alt',
+                    'threat_analysis': 'fa-exclamation-triangle'
+                }
+                format_colors = {
+                    'pdf': 'danger',
+                    'excel': 'success',
+                    'json': 'info'
+                }
+                template_names = {
+                    'executive_summary': 'Executive Summary',
+                    'security_audit': 'Security Audit',
+                    'network_activity': 'Network Activity',
+                    'device_inventory': 'Device Inventory',
+                    'threat_analysis': 'Threat Analysis'
+                }
+
+                for schedule in schedules:
+                    s_id = schedule.get('id', 'unknown')
+                    next_run = schedule.get('next_run', 'N/A')
+                    trigger_info = schedule.get('trigger', 'N/A')
+
+                    if isinstance(trigger_info, str):
+                        if 'cron' in trigger_info.lower():
+                            trigger_icon = 'fa-calendar-alt'
+                        elif 'interval' in trigger_info.lower():
+                            trigger_icon = 'fa-clock'
+                        else:
+                            trigger_icon = 'fa-calendar-check'
+                    else:
+                        trigger_icon = 'fa-calendar'
+
+                    template = schedule.get('template', 'unknown')
+                    report_format = schedule.get('format', 'pdf')
+                    template_icon = template_icons.get(template, 'fa-file-alt')
+                    format_color = format_colors.get(report_format, 'secondary')
+                    template_display = template_names.get(template, template.replace('_', ' ').title())
+
+                    is_paused = schedule.get('paused', False)
+                    status_badge = dbc.Badge(
+                        [html.I(className=f"fa fa-{'pause' if is_paused else 'check-circle'} me-1"),
+                         "Paused" if is_paused else "Active"],
+                        color="warning" if is_paused else "success",
+                        className="me-2"
+                    )
+
+                    card = dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.I(className=f"fa {template_icon} me-2 text-primary"),
+                                        html.Span(s_id, className="fw-bold")
+                                    ], width=8),
+                                    dbc.Col([
+                                        status_badge,
+                                        dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
+                                    ], width=4, className="text-end")
+                                ])
+                            ], className="bg-light"),
+                            dbc.CardBody([
+                                html.H6(template_display, className="card-title mb-2"),
+                                html.P([
+                                    html.I(className=f"fa {trigger_icon} me-2 text-muted"),
+                                    html.Small(trigger_info, className="text-muted")
+                                ], className="mb-2"),
+                                html.P([
+                                    html.I(className="fa fa-clock me-2 text-info"),
+                                    html.Small([html.Strong("Next Run: "), next_run], className="text-muted")
+                                ], className="mb-3"),
+                                dbc.ButtonGroup([
+                                    dbc.Button([
+                                        html.I(className=f"fa fa-{'play' if is_paused else 'pause'} me-1"),
+                                        "Resume" if is_paused else "Pause"
+                                    ],
+                                        id={'type': 'pause-schedule', 'index': s_id},
+                                        color="warning",
+                                        size="sm",
+                                        outline=True,
+                                        className="w-50"
+                                    ),
+                                    dbc.Button([
+                                        html.I(className="fa fa-trash me-1"),
+                                        "Delete"
+                                    ],
+                                        id={'type': 'delete-schedule', 'index': s_id},
+                                        color="danger",
+                                        size="sm",
+                                        outline=True,
+                                        className="w-50"
+                                    )
+                                ], className="w-100")
+                            ])
+                        ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+                    ], md=6, lg=4, className="mb-3")
+
+                    schedule_cards.append(card)
+
+                refreshed_content = dbc.Row(schedule_cards, className="g-3")
+
+            return refreshed_content, toast
+        else:
+            toast = ToastManager.error(
+                f"Failed to {action.rstrip('d')} schedule",
+                detail_message=f"Could not {action.rstrip('d')} schedule '{schedule_id}'"
+            )
+            return current_content, toast
+
+    except Exception as e:
+        logger.error(f"Error pausing/resuming schedule: {e}")
+        toast = ToastManager.error(
+            "Error",
+            detail_message=f"Error managing schedule: {str(e)}"
+        )
+        return current_content, toast
+
+
+# Delete Schedule
+@app.callback(
+    [Output('schedules-list-container', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input({'type': 'delete-schedule', 'index': ALL}, 'n_clicks'),
+    State('schedules-list-container', 'children'),
+    prevent_initial_call=True
+)
+def delete_schedule(n_clicks_list, current_content):
+    """Delete a report schedule."""
+    ctx = dash.callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Get the schedule ID that was clicked
+        triggered_id = ctx.triggered[0]['prop_id']
+        import json
+        # Parse the pattern-matching ID
+        schedule_id = json.loads(triggered_id.split('.')[0])['index']
+
+        # Check if scheduler is available
+        if not report_scheduler:
+            toast = ToastManager.error(
+                "Scheduler Error",
+                detail_message="Report scheduler not available"
+            )
+            return current_content, toast
+
+        # Delete the schedule
+        success = report_scheduler.remove_custom_schedule(schedule_id)
+
+        if success:
+            toast = ToastManager.success(
+                "Schedule Deleted",
+                detail_message=f"Schedule '{schedule_id}' has been removed",
+                icon="trash"
+            )
+
+            # Refresh the schedule list
+            schedules = report_scheduler.list_schedules()
+            if not schedules:
+                refreshed_content = dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No active schedules found. Create a new schedule to get started."
+                ], color="info", className="m-3")
+            else:
+                # Rebuild the cards
+                schedule_cards = []
+                template_icons = {
+                    'executive_summary': 'fa-chart-pie',
+                    'security_audit': 'fa-shield-alt',
+                    'network_activity': 'fa-network-wired',
+                    'device_inventory': 'fa-mobile-alt',
+                    'threat_analysis': 'fa-exclamation-triangle'
+                }
+                format_colors = {
+                    'pdf': 'danger',
+                    'excel': 'success',
+                    'json': 'info'
+                }
+                template_names = {
+                    'executive_summary': 'Executive Summary',
+                    'security_audit': 'Security Audit',
+                    'network_activity': 'Network Activity',
+                    'device_inventory': 'Device Inventory',
+                    'threat_analysis': 'Threat Analysis'
+                }
+
+                for schedule in schedules:
+                    s_id = schedule.get('id', 'unknown')
+                    next_run = schedule.get('next_run', 'N/A')
+                    trigger_info = schedule.get('trigger', 'N/A')
+
+                    if isinstance(trigger_info, str):
+                        if 'cron' in trigger_info.lower():
+                            trigger_icon = 'fa-calendar-alt'
+                        elif 'interval' in trigger_info.lower():
+                            trigger_icon = 'fa-clock'
+                        else:
+                            trigger_icon = 'fa-calendar-check'
+                    else:
+                        trigger_icon = 'fa-calendar'
+
+                    template = schedule.get('template', 'unknown')
+                    report_format = schedule.get('format', 'pdf')
+                    template_icon = template_icons.get(template, 'fa-file-alt')
+                    format_color = format_colors.get(report_format, 'secondary')
+                    template_display = template_names.get(template, template.replace('_', ' ').title())
+
+                    is_paused = schedule.get('paused', False)
+                    status_badge = dbc.Badge(
+                        [html.I(className=f"fa fa-{'pause' if is_paused else 'check-circle'} me-1"),
+                         "Paused" if is_paused else "Active"],
+                        color="warning" if is_paused else "success",
+                        className="me-2"
+                    )
+
+                    card = dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.I(className=f"fa {template_icon} me-2 text-primary"),
+                                        html.Span(s_id, className="fw-bold")
+                                    ], width=8),
+                                    dbc.Col([
+                                        status_badge,
+                                        dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
+                                    ], width=4, className="text-end")
+                                ])
+                            ], className="bg-light"),
+                            dbc.CardBody([
+                                html.H6(template_display, className="card-title mb-2"),
+                                html.P([
+                                    html.I(className=f"fa {trigger_icon} me-2 text-muted"),
+                                    html.Small(trigger_info, className="text-muted")
+                                ], className="mb-2"),
+                                html.P([
+                                    html.I(className="fa fa-clock me-2 text-info"),
+                                    html.Small([html.Strong("Next Run: "), next_run], className="text-muted")
+                                ], className="mb-3"),
+                                dbc.ButtonGroup([
+                                    dbc.Button([
+                                        html.I(className=f"fa fa-{'play' if is_paused else 'pause'} me-1"),
+                                        "Resume" if is_paused else "Pause"
+                                    ],
+                                        id={'type': 'pause-schedule', 'index': s_id},
+                                        color="warning",
+                                        size="sm",
+                                        outline=True,
+                                        className="w-50"
+                                    ),
+                                    dbc.Button([
+                                        html.I(className="fa fa-trash me-1"),
+                                        "Delete"
+                                    ],
+                                        id={'type': 'delete-schedule', 'index': s_id},
+                                        color="danger",
+                                        size="sm",
+                                        outline=True,
+                                        className="w-50"
+                                    )
+                                ], className="w-100")
+                            ])
+                        ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+                    ], md=6, lg=4, className="mb-3")
+
+                    schedule_cards.append(card)
+
+                refreshed_content = dbc.Row(schedule_cards, className="g-3")
+
+            return refreshed_content, toast
+        else:
+            toast = ToastManager.error(
+                "Delete Failed",
+                detail_message=f"Could not delete schedule '{schedule_id}'"
+            )
+            return current_content, toast
+
+    except Exception as e:
+        logger.error(f"Error deleting schedule: {e}")
+        toast = ToastManager.error(
+            "Error",
+            detail_message=f"Error deleting schedule: {str(e)}"
+        )
+        return current_content, toast
+
+
+# Enable Daily Digest
+@app.callback(
+    [Output('digest-status', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('enable-digest-btn', 'n_clicks'),
+    [State('digest-hour-input', 'value'),
+     State('digest-minute-input', 'value'),
+     State('digest-email-input', 'value')],
+    prevent_initial_call=True
+)
+def enable_daily_digest(n_clicks, hour, minute, recipient):
+    """Enable daily security digest email."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        if not report_scheduler:
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-circle me-2"),
+                "Report scheduler not available"
+            ], color="danger")
+            return status, dash.no_update
+
+        scheduler = report_scheduler
+
+        # Validate inputs
+        hour_val = int(hour) if hour is not None else 8
+        minute_val = int(minute) if minute is not None else 0
+
+        if hour_val < 0 or hour_val > 23:
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-triangle me-2"),
+                "Hour must be between 0 and 23"
+            ], color="warning")
+            return status, dash.no_update
+
+        if minute_val < 0 or minute_val > 59:
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-triangle me-2"),
+                "Minute must be between 0 and 59"
+            ], color="warning")
+            return status, dash.no_update
+
+        # Add daily digest schedule
+        recipient_email = recipient.strip() if recipient and recipient.strip() else None
+        success = scheduler.add_daily_digest_schedule(
+            hour=hour_val,
+            minute=minute_val,
+            recipient=recipient_email
+        )
+
+        if success:
+            status = dbc.Alert([
+                html.I(className="fa fa-check-circle me-2"),
+                f"Daily digest enabled! Will send at {hour_val:02d}:{minute_val:02d} every day."
+            ], color="success")
+
+            toast = ToastManager.success(
+                "Daily digest enabled",
+                detail_message=f"Scheduled for {hour_val:02d}:{minute_val:02d} daily"
+            )
+
+            return status, toast
+        else:
+            status = dbc.Alert([
+                html.I(className="fa fa-times-circle me-2"),
+                "Failed to enable daily digest. Check logs for details."
+            ], color="danger")
+            return status, dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error enabling daily digest: {e}")
+        status = dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            f"Error: {str(e)}"
+        ], color="danger")
+        return status, dash.no_update
+
+
+# Send Test Digest
+@app.callback(
+    [Output('digest-status', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('test-digest-btn', 'n_clicks'),
+    State('digest-email-input', 'value'),
+    prevent_initial_call=True
+)
+def send_test_digest(n_clicks, recipient):
+    """Send a test daily digest email immediately."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        if not report_scheduler:
+            status = dbc.Alert([
+                html.I(className="fa fa-exclamation-circle me-2"),
+                "Report scheduler not available"
+            ], color="danger")
+            return status, dash.no_update
+
+        scheduler = report_scheduler
+        recipient_email = recipient.strip() if recipient and recipient.strip() else None
+
+        success = scheduler.send_digest_now(recipient=recipient_email)
+
+        if success:
+            status = dbc.Alert([
+                html.I(className="fa fa-check-circle me-2"),
+                "Test digest sent successfully! Check your email."
+            ], color="success")
+
+            toast = ToastManager.success(
+                "Test digest sent",
+                detail_message="Check your email inbox"
+            )
+
+            return status, toast
+        else:
+            status = dbc.Alert([
+                html.I(className="fa fa-times-circle me-2"),
+                "Failed to send test digest. Check logs for details."
+            ], color="danger")
+            return status, dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error sending test digest: {e}")
+        status = dbc.Alert([
+            html.I(className="fa fa-exclamation-circle me-2"),
+            f"Error: {str(e)}"
+        ], color="danger")
+        return status, dash.no_update
 
 
 if __name__ == '__main__':

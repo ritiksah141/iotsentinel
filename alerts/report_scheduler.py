@@ -11,7 +11,7 @@ Uses APScheduler for reliable scheduling with persistence support.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 from threading import Thread, Event
 
 logger = logging.getLogger(__name__)
@@ -313,9 +313,15 @@ class ReportScheduler:
 
     Uses APScheduler for production deployments or falls back
     to SimpleScheduler if APScheduler is not installed.
+
+    Supports:
+    - Weekly/monthly security reports
+    - Custom template-based reports
+    - PDF/Excel email attachments
+    - Daily digest emails
     """
 
-    def __init__(self, db_manager, alert_service, notification_dispatcher):
+    def __init__(self, db_manager, alert_service, notification_dispatcher, db_path: str = None, email_notifier=None):
         """
         Initialize the report scheduler.
 
@@ -323,9 +329,26 @@ class ReportScheduler:
             db_manager: Database manager instance
             alert_service: AlertService instance
             notification_dispatcher: NotificationDispatcher for sending reports
+            db_path: Optional database path for enhanced email attachments
+            email_notifier: Optional EmailNotifier instance with attachment support
         """
         self.report_generator = ReportGenerator(db_manager, alert_service)
         self.dispatcher = notification_dispatcher
+        self.db_path = db_path or getattr(db_manager, 'db_path', None)
+
+        # Use provided email_notifier or try to get from dispatcher handlers
+        self.email_notifier = email_notifier
+        if not self.email_notifier and self.db_path:
+            try:
+                # Try to get email handler from dispatcher
+                email_handler = notification_dispatcher._handlers.get('email')
+                if email_handler and hasattr(email_handler, 'config'):
+                    # Import and initialize enhanced notifier with db_path
+                    from alerts.email_notifier import EmailNotifier
+                    self.email_notifier = EmailNotifier(email_handler.config, db_path=self.db_path)
+                    logger.info("Enhanced email notifier initialized with attachment support")
+            except Exception as e:
+                logger.warning(f"Could not initialize enhanced email notifier: {e}")
 
         # Initialize scheduler
         if APSCHEDULER_AVAILABLE:
@@ -336,6 +359,7 @@ class ReportScheduler:
             self._setup_simple_jobs()
 
         self._running = False
+        self._paused_jobs = set()  # Track paused job IDs
         logger.info("ReportScheduler initialized")
 
     def _setup_apscheduler_jobs(self):
@@ -438,4 +462,351 @@ class ReportScheduler:
 
         except Exception as e:
             logger.error(f"Error sending {report_type} report: {e}")
+            return False
+
+    # ==================== Enhanced Custom Scheduling ====================
+
+    def add_custom_schedule(
+        self,
+        schedule_id: str,
+        template_name: str,
+        cron_expression: str = None,
+        interval_hours: int = None,
+        format: str = 'pdf',
+        parameters: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Add a custom scheduled report using templates.
+
+        Args:
+            schedule_id: Unique identifier for this schedule
+            template_name: Name of the report template to use
+            cron_expression: Cron expression (e.g., '0 9 * * 1' for Monday 9am)
+            interval_hours: Alternative to cron - run every N hours
+            format: Report format ('pdf', 'excel', 'json')
+            parameters: Optional parameters for template
+
+        Returns:
+            True if schedule added successfully
+
+        Examples:
+            # Daily executive summary at 8am
+            add_custom_schedule('daily_exec', 'executive_summary',
+                              cron_expression='0 8 * * *')
+
+            # Security audit every 6 hours
+            add_custom_schedule('hourly_security', 'security_audit',
+                              interval_hours=6)
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                logger.warning("Custom schedules require APScheduler")
+                return False
+
+            # Lazy import report_builder
+            from utils.report_builder import ReportBuilder
+
+            def generate_and_send():
+                try:
+                    logger.info(f"Generating custom report: {schedule_id}")
+
+                    # Use enhanced email notifier if available
+                    if self.email_notifier and (format in ['pdf', 'excel']):
+                        # Send report with attachment using enhanced notifier
+                        result = self.email_notifier.send_report_with_attachment(
+                            template_name=template_name,
+                            format=format,
+                            days=parameters.get('days', 7) if parameters else 7,
+                            recipient=parameters.get('recipient') if parameters else None
+                        )
+
+                        if result.success:
+                            logger.info(f"Custom report {schedule_id} emailed successfully with {format.upper()} attachment")
+                        else:
+                            logger.error(f"Failed to email custom report {schedule_id}: {result.error}")
+
+                    else:
+                        # Fall back to traditional dispatch method
+                        builder = ReportBuilder(self.db_path or self.report_generator.db.db_path)
+                        report = builder.build_report(
+                            template_name=template_name,
+                            format=format,
+                            parameters=parameters or {}
+                        )
+
+                        if report:
+                            logger.info(f"Custom report generated: {report['filename']}")
+
+                            # If dispatcher has send_custom_report method, use it
+                            if hasattr(self.dispatcher, 'send_custom_report'):
+                                results = self.dispatcher.send_custom_report(
+                                    report,
+                                    schedule_id=schedule_id,
+                                    template_name=template_name
+                                )
+                                success_count = sum(1 for r in results if r.success)
+                                logger.info(f"Custom report sent to {success_count}/{len(results)} channels")
+                        else:
+                            logger.error(f"Failed to generate custom report: {schedule_id}")
+
+                except Exception as e:
+                    logger.error(f"Error in custom report job {schedule_id}: {e}")
+
+            # Add job with appropriate trigger
+            if cron_expression:
+                # Parse cron expression (minute hour day month day_of_week)
+                parts = cron_expression.split()
+                if len(parts) != 5:
+                    logger.error(f"Invalid cron expression: {cron_expression}")
+                    return False
+
+                trigger = CronTrigger(
+                    minute=parts[0],
+                    hour=parts[1],
+                    day=parts[2],
+                    month=parts[3],
+                    day_of_week=parts[4]
+                )
+
+                self._scheduler.add_job(
+                    generate_and_send,
+                    trigger=trigger,
+                    id=schedule_id,
+                    name=f"Custom Report: {template_name}",
+                    replace_existing=True
+                )
+
+            elif interval_hours:
+                from apscheduler.triggers.interval import IntervalTrigger
+
+                self._scheduler.add_job(
+                    generate_and_send,
+                    IntervalTrigger(hours=interval_hours),
+                    id=schedule_id,
+                    name=f"Custom Report: {template_name} (every {interval_hours}h)",
+                    replace_existing=True
+                )
+
+            else:
+                logger.error("Must provide either cron_expression or interval_hours")
+                return False
+
+            logger.info(f"Added custom schedule: {schedule_id} for template {template_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding custom schedule: {e}")
+            return False
+
+    def remove_custom_schedule(self, schedule_id: str) -> bool:
+        """
+        Remove a custom scheduled report.
+
+        Args:
+            schedule_id: ID of schedule to remove
+
+        Returns:
+            True if removed successfully
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                return False
+
+            self._scheduler.remove_job(schedule_id)
+            self._paused_jobs.discard(schedule_id)  # Clean up paused state if present
+            logger.info(f"Removed custom schedule: {schedule_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error removing custom schedule: {e}")
+            return False
+
+    def list_schedules(self) -> List[Dict[str, Any]]:
+        """
+        List all scheduled jobs.
+
+        Returns:
+            List of schedule information dictionaries
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                return []
+
+            schedules = []
+            for job in self._scheduler.get_jobs():
+                schedules.append({
+                    'id': job.id,
+                    'name': job.name,
+                    'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                    'trigger': str(job.trigger),
+                    'paused': job.id in self._paused_jobs  # Include paused state
+                })
+
+            return schedules
+
+        except Exception as e:
+            logger.error(f"Error listing schedules: {e}")
+            return []
+
+    def pause_schedule(self, schedule_id: str) -> bool:
+        """
+        Pause a scheduled job.
+
+        Args:
+            schedule_id: ID of schedule to pause
+
+        Returns:
+            True if paused successfully
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                return False
+
+            self._scheduler.pause_job(schedule_id)
+            self._paused_jobs.add(schedule_id)  # Track paused state
+            logger.info(f"Paused schedule: {schedule_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error pausing schedule: {e}")
+            return False
+
+    def resume_schedule(self, schedule_id: str) -> bool:
+        """
+        Resume a paused scheduled job.
+
+        Args:
+            schedule_id: ID of schedule to resume
+
+        Returns:
+            True if resumed successfully
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                return False
+
+            self._scheduler.resume_job(schedule_id)
+            self._paused_jobs.discard(schedule_id)  # Remove from paused set
+            logger.info(f"Resumed schedule: {schedule_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error resuming schedule: {e}")
+            return False
+
+    def get_schedule_info(self, schedule_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get information about a specific schedule.
+
+        Args:
+            schedule_id: ID of schedule
+
+        Returns:
+            Schedule information dictionary or None
+        """
+        try:
+            if not APSCHEDULER_AVAILABLE:
+                return None
+
+            job = self._scheduler.get_job(schedule_id)
+            if not job:
+                return None
+
+            return {
+                'id': job.id,
+                'name': job.name,
+                'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                'trigger': str(job.trigger),
+                'pending': job.pending
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting schedule info: {e}")
+            return None
+
+    def add_daily_digest_schedule(
+        self,
+        hour: int = 8,
+        minute: int = 0,
+        recipient: str = None
+    ) -> bool:
+        """
+        Schedule daily security digest email.
+
+        Args:
+            hour: Hour of day to send (0-23), default 8am
+            minute: Minute of hour (0-59), default 0
+            recipient: Optional email recipient override
+
+        Returns:
+            True if schedule added successfully
+
+        Example:
+            # Send daily digest at 8:00 AM
+            add_daily_digest_schedule(hour=8, minute=0)
+        """
+        try:
+            if not self.email_notifier:
+                logger.error("Daily digest requires enhanced email notifier")
+                return False
+
+            if not APSCHEDULER_AVAILABLE:
+                logger.warning("Daily digest scheduling requires APScheduler")
+                return False
+
+            def send_digest():
+                try:
+                    logger.info("Sending daily security digest...")
+                    result = self.email_notifier.send_daily_digest(recipient=recipient)
+
+                    if result.success:
+                        logger.info("Daily digest sent successfully")
+                    else:
+                        logger.error(f"Failed to send daily digest: {result.error}")
+
+                except Exception as e:
+                    logger.error(f"Error sending daily digest: {e}")
+
+            # Add job with cron trigger
+            self._scheduler.add_job(
+                send_digest,
+                CronTrigger(hour=hour, minute=minute),
+                id='daily_digest',
+                name='Daily Security Digest',
+                replace_existing=True
+            )
+
+            logger.info(f"Daily digest scheduled for {hour:02d}:{minute:02d} daily")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error scheduling daily digest: {e}")
+            return False
+
+    def send_digest_now(self, recipient: str = None) -> bool:
+        """
+        Manually send daily digest (for testing).
+
+        Args:
+            recipient: Optional email recipient override
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            if not self.email_notifier:
+                logger.error("Daily digest requires enhanced email notifier")
+                return False
+
+            result = self.email_notifier.send_daily_digest(recipient=recipient)
+
+            if result.success:
+                logger.info("Daily digest sent successfully")
+                return True
+            else:
+                logger.error(f"Failed to send daily digest: {result.error}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error sending daily digest: {e}")
             return False

@@ -68,6 +68,18 @@
             "monthly_hour": 9
         }
     },
+    "email": {
+        "enabled": true,
+        "note": "Email settings are loaded from environment variables (.env file)",
+        "required_env_vars": [
+            "EMAIL_SMTP_HOST",
+            "EMAIL_SMTP_PORT",
+            "EMAIL_SMTP_USER",
+            "EMAIL_SMTP_PASSWORD",
+            "EMAIL_SENDER_EMAIL",
+            "EMAIL_RECIPIENT_EMAIL"
+        ]
+    },
     "firewall": {
         "enabled": false,
         "router_ip": "192.168.1.1",

@@ -52,3 +52,8 @@ dash-extensions
 
 # Academic Evidence Collection (Added 2025-12-12)
 diagrams>=0.23.3
+
+# Export & Reporting (Added 2026-01-04)
+reportlab==4.0.7          # PDF generation
+openpyxl==3.1.2           # Excel file generation
+Pillow==10.1.0            # Image processing for PDF charts
