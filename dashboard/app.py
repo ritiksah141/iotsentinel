@@ -77,6 +77,7 @@ from utils.export_helpers import DashExportHelper
 
 # Import innovation features
 from utils.network_security_scorer import get_security_scorer
+from utils.privacy_analyzer import get_privacy_analyzer
 
 # Import Advanced Reporting & Analytics components
 from utils.trend_analyzer import TrendAnalyzer
@@ -327,10 +328,12 @@ except Exception as e:
 # Initialize innovation feature modules (use DB_PATH for direct SQLite access)
 try:
     network_security_scorer = get_security_scorer(db_path=DB_PATH)
+    privacy_analyzer = get_privacy_analyzer(db_path=DB_PATH)
     logger.info("Innovation features initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize innovation features: {e}")
     network_security_scorer = None
+    privacy_analyzer = None
 
 server = app.server
 
@@ -3025,6 +3028,58 @@ dashboard_layout = dbc.Container([
 
     # Auto-refresh interval for security score (every 30 seconds)
     dcc.Interval(id='security-score-interval', interval=30*1000, n_intervals=0),
+
+    # ============================================================================
+    # PRIVACY DASHBOARD - Data Minimization
+    # ============================================================================
+    html.Div(id='privacy-dashboard-section', children=[
+        dbc.Card([
+            dbc.CardHeader([
+                html.Div([
+                    html.Div([
+                        html.I(className="fa fa-user-shield me-2", style={"color": "#8b5cf6"}),
+                        html.Span("Privacy Dashboard - What Your Devices Collect", className="fw-bold"),
+                    ], className="d-flex align-items-center"),
+                    html.Div([
+                        html.Small(id="privacy-last-updated", children="Last updated: Never",
+                                 className="badge bg-light text-dark me-2", style={"padding": "0.4rem 0.6rem"}),
+                        dbc.Button([
+                            html.I(className="fa fa-sync-alt me-1"),
+                            "Refresh"
+                        ], id="privacy-refresh-btn", size="sm", color="light", outline=True)
+                    ], className="d-flex align-items-center")
+                ], className="d-flex justify-content-between align-items-center w-100")
+            ], className="bg-gradient-purple text-white"),
+            dbc.CardBody([
+                # Summary Row
+                dbc.Row([
+                    dbc.Col([
+                        html.Div(id="privacy-summary-cards")
+                    ], width=12, className="mb-3")
+                ]),
+
+                # Device Privacy Table
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Device Privacy Analysis", className="text-muted mb-3"),
+                        html.Div(id="privacy-devices-table")
+                    ], width=12)
+                ])
+            ], className="p-4")
+        ], className="glass-card border-0 shadow-lg mb-4")
+    ]),
+
+    # Privacy device detail modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle(id="privacy-detail-modal-title")),
+        dbc.ModalBody(id="privacy-detail-modal-body"),
+        dbc.ModalFooter(
+            dbc.Button("Close", id="privacy-detail-modal-close", className="ms-auto")
+        )
+    ], id="privacy-detail-modal", size="xl", scrollable=True),
+
+    # Auto-refresh interval for privacy dashboard (every 60 seconds)
+    dcc.Interval(id='privacy-interval', interval=60*1000, n_intervals=0),
 
     # THREE COLUMN LAYOUT - Asymmetric 2-7-3 Layout
     dbc.Row([
@@ -31575,6 +31630,296 @@ def send_test_digest(n_clicks, recipient):
             f"Error: {str(e)}"
         ], color="danger")
         return status, dash.no_update
+
+
+# ============================================================================
+# PRIVACY DASHBOARD CALLBACKS
+# ============================================================================
+
+@app.callback(
+    [Output('privacy-summary-cards', 'children'),
+     Output('privacy-devices-table', 'children'),
+     Output('privacy-last-updated', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('privacy-interval', 'n_intervals'),
+     Input('privacy-refresh-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_privacy_dashboard(n_intervals, refresh_clicks):
+    """Update the privacy dashboard with device data collection analysis."""
+    ctx = callback_context
+    triggered_by_refresh = (
+        ctx.triggered and
+        'privacy-refresh-btn' in ctx.triggered[0]['prop_id'] and
+        refresh_clicks is not None and
+        refresh_clicks > 0
+    )
+
+    if privacy_analyzer is None:
+        toast = ToastManager.warning(
+            "Privacy analyzer not available",
+            detail_message="The privacy analyzer module is not initialized. Please check system logs."
+        ) if triggered_by_refresh else dash.no_update
+        return dbc.Alert("Privacy analyzer not available", color="warning"), html.Div(), "Not available", toast
+
+    try:
+        # Get privacy summary for all devices
+        summaries = privacy_analyzer.get_all_devices_privacy_summary(days=7)
+
+        if not summaries:
+            toast = ToastManager.info(
+                "No devices found",
+                detail_message="No devices are currently available for privacy analysis."
+            ) if triggered_by_refresh else dash.no_update
+            return (
+                dbc.Alert("No devices found for privacy analysis", color="info"),
+                html.Div(),
+                f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}",
+                toast
+            )
+
+        # Calculate aggregate statistics
+        total_devices = len(summaries)
+        high_risk = len([s for s in summaries if s['privacy_risk_level'] in ['critical', 'high']])
+        critical_data = sum([s['critical_data_types'] for s in summaries])
+
+        # Summary cards
+        summary_cards = dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-devices fa-2x mb-2 text-primary"),
+                        html.H3(str(total_devices), className="mb-1 fw-bold"),
+                        html.P("Devices Monitored", className="text-muted mb-0 small")
+                    ], className="text-center p-3")
+                ], className="glass-card border-0 shadow-sm")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-exclamation-triangle fa-2x mb-2 text-danger"),
+                        html.H3(str(high_risk), className="mb-1 fw-bold text-danger"),
+                        html.P("High Privacy Risk", className="text-muted mb-0 small")
+                    ], className="text-center p-3")
+                ], className="glass-card border-0 shadow-sm")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-database fa-2x mb-2 text-warning"),
+                        html.H3(str(critical_data), className="mb-1 fw-bold text-warning"),
+                        html.P("Critical Data Types", className="text-muted mb-0 small")
+                    ], className="text-center p-3")
+                ], className="glass-card border-0 shadow-sm")
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-cloud fa-2x mb-2 text-info"),
+                        html.H3(str(sum([s['unique_cloud_services'] for s in summaries])), className="mb-1 fw-bold text-info"),
+                        html.P("Cloud Services", className="text-muted mb-0 small")
+                    ], className="text-center p-3")
+                ], className="glass-card border-0 shadow-sm")
+            ], width=3)
+        ])
+
+        # Device table
+        table_rows = []
+        for summary in summaries[:20]:  # Limit to top 20
+            risk_level = summary['privacy_risk_level']
+            risk_color = {
+                'critical': 'danger',
+                'high': 'warning',
+                'medium': 'info',
+                'low': 'success',
+                'minimal': 'secondary'
+            }.get(risk_level, 'secondary')
+
+            table_rows.append(
+                html.Tr([
+                    html.Td(summary['device_name']),
+                    html.Td(summary['device_type'].replace('_', ' ').title()),
+                    html.Td(dbc.Badge(f"{summary['privacy_risk_score']}/100", color=risk_color)),
+                    html.Td(str(summary['data_types_count'])),
+                    html.Td(str(summary['critical_data_types']), className="text-danger fw-bold" if summary['critical_data_types'] > 0 else ""),
+                    html.Td(str(summary['unique_cloud_services'])),
+                    html.Td(
+                        dbc.Button("View Details", size="sm", color="primary", outline=True,
+                                 id={'type': 'privacy-detail-btn', 'index': summary['device_ip']})
+                    )
+                ])
+            )
+
+        devices_table = dbc.Table([
+            html.Thead([
+                html.Tr([
+                    html.Th("Device"),
+                    html.Th("Type"),
+                    html.Th("Privacy Risk"),
+                    html.Th("Data Types"),
+                    html.Th("Critical Data"),
+                    html.Th("Cloud Services"),
+                    html.Th("Actions")
+                ])
+            ]),
+            html.Tbody(table_rows)
+        ], striped=True, hover=True, responsive=True, className="table-sm")
+
+        last_updated = f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}"
+
+        # Create success toast if triggered by refresh button
+        toast = ToastManager.success(
+            "Privacy dashboard updated",
+            detail_message=f"Analyzed {total_devices} device{'s' if total_devices != 1 else ''} - {high_risk} with high privacy risk detected."
+        ) if triggered_by_refresh else dash.no_update
+
+        return summary_cards, devices_table, last_updated, toast
+
+    except Exception as e:
+        logger.error(f"Error updating privacy dashboard: {e}")
+        toast = ToastManager.error(
+            "Privacy dashboard update failed",
+            detail_message=f"Error: {str(e)}"
+        ) if triggered_by_refresh else dash.no_update
+        return (
+            dbc.Alert(f"Error: {str(e)}", color="danger"),
+            html.Div(),
+            f"Error: {str(e)}",
+            toast
+        )
+
+
+@app.callback(
+    [Output('privacy-detail-modal', 'is_open'),
+     Output('privacy-detail-modal-title', 'children'),
+     Output('privacy-detail-modal-body', 'children')],
+    [Input({'type': 'privacy-detail-btn', 'index': ALL}, 'n_clicks'),
+     Input('privacy-detail-modal-close', 'n_clicks')],
+    [State('privacy-detail-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
+    """Show detailed privacy analysis for a specific device."""
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    triggered_id = ctx.triggered[0]['prop_id']
+
+    # Close modal
+    if 'privacy-detail-modal-close' in triggered_id:
+        return False, dash.no_update, dash.no_update
+
+    # Open modal with device details
+    if detail_clicks and any(detail_clicks):
+        # Get device IP from triggered button
+        import json
+        button_id = json.loads(triggered_id.split('.')[0])
+        device_ip = button_id['index']
+
+        # Get detailed analysis
+        analysis = privacy_analyzer.analyze_device_data_collection(device_ip, days=7)
+
+        if 'error' in analysis:
+            return True, "Error", dbc.Alert(f"Error: {analysis['error']}", color="danger")
+
+        device_name = analysis.get('device_name', 'Unknown Device')
+        risk = analysis.get('privacy_risk', {})
+        cloud_services = analysis.get('cloud_services', {})
+        data_types = analysis.get('data_types_collected', [])
+        stats = analysis.get('transmission_stats', {})
+
+        # Build modal content
+        content = [
+            # Risk overview
+            dbc.Alert([
+                html.H5(f"Privacy Risk: {risk.get('level', 'Unknown').upper()}", className="mb-2"),
+                html.H3(f"{risk.get('score', 0)}/100", className="mb-3"),
+                html.Div([html.Li(factor) for factor in risk.get('factors', [])], className="mb-0")
+            ], color=risk.get('color', 'secondary')),
+
+            # Data types collected
+            html.H6("Data Types Collected", className="mt-4 mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Badge([
+                        html.I(className=f"fa fa-{'exclamation-triangle' if dt['sensitivity'] in ['critical', 'high'] else 'info-circle'} me-1"),
+                        dt['name'],
+                        dbc.Badge(dt['sensitivity'].upper(), className="ms-2", color="danger" if dt['sensitivity'] == 'critical' else "warning" if dt['sensitivity'] == 'high' else "info")
+                    ], color="light", text_color="dark", className="mb-2 me-2 p-2")
+                ], width="auto")
+                for dt in data_types
+            ], className="mb-4"),
+
+            # Cloud services
+            html.H6("Cloud Service Connections", className="mt-4 mb-3"),
+            dbc.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Service"),
+                        html.Th("Category"),
+                        html.Th("Connections"),
+                        html.Th("Potential Data")
+                    ])
+                ]),
+                html.Tbody([
+                    html.Tr([
+                        html.Td(svc.get('provider', 'Unknown')),
+                        html.Td(svc.get('category', 'Unknown')),
+                        html.Td(str(svc.get('connections', 0))),
+                        html.Td(", ".join(svc.get('potential_data_types', [])))
+                    ])
+                    for svc in cloud_services.get('top_services', [])[:10]
+                ])
+            ], striped=True, hover=True, responsive=True, className="table-sm mb-4"),
+
+            # Transmission statistics
+            html.H6("Data Transmission Statistics", className="mt-4 mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H5(f"{stats.get('total_mb', 0)} MB", className="mb-0"),
+                            html.Small("Data Transmitted", className="text-muted")
+                        ])
+                    ], className="text-center")
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H5(f"{stats.get('events_per_day', 0)}/day", className="mb-0"),
+                            html.Small("Transmission Events", className="text-muted")
+                        ])
+                    ], className="text-center")
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H5(str(cloud_services.get('unique_services', 0)), className="mb-0"),
+                            html.Small("Unique Services", className="text-muted")
+                        ])
+                    ], className="text-center")
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H5(str(len(data_types)), className="mb-0"),
+                            html.Small("Data Types", className="text-muted")
+                        ])
+                    ], className="text-center")
+                ], width=3)
+            ]),
+
+            # Recommendations
+            html.H6("Privacy Recommendations", className="mt-4 mb-3"),
+            dbc.Alert([
+                html.Ul([html.Li(rec) for rec in risk.get('recommendations', [])])
+            ], color="info")
+        ]
+
+        return True, f"Privacy Analysis: {device_name}", content
+
+    return dash.no_update, dash.no_update, dash.no_update
 
 
 if __name__ == '__main__':
