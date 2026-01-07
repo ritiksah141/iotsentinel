@@ -822,6 +822,90 @@ def init_database():
      '["privacy", "speaker"]');
     """)
 
+    # ========================================
+    # ML MODEL MANAGEMENT TABLES
+    # ========================================
+
+    # Model Versions - Track ML model history
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS model_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_type TEXT NOT NULL,
+            version TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            training_samples INTEGER,
+            validation_loss REAL,
+            metadata_json TEXT,
+            is_active INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(model_type, version)
+        );
+    ''')
+
+    # Model Drift History - Track model performance degradation
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS model_drift_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_type TEXT NOT NULL,
+            drift_score REAL,
+            metric_type TEXT,
+            baseline_value REAL,
+            current_value REAL,
+            alert_triggered INTEGER DEFAULT 0,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+
+    # ========================================
+    # SECURITY SCORING TABLES
+    # ========================================
+
+    # Security Score History - Track network security score over time
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS security_score_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            overall_score INTEGER,
+            device_health_score INTEGER,
+            vulnerabilities_score INTEGER,
+            encryption_score INTEGER,
+            segmentation_score INTEGER,
+            device_count INTEGER,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_score_history
+        ON security_score_history(timestamp DESC);
+    ''')
+
+    # ========================================
+    # AUTO-DISCOVERY TABLES
+    # ========================================
+
+    # Discovery Events - Track device discovery events
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS discovery_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_ip TEXT NOT NULL,
+            discovery_method TEXT,
+            device_info_json TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+
+    # Scheduled Tasks - Auto-provisioning and maintenance tasks
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_type TEXT NOT NULL,
+            device_ip TEXT,
+            scheduled_at TIMESTAMP,
+            completed INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+
     conn.commit()
     conn.close()
 

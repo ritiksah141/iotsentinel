@@ -57,3 +57,9 @@ diagrams>=0.23.3
 reportlab==4.0.7          # PDF generation
 openpyxl==3.1.2           # Excel file generation
 Pillow==10.1.0            # Image processing for PDF charts
+
+# IoT Discovery & Vulnerability Management (Added 2026-01-06)
+zeroconf>=0.112.0         # mDNS/Zeroconf service discovery
+python-nmap>=0.7.1        # nmap integration for network scanning
+fuzzywuzzy>=0.18.0        # Fuzzy string matching for CVE matching
+python-Levenshtein>=0.21.0  # Fast fuzzy matching backend

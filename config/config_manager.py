@@ -52,6 +52,65 @@ class ConfigManager:
         """Get a whole configuration section."""
         return self._config.get(section, {})
 
+    def update(self, section: str, key: str, value: any) -> bool:
+        """
+        Update a configuration value and save to file.
+
+        Args:
+            section: The configuration section (e.g., 'discovery').
+            key: The configuration key (e.g., 'mode').
+            value: The new value to set.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            if section not in self._config:
+                self._config[section] = {}
+
+            self._config[section][key] = value
+
+            # Save to file
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / 'config' / 'default_config.json'
+
+            with open(config_path, 'w') as f:
+                json.dump(self._config, f, indent=2)
+
+            return True
+        except Exception as e:
+            print(f"Error updating config: {e}")
+            return False
+
+    def update_section(self, section: str, settings: dict) -> bool:
+        """
+        Update multiple configuration values in a section.
+
+        Args:
+            section: The configuration section.
+            settings: Dictionary of key-value pairs to update.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            if section not in self._config:
+                self._config[section] = {}
+
+            self._config[section].update(settings)
+
+            # Save to file
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / 'config' / 'default_config.json'
+
+            with open(config_path, 'w') as f:
+                json.dump(self._config, f, indent=2)
+
+            return True
+        except Exception as e:
+            print(f"Error updating config section: {e}")
+            return False
+
 # Initialize a single config instance for the application
 project_root = Path(__file__).parent.parent
 default_config_path = project_root / 'config' / 'default_config.json'

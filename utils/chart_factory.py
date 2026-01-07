@@ -548,55 +548,109 @@ class ChartFactory:
 
     @staticmethod
     def create_gauge_chart(value, max_value=100, title='', thresholds=None,
-                          colors=None):
+                          colors=None, show_delta=False, delta_reference=None):
         """
-        Create a gauge/indicator chart for KPI visualization
+        Create an enhanced gauge/indicator chart for KPI visualization with animations
 
         Args:
             value: Current value
-            max_value: Maximum value for the gauge
+            max_value: Maximum value for the gauge (default 100 for security score)
             title: Gauge title
             thresholds: List of threshold values [low, medium, high]
+                       Default: [50, 80, 100] (red 0-49, yellow 50-79, green 80-100)
             colors: List of colors for each threshold range
+                   Default: ['#dc3545', '#ffc107', '#28a745'] (red, yellow, green)
+            show_delta: Show delta comparison to reference value
+            delta_reference: Reference value for delta comparison
 
         Returns:
-            dict: Plotly figure dictionary
+            dict: Plotly figure dictionary with animations
         """
+        # Security score optimized thresholds
         if thresholds is None:
-            thresholds = [max_value * 0.33, max_value * 0.66, max_value]
+            thresholds = [50, 80, max_value]
         if colors is None:
-            colors = ['#28a745', '#ffc107', '#dc3545']
+            # Red (0-49), Yellow (50-79), Green (80-100)
+            colors = ['#dc3545', '#ffc107', '#28a745']
 
-        # Create steps for color ranges
+        # Create steps for color ranges (zones)
         steps = []
         prev_threshold = 0
         for i, (threshold, color) in enumerate(zip(thresholds, colors)):
             steps.append({
                 'range': [prev_threshold, threshold],
-                'color': color
+                'color': color,
+                'thickness': 0.75
             })
             prev_threshold = threshold
 
+        # Determine bar color based on current value
+        bar_color = colors[0]  # Default red
+        for i, threshold in enumerate(thresholds):
+            if value <= threshold:
+                bar_color = colors[i]
+                break
+
+        # Build gauge configuration
+        gauge_config = {
+            'axis': {
+                'range': [0, max_value],
+                'tickwidth': 2,
+                'tickcolor': '#333',
+                'tickfont': {'size': 12}
+            },
+            'bar': {
+                'color': bar_color,
+                'thickness': 0.8,
+                'line': {'width': 0}
+            },
+            'steps': steps,
+            'borderwidth': 2,
+            'bordercolor': '#333',
+            'shape': 'angular'  # Speedometer style
+        }
+
+        # Build indicator data
+        indicator_data = {
+            'type': 'indicator',
+            'mode': 'gauge+number',
+            'value': value,
+            'title': {
+                'text': title,
+                'font': {'size': 18, 'weight': 'bold', 'color': '#333'}
+            },
+            'number': {
+                'font': {'size': 36, 'weight': 'bold'},
+                'suffix': f'/{max_value}'
+            },
+            'gauge': gauge_config
+        }
+
+        # Add delta if requested
+        if show_delta and delta_reference is not None:
+            indicator_data['mode'] = 'gauge+number+delta'
+            indicator_data['delta'] = {
+                'reference': delta_reference,
+                'increasing': {'color': '#28a745'},
+                'decreasing': {'color': '#dc3545'},
+                'font': {'size': 16}
+            }
+
         return {
-            'data': [{
-                'type': 'indicator',
-                'mode': 'gauge+number',
-                'value': value,
-                'title': {'text': title, 'font': {'size': 16}},
-                'gauge': {
-                    'axis': {'range': [0, max_value]},
-                    'bar': {'color': '#0d6efd'},
-                    'steps': steps,
-                    'threshold': {
-                        'line': {'color': 'red', 'width': 4},
-                        'thickness': 0.75,
-                        'value': max_value * 0.9
-                    }
-                }
-            }],
+            'data': [indicator_data],
             'layout': {
-                'margin': {'l': 20, 'r': 20, 't': 60, 'b': 20},
-                'height': 250
+                'margin': {'l': 30, 'r': 30, 't': 80, 'b': 30},
+                'height': 300,
+                'paper_bgcolor': 'rgba(0,0,0,0)',
+                'plot_bgcolor': 'rgba(0,0,0,0)',
+                'font': {'color': '#333'},
+                'transition': {
+                    'duration': 800,
+                    'easing': 'cubic-in-out'
+                }
+            },
+            'config': {
+                'displayModeBar': False
             }
         }
 

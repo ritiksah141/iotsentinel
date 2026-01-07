@@ -43,6 +43,17 @@ from utils.iot_features import (
     get_firmware_manager
 )
 
+# Import innovation feature modules
+from utils.auto_provisioner import get_auto_provisioner
+from utils.mdns_listener import get_mdns_manager
+from utils.upnp_scanner import get_upnp_scanner
+from utils.active_scanner import get_active_scanner
+from utils.vulnerability_sync import get_vulnerability_sync
+from utils.network_security_scorer import get_security_scorer
+from ml.incremental_trainer import get_incremental_trainer
+import os
+from dotenv import load_dotenv
+
 # Configure logging
 log_dir = Path(config.get('logging', 'log_dir'))
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +144,69 @@ class IoTSentinelOrchestrator:
             self.privacy_monitor = None
             self.segmentation = None
             self.firmware_manager = None
+
+        # Initialize innovation feature modules
+        self.auto_provisioner = None
+        self.mdns_manager = None
+        self.upnp_scanner = None
+        self.active_scanner = None
+        self.vuln_sync = None
+        self.security_scorer = None
+        self.incremental_trainer = None
+
+        try:
+            # Load environment variables
+            load_dotenv()
+
+            db_path = config.get('database', 'path')
+
+            # Always initialize auto-provisioner and security scorer
+            self.auto_provisioner = get_auto_provisioner(db_path=db_path)
+            self.security_scorer = get_security_scorer(db_path=db_path)
+            logger.info("Auto-provisioner and security scorer initialized")
+
+            # Initialize incremental ML trainer if enabled
+            if config.get('ml', {}).get('incremental_learning_enabled', True):
+                self.incremental_trainer = get_incremental_trainer(db_path=db_path)
+                logger.info("Incremental ML trainer initialized")
+
+            # Initialize NVD vulnerability sync if enabled
+            if config.get('nvd', {}).get('enabled', True):
+                # Read API key from environment variable
+                nvd_api_key = os.getenv('NVD_API_KEY', config.get('nvd', {}).get('api_key', ''))
+                self.vuln_sync = get_vulnerability_sync(
+                    db_path=db_path,
+                    nvd_api_key=nvd_api_key if nvd_api_key else None
+                )
+                logger.info(f"NVD vulnerability sync initialized (API key: {'provided' if nvd_api_key else 'not provided'})")
+
+            # Initialize discovery features based on mode
+            discovery_mode = config.get('discovery', {}).get('mode', 'passive')
+
+            # Device discovered callback
+            def on_device_discovered(device_info):
+                if self.auto_provisioner:
+                    self.auto_provisioner.provision_device(
+                        device_info=device_info,
+                        discovery_method=device_info.get('discovery_method', 'unknown')
+                    )
+
+            # Initialize passive discovery (mDNS/UPnP)
+            if discovery_mode in ['passive', 'hybrid']:
+                self.mdns_manager = get_mdns_manager(on_device_discovered=on_device_discovered)
+                self.upnp_scanner = get_upnp_scanner(on_device_discovered=on_device_discovered)
+                logger.info(f"Passive discovery initialized (mDNS, UPnP)")
+
+            # Initialize active discovery (nmap) if enabled
+            if discovery_mode in ['active', 'hybrid'] or config.get('discovery', {}).get('active_scan_enabled', False):
+                self.active_scanner = get_active_scanner(on_device_discovered=on_device_discovered)
+                logger.info("Active scanner initialized (nmap)")
+
+            logger.info("Innovation features initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize innovation features: {e}")
+            # Continue without innovation features
 
         # Threading control
         self.running = False
@@ -284,6 +358,72 @@ class IoTSentinelOrchestrator:
             firmware_thread.start()
             self.threads.append(firmware_thread)
             logger.info("IoT firmware checking started (weekly checks).")
+
+        # Start Incremental ML Update Thread (every 6 hours)
+        if self.incremental_trainer and config.get('ml', {}).get('incremental_learning_enabled', True):
+            ml_update_thread = threading.Thread(
+                target=self._incremental_ml_update_loop,
+                name="IncrementalMLUpdateThread",
+                daemon=True
+            )
+            ml_update_thread.start()
+            self.threads.append(ml_update_thread)
+            logger.info("Incremental ML updates started (every 6 hours).")
+
+        # Start NVD Vulnerability Sync Thread (daily)
+        if self.vuln_sync and config.get('nvd', {}).get('enabled', True):
+            nvd_sync_thread = threading.Thread(
+                target=self._nvd_sync_loop,
+                name="NVDSyncThread",
+                daemon=True
+            )
+            nvd_sync_thread.start()
+            self.threads.append(nvd_sync_thread)
+            logger.info("NVD vulnerability sync started (daily updates).")
+
+        # Start Security Score Logging Thread (hourly)
+        if self.security_scorer:
+            score_logging_thread = threading.Thread(
+                target=self._security_score_logging_loop,
+                name="SecurityScoreLoggingThread",
+                daemon=True
+            )
+            score_logging_thread.start()
+            self.threads.append(score_logging_thread)
+            logger.info("Security score logging started (hourly).")
+
+        # Start mDNS Discovery Thread (continuous passive listening)
+        if self.mdns_manager:
+            mdns_thread = threading.Thread(
+                target=self._mdns_discovery_loop,
+                name="MDNSDiscoveryThread",
+                daemon=True
+            )
+            mdns_thread.start()
+            self.threads.append(mdns_thread)
+            logger.info("mDNS passive discovery started.")
+
+        # Start UPnP Discovery Thread (continuous passive listening)
+        if self.upnp_scanner:
+            upnp_thread = threading.Thread(
+                target=self._upnp_discovery_loop,
+                name="UPnPDiscoveryThread",
+                daemon=True
+            )
+            upnp_thread.start()
+            self.threads.append(upnp_thread)
+            logger.info("UPnP passive discovery started.")
+
+        # Start Active Network Scan Thread (if enabled)
+        if self.active_scanner and config.get('discovery', {}).get('active_scan_enabled', False):
+            active_scan_thread = threading.Thread(
+                target=self._active_scan_loop,
+                name="ActiveScanThread",
+                daemon=True
+            )
+            active_scan_thread.start()
+            self.threads.append(active_scan_thread)
+            logger.info("Active network scanning started.")
 
         logger.info("All components started. Orchestrator is running.")
         self._print_status()
@@ -701,6 +841,150 @@ class IoTSentinelOrchestrator:
 
         return updates_available
 
+    def _incremental_ml_update_loop(self):
+        """Background loop for incremental ML model updates (every 6 hours)."""
+        interval = config.get('ml', {}).get('incremental_update_interval', 21600)  # Default 6 hours
+        logger.info(f"Incremental ML update loop started (interval: {interval}s)")
+
+        while self.running:
+            try:
+                if self.incremental_trainer:
+                    logger.info("Performing incremental ML model update...")
+                    results = self.incremental_trainer.perform_incremental_update()
+
+                    if results.get('autoencoder', {}).get('updated'):
+                        logger.info("Autoencoder updated successfully")
+                    if results.get('isolation_forest', {}).get('updated'):
+                        logger.info("Isolation Forest updated successfully")
+
+                    # Check if full retrain needed
+                    should_retrain, reason = self.incremental_trainer.should_trigger_full_retrain()
+                    if should_retrain:
+                        logger.warning(f"Full retraining recommended: {reason}")
+            except Exception as e:
+                logger.error(f"Error in incremental ML update: {e}")
+
+            time.sleep(interval)
+
+    def _nvd_sync_loop(self):
+        """Background loop for NVD vulnerability synchronization (daily)."""
+        interval = config.get('nvd', {}).get('sync_interval_hours', 24) * 3600  # Convert to seconds
+        initial_delay = 300  # 5 minutes
+
+        logger.info(f"NVD sync loop started (interval: {interval/3600:.1f} hours)")
+
+        # Initial sync after short delay
+        time.sleep(initial_delay)
+
+        while self.running:
+            try:
+                if self.vuln_sync:
+                    logger.info("Starting NVD vulnerability synchronization...")
+                    stats = self.vuln_sync.sync_vulnerabilities()
+
+                    logger.info(
+                        f"NVD sync complete: {stats.get('cves_fetched', 0)} CVEs, "
+                        f"{stats.get('matches_found', 0)} matches"
+                    )
+
+                    if stats.get('critical_severity_count', 0) > 0:
+                        logger.warning(
+                            f"Found {stats['critical_severity_count']} CRITICAL vulnerabilities!"
+                        )
+            except Exception as e:
+                logger.error(f"Error in NVD sync: {e}")
+
+            time.sleep(interval)
+
+    def _security_score_logging_loop(self):
+        """Background loop for security score logging (hourly)."""
+        interval = 3600  # 1 hour
+        logger.info("Security score logging loop started (interval: 1 hour)")
+
+        while self.running:
+            try:
+                if self.security_scorer:
+                    score_data = self.security_scorer.calculate_network_score()
+                    self.security_scorer.save_score_to_history(score_data)
+
+                    logger.info(
+                        f"Security score: {score_data.get('overall_score', 0)}/100 "
+                        f"({score_data.get('grade', 'N/A')})"
+                    )
+            except Exception as e:
+                logger.error(f"Error in security score logging: {e}")
+
+            time.sleep(interval)
+
+    def _mdns_discovery_loop(self):
+        """Background loop for mDNS/Zeroconf device discovery."""
+        logger.info("mDNS discovery loop started")
+
+        try:
+            if self.mdns_manager:
+                self.mdns_manager.start()
+
+                # Keep thread alive while running
+                while self.running:
+                    time.sleep(60)  # Check every minute
+
+                    # Periodic stats logging
+                    stats = self.mdns_manager.get_stats()
+                    if stats.get('total_services', 0) > 0:
+                        logger.debug(f"mDNS: {stats['total_services']} services discovered")
+        except Exception as e:
+            logger.error(f"Error in mDNS discovery: {e}")
+        finally:
+            if self.mdns_manager:
+                self.mdns_manager.stop()
+
+    def _upnp_discovery_loop(self):
+        """Background loop for UPnP/SSDP device discovery."""
+        logger.info("UPnP discovery loop started")
+
+        try:
+            if self.upnp_scanner:
+                self.upnp_scanner.start_passive_listener()
+
+                # Keep thread alive while running
+                while self.running:
+                    time.sleep(60)  # Check every minute
+
+                    # Periodic stats logging
+                    stats = self.upnp_scanner.get_stats()
+                    if stats.get('total_devices', 0) > 0:
+                        logger.debug(f"UPnP: {stats['total_devices']} devices discovered")
+        except Exception as e:
+            logger.error(f"Error in UPnP discovery: {e}")
+        finally:
+            if self.upnp_scanner:
+                self.upnp_scanner.stop_passive_listener()
+
+    def _active_scan_loop(self):
+        """Background loop for active network scanning with nmap."""
+        interval = config.get('discovery', {}).get('active_scan_interval', 3600)  # Default 1 hour
+        network = config.get('network', {}).get('local_networks', ['192.168.1.0/24'])[0]
+
+        logger.info(f"Active scan loop started (interval: {interval}s, network: {network})")
+
+        while self.running:
+            try:
+                if self.active_scanner:
+                    capabilities = self.active_scanner.get_capabilities()
+
+                    if not capabilities['nmap_available']:
+                        logger.warning("nmap not available, active scanning disabled")
+                        break
+
+                    logger.info(f"Starting active network scan of {network}...")
+                    devices = self.active_scanner.scan_network(network, scan_type='ping')
+
+                    logger.info(f"Active scan found {len(devices)} devices")
+            except Exception as e:
+                logger.error(f"Error in active scan: {e}")
+
+            time.sleep(interval)
+
     def stop(self):
         """Stop all system components gracefully."""
         logger.info("Stopping IoTSentinel orchestrator...")
@@ -721,6 +1005,21 @@ class IoTSentinelOrchestrator:
                 self.hardware_monitor.stop()
             except Exception as e:
                 logger.error(f"Error stopping hardware monitor: {e}")
+
+        # Stop discovery managers
+        if self.mdns_manager:
+            try:
+                self.mdns_manager.stop()
+                logger.info("mDNS discovery manager stopped")
+            except Exception as e:
+                logger.error(f"Error stopping mDNS manager: {e}")
+
+        if self.upnp_scanner:
+            try:
+                self.upnp_scanner.stop_passive_listener()
+                logger.info("UPnP scanner stopped")
+            except Exception as e:
+                logger.error(f"Error stopping UPnP scanner: {e}")
 
         # Wait for threads to finish (with timeout)
         for thread in self.threads:

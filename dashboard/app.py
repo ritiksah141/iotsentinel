@@ -75,6 +75,9 @@ from utils.chart_factory import ChartFactory, SEVERITY_COLORS, RISK_COLORS
 # Import export helper for universal export functionality (CSV, JSON, PDF, Excel)
 from utils.export_helpers import DashExportHelper
 
+# Import innovation features
+from utils.network_security_scorer import get_security_scorer
+
 # Import Advanced Reporting & Analytics components
 from utils.trend_analyzer import TrendAnalyzer
 from utils.report_builder import ReportBuilder
@@ -170,6 +173,9 @@ from utils.device_group_manager import DeviceGroupManager
 
 # Initialize device group manager
 group_manager = DeviceGroupManager(DB_PATH)
+
+# Initialize chart factory for centralized chart generation
+chart_factory = ChartFactory()
 
 # Initialize universal export helper (supports CSV, JSON, PDF, Excel)
 export_helper = DashExportHelper(DB_PATH)
@@ -317,6 +323,14 @@ except Exception as e:
     privacy_monitor = None
     network_segmentation = None
     firmware_manager = None
+
+# Initialize innovation feature modules (use DB_PATH for direct SQLite access)
+try:
+    network_security_scorer = get_security_scorer(db_path=DB_PATH)
+    logger.info("Innovation features initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize innovation features: {e}")
+    network_security_scorer = None
 
 server = app.server
 
@@ -2887,6 +2901,130 @@ dashboard_layout = dbc.Container([
         target="quick-actions-button",
         placement="bottom"
     ),
+
+    # SECURITY SCORE DASHBOARD - Full Width Section
+    html.Div(id='security-score-section', children=[
+        dbc.Card([
+            dbc.CardHeader([
+                html.Div([
+                    html.Div([
+                        html.I(className="fa fa-shield-alt me-2", style={"color": "#10b981"}),
+                        html.Span("Network Security Score", className="fw-bold"),
+                    ], className="d-flex align-items-center"),
+                    html.Div([
+                        html.Small(id="security-score-last-updated", children="Last updated: Never",
+                                 className="badge bg-light text-dark me-2", style={"padding": "0.4rem 0.6rem"}),
+                        dbc.Button([
+                            html.I(className="fa fa-sync-alt me-1"),
+                            "Refresh"
+                        ], id="security-score-refresh-btn", size="sm", color="light", outline=True)
+                    ], className="d-flex align-items-center")
+                ], className="d-flex justify-content-between align-items-center w-100")
+            ], className="bg-gradient-success text-white"),
+            dbc.CardBody([
+                dbc.Row([
+                    # Left: Large Gauge Chart
+                    dbc.Col([
+                        dcc.Loading(
+                            dcc.Graph(
+                                id='security-score-gauge',
+                                config={'displayModeBar': False},
+                                style={'height': '350px'}
+                            ),
+                            type="circle"
+                        )
+                    ], width=5),
+
+                    # Right: 4 Dimensional Breakdown Cards
+                    dbc.Col([
+                        dbc.Row([
+                            # Device Health
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-heartbeat text-success fa-2x mb-2"),
+                                            html.H4(id="security-score-health", children="--",
+                                                  className="mb-1 fw-bold"),
+                                            html.P("Device Health", className="text-muted mb-0 small"),
+                                            html.Small(id="security-score-health-detail", children="",
+                                                     className="text-muted d-block", style={"fontSize": "0.7rem"})
+                                        ], className="text-center")
+                                    ], className="p-3")
+                                ], className="glass-card border-0 shadow-sm h-100")
+                            ], width=6, className="mb-3"),
+
+                            # Vulnerabilities
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-bug text-danger fa-2x mb-2"),
+                                            html.H4(id="security-score-vulns", children="--",
+                                                  className="mb-1 fw-bold"),
+                                            html.P("Vulnerabilities", className="text-muted mb-0 small"),
+                                            html.Small(id="security-score-vulns-detail", children="",
+                                                     className="text-muted d-block", style={"fontSize": "0.7rem"})
+                                        ], className="text-center")
+                                    ], className="p-3")
+                                ], className="glass-card border-0 shadow-sm h-100")
+                            ], width=6, className="mb-3"),
+
+                            # Encryption
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-lock text-primary fa-2x mb-2"),
+                                            html.H4(id="security-score-encryption", children="--",
+                                                  className="mb-1 fw-bold"),
+                                            html.P("Encryption", className="text-muted mb-0 small"),
+                                            html.Small(id="security-score-encryption-detail", children="",
+                                                     className="text-muted d-block", style={"fontSize": "0.7rem"})
+                                        ], className="text-center")
+                                    ], className="p-3")
+                                ], className="glass-card border-0 shadow-sm h-100")
+                            ], width=6),
+
+                            # Segmentation
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-network-wired text-warning fa-2x mb-2"),
+                                            html.H4(id="security-score-segmentation", children="--",
+                                                  className="mb-1 fw-bold"),
+                                            html.P("Segmentation", className="text-muted mb-0 small"),
+                                            html.Small(id="security-score-segmentation-detail", children="",
+                                                     className="text-muted d-block", style={"fontSize": "0.7rem"})
+                                        ], className="text-center")
+                                    ], className="p-3")
+                                ], className="glass-card border-0 shadow-sm h-100")
+                            ], width=6)
+                        ])
+                    ], width=7)
+                ], className="mb-3"),
+
+                # Bottom: Historical Trend Chart
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Security Score Trend (Last 7 Days)", className="text-muted mb-2"),
+                        dcc.Loading(
+                            dcc.Graph(
+                                id='security-score-history-chart',
+                                config={'displayModeBar': False},
+                                style={'height': '200px'}
+                            ),
+                            type="circle"
+                        )
+                    ], width=12)
+                ])
+            ], className="p-4")
+        ], className="glass-card border-0 shadow-lg mb-4")
+    ]),
+
+    # Auto-refresh interval for security score (every 30 seconds)
+    dcc.Interval(id='security-score-interval', interval=30*1000, n_intervals=0),
 
     # THREE COLUMN LAYOUT - Asymmetric 2-7-3 Layout
     dbc.Row([
@@ -9005,7 +9143,93 @@ dashboard_layout = dbc.Container([
                             ])
                         ])
                     ], className="glass-card border-0 shadow-sm")
-                ], label="Advanced", tab_id="advanced-tab")
+                ], label="Advanced", tab_id="advanced-tab"),
+
+                # Tab 6: Discovery Settings
+                dbc.Tab([
+                    dbc.Card([
+                        dbc.CardBody([
+                            # Discovery Mode
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-radar me-2"),
+                                    "Discovery Mode"
+                                ], className="fw-bold mb-2"),
+                                html.Small("Choose how devices are discovered on your network", className="text-muted d-block mb-2"),
+                                dbc.RadioItems(
+                                    options=[
+                                        {"label": "Passive - Listen only (no active scanning, most secure)", "value": "passive"},
+                                        {"label": "Hybrid - Passive + optional active (recommended)", "value": "hybrid"},
+                                        {"label": "Active - Full network scanning (requires root)", "value": "active"}
+                                    ],
+                                    value="passive",
+                                    id="discovery-mode-setting",
+                                    className="mb-4"
+                                )
+                            ]),
+
+                            # Active Scanning Features
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-search me-2"),
+                                    "Active Scanning Features"
+                                ], className="fw-bold mb-2"),
+                                html.Small("Enable specific discovery protocols (requires Hybrid or Active mode)", className="text-muted d-block mb-2"),
+                                dbc.Checklist(
+                                    options=[
+                                        {"label": "nmap Host Discovery - Scan network for devices", "value": "nmap"},
+                                        {"label": "UPnP M-SEARCH - Query for UPnP devices", "value": "upnp"},
+                                        {"label": "mDNS Queries - Discover Bonjour/Zeroconf services", "value": "mdns"}
+                                    ],
+                                    value=[],
+                                    id="discovery-features-setting",
+                                    switch=True,
+                                    className="mb-4"
+                                )
+                            ]),
+
+                            # Scan Interval
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-clock me-2"),
+                                    "Active Scan Interval"
+                                ], className="fw-bold mb-2"),
+                                html.Small("How often to run active scans (applies to nmap)", className="text-muted d-block mb-2"),
+                                dbc.Select(
+                                    id="scan-interval-setting",
+                                    options=[
+                                        {"label": "Every 30 minutes", "value": 1800},
+                                        {"label": "Every hour (Default)", "value": 3600},
+                                        {"label": "Every 3 hours", "value": 10800},
+                                        {"label": "Every 6 hours", "value": 21600},
+                                        {"label": "Once per day", "value": 86400}
+                                    ],
+                                    value=3600,
+                                    className="mb-4"
+                                )
+                            ]),
+
+                            # Warning Alert
+                            dbc.Alert([
+                                html.I(className="fa fa-exclamation-triangle me-2"),
+                                html.Strong("Important: "),
+                                "Active scanning (especially nmap) requires root/sudo privileges. Passive discovery methods (mDNS listener, UPnP listener) work without elevated permissions."
+                            ], color="warning", className="mb-3"),
+
+                            # Current Status
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-info-circle me-2"),
+                                    "Current Discovery Status"
+                                ], className="fw-bold mb-2"),
+                                html.Div(id="discovery-status-display", children=[
+                                    dbc.Badge("Passive Listeners: Active", color="success", className="me-2 mb-1"),
+                                    dbc.Badge("Active Scanning: Disabled", color="secondary", className="mb-1")
+                                ])
+                            ])
+                        ])
+                    ], className="glass-card border-0 shadow-sm")
+                ], label="Discovery", tab_id="discovery-tab")
 
             ], id="quick-settings-tabs", active_tab="general-tab", className="mb-3"),
 
@@ -10005,6 +10229,211 @@ def get_latest_alerts_content():
                 ], color=config['color'], inverse=True, className="mb-2 shadow-sm notification-card")
             )
     return drawer_content
+
+# ============================================================================
+# SECURITY SCORE DASHBOARD CALLBACK
+# ============================================================================
+
+@app.callback(
+    [Output('security-score-gauge', 'figure'),
+     Output('security-score-health', 'children'),
+     Output('security-score-health-detail', 'children'),
+     Output('security-score-vulns', 'children'),
+     Output('security-score-vulns-detail', 'children'),
+     Output('security-score-encryption', 'children'),
+     Output('security-score-encryption-detail', 'children'),
+     Output('security-score-segmentation', 'children'),
+     Output('security-score-segmentation-detail', 'children'),
+     Output('security-score-history-chart', 'figure'),
+     Output('security-score-last-updated', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('security-score-interval', 'n_intervals'),
+     Input('security-score-refresh-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_security_score_dashboard(n_intervals, refresh_clicks):
+    """Update the security score dashboard with current scores and historical data."""
+
+    # Determine if this was triggered by refresh button
+    ctx = callback_context
+    triggered_by_refresh = False
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        # Only show toast if explicitly triggered by button click AND button was actually clicked
+        triggered_by_refresh = (
+            triggered_id == 'security-score-refresh-btn' and
+            refresh_clicks is not None and
+            refresh_clicks > 0
+        )
+
+    try:
+        if network_security_scorer is None:
+            # Return empty placeholders if scorer not available
+            empty_fig = {'data': [], 'layout': {'template': 'plotly_white'}}
+            toast = ToastManager.warning(
+                "Security scorer not available",
+                detail_message="The network security scorer module is not initialized. Please check system logs."
+            ) if triggered_by_refresh else dash.no_update
+            return (empty_fig, "--", "Not available", "--", "Not available",
+                   "--", "Not available", "--", "Not available",
+                   empty_fig, "Scorer not available", toast)
+
+        # Calculate current network security score
+        score_data = network_security_scorer.calculate_network_score()
+
+        if 'error' in score_data:
+            empty_fig = {'data': [], 'layout': {'template': 'plotly_white'}}
+            error_msg = f"Error: {score_data.get('error', 'Unknown')}"
+            toast = ToastManager.error(
+                "Score calculation failed",
+                detail_message=error_msg
+            ) if triggered_by_refresh else dash.no_update
+            return (empty_fig, "--", error_msg, "--", error_msg,
+                   "--", error_msg, "--", error_msg,
+                   empty_fig, error_msg, toast)
+
+        overall_score = score_data.get('overall_score', 0)
+        grade = score_data.get('grade', 'F')
+        device_count = score_data.get('device_count', 0)
+        dimensions = score_data.get('dimensions', {})
+
+        # Create gauge chart using ChartFactory
+        gauge_fig = chart_factory.create_gauge_chart(
+            value=overall_score,
+            max_value=100,
+            title=f"Network Security Score: {grade}",
+            thresholds=[50, 80, 100],  # Red 0-49, Yellow 50-79, Green 80-100
+            colors=['#dc3545', '#ffc107', '#28a745']
+        )
+
+        # Extract dimensional data
+        device_health = dimensions.get('device_health', {})
+        vulnerabilities = dimensions.get('vulnerabilities', {})
+        encryption = dimensions.get('encryption', {})
+        segmentation = dimensions.get('segmentation', {})
+
+        # Format dimensional scores
+        health_score = f"{device_health.get('score', 0):.0f}/100"
+        health_detail = f"{device_health.get('devices_online', 0)}/{device_health.get('total_devices', 0)} online"
+
+        vulns_score = f"{vulnerabilities.get('score', 0):.0f}/100"
+        vuln_critical = vulnerabilities.get('critical_vulns', 0)
+        vuln_high = vulnerabilities.get('high_vulns', 0)
+        vulns_detail = f"{vuln_critical} critical, {vuln_high} high"
+
+        encryption_score = f"{encryption.get('score', 0):.0f}/100"
+        secure_ratio = encryption.get('secure_ratio', 0)
+        encryption_detail = f"{secure_ratio:.0f}% secure protocols"
+
+        segmentation_score = f"{segmentation.get('score', 0):.0f}/100"
+        subnet_count = segmentation.get('subnet_count', 0)
+        segmentation_detail = f"{subnet_count} subnet(s)"
+
+        # Get historical data (last 7 days)
+        history = network_security_scorer.get_score_history(days=7)
+
+        if history:
+            # Create historical trend chart
+            timestamps = [h.get('timestamp', '') for h in history]
+            scores = [h.get('overall_score', 0) for h in history]
+
+            # Parse timestamps for better display
+            parsed_times = []
+            for ts in timestamps:
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    parsed_times.append(dt.strftime('%m/%d %H:%M'))
+                except:
+                    parsed_times.append(ts)
+
+            history_fig = go.Figure()
+            history_fig.add_trace(go.Scatter(
+                x=parsed_times,
+                y=scores,
+                mode='lines+markers',
+                name='Security Score',
+                line=dict(color='#10b981', width=2),
+                marker=dict(size=6),
+                fill='tozeroy',
+                fillcolor='rgba(16, 185, 129, 0.1)'
+            ))
+
+            history_fig.update_layout(
+                template='plotly_white',
+                margin=dict(l=40, r=20, t=20, b=40),
+                xaxis=dict(title='Time', showgrid=True),
+                yaxis=dict(title='Score', range=[0, 100], showgrid=True),
+                hovermode='x unified'
+            )
+        else:
+            # No historical data available
+            history_fig = go.Figure()
+            history_fig.add_annotation(
+                text="No historical data available yet",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=14, color="gray")
+            )
+            history_fig.update_layout(
+                template='plotly_white',
+                margin=dict(l=40, r=20, t=20, b=40),
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False)
+            )
+
+        # Update timestamp
+        last_updated = f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}"
+
+        # Create toast notification if triggered by refresh button
+        if triggered_by_refresh:
+            # Determine toast color based on score
+            if overall_score >= 80:
+                toast = ToastManager.success(
+                    f"Security Score: {grade} ({overall_score:.0f}/100)",
+                    detail_message=f"Network security is strong!\n\n"
+                                  f"• Device Health: {device_health.get('score', 0):.0f}/100\n"
+                                  f"• Vulnerabilities: {vulnerabilities.get('score', 0):.0f}/100\n"
+                                  f"• Encryption: {encryption.get('score', 0):.0f}/100\n"
+                                  f"• Segmentation: {segmentation.get('score', 0):.0f}/100"
+                )
+            elif overall_score >= 60:
+                toast = ToastManager.warning(
+                    f"Security Score: {grade} ({overall_score:.0f}/100)",
+                    detail_message=f"Some security improvements needed.\n\n"
+                                  f"• Device Health: {device_health.get('score', 0):.0f}/100\n"
+                                  f"• Vulnerabilities: {vulnerabilities.get('score', 0):.0f}/100\n"
+                                  f"• Encryption: {encryption.get('score', 0):.0f}/100\n"
+                                  f"• Segmentation: {segmentation.get('score', 0):.0f}/100"
+                )
+            else:
+                toast = ToastManager.error(
+                    f"Security Score: {grade} ({overall_score:.0f}/100)",
+                    detail_message=f"⚠️ Critical security issues detected!\n\n"
+                                  f"• Device Health: {device_health.get('score', 0):.0f}/100\n"
+                                  f"• Vulnerabilities: {vulnerabilities.get('score', 0):.0f}/100\n"
+                                  f"• Encryption: {encryption.get('score', 0):.0f}/100\n"
+                                  f"• Segmentation: {segmentation.get('score', 0):.0f}/100"
+                )
+        else:
+            toast = dash.no_update
+
+        return (gauge_fig, health_score, health_detail,
+                vulns_score, vulns_detail,
+                encryption_score, encryption_detail,
+                segmentation_score, segmentation_detail,
+                history_fig, last_updated, toast)
+
+    except Exception as e:
+        logger.error(f"Error updating security score dashboard: {e}")
+        empty_fig = {'data': [], 'layout': {'template': 'plotly_white'}}
+        error_msg = f"Error: {str(e)}"
+        toast = ToastManager.error(
+            "Dashboard update failed",
+            detail_message=f"Error updating security score: {str(e)}"
+        ) if triggered_by_refresh else dash.no_update
+        return (empty_fig, "--", error_msg, "--", error_msg,
+               "--", error_msg, "--", error_msg,
+               empty_fig, f"Error: {str(e)}", toast)
 
 @app.callback(
     [Output('cpu-usage', 'children'),
@@ -27847,14 +28276,18 @@ def quick_view_logs(n):
      State('display-options-settings', 'value'),
      State('font-size-setting', 'value'),
      State('debug-options-settings', 'value'),
-     State('performance-mode-setting', 'value')],
+     State('performance-mode-setting', 'value'),
+     State('discovery-mode-setting', 'value'),
+     State('discovery-features-setting', 'value'),
+     State('scan-interval-setting', 'value')],
     prevent_initial_call=True
 )
 def handle_quick_settings(settings_click, close_click, save_click, is_open,
                          _alert_settings, _refresh_interval_value,
                          _auto_settings, _default_view, _notif_sound, _alert_duration, _notif_position,
                          _network_interface, _network_options, _network_scan, _connection_timeout,
-                         _chart_animation, _display_options, _font_size, _debug_options, _performance_mode):
+                         _chart_animation, _display_options, _font_size, _debug_options, _performance_mode,
+                         discovery_mode, discovery_features, discovery_scan_interval):
     """Handle quick settings modal and save settings."""
     ctx = callback_context
     if not ctx.triggered:
@@ -27877,18 +28310,141 @@ def handle_quick_settings(settings_click, close_click, save_click, is_open,
 
     # Save settings when Save button clicked
     elif button_id == 'settings-save-btn':
-        logger.info("💾 Save Changes button clicked - All settings already auto-saved, closing modal")
+        logger.info("💾 Save Changes button clicked - Saving all settings")
 
-        # Show confirmation toast
-        toast = ToastManager.success(
-            "💾 Settings Saved",
-            detail_message="💾 Settings Saved"
-        )
+        try:
+            # Save discovery settings
+            nmap_enabled = 'nmap' in (discovery_features or [])
+            upnp_active_enabled = 'upnp' in (discovery_features or [])
+            mdns_active_enabled = 'mdns' in (discovery_features or [])
+            active_scan_enabled = discovery_mode in ['hybrid', 'active'] or any([nmap_enabled, upnp_active_enabled, mdns_active_enabled])
+
+            discovery_settings = {
+                'mode': discovery_mode,
+                'active_scan_enabled': active_scan_enabled,
+                'nmap_enabled': nmap_enabled,
+                'upnp_active_enabled': upnp_active_enabled,
+                'mdns_active_enabled': mdns_active_enabled,
+                'active_scan_interval': discovery_scan_interval
+            }
+
+            success = config.update_section('discovery', discovery_settings)
+
+            if success:
+                logger.info(f"✓ Discovery settings saved: {discovery_settings}")
+                toast = ToastManager.success(
+                    "💾 Settings Saved",
+                    detail_message="All settings have been saved successfully"
+                )
+            else:
+                logger.error("Failed to save discovery settings")
+                toast = ToastManager.warning(
+                    "⚠️ Settings Partially Saved",
+                    detail_message="Some settings may not have been saved properly"
+                )
+
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            toast = ToastManager.error(
+                "❌ Error Saving Settings",
+                detail_message=f"Error: {str(e)}"
+            )
 
         return False, dash.no_update, dash.no_update, toast
 
     # Default: no update
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+# Discovery Settings - Load current settings when modal opens
+@app.callback(
+    [Output('discovery-mode-setting', 'value'),
+     Output('discovery-features-setting', 'value'),
+     Output('scan-interval-setting', 'value')],
+    [Input('quick-settings-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def load_discovery_settings(is_open):
+    """Load current discovery settings from config."""
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Get current discovery settings from config
+        discovery_config = config.get_section('discovery')
+
+        mode = discovery_config.get('mode', 'passive')
+        nmap_enabled = discovery_config.get('nmap_enabled', False)
+        upnp_active_enabled = discovery_config.get('upnp_active_enabled', False)
+        mdns_active_enabled = discovery_config.get('mdns_active_enabled', False)
+        scan_interval = discovery_config.get('active_scan_interval', 3600)
+
+        # Build features list
+        features = []
+        if nmap_enabled:
+            features.append('nmap')
+        if upnp_active_enabled:
+            features.append('upnp')
+        if mdns_active_enabled:
+            features.append('mdns')
+
+        logger.info(f"✓ Loaded discovery settings: mode={mode}, features={features}, interval={scan_interval}")
+
+        return mode, features, scan_interval
+
+    except Exception as e:
+        logger.error(f"Error loading discovery settings: {e}")
+        return 'passive', [], 3600
+
+# Discovery Settings - Update status display in real-time
+@app.callback(
+    Output('discovery-status-display', 'children'),
+    [Input('discovery-mode-setting', 'value'),
+     Input('discovery-features-setting', 'value')],
+    prevent_initial_call=True
+)
+def update_discovery_status_display(mode, features):
+    """Update discovery status display based on current selections."""
+    try:
+        # Determine which features are enabled
+        nmap_enabled = 'nmap' in (features or [])
+        upnp_active_enabled = 'upnp' in (features or [])
+        mdns_active_enabled = 'mdns' in (features or [])
+
+        # Determine if active scanning is enabled
+        active_scan_enabled = mode in ['hybrid', 'active'] or any([nmap_enabled, upnp_active_enabled, mdns_active_enabled])
+
+        # Update status display
+        status_badges = []
+
+        # Passive listeners (always active)
+        status_badges.append(
+            dbc.Badge("Passive Listeners: Active", color="success", className="me-2 mb-1")
+        )
+
+        # Active scanning status
+        if active_scan_enabled:
+            active_features = []
+            if nmap_enabled:
+                active_features.append('nmap')
+            if upnp_active_enabled:
+                active_features.append('UPnP')
+            if mdns_active_enabled:
+                active_features.append('mDNS')
+
+            feature_text = f" ({', '.join(active_features)})" if active_features else ""
+            status_badges.append(
+                dbc.Badge(f"Active Scanning: Enabled{feature_text}", color="warning", className="mb-1")
+            )
+        else:
+            status_badges.append(
+                dbc.Badge("Active Scanning: Disabled", color="secondary", className="mb-1")
+            )
+
+        return status_badges
+
+    except Exception as e:
+        logger.error(f"Error updating discovery status display: {e}")
+        return dash.no_update
 
 # Advanced Tab Actions - Clear Browser Cache
 @app.callback(
