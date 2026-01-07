@@ -1,94 +1,125 @@
 {
-    "system": {
-        "name": "IoTSentinel",
-        "version": "1.0.0",
-        "environment": "production",
-        "architecture": "zeek-based",
-        "status_file_path": "config/monitoring_status.json",
-        "health_check_interval_seconds": 600
+  "system": {
+    "name": "IoTSentinel",
+    "version": "1.0.0",
+    "environment": "production",
+    "architecture": "zeek-based",
+    "status_file_path": "config/monitoring_status.json",
+    "health_check_interval_seconds": 600
+  },
+  "network": {
+    "interface": "wlan0",
+    "local_networks": [
+      "192.168.1.0/24"
+    ],
+    "zeek_enabled": true,
+    "zeek_bin_path": "/opt/zeek/bin",
+    "zeek_log_path": "/opt/zeek/logs",
+    "arp_scan_interval": 300
+  },
+  "zeek": {
+    "parse_interval_seconds": 60,
+    "log_types": [
+      "conn",
+      "http",
+      "dns"
+    ],
+    "json_format": true
+  },
+  "ml": {
+    "model_type": "autoencoder",
+    "autoencoder_path": "data/models/autoencoder.h5",
+    "isolation_forest_path": "data/models/isolation_forest.pkl",
+    "feature_extractor_path": "data/models/feature_extractor.pkl",
+    "inference_batch_size": 100,
+    "inference_interval_seconds": 300,
+    "anomaly_threshold": 0.95,
+    "incremental_update_interval": 21600,
+    "incremental_learning_enabled": true,
+    "model_versioning_enabled": true,
+    "keep_model_versions": 5,
+    "drift_threshold": 0.15,
+    "sliding_window_days": 7,
+    "full_retrain_interval_days": 7
+  },
+  "database": {
+    "path": "data/database/iotsentinel.db",
+    "retention_days": 30
+  },
+  "dashboard": {
+    "host": "0.0.0.0",
+    "port": 8050,
+    "debug": false
+  },
+  "logging": {
+    "level": "INFO",
+    "log_dir": "data/logs"
+  },
+  "alerting": {
+    "enabled": true,
+    "max_per_device_per_hour": 5,
+    "max_global_per_hour": 20,
+    "cooldown_minutes": 15,
+    "severity_thresholds": {
+      "critical": 0.98,
+      "high": 0.95,
+      "medium": 0.85,
+      "low": 0.7
     },
-    "network": {
-        "interface": "wlan0",
-        "local_networks": [
-            "192.168.1.0/24"
-        ],
-        "zeek_enabled": true,
-        "zeek_bin_path": "/opt/zeek/bin",
-        "zeek_log_path": "/opt/zeek/logs",
-        "arp_scan_interval": 300
-    },
-    "zeek": {
-        "parse_interval_seconds": 60,
-        "log_types": [
-            "conn",
-            "http",
-            "dns"
-        ],
-        "json_format": true
-    },
-    "ml": {
-        "model_type": "autoencoder",
-        "autoencoder_path": "data/models/autoencoder.h5",
-        "isolation_forest_path": "data/models/isolation_forest.pkl",
-        "feature_extractor_path": "data/models/feature_extractor.pkl",
-        "inference_batch_size": 100,
-        "inference_interval_seconds": 300,
-        "anomaly_threshold": 0.95
-    },
-    "database": {
-        "path": "data/database/iotsentinel.db",
-        "retention_days": 30
-    },
-    "dashboard": {
-        "host": "0.0.0.0",
-        "port": 8050,
-        "debug": false
-    },
-    "logging": {
-        "level": "INFO",
-        "log_dir": "data/logs"
-    },
-    "alerting": {
-        "enabled": true,
-        "max_per_device_per_hour": 5,
-        "max_global_per_hour": 20,
-        "cooldown_minutes": 15,
-        "severity_thresholds": {
-            "critical": 0.98,
-            "high": 0.95,
-            "medium": 0.85,
-            "low": 0.7
-        },
-        "reports": {
-            "weekly_enabled": true,
-            "weekly_day": "sunday",
-            "weekly_hour": 9,
-            "monthly_enabled": true,
-            "monthly_day": 1,
-            "monthly_hour": 9
-        }
-    },
-    "email": {
-        "enabled": true,
-        "note": "Email settings are loaded from environment variables (.env file)",
-        "required_env_vars": [
-            "EMAIL_SMTP_HOST",
-            "EMAIL_SMTP_PORT",
-            "EMAIL_SMTP_USER",
-            "EMAIL_SMTP_PASSWORD",
-            "EMAIL_SENDER_EMAIL",
-            "EMAIL_RECIPIENT_EMAIL"
-        ]
-    },
-    "firewall": {
-        "enabled": false,
-        "router_ip": "192.168.1.1",
-        "router_user": "root",
-        "router_private_key_path": "/path/to/your/private/key"
-    },
-    "threat_intelligence": {
-        "enabled": false,
-        "abuseipdb_api_key": "",
-        "cache_hours": 24
+    "reports": {
+      "weekly_enabled": true,
+      "weekly_day": "sunday",
+      "weekly_hour": 9,
+      "monthly_enabled": true,
+      "monthly_day": 1,
+      "monthly_hour": 9
     }
+  },
+  "email": {
+    "enabled": "true",
+    "note": "Email settings are loaded from environment variables (.env file)",
+    "required_env_vars": [
+      "EMAIL_SMTP_HOST",
+      "EMAIL_SMTP_PORT",
+      "EMAIL_SMTP_USER",
+      "EMAIL_SMTP_PASSWORD",
+      "EMAIL_SENDER_EMAIL",
+      "EMAIL_RECIPIENT_EMAIL"
+    ]
+  },
+  "firewall": {
+    "enabled": "false",
+    "router_ip": "192.168.1.1",
+    "router_user": "root",
+    "router_private_key_path": "~/.ssh/id_rsa"
+  },
+  "threat_intelligence": {
+    "enabled": "true",
+    "abuseipdb_api_key": "",
+    "cache_hours": "24",
+    "note": "API key loaded from THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY environment variable"
+  },
+  "nvd": {
+    "enabled": "true",
+    "api_key": "",
+    "sync_interval_hours": 24,
+    "cache_ttl_hours": 24,
+    "match_threshold": 0.85,
+    "iot_keywords": [
+      "IoT",
+      "router",
+      "camera",
+      "smart",
+      "embedded"
+    ],
+    "note": "API key loaded from NVD_API_KEY environment variable"
+  },
+  "discovery": {
+    "mode": "passive",
+    "active_scan_enabled": false,
+    "nmap_enabled": false,
+    "upnp_active_enabled": false,
+    "mdns_active_enabled": false,
+    "active_scan_interval": 3600
+  }
 }
