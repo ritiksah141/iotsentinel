@@ -12,6 +12,8 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+from database.db_manager import DatabaseManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,14 +72,14 @@ class PrivacyAnalyzer:
     - Data collection frequency
     """
 
-    def __init__(self, db_path: str = 'data/iot_monitor.db'):
+    def __init__(self, db_manager: DatabaseManager = None):
         """
         Initialize privacy analyzer.
 
         Args:
-            db_path: Path to database
+            db_manager: DatabaseManager instance (uses default if None)
         """
-        self.db_path = db_path
+        self.db_manager = db_manager or DatabaseManager()
         logger.info("Privacy analyzer initialized")
 
     def analyze_device_data_collection(self, device_ip: str, days: int = 7) -> Dict[str, Any]:
@@ -92,8 +94,7 @@ class PrivacyAnalyzer:
             Dictionary with privacy analysis results
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get device info
@@ -101,7 +102,6 @@ class PrivacyAnalyzer:
             device = cursor.fetchone()
 
             if not device:
-                conn.close()
                 return {'error': 'Device not found'}
 
             device_info = dict(device)
@@ -110,11 +110,10 @@ class PrivacyAnalyzer:
             cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
 
             cursor.execute('''
-                SELECT cloud_provider, cloud_service, COUNT(*) as connection_count,
-                       MIN(timestamp) as first_seen, MAX(timestamp) as last_seen
+                SELECT cloud_provider, connection_count,
+                       first_seen, last_seen
                 FROM cloud_connections
-                WHERE device_ip = ? AND timestamp > ?
-                GROUP BY cloud_provider, cloud_service
+                WHERE device_ip = ? AND last_seen > ?
                 ORDER BY connection_count DESC
             ''', (device_ip, cutoff_date))
 
@@ -122,7 +121,7 @@ class PrivacyAnalyzer:
 
             # Get data exfiltration events
             cursor.execute('''
-                SELECT destination_ip, destination_domain, data_size_bytes,
+                SELECT destination_ip, destination_domain, bytes_transferred,
                        protocol, timestamp
                 FROM data_exfiltration_events
                 WHERE device_ip = ? AND timestamp > ?
@@ -136,14 +135,12 @@ class PrivacyAnalyzer:
             cursor.execute('''
                 SELECT protocol, COUNT(*) as count, SUM(bytes_sent) as total_bytes
                 FROM connections
-                WHERE source_ip = ? AND timestamp > ?
+                WHERE device_ip = ? AND timestamp > ?
                 GROUP BY protocol
                 ORDER BY count DESC
             ''', (device_ip, cutoff_date))
 
             protocol_usage = [dict(row) for row in cursor.fetchall()]
-
-            conn.close()
 
             # Analyze cloud services
             cloud_analysis = self._analyze_cloud_services(cloud_connections)
@@ -194,8 +191,7 @@ class PrivacyAnalyzer:
         formatted_services = []
 
         for conn in cloud_connections:
-            provider = conn.get('cloud_provider', 'unknown').lower()
-            service = conn.get('cloud_service', 'unknown')
+            provider = (conn.get('cloud_provider') or 'unknown').lower()
             count = conn.get('connection_count', 0)
 
             # Get privacy info for this provider
@@ -203,7 +199,7 @@ class PrivacyAnalyzer:
 
             service_info = {
                 'provider': provider.capitalize(),
-                'service': service,
+                'service': services,
                 'connections': count,
                 'category': privacy_info['category'],
                 'potential_data_types': privacy_info['data_types'],
@@ -232,7 +228,7 @@ class PrivacyAnalyzer:
         data_types_set = set()
 
         # Infer from device type
-        device_type = device_info.get('device_type', '').lower()
+        device_type = (device_info.get('device_type') or '').lower()
         if 'camera' in device_type:
             data_types_set.update(['usage', 'behavior', 'location'])
         elif 'speaker' in device_type or 'assistant' in device_type:
@@ -250,7 +246,7 @@ class PrivacyAnalyzer:
 
         # Infer from cloud services
         for conn in cloud_connections:
-            provider = conn.get('cloud_provider', 'unknown').lower()
+            provider = (conn.get('cloud_provider') or 'unknown').lower()
             privacy_info = CLOUD_SERVICE_PRIVACY.get(provider, CLOUD_SERVICE_PRIVACY['unknown'])
             data_types_set.update(privacy_info['data_types'])
 
@@ -342,7 +338,7 @@ class PrivacyAnalyzer:
     ) -> Dict[str, Any]:
         """Calculate data transmission statistics."""
         total_events = len(exfiltration_events)
-        total_bytes = sum(e.get('data_size_bytes', 0) for e in exfiltration_events)
+        total_bytes = sum(e.get('bytes_transferred', 0) for e in exfiltration_events)
 
         # Calculate frequency (events per day)
         if exfiltration_events:
@@ -405,16 +401,17 @@ class PrivacyAnalyzer:
             List of device privacy summaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("SELECT device_ip FROM devices")
             devices = cursor.fetchall()
-            conn.close()
 
             summaries = []
+            logger.info(f"Found {len(devices)} devices for privacy analysis")
             for device_row in devices:
                 device_ip = device_row[0]
+                logger.debug(f"Analyzing privacy for device: {device_ip}")
                 analysis = self.analyze_device_data_collection(device_ip, days)
 
                 if 'error' not in analysis:
@@ -423,7 +420,7 @@ class PrivacyAnalyzer:
                         'device_name': analysis.get('device_name', 'Unknown'),
                         'device_type': analysis.get('device_type', 'unknown'),
                         'privacy_risk_score': analysis.get('privacy_risk', {}).get('score', 0),
-                        'privacy_risk_level': analysis.get('privacy_risk', {}).get('level', 'unknown'),
+                        'privacy_risk_level': analysis.get('privacy_risk', {}).get('level', 'minimal'),
                         'unique_cloud_services': analysis.get('cloud_services', {}).get('unique_services', 0),
                         'data_types_count': len(analysis.get('data_types_collected', [])),
                         'critical_data_types': len([
@@ -431,6 +428,11 @@ class PrivacyAnalyzer:
                             if d.get('sensitivity') == 'critical'
                         ])
                     })
+                    logger.debug(f"Added device {device_ip} with risk level: {analysis.get('privacy_risk', {}).get('level', 'minimal')}")
+                else:
+                    logger.warning(f"Skipping device {device_ip} due to error: {analysis.get('error')}")
+
+            logger.info(f"Privacy analysis complete: {len(summaries)} devices analyzed")
 
             # Sort by risk score (highest first)
             summaries.sort(key=lambda x: x['privacy_risk_score'], reverse=True)
@@ -446,17 +448,17 @@ class PrivacyAnalyzer:
 _privacy_analyzer = None
 
 
-def get_privacy_analyzer(db_path: str = 'data/iot_monitor.db') -> PrivacyAnalyzer:
+def get_privacy_analyzer(db_manager: DatabaseManager = None) -> PrivacyAnalyzer:
     """
-    Get global privacy analyzer instance.
+    Get or create privacy analyzer instance.
 
     Args:
-        db_path: Path to database
+        db_manager: DatabaseManager instance
 
     Returns:
         PrivacyAnalyzer instance
     """
     global _privacy_analyzer
     if _privacy_analyzer is None:
-        _privacy_analyzer = PrivacyAnalyzer(db_path=db_path)
+        _privacy_analyzer = PrivacyAnalyzer(db_manager=db_manager)
     return _privacy_analyzer
