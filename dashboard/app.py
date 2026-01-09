@@ -325,10 +325,10 @@ except Exception as e:
     network_segmentation = None
     firmware_manager = None
 
-# Initialize innovation feature modules (use DB_PATH for direct SQLite access)
+# Initialize innovation feature modules (use db_manager for database access)
 try:
     network_security_scorer = get_security_scorer(db_path=DB_PATH)
-    privacy_analyzer = get_privacy_analyzer(db_path=DB_PATH)
+    privacy_analyzer = get_privacy_analyzer(db_manager=db_manager)
     logger.info("Innovation features initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize innovation features: {e}")
@@ -399,11 +399,10 @@ def health_check():
 
     # Check database connectivity
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=5)
+        conn = db_manager.conn
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM devices")
         device_count = cursor.fetchone()[0]
-        conn.close()
         health_status["components"]["database"] = {
             "status": "healthy",
             "device_count": device_count
@@ -566,7 +565,7 @@ def google_callback():
         user_ip = request.remote_addr or 'Unknown'
         user_agent = request.headers.get('User-Agent', 'Unknown')
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO user_login_history
@@ -574,7 +573,6 @@ def google_callback():
             VALUES (?, ?, ?, ?, ?, ?)
         """, (user_id, datetime.now(), user_ip, user_agent, 'oauth_google', 1))
         conn.commit()
-        conn.close()
 
         logger.info(f"User {user_data['username']} logged in via Google OAuth")
 
@@ -602,11 +600,10 @@ def webauthn_register_start():
         username = current_user.username
 
         # Get email from database (User object doesn't have email attribute)
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
         cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
         result = cursor.fetchone()
-        conn.close()
 
         email = result[0] if result else username  # Fallback to username if no email
 
@@ -691,7 +688,7 @@ def webauthn_login_verify():
                 user_ip = request.remote_addr or 'Unknown'
                 user_agent = request.headers.get('User-Agent', 'Unknown')
 
-                conn = sqlite3.connect(DB_PATH)
+                conn = db_manager.conn
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO user_login_history
@@ -699,7 +696,6 @@ def webauthn_login_verify():
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (user_id, datetime.now(), user_ip, user_agent, 'webauthn_biometric', 1))
                 conn.commit()
-                conn.close()
 
                 logger.info(f"User {user.username} logged in via WebAuthn biometric")
                 return jsonify({'success': True, 'redirect': '/'}), 200
@@ -1121,14 +1117,8 @@ ONBOARDING_STEPS = [
 # ============================================================================
 
 def get_db_connection():
-    """Get a database connection (simple connections work best for SQLite)"""
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-    except sqlite3.Error as e:
-        logger.error(f"Database connection error: {e}")
-        return None
+    """Get the shared database connection from db_manager"""
+    return db_manager.conn
 
 # =============================================================================
 # UTILITY FUNCTIONS - Timestamps and CSV Export
@@ -1240,8 +1230,6 @@ def create_timestamp_display(timestamp=None):
 
 def get_device_today_stats(device_ip: str) -> Dict[str, Any]:
     conn = get_db_connection()
-    if not conn:
-        return {}
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1267,13 +1255,9 @@ def get_device_today_stats(device_ip: str) -> Dict[str, Any]:
     except sqlite3.Error as e:
         logger.error(f"Error getting today's stats: {e}")
         return {}
-    finally:
-        conn.close()
 
 def get_alert_with_context(alert_id: int) -> Dict[str, Any]:
     conn = get_db_connection()
-    if not conn:
-        return {}
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1291,14 +1275,10 @@ def get_alert_with_context(alert_id: int) -> Dict[str, Any]:
     except sqlite3.Error as e:
         logger.error(f"Error getting alert context: {e}")
         return {}
-    finally:
-        conn.close()
 
 def get_device_details(device_ip: str) -> Dict[str, Any]:
     """Get comprehensive device information"""
     conn = get_db_connection()
-    if not conn:
-        return {}
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1319,13 +1299,9 @@ def get_device_details(device_ip: str) -> Dict[str, Any]:
     except sqlite3.Error as e:
         logger.error(f"Error getting device details: {e}")
         return {}
-    finally:
-        conn.close()
 
 def get_devices_with_status() -> List[Dict]:
     conn = get_db_connection()
-    if not conn:
-        return []
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1357,8 +1333,6 @@ def get_devices_with_status() -> List[Dict]:
     except sqlite3.Error as e:
         logger.error(f"Error getting devices with status: {e}")
         return []
-    finally:
-        conn.close()
 
 def load_model_comparison_data():
     report_path = project_root / 'comparison_report.json'
@@ -3030,44 +3004,10 @@ dashboard_layout = dbc.Container([
     dcc.Interval(id='security-score-interval', interval=30*1000, n_intervals=0),
 
     # ============================================================================
-    # PRIVACY DASHBOARD - Data Minimization
-    # ============================================================================
-    html.Div(id='privacy-dashboard-section', children=[
-        dbc.Card([
-            dbc.CardHeader([
-                html.Div([
-                    html.Div([
-                        html.I(className="fa fa-user-shield me-2", style={"color": "#8b5cf6"}),
-                        html.Span("Privacy Dashboard - What Your Devices Collect", className="fw-bold"),
-                    ], className="d-flex align-items-center"),
-                    html.Div([
-                        html.Small(id="privacy-last-updated", children="Last updated: Never",
-                                 className="badge bg-light text-dark me-2", style={"padding": "0.4rem 0.6rem"}),
-                        dbc.Button([
-                            html.I(className="fa fa-sync-alt me-1"),
-                            "Refresh"
-                        ], id="privacy-refresh-btn", size="sm", color="light", outline=True)
-                    ], className="d-flex align-items-center")
-                ], className="d-flex justify-content-between align-items-center w-100")
-            ], className="bg-gradient-purple text-white"),
-            dbc.CardBody([
-                # Summary Row
-                dbc.Row([
-                    dbc.Col([
-                        html.Div(id="privacy-summary-cards")
-                    ], width=12, className="mb-3")
-                ]),
-
-                # Device Privacy Table
-                dbc.Row([
-                    dbc.Col([
-                        html.H6("Device Privacy Analysis", className="text-muted mb-3"),
-                        html.Div(id="privacy-devices-table")
-                    ], width=12)
-                ])
-            ], className="p-4")
-        ], className="glass-card border-0 shadow-lg mb-4")
-    ]),
+    # PRIVACY DASHBOARD - Moved to Privacy Monitor Modal (Device Privacy tab)
+    # Privacy dashboard content is now in the Privacy Monitor modal as the "Device Privacy" tab
+    # Keeping this placeholder for backward compatibility
+    html.Div(id='privacy-dashboard-section', children=[], style={'display': 'none'}),
 
     # Privacy device detail modal
     dbc.Modal([
@@ -6486,40 +6426,61 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
-                ], label="Data Flow", tab_id="data-flow-tab")
+                ], label="Data Flow", tab_id="data-flow-tab"),
+
+                # Device Privacy Tab
+                dbc.Tab([
+                    html.Div([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6([html.I(className="fa fa-user-shield me-2 text-purple"), "Device Privacy Analysis"], className="mb-3"),
+
+                                html.P("Analyze what data your devices collect and where it goes.", className="text-muted small mb-3"),
+
+                                # Summary Cards
+                                html.Div(id="privacy-summary-cards", className="mb-4"),
+
+                                # Device Privacy Table
+                                html.H6("Device Privacy Analysis", className="mb-3"),
+                                html.Div(id="privacy-devices-table"),
+
+                                html.Hr(className="my-4"),
+
+                                # Export Section
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Export Privacy Report:", className="fw-bold mb-2"),
+                                        dbc.Select(
+                                            id='export-format-privacy',
+                                            options=[
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                            ],
+                                            value='csv',
+                                            className="mb-2"
+                                        ),
+                                        dbc.Button([
+                                            html.I(className="fa fa-download me-2"),
+                                            "Export Privacy Report"
+                                        ], id='export-privacy-report-btn', color="primary", className="w-100")
+                                    ], md=6)
+                                ], className="mb-3")
+                            ])
+                        ], className="glass-card border-0 shadow-sm")
+                    ], className="p-3")
+                ], label="Device Privacy", tab_id="device-privacy-tab")
 
             ], id="privacy-modal-tabs", active_tab="privacy-score-tab")
         ]),
         dbc.ModalFooter([
-            dbc.Row([
-                dbc.Col([
-                    html.Label("Export Format:", className="fw-bold mb-2 small"),
-                    dbc.Select(
-                        id='export-format-privacy',
-                        options=[
-                            {'label': '📄 CSV Format', 'value': 'csv'},
-                            {'label': '📋 JSON Format', 'value': 'json'},
-                            {'label': '📕 PDF Report', 'value': 'pdf'},
-                            {'label': '📊 Excel Workbook', 'value': 'xlsx'}
-                        ],
-                        value='csv',
-                        size="sm",
-                        className="mb-2"
-                    )
-                ], md=4),
-                dbc.Col([
-                    dbc.Button([
-                        html.I(className="fa fa-download me-2"),
-                        "Export Report"
-                    ], id='export-privacy-report-btn', color="primary", outline=True, className="mt-4"),
-                ], md=3),
-                dbc.Col([
-                    dbc.Button([
-                        html.I(className="fa fa-times me-2"),
-                        "Close"
-                    ], id='close-privacy-modal-btn', color="secondary", outline=True, className="mt-4")
-                ], md=3)
-            ], className="w-100")
+            html.Small(id="privacy-last-updated", children="Last updated: Never", className="text-muted me-auto"),
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh"
+            ], id="privacy-refresh-btn", size="sm", color="primary", outline=True, className="me-2"),
+            dbc.Button("Close", id='close-privacy-modal-btn', color="secondary")
         ])
     ], id="privacy-modal", size="xl", is_open=False, scrollable=True),
 
@@ -10156,8 +10117,6 @@ app.layout = html.Div([
 def get_latest_alerts(limit=10):
     """Get recent alerts without caching"""
     conn = get_db_connection()
-    if not conn:
-        return []
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -10171,14 +10130,10 @@ def get_latest_alerts(limit=10):
     except Exception as e:
         logger.error(f"Error fetching alerts: {e}")
         return []
-    finally:
-        conn.close()
 
 def get_bandwidth_stats():
     """Get bandwidth statistics"""
     conn = get_db_connection()
-    if not conn:
-        return {'total': 0, 'formatted': '0 B'}
     try:
         cursor = conn.cursor()
         # Use connections table instead of network_traffic
@@ -10194,14 +10149,10 @@ def get_bandwidth_stats():
     except Exception as e:
         logger.error(f"Error fetching bandwidth: {e}")
         return {'total': 0, 'formatted': '0 B'}
-    finally:
-        conn.close()
 
 def get_threats_blocked():
     """Get count of threats blocked"""
     conn = get_db_connection()
-    if not conn:
-        return 0
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) as count FROM alerts WHERE severity IN ('high', 'critical') AND timestamp > datetime('now', '-24 hours')")
@@ -10210,14 +10161,10 @@ def get_threats_blocked():
     except Exception as e:
         logger.error(f"Error fetching threats: {e}")
         return 0
-    finally:
-        conn.close()
 
 def get_device_status(device_ip, hours=24):
     """Get device alert status"""
     conn = get_db_connection()
-    if not conn:
-        return 'normal'
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -10233,8 +10180,6 @@ def get_device_status(device_ip, hours=24):
     except Exception as e:
         logger.error(f"Error fetching device status: {e}")
         return 'normal'
-    finally:
-        conn.close()
 
 def get_device_baseline(device_ip):
     """Get device baseline (placeholder)"""
@@ -11116,12 +11061,7 @@ def handle_toast_detail_modal(detail_clicks, history_detail_clicks, close_clicks
             from utils.toast_manager import ToastHistoryManager
             import sqlite3
 
-            db_path = ToastHistoryManager.get_db_path()
-            if not db_path:
-                raise Exception("Database path not found")
-
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -11131,7 +11071,6 @@ def handle_toast_detail_modal(detail_clicks, history_detail_clicks, close_clicks
             """, (toast_id,))
 
             row = cursor.fetchone()
-            conn.close()
 
             if row:
                 # Build category badge for summary
@@ -11375,34 +11314,22 @@ def clear_toast_history(n_clicks):
     if n_clicks:
         try:
             # Get database connection and clear history
-            db_path = ToastHistoryManager.get_db_path()
-            if db_path:
-                import sqlite3
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM toast_history")
-                deleted_count = cursor.rowcount
-                conn.commit()
-                conn.close()
+            import sqlite3
+            conn = db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM toast_history")
+            deleted_count = cursor.rowcount
+            conn.commit()
 
-                return (
-                    ToastManager.success(
-                        f"Cleared {deleted_count} toast history records",
-                        category="system",
-                        duration="short"
-                    ),
-                    "all",
-                    "all"
-                )
-            else:
-                return (
-                    ToastManager.error(
-                        "Could not connect to database",
-                        category="system"
-                    ),
-                    "all",
-                    "all"
-                )
+            return (
+                ToastManager.success(
+                    f"Cleared {deleted_count} toast history records",
+                    category="system",
+                    duration="short"
+                ),
+                "all",
+                "all"
+            )
         except Exception as e:
             logger.error(f"Error clearing toast history: {e}")
             return (
@@ -11873,7 +11800,7 @@ def load_email_settings(pathname):
 
     # Fetch user preferences
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Get email enabled preference
@@ -11885,8 +11812,6 @@ def load_email_settings(pathname):
         cursor.execute("SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'email_recipient'", (current_user.id,))
         result = cursor.fetchone()
         recipient_email = result[0] if result else os.environ.get('EMAIL_RECIPIENT_EMAIL', '')
-
-        conn.close()
 
     except Exception as e:
         logger.error(f"Error loading email preferences: {e}")
@@ -11909,7 +11834,7 @@ def save_email_settings(n_clicks, enabled, recipient_email):
         raise dash.exceptions.PreventUpdate
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Save enabled state
@@ -11928,7 +11853,6 @@ def save_email_settings(n_clicks, enabled, recipient_email):
             """, (current_user.id, 'email_recipient', recipient_email))
 
         conn.commit()
-        conn.close()
 
         logger.info(f"Email settings for user {current_user.id} - Enabled: {enabled}, Recipient: {recipient_email}")
 
@@ -12150,8 +12074,7 @@ def update_security_summary_report(ws_message):
         security_summary = security_checker.get_network_security_score(devices) if devices else None
 
         # Query database for alert statistics
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Alert statistics by severity (last 24 hours)
@@ -12199,7 +12122,6 @@ def update_security_summary_report(ws_message):
         ''')
         top_alerting_devices = cursor.fetchall()
 
-        conn.close()
 
         # Determine overall risk color
         if security_summary:
@@ -13242,8 +13164,7 @@ def background_thread():
                 data_payload['connection_count'] = cursor.fetchone()[0]
             except sqlite3.Error as e:
                 logger.error(f"Error fetching header stats for WebSocket: {e}")
-            finally:
-                conn.close()
+                pass
 
         devices_with_status = get_devices_with_status()
         connections_for_graph = db_manager.get_recent_connections(hours=1)
@@ -13314,8 +13235,7 @@ def background_thread():
                 data_payload['recent_alerts'] = df_alerts.to_dict('records')
             except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
                 logger.error(f"Error fetching alerts for WebSocket: {e}")
-            finally:
-                conn.close()
+                pass
 
         data_payload['alert_timeline'] = db_manager.get_alert_timeline(days=7)
         data_payload['anomaly_distribution'] = db_manager.get_anomaly_distribution(hours=24)
@@ -13333,8 +13253,6 @@ def background_thread():
                 data_payload['total_alerts_db'] = cursor.fetchone()[0]
             except sqlite3.Error:
                 pass
-            finally:
-                conn.close()
 
         model_dir = project_root / 'data' / 'models'
         models_list = []
@@ -13572,7 +13490,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
         user_agent = request.headers.get('User-Agent', 'Unknown')
 
         # Query last login from history (before recording current one)
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
         cursor.execute("""
             SELECT login_timestamp, ip_address, login_method
@@ -13590,7 +13508,6 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
             VALUES (?, ?, ?, ?, ?, ?)
         """, (user.id, datetime.now(), user_ip, user_agent, 'password', 1))
         conn.commit()
-        conn.close()
 
         # Create personalized welcome message
         if last_login:
@@ -14040,11 +13957,10 @@ def validate_email_realtime(email):
             validate_email(email, check_deliverability=False)
 
             # Check if email already exists
-            conn = sqlite3.connect(DB_PATH)
+            conn = db_manager.conn
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
             existing = cursor.fetchone()
-            conn.close()
 
             if existing:
                 error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
@@ -14111,11 +14027,10 @@ def validate_username_realtime(username):
         ]), error_style
 
     # Check availability
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_manager.conn
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
     existing = cursor.fetchone()
-    conn.close()
 
     if existing:
         error_style = {**base_style, "borderColor": "var(--danger-color)", "boxShadow": "0 0 0 0.2rem rgba(239, 68, 68, 0.25)"}
@@ -15381,7 +15296,7 @@ def save_preferences(n_clicks, refresh_interval, retention, threshold, display_d
     user_id = current_user.id
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Insert or update preferences
@@ -15408,7 +15323,6 @@ def save_preferences(n_clicks, refresh_interval, retention, threshold, display_d
             """, (user_id, key, value))
 
         conn.commit()
-        conn.close()
 
         toast = ToastManager.success(
             "Preferences Saved",
@@ -15575,12 +15489,11 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
 
         elif 'bulk-delete-btn' in button_id:
             # Delete selected devices
-            conn = sqlite3.connect(DB_PATH)
+            conn = db_manager.conn
             cursor = conn.cursor()
             for ip in selected_ips:
                 cursor.execute("DELETE FROM devices WHERE device_ip = ?", (ip,))
             conn.commit()
-            conn.close()
             toast = ToastManager.warning(
             "Bulk Delete",
             detail_message=f"Deleted {count} device(s)"
@@ -15611,8 +15524,6 @@ def bulk_trust_all_unknown(n_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            raise Exception("Database unavailable")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -15621,7 +15532,6 @@ def bulk_trust_all_unknown(n_clicks):
         ''')
         count = cursor.rowcount
         conn.commit()
-        conn.close()
 
         toast = ToastManager.success(
             "Bulk Trust Complete",
@@ -15651,8 +15561,6 @@ def bulk_block_suspicious(n_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            raise Exception("Database unavailable")
 
         cursor = conn.cursor()
         # Block devices that have critical/high alerts
@@ -15665,7 +15573,6 @@ def bulk_block_suspicious(n_clicks):
         ''')
         count = cursor.rowcount
         conn.commit()
-        conn.close()
 
         toast = ToastManager.error(
             "Bulk Block Complete",
@@ -16100,8 +16007,6 @@ def update_privacy_score(n):
     """Update overall privacy score."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -16111,7 +16016,6 @@ def update_privacy_score(n):
         ''')
 
         concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
-        conn.close()
 
         high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
         total_devices = sum(concerns.values())
@@ -16158,8 +16062,6 @@ def update_privacy_modal_score(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", 0, "secondary", "Database unavailable", "text-center text-muted fw-bold", [], []
 
         cursor = conn.cursor()
 
@@ -16192,7 +16094,6 @@ def update_privacy_modal_score(is_open):
         ''')
         external_conn = cursor.fetchone()['count']
 
-        conn.close()
 
         high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
         total_devices = sum(concerns.values()) or 1
@@ -16264,8 +16165,6 @@ def update_cloud_upload_stats(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0 B", "0", "0"
 
         cursor = conn.cursor()
 
@@ -16299,7 +16198,6 @@ def update_cloud_upload_stats(is_open):
         ''')
         suspicious = cursor.fetchone()['count']
 
-        conn.close()
 
         return upload_str, str(services), str(suspicious)
 
@@ -16333,8 +16231,6 @@ def update_tracker_stats(is_open, refresh_clicks, search_text, privacy_filter):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0", "0", "0", [], dash.no_update
 
         cursor = conn.cursor()
 
@@ -16394,7 +16290,6 @@ def update_tracker_stats(is_open, refresh_clicks, search_text, privacy_filter):
             blocked = 0
         pending = total_detected - blocked
 
-        conn.close()
 
         categories = html.Div([
             html.Div([
@@ -16440,8 +16335,6 @@ def update_dataflow_stats(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0 B", "0 B", 0, 0, []
 
         cursor = conn.cursor()
 
@@ -16482,7 +16375,6 @@ def update_dataflow_stats(is_open):
         ''')
         destinations = cursor.fetchall()
 
-        conn.close()
 
         dest_list = []
         icons = [("fa-globe", "text-info"), ("fa-cloud", "text-primary"),
@@ -16519,8 +16411,6 @@ def update_smarthome_hubs(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -16539,7 +16429,6 @@ def update_smarthome_hubs(is_open):
             LIMIT 6
         ''')
         hubs = cursor.fetchall()
-        conn.close()
 
         if not hubs:
             return dbc.Alert([
@@ -16599,8 +16488,6 @@ def update_smarthome_ecosystems(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -16622,7 +16509,6 @@ def update_smarthome_ecosystems(is_open):
         ''')
         ecosystems = cursor.fetchall()
         total = sum([e['count'] for e in ecosystems])
-        conn.close()
 
         if not ecosystems or total == 0:
             return dbc.Alert("No devices detected yet", color="info")
@@ -16677,8 +16563,6 @@ def update_smarthome_rooms(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -16700,7 +16584,6 @@ def update_smarthome_rooms(is_open):
             ORDER BY count DESC
         ''')
         rooms = cursor.fetchall()
-        conn.close()
 
         room_icons = {
             "Living Room": ("fa-couch", "text-info"),
@@ -16783,8 +16666,6 @@ def update_firmware_stats(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0", "0", "0", "0"
 
         cursor = conn.cursor()
 
@@ -16804,7 +16685,6 @@ def update_firmware_stats(is_open):
                 critical = cursor.fetchone()['count']
 
                 unknown = total - up_to_date - updates_available - critical
-                conn.close()
                 return str(up_to_date), str(updates_available), str(critical), str(max(0, unknown))
         except:
             pass
@@ -16821,7 +16701,6 @@ def update_firmware_stats(is_open):
         up_to_date = with_firmware
         unknown = total - with_firmware
 
-        conn.close()
 
         return str(up_to_date), "0", "0", str(max(0, unknown))
 
@@ -16842,8 +16721,6 @@ def update_eol_devices(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -16858,7 +16735,6 @@ def update_eol_devices(is_open):
             LIMIT 5
         ''')
         eol_devices = cursor.fetchall()
-        conn.close()
 
         if not eol_devices:
             return dbc.Alert([
@@ -16908,8 +16784,6 @@ def get_non_eol_devices():
     """Helper function to get non-EOL devices for replacement dropdown."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return []
         cursor = conn.cursor()
         cursor.execute('''
             SELECT device_ip, device_name, device_type
@@ -16918,7 +16792,6 @@ def get_non_eol_devices():
             AND (device_type NOT LIKE '%legacy%' AND device_type NOT LIKE '%old%')
         ''')
         devices = cursor.fetchall()
-        conn.close()
         return [{'label': f"{d['device_name'] or d['device_ip']} ({d['device_type']})", 'value': d['device_ip']} for d in devices]
     except Exception as e:
         logger.error(f"Error fetching non-EOL devices: {e}")
@@ -17003,8 +16876,6 @@ def update_firmware_updates_list(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -17017,7 +16888,6 @@ def update_firmware_updates_list(is_open):
             LIMIT 5
         ''')
         devices = cursor.fetchall()
-        conn.close()
 
         if not devices:
             return dbc.Alert([
@@ -17079,8 +16949,6 @@ def update_cloud_uploads_section(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -17092,7 +16960,6 @@ def update_cloud_uploads_section(is_open):
             LIMIT 10
         ''')
         connections = cursor.fetchall()
-        conn.close()
 
         if not connections:
             return dbc.Alert([
@@ -17149,8 +17016,7 @@ def update_tracker_detection_section(is_open, n_clicks):
 
     try:
         # Query database for tracker/external connections
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Get external connections that could be trackers (last 24 hours)
@@ -17172,7 +17038,6 @@ def update_tracker_detection_section(is_open, n_clicks):
         ''')
 
         tracker_connections = cursor.fetchall()
-        conn.close()
 
         if not tracker_connections:
             toast = ToastManager.info(
@@ -17253,8 +17118,6 @@ def update_privacy_score_metric(n):
     """Update privacy score in header metrics."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—"
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -17264,7 +17127,6 @@ def update_privacy_score_metric(n):
         ''')
 
         concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
-        conn.close()
 
         high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
         total_devices = sum(concerns.values())
@@ -17288,8 +17150,6 @@ def update_network_health(n):
     """Update network health status based on activity and alerts."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", "fa fa-wifi fa-2x mb-2 text-muted"
 
         cursor = conn.cursor()
 
@@ -17309,7 +17169,6 @@ def update_network_health(n):
         ''')
         critical_alerts = cursor.fetchone()['count']
 
-        conn.close()
 
         # Determine health status
         if critical_alerts > 5:
@@ -17343,15 +17202,12 @@ def update_firmware_status(n):
     """Update firmware status overview."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) as total FROM device_firmware_status')
         total = cursor.fetchone()['total']
 
         if total == 0:
-            conn.close()
             return dbc.Alert([
                 html.I(className="fa fa-microchip me-2"),
                 "Firmware tracking will appear as devices are discovered and classified."
@@ -17363,7 +17219,6 @@ def update_firmware_status(n):
         cursor.execute('SELECT COUNT(*) as eol FROM device_firmware_status WHERE is_eol = 1')
         eol_devices = cursor.fetchone()['eol']
 
-        conn.close()
 
         up_to_date = total - updates_available - eol_devices
 
@@ -17406,8 +17261,6 @@ def update_threat_scenarios(n):
     """Display threat scenarios from educational library."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -17418,7 +17271,6 @@ def update_threat_scenarios(n):
         ''')
 
         scenarios = cursor.fetchall()
-        conn.close()
 
         if not scenarios:
             return dbc.Alert([
@@ -17472,8 +17324,6 @@ def update_security_tips(n):
     """Display security tips and best practices."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -17496,7 +17346,6 @@ def update_security_tips(n):
         ''')
 
         tips = cursor.fetchall()
-        conn.close()
 
         if not tips:
             return dbc.Alert([
@@ -17860,8 +17709,6 @@ def update_model_accuracy_display(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database unavailable", color="warning")
 
         cursor = conn.cursor()
 
@@ -17875,7 +17722,6 @@ def update_model_accuracy_display(is_open):
             ORDER BY f1_score DESC
         ''')
         models = cursor.fetchall()
-        conn.close()
 
         if not models:
             return dbc.Alert([
@@ -18122,7 +17968,7 @@ def load_preferences(is_open):
     }
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Load all preferences for user
@@ -18133,7 +17979,6 @@ def load_preferences(is_open):
         """, (user_id,))
 
         results = cursor.fetchall()
-        conn.close()
 
         # Update defaults with saved preferences
         for key, value in results:
@@ -18315,7 +18160,6 @@ def update_activity_timeline(is_open, hours, refresh_clicks):
         """
         cursor.execute(query)
         results = cursor.fetchall()
-        conn.close()
 
         if not results:
             return ChartFactory.create_empty_chart('No network activity recorded in this time range'), toast
@@ -18372,7 +18216,6 @@ def update_device_activity_timeline(is_open, refresh_clicks):
         device_results = cursor.fetchall()
 
         if not device_results:
-            conn.close()
             return ChartFactory.create_empty_chart('No device activity data')
 
         # Get hourly activity for each top device
@@ -18404,7 +18247,6 @@ def update_device_activity_timeline(is_open, refresh_clicks):
                     'color': colors[idx % len(colors)]
                 })
 
-        conn.close()
 
         # Create multi-line chart using ChartFactory
         fig = ChartFactory.create_multi_line_chart(
@@ -18448,7 +18290,6 @@ def update_connection_patterns_timeline(is_open, refresh_clicks):
         """
         cursor.execute(query)
         results = cursor.fetchall()
-        conn.close()
 
         if not results:
             return dbc.Alert("No connection pattern data available in the last 24 hours", color="info", className="m-3")
@@ -18529,7 +18370,6 @@ def update_anomaly_timeline(is_open, refresh_clicks):
         results = cursor.fetchall()
 
         if not results:
-            conn.close()
             return dbc.Alert([
                 html.I(className="fa fa-check-circle me-2"),
                 "No anomalies detected in the last 7 days"
@@ -18555,7 +18395,6 @@ def update_anomaly_timeline(is_open, refresh_clicks):
         """
         cursor.execute(query_sources)
         top_sources = cursor.fetchall()
-        conn.close()
 
         # Create stacked bar chart for severity levels
         fig = ChartFactory.create_stacked_bar_chart(
@@ -19876,8 +19715,6 @@ def update_segmentation_overview(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", "—", "—", "—", {}
 
         cursor = conn.cursor()
 
@@ -19918,7 +19755,6 @@ def update_segmentation_overview(is_open, refresh_clicks):
             legend_orientation='h'
         )
 
-        conn.close()
 
         return (
             str(total_segments),
@@ -19946,8 +19782,6 @@ def update_segments_list(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -19964,7 +19798,6 @@ def update_segments_list(is_open, refresh_clicks):
             ORDER BY ns.security_level DESC, ns.segment_name
         ''')
         segments = cursor.fetchall()
-        conn.close()
 
         if not segments:
             return dbc.Alert([
@@ -20025,13 +19858,10 @@ def populate_segment_filter(is_open):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return []
 
         cursor = conn.cursor()
         cursor.execute('SELECT id, segment_name FROM network_segments ORDER BY segment_name')
         segments = cursor.fetchall()
-        conn.close()
 
         options = [{'label': 'All Segments', 'value': 'all'}]
         options.extend([
@@ -20060,8 +19890,6 @@ def update_device_mapping(is_open, segment_filter, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
 
@@ -20102,7 +19930,6 @@ def update_device_mapping(is_open, segment_filter, refresh_clicks):
             cursor.execute(query)
 
         mappings = cursor.fetchall()
-        conn.close()
 
         if not mappings:
             return dbc.Alert([
@@ -20166,8 +19993,6 @@ def update_violations(is_open, hours, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger"), None
 
         cursor = conn.cursor()
 
@@ -20221,7 +20046,6 @@ def update_violations(is_open, hours, refresh_clicks):
         '''
         cursor.execute(query_table)
         violations = cursor.fetchall()
-        conn.close()
 
         if not violations:
             return timeline_chart, dbc.Alert([
@@ -20288,8 +20112,6 @@ def update_vlan_recommendations(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
 
@@ -20319,7 +20141,6 @@ def update_vlan_recommendations(is_open, refresh_clicks):
         ''')
         recommended_segments = cursor.fetchall()
 
-        conn.close()
 
         if not unsegmented_devices:
             return dbc.Alert([
@@ -20554,7 +20375,7 @@ def save_firmware_settings(n_clicks, update_policy, update_schedule, notificatio
         conn = get_db_connection()
         if conn:
             # Settings would be saved here
-            conn.close()
+            pass
 
         toast = ToastManager.success(
             "Settings Saved",
@@ -20644,7 +20465,6 @@ def block_all_trackers(n_clicks, pending_count):
             cursor = conn.cursor()
             # This would typically mark trackers as blocked in the database
             # For now, just close the connection
-            conn.close()
 
         # Update the counts (move pending to blocked)
         new_blocked = pending  # Simulating all pending trackers are now blocked
@@ -20703,7 +20523,6 @@ def check_firmware_updates(n_clicks):
         cursor = conn.cursor()
         cursor.execute('SELECT COUNT(*) as total FROM devices')
         total = cursor.fetchone()['total']
-        conn.close()
 
         # Show result
         updates_list = dbc.Alert([
@@ -20801,7 +20620,6 @@ def refresh_smarthome(n_clicks):
             "No automations detected yet. Click 'Create Automation' to get started!"
         ], color="info")
 
-        conn.close()
 
         toast = ToastManager.success(
             "Refreshed",
@@ -20891,7 +20709,6 @@ def refresh_firmware(n_clicks):
             ], color="success")
         ])
 
-        conn.close()
 
         toast = ToastManager.success(
             "Refreshed",
@@ -21187,8 +21004,6 @@ def import_devices(contents, filename):
             df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
 
             conn = get_db_connection()
-            if not conn:
-                raise Exception("Database connection failed")
 
             cursor = conn.cursor()
 
@@ -21214,15 +21029,12 @@ def import_devices(contents, filename):
                     continue
 
             conn.commit()
-            conn.close()
 
         elif filename.endswith('.json'):
             # Parse JSON
             import_data = json.loads(decoded.decode('utf-8'))
 
             conn = get_db_connection()
-            if not conn:
-                raise Exception("Database connection failed")
 
             cursor = conn.cursor()
 
@@ -21247,7 +21059,6 @@ def import_devices(contents, filename):
                     continue
 
             conn.commit()
-            conn.close()
         else:
             raise Exception("Unsupported file format. Please upload CSV or JSON.")
 
@@ -21294,8 +21105,7 @@ def update_email_history(ws_message):
         recipient_email = os.getenv('ALERT_RECIPIENT_EMAIL', os.getenv('EMAIL_SMTP_USER', 'Not configured'))
 
         # Query database for recent alerts that would trigger emails
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = db_manager.conn
         cursor = conn.cursor()
 
         # Get recent critical/high alerts (simulating sent emails)
@@ -21312,7 +21122,6 @@ def update_email_history(ws_message):
             LIMIT 10
         ''')
         recent_alerts = cursor.fetchall()
-        conn.close()
 
         if not recent_alerts:
             return dbc.Alert([
@@ -21851,7 +21660,7 @@ def download_full_logs(n_clicks):
         # Get database statistics
         log_lines.append("=== DATABASE STATISTICS ===")
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("SELECT COUNT(*) FROM devices")
@@ -21865,8 +21674,6 @@ def download_full_logs(n_clicks):
             cursor.execute("SELECT COUNT(*) FROM alerts")
             alert_count = cursor.fetchone()[0]
             log_lines.append(f"Total Alerts: {alert_count}")
-
-            conn.close()
         except Exception as e:
             log_lines.append(f"Database error: {str(e)}")
 
@@ -21875,8 +21682,7 @@ def download_full_logs(n_clicks):
 
         # Get recent alerts
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -21895,7 +21701,6 @@ def download_full_logs(n_clicks):
             else:
                 log_lines.append("No alerts found")
 
-            conn.close()
         except Exception as e:
             log_lines.append(f"Error retrieving alerts: {str(e)}")
 
@@ -22561,7 +22366,6 @@ def populate_forensic_device_select(is_open):
             LIMIT 50
         """)
         devices = cursor.fetchall()
-        conn.close()
 
         options = [
             {"label": f"{row[0]} - {row[1] or 'Unknown'}", "value": row[0]}
@@ -22662,7 +22466,6 @@ def update_forensic_timeline(device_ip, hours, refresh_clicks):
 
         cursor.execute(query_timeline, (device_ip,))
         timeline_data = cursor.fetchall()
-        conn.close()
 
         if not timeline_data:
             empty_fig = ChartFactory.create_empty_chart(f'No events found for {device_ip}')
@@ -22746,7 +22549,6 @@ def update_forensic_attack_patterns(device_ip, hours):
 
         cursor.execute(query_anomalies, (device_ip,))
         anomaly_patterns = cursor.fetchall()
-        conn.close()
 
         if not patterns and not anomaly_patterns:
             return dbc.Alert("No attack patterns detected for this device", color="success", className="m-3")
@@ -22924,7 +22726,6 @@ def update_forensic_event_log(device_ip, hours, active_tab, refresh_clicks, log_
         # Sort all events by timestamp descending
         events = sorted(events, key=lambda x: x[0] if x[0] else '', reverse=True)
 
-        conn.close()
 
         # Apply severity filter
         if severity_filter and severity_filter != 'all':
@@ -23091,7 +22892,6 @@ def export_forensic_report(n_clicks, device_ip, hours, report_format, sections):
             alerts = cursor.fetchall()
             report_data['alerts'] = [dict(a) for a in alerts]
 
-        conn.close()
 
         # Generate file content based on format
         filename = f"forensic_report_{device_ip}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -23256,8 +23056,6 @@ def update_compliance_requirements(is_open, active_tab, refresh_clicks, search_t
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return [], dash.no_update
 
         cursor = conn.cursor()
 
@@ -23292,7 +23090,6 @@ def update_compliance_requirements(is_open, active_tab, refresh_clicks, search_t
         ''')
         device_data = cursor.fetchone()
 
-        conn.close()
 
         # Extract metrics with defaults
         security_score = (health_data['overall_security_score'] or 0) if health_data else 0
@@ -23482,8 +23279,6 @@ def update_auto_response_overview(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", "—", "—", "—", {}, timestamp_display, timestamp_str, toast
 
         cursor = conn.cursor()
 
@@ -23543,7 +23338,6 @@ def update_auto_response_overview(is_open, refresh_clicks):
         '''
         cursor.execute(query_timeline)
         timeline_data = cursor.fetchall()
-        conn.close()
 
         # Create timeline chart
         if timeline_data:
@@ -23597,8 +23391,6 @@ def update_alert_rules_table(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -23608,7 +23400,6 @@ def update_alert_rules_table(is_open, refresh_clicks):
             ORDER BY is_enabled DESC, severity DESC, name
         ''')
         rules = cursor.fetchall()
-        conn.close()
 
         if not rules:
             return dbc.Alert([
@@ -23679,8 +23470,6 @@ def update_auto_response_log(is_open, hours, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
 
@@ -23694,7 +23483,6 @@ def update_auto_response_log(is_open, hours, refresh_clicks):
         '''
         cursor.execute(query)
         alerts = cursor.fetchall()
-        conn.close()
 
         if not alerts:
             return dbc.Alert([
@@ -23760,8 +23548,6 @@ def update_rule_analytics(is_open, refresh_clicks):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return dbc.Alert("Database connection failed", color="danger")
 
         cursor = conn.cursor()
         cursor.execute('''
@@ -23771,7 +23557,6 @@ def update_rule_analytics(is_open, refresh_clicks):
             LIMIT 10
         ''')
         rules = cursor.fetchall()
-        conn.close()
 
         if not rules:
             return dbc.Alert("No rule analytics available", color="info")
@@ -24414,7 +24199,6 @@ def update_benchmark_overview(is_open, refresh_clicks):
         cursor.execute('SELECT COUNT(DISTINCT device_ip) FROM iot_protocols WHERE encryption_used = 1')
         encrypted_devices = cursor.fetchone()[0] or 0
 
-        conn.close()
 
         # Calculate scores (0-100)
         trust_score = (trusted_devices / total_devices) * 100 if total_devices > 0 else 0
@@ -24499,7 +24283,6 @@ def update_benchmark_metrics(is_open, refresh_clicks):
         seg_score = min(100, segments * 25)
         metrics.append(('Network Segmentation', seg_score, 65, f"{segments} active segments"))
 
-        conn.close()
 
         # Build comparison cards
         comparison_cards = []
@@ -24604,7 +24387,6 @@ def update_benchmark_best_practices(is_open, refresh_clicks):
         updates_needed = cursor.fetchone()[0] or 0
         practices.append(('Firmware Update Management', updates_needed < total * 0.2, f"{updates_needed} devices need updates", "Keep firmware up to date"))
 
-        conn.close()
 
         # Build checklist
         checklist_items = []
@@ -24751,7 +24533,6 @@ def update_benchmark_recommendations(is_open, refresh_clicks):
                 ]
             })
 
-        conn.close()
 
         if not recommendations:
             return dbc.Alert([
@@ -25384,7 +25165,6 @@ def update_geographic_threat_map(n, refresh_clicks):
         ''')
 
         threats = cursor.fetchall()
-        conn.close()
 
         if not threats:
             fig = go.Figure()
@@ -25510,8 +25290,6 @@ def update_threat_map_top_countries(is_open, refresh_clicks, n):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("Failed to connect to database", className="text-danger text-center py-4")
 
         cursor = conn.cursor()
 
@@ -25529,7 +25307,6 @@ def update_threat_map_top_countries(is_open, refresh_clicks, n):
         ''')
 
         threats = cursor.fetchall()
-        conn.close()
 
         if not threats:
             return html.P("No external threats detected in the last hour", className="text-muted text-center py-4")
@@ -25611,8 +25388,6 @@ def update_threat_map_timeline(is_open, refresh_clicks, n):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("Failed to connect to database", className="text-danger text-center py-4")
 
         cursor = conn.cursor()
 
@@ -25632,7 +25407,6 @@ def update_threat_map_timeline(is_open, refresh_clicks, n):
         ''')
 
         hourly_data = cursor.fetchall()
-        conn.close()
 
         if not hourly_data:
             return html.P("No attack data available for the last 24 hours", className="text-muted text-center py-4")
@@ -25698,8 +25472,6 @@ def update_device_risk_heatmap(is_open, refresh_clicks, n):
 
     try:
         conn = get_db_connection()
-        if not conn:
-            return go.Figure(), "0", "0", "0", "0", dash.no_update
 
         cursor = conn.cursor()
 
@@ -25720,7 +25492,6 @@ def update_device_risk_heatmap(is_open, refresh_clicks, n):
         ''')
 
         devices = cursor.fetchall()
-        conn.close()
 
         if not devices:
             return go.Figure(), "0", "0", "0", "0"
@@ -25874,7 +25645,6 @@ def update_risk_device_details(is_open, risk_filter, refresh_clicks):
             LIMIT 100
         ''')
         devices = cursor.fetchall()
-        conn.close()
 
         if not devices:
             return dbc.Alert([
@@ -25991,7 +25761,6 @@ def update_risk_factors(is_open, refresh_clicks):
         cursor.execute('SELECT COUNT(DISTINCT device_ip) FROM device_vulnerabilities_detected WHERE status = "active"')
         devices_with_vulns = cursor.fetchone()[0] or 0
 
-        conn.close()
 
         # Risk factors bar chart using ChartFactory
         factors_fig = ChartFactory.create_bar_chart(
@@ -26063,7 +25832,6 @@ def update_risk_remediation(is_open, refresh_clicks):
             LIMIT 50
         ''')
         devices = cursor.fetchall()
-        conn.close()
 
         # Calculate risk and identify high-risk devices
         high_risk_devices = []
@@ -26150,8 +25918,6 @@ def update_traffic_flow_sankey(n):
     """Update Sankey diagram showing network traffic flow."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return go.Figure()
 
         cursor = conn.cursor()
 
@@ -26171,7 +25937,6 @@ def update_traffic_flow_sankey(n):
         ''')
 
         flows = cursor.fetchall()
-        conn.close()
 
         if not flows:
             fig = go.Figure()
@@ -26263,8 +26028,6 @@ def update_attack_surface(n):
     """Analyze and display attack surface - potential entry points."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("Unable to analyze attack surface", className="text-muted")
 
         cursor = conn.cursor()
         vulnerabilities = []
@@ -26328,7 +26091,6 @@ def update_attack_surface(n):
                 ])
             ], className="mb-3 border-info"))
 
-        conn.close()
 
         if not vulnerabilities:
             return dbc.Alert([
@@ -26526,7 +26288,6 @@ def update_compliance_dashboard(n, refresh_clicks):
         else:
             iot_checks.append(("Network Segmentation", "⚠ WARNING", "warning", "Review network segmentation"))
 
-        conn.close()
 
         # Calculate overall score
         total_score = gdpr_score + nist_score + iot_score
@@ -26601,8 +26362,6 @@ def update_automated_response_dashboard(n):
     """Display automated security actions taken by the system."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0", "0", "N/A", "Database error"
 
         cursor = conn.cursor()
 
@@ -26713,7 +26472,6 @@ def update_automated_response_dashboard(n):
         else:
             log_display = dbc.Alert("No automated actions recorded yet.", color="info")
 
-        conn.close()
 
         return str(blocked_count), str(alerts_count), last_action, log_display
 
@@ -26736,8 +26494,6 @@ def update_vulnerability_scanner(n):
     """Scan devices for known vulnerabilities and security issues."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "0", "0"
 
         cursor = conn.cursor()
 
@@ -26838,7 +26594,6 @@ def update_vulnerability_scanner(n):
                 vuln['device_name'] = device['device_name'] or device['device_ip']
                 vulnerabilities.append(vuln)
 
-        conn.close()
 
         # Count vulnerabilities by severity
         critical_count = len([v for v in vulnerabilities if v['severity'] == 'critical'])
@@ -27159,8 +26914,6 @@ def update_benchmark_comparison(n):
     """Compare network security metrics against industry standards."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "Database error"
 
         cursor = conn.cursor()
 
@@ -27174,7 +26927,6 @@ def update_benchmark_comparison(n):
         cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_blocked = 1')
         blocked_devices = cursor.fetchone()['count']
 
-        conn.close()
 
         # Industry benchmarks (simulated)
         benchmarks = [
@@ -27321,7 +27073,6 @@ def update_performance_analytics(n):
         ''')
         perf_data = cursor.fetchall()
 
-        conn.close()
 
         if perf_data:
             fig = go.Figure()
@@ -27369,8 +27120,6 @@ def update_threat_forecast(n):
     """AI-powered threat predictions based on historical patterns."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("Unable to generate forecast", className="text-muted small")
 
         cursor = conn.cursor()
 
@@ -27398,7 +27147,6 @@ def update_threat_forecast(n):
         ''')
         common_attacks = cursor.fetchall()
 
-        conn.close()
 
         # Simple prediction logic based on trends
         predictions = []
@@ -27467,8 +27215,6 @@ def update_network_stats(n):
     """Update network activity card with active devices and connection counts."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", "—"
 
         cursor = conn.cursor()
 
@@ -27481,7 +27227,6 @@ def update_network_stats(n):
         connections = cursor.fetchone()['count']
         bandwidth = f"{connections//1000}K" if connections >= 1000 else str(connections)
 
-        conn.close()
         return str(device_count), bandwidth
     except Exception as e:
         logger.error(f"Error updating network stats: {e}")
@@ -27496,8 +27241,6 @@ def update_security_status(n):
     """Update security status card."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return "—", "—"
 
         cursor = conn.cursor()
 
@@ -27520,7 +27263,6 @@ def update_security_status(n):
         cursor.execute('SELECT MAX(timestamp) as last_scan FROM connections')
         last_scan = cursor.fetchone()['last_scan']
 
-        conn.close()
 
         # Format score
         score_text = f"{security_score}/100"
@@ -27551,8 +27293,6 @@ def update_recent_activity(n):
     """Update recent activity list."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("No recent activity", className="text-muted text-center mb-0")
 
         cursor = conn.cursor()
         activities = []
@@ -27604,7 +27344,6 @@ def update_recent_activity(n):
                 html.Span(f" completed {time_ago}", className="text-muted")
             ], className="mb-0"))
 
-        conn.close()
 
         return activities if activities else html.P("No recent activity", className="text-muted text-center mb-0")
     except Exception as e:
@@ -27619,8 +27358,6 @@ def update_recommendations(n):
     """Update security recommendations."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("No recommendations", className="text-muted text-center mb-0")
 
         cursor = conn.cursor()
         recommendations = []
@@ -27659,7 +27396,6 @@ def update_recommendations(n):
                 html.Span("System is secure. Keep monitoring active.", className="small")
             ], className="mb-0"))
 
-        conn.close()
         return recommendations
     except Exception as e:
         logger.error(f"Error updating recommendations: {e}")
@@ -27689,8 +27425,6 @@ def update_live_threat_feed(n):
     """Update live threat feed with recent security events."""
     try:
         conn = get_db_connection()
-        if not conn:
-            return html.P("No threats detected", className="text-muted text-center mb-0 py-3")
 
         cursor = conn.cursor()
 
@@ -27719,7 +27453,6 @@ def update_live_threat_feed(n):
         ''')
 
         threats = cursor.fetchall()
-        conn.close()
 
         if not threats:
             return html.P("No threats detected", className="text-success text-center mb-0 py-3 small")
@@ -27906,7 +27639,6 @@ def quick_clear_cache(n):
                 cursor.execute('DELETE FROM alerts WHERE timestamp < datetime("now", "-7 days")')
                 deleted = cursor.rowcount
                 conn.commit()
-                conn.close()
                 logger.info(f"Cleared {deleted} old alerts from cache")
                 return True, f"Cache cleared! Removed {deleted} old alerts."
             return True, "Database connection failed"
@@ -27951,7 +27683,6 @@ def quick_diagnostics(n):
             conn = get_db_connection()
             if conn:
                 diagnostics.append("✓ Database: OK")
-                conn.close()
             else:
                 diagnostics.append("✗ Database: FAILED")
 
@@ -27989,8 +27720,6 @@ def quick_security_report(n):
         try:
             logger.info("Generating detailed security report")
             conn = get_db_connection()
-            if not conn:
-                return None, True, "Database connection failed"
 
             import io
             output = io.StringIO()
@@ -28030,7 +27759,6 @@ def quick_security_report(n):
             for alert in alerts:
                 output.write(f"[{alert['timestamp']}] {alert['severity'].upper()}: {alert['device_ip']} - {alert['explanation']}\n")
 
-            conn.close()
 
             filename = f"iotsentinel_security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             logger.info(f"Security report generated: {filename}")
@@ -28064,7 +27792,6 @@ def quick_block_unknown(n):
                 cursor.execute('UPDATE devices SET is_blocked = 1 WHERE is_trusted = 0')
                 blocked = cursor.rowcount
                 conn.commit()
-                conn.close()
                 logger.info(f"Blocked {blocked} unknown devices")
                 return True, f"Blocked {blocked} unknown devices successfully!"
             return True, "Database connection failed"
@@ -28090,7 +27817,6 @@ def quick_whitelist(n):
                 cursor.execute('UPDATE devices SET is_blocked = 0 WHERE is_trusted = 1')
                 whitelisted = cursor.rowcount
                 conn.commit()
-                conn.close()
                 logger.info(f"Whitelisted {whitelisted} trusted devices")
                 return True, f"Whitelisted {whitelisted} trusted devices successfully!"
             return True, "Database connection failed"
@@ -28134,7 +27860,6 @@ def quick_clear_net_cache(n):
                 cursor = conn.cursor()
                 # Clear old connection logs (if you have a connections table)
                 # For now, we'll just return success
-                conn.close()
                 logger.info("Network cache cleared")
                 return True, "Network cache cleared successfully!"
             return True, "Database connection failed"
@@ -28203,7 +27928,6 @@ def quick_clear_logs(n):
                 cursor.execute('DELETE FROM alerts WHERE timestamp < datetime("now", "-30 days")')
                 deleted = cursor.rowcount
                 conn.commit()
-                conn.close()
                 logger.info(f"Cleared {deleted} old log entries")
                 return True, f"Cleared {deleted} old log entries (>30 days)!"
             return True, "Database connection failed"
@@ -28230,7 +27954,6 @@ def quick_purge_alerts(n):
                 cursor.execute('DELETE FROM alerts WHERE severity = "low" AND timestamp < datetime("now", "-7 days")')
                 deleted = cursor.rowcount
                 conn.commit()
-                conn.close()
                 logger.info(f"Purged {deleted} low-severity alerts")
                 return True, f"Purged {deleted} low-severity alerts successfully!"
             return True, "Database connection failed"
@@ -31738,7 +31461,7 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
             table_rows.append(
                 html.Tr([
                     html.Td(summary['device_name']),
-                    html.Td(summary['device_type'].replace('_', ' ').title()),
+                    html.Td((summary.get('device_type') or 'unknown').replace('_', ' ').title()),
                     html.Td(dbc.Badge(f"{summary['privacy_risk_score']}/100", color=risk_color)),
                     html.Td(str(summary['data_types_count'])),
                     html.Td(str(summary['critical_data_types']), className="text-danger fw-bold" if summary['critical_data_types'] > 0 else ""),
@@ -31763,7 +31486,7 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
                 ])
             ]),
             html.Tbody(table_rows)
-        ], striped=True, hover=True, responsive=True, className="table-sm")
+        ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
 
         last_updated = f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}"
 
@@ -31801,21 +31524,36 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
 def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
     """Show detailed privacy analysis for a specific device."""
     ctx = callback_context
+
     if not ctx.triggered:
         return dash.no_update, dash.no_update, dash.no_update
 
     triggered_id = ctx.triggered[0]['prop_id']
+    triggered_value = ctx.triggered[0]['value']
+
+    # Don't process if triggered value is None or 0
+    if triggered_value is None or triggered_value == 0:
+        return dash.no_update, dash.no_update, dash.no_update
 
     # Close modal
     if 'privacy-detail-modal-close' in triggered_id:
         return False, dash.no_update, dash.no_update
 
-    # Open modal with device details
-    if detail_clicks and any(detail_clicks):
+    # Open modal with device details - check if a privacy detail button was clicked
+    if 'privacy-detail-btn' in triggered_id:
+        # Check if privacy analyzer is available
+        if privacy_analyzer is None:
+            return True, "Error", dbc.Alert("Privacy analyzer not available", color="warning")
+
         # Get device IP from triggered button
         import json
-        button_id = json.loads(triggered_id.split('.')[0])
-        device_ip = button_id['index']
+        try:
+            # Remove the .n_clicks suffix from the end
+            button_id_str = triggered_id.rsplit('.', 1)[0]
+            button_id = json.loads(button_id_str)
+            device_ip = button_id['index']
+        except (json.JSONDecodeError, KeyError, IndexError):
+            return dash.no_update, dash.no_update, dash.no_update
 
         # Get detailed analysis
         analysis = privacy_analyzer.analyze_device_data_collection(device_ip, days=7)
@@ -31871,7 +31609,7 @@ def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
                     ])
                     for svc in cloud_services.get('top_services', [])[:10]
                 ])
-            ], striped=True, hover=True, responsive=True, className="table-sm mb-4"),
+            ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-4 table-adaptive"),
 
             # Transmission statistics
             html.H6("Data Transmission Statistics", className="mt-4 mb-3"),

@@ -741,9 +741,74 @@ user_toast_preferences (
 )
 
 -- ====================================================================================
+-- ML MODEL MANAGEMENT
+-- ====================================================================================
+
+model_versions (
+    id PRIMARY KEY,
+    model_type,                         -- autoencoder, isolation_forest, etc.
+    version,                            -- Model version string
+    file_path,                          -- Path to saved model file
+    training_samples,                   -- Number of samples used for training
+    validation_loss,                    -- Validation loss metric
+    metadata_json,                      -- JSON: additional metadata
+    is_active BOOLEAN DEFAULT 0,        -- Whether this is the active version
+    created_at TIMESTAMP,
+    UNIQUE(model_type, version)
+)
+
+model_drift_history (
+    id PRIMARY KEY,
+    model_type,                         -- Type of model being monitored
+    drift_score,                        -- Drift score metric
+    metric_type,                        -- Type of metric (accuracy, loss, etc.)
+    baseline_value,                     -- Original baseline value
+    current_value,                      -- Current measured value
+    alert_triggered BOOLEAN DEFAULT 0,  -- Whether drift alert was triggered
+    timestamp TIMESTAMP
+)
+
+-- ====================================================================================
+-- SECURITY SCORING
+-- ====================================================================================
+
+security_score_history (
+    id PRIMARY KEY,
+    overall_score,                      -- Overall network security score (0-100)
+    device_health_score,                -- Device health component score
+    vulnerabilities_score,              -- Vulnerabilities component score
+    encryption_score,                   -- Encryption usage score
+    segmentation_score,                 -- Network segmentation score
+    device_count,                       -- Number of devices evaluated
+    timestamp TIMESTAMP,
+    INDEX(timestamp DESC)
+)
+
+-- ====================================================================================
+-- AUTO-DISCOVERY & PROVISIONING
+-- ====================================================================================
+
+discovery_events (
+    id PRIMARY KEY,
+    device_ip,                          -- Discovered device IP
+    discovery_method,                   -- arp, mdns, upnp, passive, etc.
+    device_info_json,                   -- JSON: discovered device information
+    timestamp TIMESTAMP
+)
+
+scheduled_tasks (
+    id PRIMARY KEY,
+    task_type,                          -- auto_provision, firmware_check, scan, etc.
+    device_ip,                          -- Target device (if applicable)
+    scheduled_at TIMESTAMP,             -- When task should run
+    completed BOOLEAN DEFAULT 0,        -- Whether task has completed
+    created_at TIMESTAMP
+)
+
+-- ====================================================================================
 -- NOTES:
 -- - This schema is for documentation only
 -- - Actual tables are created by: config/init_database.py
--- - Total tables: 53+ (10 core + 40 IoT security features + 3 toast system)
--- - Last updated: December 28, 2025
+-- - Total tables: 58 (10 core + 43 IoT security features + 3 toast system + 2 ML management)
+-- - Last updated: 7 January 2026
 -- ====================================================================================
