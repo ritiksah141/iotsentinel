@@ -27,7 +27,14 @@ class ReportGenerator:
     Enhanced with trend analysis, executive summaries, and advanced visualizations.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
+        """Initialize with db_manager (preferred) or db_path (legacy)."""
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
         """
         Initialize report generator.
 
@@ -82,8 +89,8 @@ class ReportGenerator:
             CSV string with device data
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -102,7 +109,6 @@ class ReportGenerator:
             """)
 
             devices = cursor.fetchall()
-            conn.close()
 
             # Create CSV in memory
             output = io.StringIO()
@@ -149,8 +155,8 @@ class ReportGenerator:
             CSV string with alert data
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -172,7 +178,6 @@ class ReportGenerator:
             """, (cutoff_date.isoformat(),))
 
             alerts = cursor.fetchall()
-            conn.close()
 
             # Create CSV in memory
             output = io.StringIO()
@@ -219,8 +224,8 @@ class ReportGenerator:
             CSV string with connection data
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -266,7 +271,6 @@ class ReportGenerator:
                 """, (cutoff_time.isoformat(),))
 
             connections = cursor.fetchall()
-            conn.close()
 
             # Create CSV in memory
             output = io.StringIO()
@@ -317,7 +321,7 @@ class ReportGenerator:
             Dictionary with statistics
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -407,7 +411,6 @@ class ReportGenerator:
             """, (cutoff_date.isoformat(),))
             stats['top_destinations'] = dict(cursor.fetchall())
 
-            conn.close()
 
             logger.info(f"Generated summary statistics for {days} days")
             return stats
@@ -424,8 +427,8 @@ class ReportGenerator:
             CSV string with alert rule data
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -447,7 +450,6 @@ class ReportGenerator:
             """)
 
             rules = cursor.fetchall()
-            conn.close()
 
             # Create CSV in memory
             output = io.StringIO()

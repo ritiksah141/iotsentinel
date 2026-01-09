@@ -33,7 +33,14 @@ class TrendAnalyzer:
     - Generate trend statistics
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
+        """Initialize with db_manager (preferred) or db_path (legacy)."""
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
         """
         Initialize trend analyzer with query optimization.
 
@@ -148,7 +155,7 @@ class TrendAnalyzer:
             )
 
             # For remaining queries, use standard connection
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Activity by hour of day
@@ -185,7 +192,6 @@ class TrendAnalyzer:
 
             inactive_devices = cursor.fetchone()[0]
 
-            conn.close()
 
             return {
                 'most_active_devices': most_active,
@@ -225,7 +231,7 @@ class TrendAnalyzer:
             - suspicious_patterns: Count of unusual patterns
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff = datetime.now() - timedelta(hours=hours)
@@ -290,7 +296,6 @@ class TrendAnalyzer:
 
             suspicious_patterns = cursor.fetchone()[0]
 
-            conn.close()
 
             return {
                 'total_connections': total_connections,
@@ -335,7 +340,7 @@ class TrendAnalyzer:
             network_traffic = self.analyze_network_traffic(hours=days*24)
 
             # Calculate summary metrics
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff = datetime.now() - timedelta(days=days)
@@ -369,7 +374,6 @@ class TrendAnalyzer:
             """)
             blocked_connections = cursor.fetchone()[0]
 
-            conn.close()
 
             return {
                 'period': {
@@ -465,7 +469,7 @@ class TrendAnalyzer:
             Dictionary with anomaly detection results
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff = datetime.now() - timedelta(days=days)
@@ -494,11 +498,9 @@ class TrendAnalyzer:
                     ORDER BY day
                 """, (cutoff_str,))
             else:
-                conn.close()
                 return {'error': 'Invalid metric'}
 
             data = cursor.fetchall()
-            conn.close()
 
             if len(data) < 3:
                 return {

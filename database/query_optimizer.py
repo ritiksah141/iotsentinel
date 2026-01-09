@@ -23,26 +23,29 @@ class QueryOptimizer:
     Optimizes database queries for better performance with large datasets.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
         """
         Initialize query optimizer.
 
         Args:
-            db_path: Path to SQLite database
+            db_manager: DatabaseManager instance (preferred)
+            db_path: Path to SQLite database (legacy, for backward compatibility)
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            # Legacy mode: import and create db_manager from path
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
+
         self._initialize_indexes()
         self._optimize_database_settings()
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with optimized settings."""
-        conn = sqlite3.connect(
-            self.db_path,
-            check_same_thread=False,
-            timeout=30.0
-        )
-        conn.row_factory = sqlite3.Row
-        return conn
+        return self.db_manager.conn
 
     @contextmanager
     def get_connection(self):
@@ -62,8 +65,6 @@ class QueryOptimizer:
             conn.rollback()
             logger.error(f"Database error: {e}")
             raise
-        finally:
-            conn.close()
 
     def _initialize_indexes(self):
         """Create optimized indexes for frequently queried columns."""

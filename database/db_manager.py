@@ -24,13 +24,33 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     """SQLite database manager for IoTSentinel."""
 
+    _instances = {}  # Singleton instances per db_path
+    _lock = None  # Thread lock for singleton pattern
+
+    def __new__(cls, db_path: str):
+        """Implement singleton pattern - one instance per db_path."""
+        # Normalize path for comparison
+        normalized_path = str(Path(db_path).resolve())
+
+        if normalized_path not in cls._instances:
+            instance = super(DatabaseManager, cls).__new__(cls)
+            cls._instances[normalized_path] = instance
+            instance._initialized = False  # Track if __init__ was called
+
+        return cls._instances[normalized_path]
+
     def __init__(self, db_path: str):
+        # Only initialize once per instance
+        if self._initialized:
+            return
+
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.conn = None
         self._connect()
 
+        self._initialized = True
         logger.info(f"Database manager initialized: {self.db_path}")
 
     def _connect(self):

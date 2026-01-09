@@ -82,7 +82,7 @@ class IncrementalTrainer:
         try:
             window_days = window_days or self.sliding_window_days
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=window_days)
@@ -103,7 +103,6 @@ class IncrementalTrainer:
                 ''', (cutoff_date.isoformat(),))
 
             rows = cursor.fetchall()
-            conn.close()
 
             if len(rows) < 100:
                 logger.warning(f"Insufficient training data: {len(rows)} samples")

@@ -16,7 +16,14 @@ logger = logging.getLogger(__name__)
 class DeviceGroupManager:
     """Manages device groups and group memberships"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
+        """Initialize with db_manager (preferred) or db_path (legacy)."""
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
         """
         Initialize device group manager.
 
@@ -33,8 +40,8 @@ class DeviceGroupManager:
             List of group dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -48,7 +55,6 @@ class DeviceGroupManager:
             """)
 
             groups = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return groups
 
@@ -67,8 +73,8 @@ class DeviceGroupManager:
             Group dictionary or None
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -82,7 +88,6 @@ class DeviceGroupManager:
             """, (group_id,))
 
             row = cursor.fetchone()
-            conn.close()
 
             return dict(row) if row else None
 
@@ -101,8 +106,8 @@ class DeviceGroupManager:
             Group dictionary or None
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -116,7 +121,6 @@ class DeviceGroupManager:
             """, (name,))
 
             row = cursor.fetchone()
-            conn.close()
 
             return dict(row) if row else None
 
@@ -146,7 +150,7 @@ class DeviceGroupManager:
             Group ID if created successfully, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -156,7 +160,6 @@ class DeviceGroupManager:
 
             group_id = cursor.lastrowid
             conn.commit()
-            conn.close()
 
             logger.info(f"Created device group '{name}' (ID: {group_id})")
             return group_id
@@ -190,7 +193,7 @@ class DeviceGroupManager:
             True if updated successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Build update query dynamically
@@ -218,7 +221,6 @@ class DeviceGroupManager:
 
             cursor.execute(query, values)
             conn.commit()
-            conn.close()
 
             logger.info(f"Updated device group ID {group_id}")
             return True
@@ -241,14 +243,13 @@ class DeviceGroupManager:
             True if deleted successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Delete group (cascade will remove memberships)
             cursor.execute("DELETE FROM device_groups WHERE id = ?", (group_id,))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Deleted device group ID {group_id}")
             return True
@@ -275,7 +276,7 @@ class DeviceGroupManager:
             True if added successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -284,7 +285,6 @@ class DeviceGroupManager:
             """, (device_ip, group_id, added_by))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Added device {device_ip} to group ID {group_id}")
             return True
@@ -308,7 +308,7 @@ class DeviceGroupManager:
             True if removed successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -317,7 +317,6 @@ class DeviceGroupManager:
             """, (device_ip, group_id))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Removed device {device_ip} from group ID {group_id}")
             return True
@@ -337,8 +336,8 @@ class DeviceGroupManager:
             List of group dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -350,7 +349,6 @@ class DeviceGroupManager:
             """, (device_ip,))
 
             groups = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return groups
 
@@ -369,8 +367,8 @@ class DeviceGroupManager:
             List of device dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -384,7 +382,6 @@ class DeviceGroupManager:
             """, (group_id,))
 
             devices = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return devices
 
@@ -430,8 +427,8 @@ class DeviceGroupManager:
             List of device dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -443,7 +440,6 @@ class DeviceGroupManager:
             """)
 
             devices = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return devices
 
@@ -465,7 +461,7 @@ class DeviceGroupManager:
         try:
             from datetime import datetime, timedelta
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             stats = {}
@@ -517,7 +513,6 @@ class DeviceGroupManager:
             """, (group_id, active_cutoff.isoformat()))
             stats['active_devices'] = cursor.fetchone()[0]
 
-            conn.close()
 
             return stats
 
@@ -570,7 +565,7 @@ class DeviceGroupManager:
                     continue
 
                 # Get devices of this type that aren't in this group
-                conn = sqlite3.connect(self.db_path)
+                conn = self.db_manager.conn
                 cursor = conn.cursor()
 
                 cursor.execute("""
@@ -581,7 +576,6 @@ class DeviceGroupManager:
                 """, (group['id'], device_type))
 
                 devices = [row[0] for row in cursor.fetchall()]
-                conn.close()
 
                 # Add to group
                 count = self.bulk_add_devices(devices, group['id'])

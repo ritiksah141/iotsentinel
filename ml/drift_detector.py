@@ -28,7 +28,8 @@ class DriftDetector:
 
     def __init__(
         self,
-        db_path: str = 'data/iot_monitor.db',
+        db_path: str = None,
+        db_manager=None,
         drift_threshold: float = 0.15,
         baseline_window_days: int = 7
     ):
@@ -36,11 +37,21 @@ class DriftDetector:
         Initialize drift detector.
 
         Args:
-            db_path: Path to database
+            db_path: Path to database (legacy)
+            db_manager: DatabaseManager instance (preferred)
             drift_threshold: Drift score threshold for alerts
             baseline_window_days: Days for baseline calculation
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            if db_path is None:
+                db_path = 'data/iot_monitor.db'
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
+
         self.drift_threshold = drift_threshold
         self.baseline_window_days = baseline_window_days
 
@@ -66,7 +77,7 @@ class DriftDetector:
         """
         try:
             # Get recent performance data
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get data from last N days
@@ -81,7 +92,6 @@ class DriftDetector:
             ''', (model_type, cutoff_date.isoformat()))
 
             rows = cursor.fetchall()
-            conn.close()
 
             if len(rows) < 100:
                 logger.warning(f"Insufficient data for baseline calculation: {len(rows)} samples")
@@ -265,7 +275,7 @@ class DriftDetector:
             alert_triggered: Whether alert was triggered
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -284,7 +294,6 @@ class DriftDetector:
             ))
 
             conn.commit()
-            conn.close()
 
             logger.debug(f"Logged drift event for {model_type}")
 
@@ -309,8 +318,8 @@ class DriftDetector:
             List of drift event dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -331,7 +340,6 @@ class DriftDetector:
                 ''', (cutoff_date.isoformat(), limit))
 
             events = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return events
 
@@ -356,7 +364,7 @@ class DriftDetector:
         """
         try:
             # Get recent predictions
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=window_hours)
@@ -368,7 +376,6 @@ class DriftDetector:
             ''', (model_type, cutoff_time.isoformat()))
 
             rows = cursor.fetchall()
-            conn.close()
 
             if len(rows) < 30:
                 logger.warning(f"Insufficient recent data for {model_type}: {len(rows)} samples")
@@ -436,7 +443,7 @@ class DriftDetector:
             Dictionary with stats
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Total drift events
@@ -466,7 +473,6 @@ class DriftDetector:
                 for row in cursor.fetchall()
             }
 
-            conn.close()
 
             return {
                 'total_drift_events': total_events,

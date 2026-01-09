@@ -72,6 +72,17 @@ max_simultaneous_toasts = 3
 
 class ToastHistoryManager:
     """Manages toast history persistence to database"""
+    _db_manager = None  # Cached DatabaseManager instance
+
+    @classmethod
+    def get_db_manager(cls):
+        """Get or create cached DatabaseManager instance"""
+        if cls._db_manager is None:
+            db_path = cls.get_db_path()
+            if db_path:
+                from database.db_manager import DatabaseManager
+                cls._db_manager = DatabaseManager(db_path=db_path)
+        return cls._db_manager
 
     @staticmethod
     def get_db_path():
@@ -97,12 +108,12 @@ class ToastHistoryManager:
         metadata: Optional[Dict] = None
     ):
         """Save toast to history database"""
-        db_path = ToastHistoryManager.get_db_path()
-        if not db_path:
-            return False
-
         try:
-            conn = sqlite3.connect(db_path)
+            db_manager = ToastHistoryManager.get_db_manager()
+            if db_manager is None:
+                return False
+
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -124,7 +135,6 @@ class ToastHistoryManager:
             ))
 
             conn.commit()
-            conn.close()
             return True
 
         except Exception as e:
@@ -140,13 +150,12 @@ class ToastHistoryManager:
         offset: int = 0
     ) -> List[Dict]:
         """Retrieve toast history from database"""
-        db_path = ToastHistoryManager.get_db_path()
-        if not db_path:
-            return []
-
         try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+            db_manager = ToastHistoryManager.get_db_manager()
+            if db_manager is None:
+                return []
+
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             query = "SELECT * FROM toast_history WHERE 1=1"
@@ -169,7 +178,6 @@ class ToastHistoryManager:
 
             cursor.execute(query, params)
             results = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return results
 
@@ -180,12 +188,12 @@ class ToastHistoryManager:
     @staticmethod
     def mark_dismissed(toast_id: str):
         """Mark toast as dismissed in history"""
-        db_path = ToastHistoryManager.get_db_path()
-        if not db_path:
-            return False
-
         try:
-            conn = sqlite3.connect(db_path)
+            db_manager = ToastHistoryManager.get_db_manager()
+            if db_manager is None:
+                return False
+
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -195,7 +203,6 @@ class ToastHistoryManager:
             """, (toast_id,))
 
             conn.commit()
-            conn.close()
             return True
 
         except Exception as e:
@@ -205,12 +212,12 @@ class ToastHistoryManager:
     @staticmethod
     def cleanup_old_history(days: int = 30):
         """Clean up old toast history"""
-        db_path = ToastHistoryManager.get_db_path()
-        if not db_path:
-            return False
-
         try:
-            conn = sqlite3.connect(db_path)
+            db_manager = ToastHistoryManager.get_db_manager()
+            if db_manager is None:
+                return False
+
+            conn = db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -220,7 +227,6 @@ class ToastHistoryManager:
 
             deleted_count = cursor.rowcount
             conn.commit()
-            conn.close()
 
             logger.info(f"Cleaned up {deleted_count} old toast history records")
             return True

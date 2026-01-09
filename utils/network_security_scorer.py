@@ -40,14 +40,21 @@ class NetworkSecurityScorer:
     Provides both overall score and breakdown by dimension.
     """
 
-    def __init__(self, db_path: str = 'data/iot_monitor.db'):
+    def __init__(self, db_path: str = None, db_manager=None):
         """
         Initialize network security scorer.
 
         Args:
             db_path: Path to database
+            db_manager: Shared DatabaseManager instance
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_path = db_path or 'data/database/iotsentinel.db'
+            self.db_manager = DatabaseManager(db_path=self.db_path)
 
         logger.info("Network security scorer initialized")
 
@@ -113,7 +120,7 @@ class NetworkSecurityScorer:
             Dictionary with score and details
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get all devices
@@ -121,7 +128,6 @@ class NetworkSecurityScorer:
             total_devices = cursor.fetchone()[0]
 
             if total_devices == 0:
-                conn.close()
                 return {'score': 100, 'details': 'No devices to evaluate'}
 
             # Get devices with outdated firmware
@@ -140,7 +146,6 @@ class NetworkSecurityScorer:
             ''', (cutoff_time,))
             recently_seen = cursor.fetchone()[0]
 
-            conn.close()
 
             # Calculate score
             firmware_score = ((total_devices - no_firmware_info) / total_devices) * 100
@@ -170,7 +175,7 @@ class NetworkSecurityScorer:
             Dictionary with score and details
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get total devices
@@ -178,7 +183,6 @@ class NetworkSecurityScorer:
             total_devices = cursor.fetchone()[0]
 
             if total_devices == 0:
-                conn.close()
                 return {'score': 100, 'details': 'No devices to evaluate'}
 
             # Get vulnerability counts by severity (JOIN with iot_vulnerabilities to get severity)
@@ -202,7 +206,6 @@ class NetworkSecurityScorer:
             ''')
             high_risk_devices = cursor.fetchall()
 
-            conn.close()
 
             # Calculate penalty based on severity
             critical_count = vuln_counts.get('critical', 0)
@@ -247,7 +250,7 @@ class NetworkSecurityScorer:
             Dictionary with score and details
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get protocol usage from recent connections
@@ -261,7 +264,6 @@ class NetworkSecurityScorer:
             ''', (cutoff_time,))
 
             protocol_counts = dict(cursor.fetchall())
-            conn.close()
 
             if not protocol_counts:
                 return {'score': 50, 'details': 'No recent connection data'}
@@ -304,7 +306,7 @@ class NetworkSecurityScorer:
             Dictionary with score and details
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Get devices and their subnets
@@ -314,7 +316,6 @@ class NetworkSecurityScorer:
             ''')
 
             devices = cursor.fetchall()
-            conn.close()
 
             if not devices:
                 return {'score': 100, 'details': 'No devices to evaluate'}
@@ -379,11 +380,10 @@ class NetworkSecurityScorer:
     def _get_device_count(self) -> int:
         """Get total device count."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM devices")
             count = cursor.fetchone()[0]
-            conn.close()
             return count
         except Exception as e:
             logger.error(f"Error getting device count: {e}")
@@ -418,7 +418,7 @@ class NetworkSecurityScorer:
             score_data: Score data from calculate_network_score()
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             dimensions = score_data.get('dimensions', {})
@@ -439,7 +439,6 @@ class NetworkSecurityScorer:
             ))
 
             conn.commit()
-            conn.close()
 
             logger.debug("Saved security score to history")
 
@@ -457,8 +456,8 @@ class NetworkSecurityScorer:
             List of historical score records
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
@@ -470,7 +469,6 @@ class NetworkSecurityScorer:
             ''', (cutoff_date,))
 
             history = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return history
 
@@ -483,17 +481,18 @@ class NetworkSecurityScorer:
 _security_scorer = None
 
 
-def get_security_scorer(db_path: str = 'data/iot_monitor.db') -> NetworkSecurityScorer:
+def get_security_scorer(db_path: str = None, db_manager=None) -> NetworkSecurityScorer:
     """
     Get global security scorer instance.
 
     Args:
         db_path: Path to database
+        db_manager: Shared DatabaseManager instance
 
     Returns:
         NetworkSecurityScorer instance
     """
     global _security_scorer
     if _security_scorer is None:
-        _security_scorer = NetworkSecurityScorer(db_path=db_path)
+        _security_scorer = NetworkSecurityScorer(db_path=db_path, db_manager=db_manager)
     return _security_scorer

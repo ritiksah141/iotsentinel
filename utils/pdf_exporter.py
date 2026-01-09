@@ -41,7 +41,8 @@ class PDFExporter:
 
     def __init__(
         self,
-        db_path: str,
+        db_path: str = None,
+        db_manager=None,
         company_name: str = "IoTSentinel",
         logo_path: Optional[str] = None,
         primary_color: str = "#2c3e50",
@@ -51,7 +52,8 @@ class PDFExporter:
         Initialize PDF exporter with custom branding.
 
         Args:
-            db_path: Path to SQLite database
+            db_path: Path to SQLite database (legacy)
+            db_manager: DatabaseManager instance (preferred)
             company_name: Custom company name for branding
             logo_path: Path to company logo image (PNG/JPG)
             primary_color: Primary brand color (hex)
@@ -62,7 +64,13 @@ class PDFExporter:
                 "ReportLab not installed. Install with: pip install reportlab"
             )
 
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
         self.company_name = company_name
         self.logo_path = logo_path
         self.primary_color = colors.HexColor(primary_color) if primary_color else colors.HexColor('#2c3e50')
@@ -174,8 +182,8 @@ class PDFExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -194,7 +202,6 @@ class PDFExporter:
             """)
 
             devices = cursor.fetchall()
-            conn.close()
 
             # Create PDF
             buffer = io.BytesIO()
@@ -319,8 +326,8 @@ class PDFExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -342,7 +349,6 @@ class PDFExporter:
             """, (cutoff_date.isoformat(),))
 
             alerts = cursor.fetchall()
-            conn.close()
 
             # Create PDF
             buffer = io.BytesIO()
@@ -482,8 +488,8 @@ class PDFExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -524,7 +530,6 @@ class PDFExporter:
                 """, (cutoff_time.isoformat(),))
 
             connections = cursor.fetchall()
-            conn.close()
 
             # Create PDF
             buffer = io.BytesIO()

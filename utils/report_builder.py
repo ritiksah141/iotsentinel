@@ -320,8 +320,8 @@ class ReportBuilder:
         import sqlite3
 
         config = section.config
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self.db_manager.conn
+
         cursor = conn.cursor()
 
         try:
@@ -390,7 +390,6 @@ class ReportBuilder:
                 cursor.execute(query, params)
 
             rows = cursor.fetchall()
-            conn.close()
 
             # Convert to list of dicts
             table_data = {
@@ -402,7 +401,6 @@ class ReportBuilder:
             return table_data
 
         except Exception as e:
-            conn.close()
             logger.error(f"Error getting table data: {e}")
             return {'error': str(e)}
 

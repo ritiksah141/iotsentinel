@@ -18,15 +18,22 @@ logger = logging.getLogger(__name__)
 class GoogleOAuthHandler:
     """Handles Google OAuth authentication"""
 
-    def __init__(self, app, db_path: str):
+    def __init__(self, app, db_path: str = None, db_manager=None):
         """
         Initialize Google OAuth handler
 
         Args:
             app: Flask app instance
             db_path: Path to SQLite database
+            db_manager: Shared DatabaseManager instance
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_path = db_path or 'data/database/iotsentinel.db'
+            self.db_manager = DatabaseManager(db_path=self.db_path)
         self.oauth = OAuth(app)
 
         # Get OAuth credentials from environment
@@ -128,7 +135,7 @@ class GoogleOAuthHandler:
         Returns:
             User ID if successful, None otherwise
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         try:
@@ -220,14 +227,12 @@ class GoogleOAuthHandler:
                 ))
 
             conn.commit()
-            conn.close()
 
             return user_id
 
         except Exception as e:
             logger.error(f"Error creating/updating OAuth user: {str(e)}")
             conn.rollback()
-            conn.close()
             return None
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
@@ -240,7 +245,7 @@ class GoogleOAuthHandler:
         Returns:
             User dict if found, None otherwise
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -250,7 +255,6 @@ class GoogleOAuthHandler:
         """, (user_id,))
 
         row = cursor.fetchone()
-        conn.close()
 
         if row:
             return {
@@ -276,7 +280,7 @@ class GoogleOAuthHandler:
         if not self.enabled:
             return None
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         try:
@@ -293,7 +297,6 @@ class GoogleOAuthHandler:
 
             if not result or not result[0]:
                 logger.warning(f"No refresh token found for user {user_id}")
-                conn.close()
                 return None
 
             refresh_token = result[0]
@@ -301,7 +304,6 @@ class GoogleOAuthHandler:
 
             if provider != 'google':
                 logger.error(f"Unsupported OAuth provider: {provider}")
-                conn.close()
                 return None
 
             # Use Authlib to refresh token
@@ -323,18 +325,15 @@ class GoogleOAuthHandler:
                 """, (new_access_token, new_expires_at, user_id, provider))
 
                 conn.commit()
-                conn.close()
 
                 logger.info(f"Refreshed access token for user {user_id}")
                 return new_access_token
 
-            conn.close()
             return None
 
         except Exception as e:
             logger.error(f"Error refreshing access token: {str(e)}")
             conn.rollback()
-            conn.close()
             return None
 
     def revoke_oauth_account(self, user_id: int, provider: str = 'google') -> bool:
@@ -348,7 +347,7 @@ class GoogleOAuthHandler:
         Returns:
             True if successful, False otherwise
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         try:
@@ -358,7 +357,6 @@ class GoogleOAuthHandler:
             """, (user_id, provider))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Revoked {provider} OAuth for user {user_id}")
             return True
@@ -366,7 +364,6 @@ class GoogleOAuthHandler:
         except Exception as e:
             logger.error(f"Error revoking OAuth account: {str(e)}")
             conn.rollback()
-            conn.close()
             return False
 
 

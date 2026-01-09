@@ -207,8 +207,8 @@ class CVEMatcher:
 
         try:
             # Get all devices from database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -218,7 +218,6 @@ class CVEMatcher:
             ''')
 
             devices = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             logger.info(f"Matching {len(cve_list)} CVEs against {len(devices)} devices")
 
@@ -270,7 +269,7 @@ class CVEMatcher:
             return 0
 
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             saved_count = 0
@@ -318,7 +317,6 @@ class CVEMatcher:
                 saved_count += 1
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Saved {saved_count} CVE matches to database")
             return saved_count
@@ -341,8 +339,8 @@ class CVEMatcher:
             List of vulnerability dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -352,7 +350,6 @@ class CVEMatcher:
             ''', (device_ip,))
 
             vulns = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return vulns
 
