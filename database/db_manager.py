@@ -7,22 +7,82 @@ Handles all database operations with:
 - Transaction support
 - Error handling
 - Prepared statements
+- Input validation
+- Security best practices
 
 100% Compatible with init_database.py schema
 """
 
 import sqlite3
 import logging
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from utils.device_classifier import classifier
 
 logger = logging.getLogger(__name__)
 
 
+class DatabaseError(Exception):
+    """Custom exception for database errors."""
+    pass
+
+
+class ValidationError(Exception):
+    """Custom exception for validation errors."""
+    pass
+
+
 class DatabaseManager:
-    """SQLite database manager for IoTSentinel."""
+    """
+    SQLite database manager for IoTSentinel.
+
+    Security features:
+    - Parameterized queries (SQL injection prevention)
+    - Input validation
+    - Transaction management
+    - Connection pooling via singleton
+    - Error handling with rollback
+    """
+
+    # Validation patterns
+    IP_PATTERN = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+    MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$')
+    VALID_PROTOCOLS = {'tcp', 'udp', 'icmp', 'http', 'https', 'dns', 'mqtt', 'coap'}
+    VALID_SEVERITIES = {'low', 'medium', 'high', 'critical'}
+
+    @staticmethod
+    def validate_ip(ip: str) -> bool:
+        """Validate IP address format."""
+        if not ip or not isinstance(ip, str):
+            return False
+        if not DatabaseManager.IP_PATTERN.match(ip):
+            return False
+        # Check each octet is 0-255
+        octets = ip.split('.')
+        return all(0 <= int(octet) <= 255 for octet in octets)
+
+    @staticmethod
+    def validate_mac(mac: str) -> bool:
+        """Validate MAC address format."""
+        if not mac or not isinstance(mac, str):
+            return False
+        return DatabaseManager.MAC_PATTERN.match(mac) is not None
+
+    @staticmethod
+    def validate_port(port: int) -> bool:
+        """Validate port number."""
+        return isinstance(port, int) and 0 <= port <= 65535
+
+    @staticmethod
+    def sanitize_string(value: str, max_length: int = 255) -> str:
+        """Sanitize string input to prevent issues."""
+        if not value:
+            return ''
+        # Remove null bytes and limit length
+        sanitized = str(value).replace('\x00', '').strip()
+        return sanitized[:max_length]
 
     _instances = {}  # Singleton instances per db_path
     _lock = None  # Thread lock for singleton pattern
@@ -50,20 +110,57 @@ class DatabaseManager:
         self.conn = None
         self._connect()
 
+        # Run schema migrations if needed
+        self.migrate_schema()
+
         self._initialized = True
         logger.info(f"Database manager initialized: {self.db_path}")
 
     def _connect(self):
-        """Establish database connection with optimizations."""
-        self.conn = sqlite3.connect(
-            str(self.db_path),
-            check_same_thread=False,
-            timeout=30.0  # 30 second timeout for busy database
-        )
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
-        self.conn.execute("PRAGMA synchronous = NORMAL")  # Balance safety/speed
+        """Establish database connection with optimizations and security."""
+        try:
+            self.conn = sqlite3.connect(
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=30.0,  # 30 second timeout for busy database
+                isolation_level='DEFERRED'  # Explicit transaction control
+            )
+            self.conn.row_factory = sqlite3.Row
+
+            # Security and performance pragmas
+            self.conn.execute("PRAGMA foreign_keys = ON")  # Enforce referential integrity
+            self.conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for concurrency
+            self.conn.execute("PRAGMA synchronous = NORMAL")  # Balance safety/speed
+            self.conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
+            self.conn.execute("PRAGMA temp_store = MEMORY")  # Faster temp operations
+
+            # Security: Prevent recursive triggers
+            self.conn.execute("PRAGMA recursive_triggers = OFF")
+
+        except sqlite3.Error as e:
+            logger.critical(f"Failed to connect to database: {e}")
+            raise DatabaseError(f"Database connection failed: {e}")
+
+    def transaction(self):
+        """Context manager for explicit transactions with automatic rollback on error."""
+        class Transaction:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                self.conn.execute("BEGIN")
+                return self.conn
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_type is not None:
+                    self.conn.rollback()
+                    logger.error(f"Transaction rolled back due to: {exc_val}")
+                    return False  # Re-raise exception
+                else:
+                    self.conn.commit()
+                    return True
+
+        return Transaction(self.conn)
 
     def add_device(self, device_ip: str, **kwargs) -> bool:
         """
@@ -75,9 +172,21 @@ class DatabaseManager:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            ValidationError: If input validation fails
         """
+        # Input validation
+        if not self.validate_ip(device_ip):
+            raise ValidationError(f"Invalid IP address: {device_ip}")
+
+        mac_address = kwargs.get('mac_address')
+        if mac_address and not self.validate_mac(mac_address):
+            raise ValidationError(f"Invalid MAC address: {mac_address}")
+
         try:
-            cursor = self.conn.cursor()
+            with self.transaction():
+                cursor = self.conn.cursor()
 
             # Auto-classify device if we have MAC address
             mac_address = kwargs.get('mac_address')
@@ -140,7 +249,7 @@ class DatabaseManager:
     def add_connection(self, device_ip: str, dest_ip: str, dest_port: int,
                        protocol: str, **kwargs) -> Optional[int]:
         """
-        Add network connection record.
+        Add network connection record with validation.
 
         Args:
             device_ip: Source device IP
@@ -151,37 +260,58 @@ class DatabaseManager:
 
         Returns:
             Connection ID if successful, None otherwise
+
+        Raises:
+            ValidationError: If input validation fails
         """
+        # Input validation
+        if not self.validate_ip(device_ip):
+            raise ValidationError(f"Invalid source IP: {device_ip}")
+        if not self.validate_ip(dest_ip):
+            raise ValidationError(f"Invalid destination IP: {dest_ip}")
+        if not self.validate_port(dest_port):
+            raise ValidationError(f"Invalid port: {dest_port}")
+
+        protocol_lower = protocol.lower() if protocol else ''
+        if protocol_lower not in self.VALID_PROTOCOLS:
+            logger.warning(f"Unusual protocol: {protocol}")
+
         try:
-            # Ensure device exists first
-            self.add_device(device_ip)
+            with self.transaction():
+                # Ensure device exists first
+                self.add_device(device_ip)
 
-            cursor = self.conn.cursor()
+                cursor = self.conn.cursor()
 
-            cursor.execute("""
-                INSERT INTO connections
-                (device_ip, dest_ip, dest_port, protocol, service, duration,
-                 bytes_sent, bytes_received, packets_sent, packets_received, conn_state)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                device_ip,
-                dest_ip,
-                dest_port,
-                protocol,
-                kwargs.get('service'),
-                kwargs.get('duration', 0),
-                kwargs.get('bytes_sent', 0),
-                kwargs.get('bytes_received', 0),
-                kwargs.get('packets_sent', 0),
-                kwargs.get('packets_received', 0),
-                kwargs.get('conn_state')
-            ))
+                # Sanitize string inputs
+                service = self.sanitize_string(kwargs.get('service', ''), max_length=50)
+                conn_state = self.sanitize_string(kwargs.get('conn_state', ''), max_length=20)
 
-            self.conn.commit()
-            return cursor.lastrowid
+                cursor.execute("""
+                    INSERT INTO connections
+                    (device_ip, dest_ip, dest_port, protocol, service, duration,
+                     bytes_sent, bytes_received, packets_sent, packets_received, conn_state)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    device_ip,
+                    dest_ip,
+                    dest_port,
+                    protocol_lower,
+                    service,
+                    max(0, int(kwargs.get('duration', 0))),  # Ensure non-negative
+                    max(0, int(kwargs.get('bytes_sent', 0))),
+                    max(0, int(kwargs.get('bytes_received', 0))),
+                    max(0, int(kwargs.get('packets_sent', 0))),
+                    max(0, int(kwargs.get('packets_received', 0))),
+                    conn_state
+                ))
 
+                return cursor.lastrowid
+
+        except ValidationError:
+            raise  # Re-raise validation errors
         except sqlite3.Error as e:
-            logger.error(f"Error adding connection from {device_ip}: {e}")
+            logger.error(f"Database error adding connection from {device_ip}: {e}")
             return None
 
     def get_unprocessed_connections(self, limit: int = 100) -> List[Dict]:
@@ -859,6 +989,526 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Database cleanup failed: {e}")
             self.conn.rollback()
+
+    def _ensure_connection(self):
+        """Ensure database connection is alive, reconnect if needed."""
+        try:
+            self.conn.execute("SELECT 1")
+        except sqlite3.Error:
+            logger.warning("Connection lost, reconnecting...")
+            self._connect()
+
+    def health_check(self) -> Dict:
+        """
+        Perform comprehensive database health check.
+
+        Returns:
+            Dictionary with health status and metrics
+        """
+        import time
+
+        try:
+            start = time.time()
+            self._ensure_connection()
+            cursor = self.conn.cursor()
+
+            # Test query execution
+            cursor.execute("SELECT COUNT(*) FROM devices")
+            device_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM connections")
+            connection_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM alerts WHERE acknowledged = 0")
+            unacked_alerts = cursor.fetchone()[0]
+
+            # Check WAL mode status
+            cursor.execute("PRAGMA journal_mode")
+            journal_mode = cursor.fetchone()[0]
+
+            # Check foreign keys
+            cursor.execute("PRAGMA foreign_keys")
+            foreign_keys = cursor.fetchone()[0]
+
+            # Get database size
+            db_size = self.db_path.stat().st_size
+
+            # Check WAL file size if exists
+            wal_size = 0
+            wal_path = Path(str(self.db_path) + '-wal')
+            if wal_path.exists():
+                wal_size = wal_path.stat().st_size
+
+            query_time = time.time() - start
+
+            # Determine health status
+            status = 'healthy'
+            warnings = []
+
+            if wal_size > 10 * 1024 * 1024:  # 10MB
+                warnings.append('WAL file is large, consider checkpoint')
+
+            if db_size > 100 * 1024 * 1024:  # 100MB
+                warnings.append('Database size growing, consider archiving')
+
+            if unacked_alerts > 100:
+                warnings.append(f'{unacked_alerts} unacknowledged alerts')
+
+            if warnings:
+                status = 'warning'
+
+            return {
+                'status': status,
+                'timestamp': datetime.now().isoformat(),
+                'metrics': {
+                    'devices': device_count,
+                    'connections': connection_count,
+                    'unacknowledged_alerts': unacked_alerts,
+                    'db_size_mb': round(db_size / 1024 / 1024, 2),
+                    'wal_size_mb': round(wal_size / 1024 / 1024, 2),
+                    'query_time_ms': round(query_time * 1000, 2)
+                },
+                'configuration': {
+                    'journal_mode': journal_mode,
+                    'foreign_keys': 'enabled' if foreign_keys else 'disabled',
+                    'db_path': str(self.db_path)
+                },
+                'warnings': warnings
+            }
+
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return {
+                'status': 'unhealthy',
+                'timestamp': datetime.now().isoformat(),
+                'error': str(e)
+            }
+
+    def backup_database(self, backup_dir: str = 'data/backups') -> Optional[str]:
+        """
+        Create a backup of the database with timestamp.
+
+        Args:
+            backup_dir: Directory to store backups
+
+        Returns:
+            Path to backup file if successful, None otherwise
+        """
+        import shutil
+
+        try:
+            backup_path = Path(backup_dir)
+            backup_path.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_file = backup_path / f"iotsentinel_{timestamp}.db"
+
+            # Use SQLite's native backup API - it's 100% safe on live databases
+            # It pauses writes momentarily, copies chunks, and resumes writes
+            logger.info(f"Creating backup using SQLite Backup API: {backup_file}")
+
+            backup_conn = sqlite3.connect(str(backup_file))
+            try:
+                with backup_conn:
+                    # Copy database using native backup API
+                    # This is safe even if writes are happening
+                    self.conn.backup(backup_conn, pages=100, progress=None)
+
+                logger.info("✓ Backup completed successfully")
+
+                # Verify backup
+                backup_size = backup_file.stat().st_size
+                original_size = self.db_path.stat().st_size
+
+                if backup_size == 0:
+                    logger.error("Backup file is empty!")
+                    backup_file.unlink()
+                    return None
+
+                logger.info(f"✓ Backup created: {backup_file} ({backup_size / 1024 / 1024:.2f} MB)")
+                return str(backup_file)
+
+            finally:
+                backup_conn.close()
+
+        except Exception as e:
+            logger.error(f"Backup failed: {e}")
+            if backup_file.exists():
+                backup_file.unlink()  # Clean up failed backup
+            return None
+
+    def get_schema_version(self) -> int:
+        """
+        Get current schema version from database.
+
+        Returns:
+            Schema version number (0 if not set)
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            return version
+        except Exception as e:
+            logger.error(f"Failed to get schema version: {e}")
+            return 0
+
+    def set_schema_version(self, version: int) -> bool:
+        """
+        Set schema version in database.
+
+        Args:
+            version: Schema version number to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self.conn.execute(f"PRAGMA user_version = {version}")
+            self.conn.commit()
+            logger.info(f"Schema version set to {version}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set schema version: {e}")
+            return False
+
+    def migrate_schema(self) -> bool:
+        """
+        Apply schema migrations based on current version.
+
+        This method checks the current schema version and applies
+        any necessary migrations to bring it up to date.
+
+        Returns:
+            True if migrations successful or not needed, False on error
+        """
+        CURRENT_SCHEMA_VERSION = 1  # Increment when you add migrations
+
+        try:
+            current_version = self.get_schema_version()
+
+            if current_version == CURRENT_SCHEMA_VERSION:
+                logger.debug(f"Schema already at version {current_version}")
+                return True
+
+            if current_version > CURRENT_SCHEMA_VERSION:
+                logger.warning(f"Database schema version {current_version} is newer than expected {CURRENT_SCHEMA_VERSION}")
+                return True
+
+            logger.info(f"Migrating schema from v{current_version} to v{CURRENT_SCHEMA_VERSION}")
+
+            # Apply migrations in order
+            # Example: if current_version < 1:
+            #     self._migrate_to_v1()
+            # if current_version < 2:
+            #     self._migrate_to_v2()
+
+            # Future migration example:
+            # def _migrate_to_v2(self):
+            #     """Add firewall_status column to devices table."""
+            #     with self.transaction():
+            #         self.conn.execute("""
+            #             ALTER TABLE devices
+            #             ADD COLUMN firewall_status TEXT DEFAULT 'unknown'
+            #         """)
+            #         self.set_schema_version(2)
+
+            # Set to current version if no migrations needed
+            if current_version == 0:
+                self.set_schema_version(CURRENT_SCHEMA_VERSION)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Schema migration failed: {e}")
+            return False
+
+    def cleanup_old_backups(self, backup_dir: str = 'data/backups', keep_days: int = 7) -> int:
+        """
+        Remove backup files older than specified days.
+
+        Args:
+            backup_dir: Directory containing backups
+            keep_days: Number of days to retain backups
+
+        Returns:
+            Number of backups deleted
+        """
+        try:
+            backup_path = Path(backup_dir)
+            if not backup_path.exists():
+                return 0
+
+            cutoff_time = datetime.now() - timedelta(days=keep_days)
+            deleted_count = 0
+
+            for backup_file in backup_path.glob('iotsentinel_*.db'):
+                if backup_file.stat().st_mtime < cutoff_time.timestamp():
+                    logger.info(f"Deleting old backup: {backup_file}")
+                    backup_file.unlink()
+                    deleted_count += 1
+
+            logger.info(f"Cleaned up {deleted_count} old backups")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Backup cleanup failed: {e}")
+            return 0
+
+    def add_connections_batch(self, connections: List[Dict]) -> int:
+        """
+        Add multiple connections in a single transaction for better performance.
+
+        OPTIMIZATION: Data validation/preparation happens OUTSIDE the transaction.
+        Transaction is opened only for the split second needed to write.
+        This prevents blocking other writers in WAL mode.
+
+        Args:
+            connections: List of connection dictionaries with keys:
+                        device_ip, dest_ip, dest_port, protocol, service, etc.
+
+        Returns:
+            Number of connections successfully inserted
+        """
+        if not connections:
+            return 0
+
+        # STEP 1: Validate and prepare ALL data BEFORE opening transaction
+        # This keeps the transaction time minimal
+        validated_data = []
+        failed = 0
+
+        for conn_data in connections:
+            try:
+                # Validate required fields
+                device_ip = conn_data.get('device_ip')
+                dest_ip = conn_data.get('dest_ip')
+                dest_port = conn_data.get('dest_port', 0)
+                protocol = conn_data.get('protocol', 'tcp').lower()
+
+                if not device_ip or not dest_ip:
+                    failed += 1
+                    continue
+
+                # Validate inputs
+                if not self.validate_ip(device_ip) or not self.validate_ip(dest_ip):
+                    failed += 1
+                    continue
+
+                if not self.validate_port(dest_port):
+                    failed += 1
+                    continue
+
+                # Sanitize strings
+                service = self.sanitize_string(conn_data.get('service', ''), 50)
+                conn_state = self.sanitize_string(conn_data.get('conn_state', ''), 20)
+
+                # Prepare tuple for insertion
+                validated_data.append((
+                    device_ip,
+                    dest_ip,
+                    dest_port,
+                    protocol,
+                    service,
+                    max(0, int(conn_data.get('duration', 0))),
+                    max(0, int(conn_data.get('bytes_sent', 0))),
+                    max(0, int(conn_data.get('bytes_received', 0))),
+                    max(0, int(conn_data.get('packets_sent', 0))),
+                    max(0, int(conn_data.get('packets_received', 0))),
+                    conn_state
+                ))
+
+            except (ValueError, KeyError) as e:
+                logger.debug(f"Failed to validate connection: {e}")
+                failed += 1
+                continue
+
+        if not validated_data:
+            logger.warning(f"No valid connections to insert ({failed} failed validation)")
+            return 0
+
+        # STEP 2: Open transaction for MINIMAL time - only for writes
+        inserted = 0
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("BEGIN")
+
+            # Get unique device IPs
+            device_ips = set(row[0] for row in validated_data)
+
+            # Batch insert devices
+            cursor.executemany("""
+                INSERT OR IGNORE INTO devices (device_ip, first_seen, last_seen)
+                VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, [(ip,) for ip in device_ips])
+
+            # Batch insert connections
+            cursor.executemany("""
+                INSERT INTO connections
+                (device_ip, dest_ip, dest_port, protocol, service, duration,
+                 bytes_sent, bytes_received, packets_sent, packets_received, conn_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, validated_data)
+
+            inserted = len(validated_data)
+            self.conn.commit()
+
+            if failed > 0:
+                logger.warning(f"Batch insert: {inserted} successful, {failed} failed")
+            else:
+                logger.info(f"Batch insert: {inserted} connections added")
+
+            return inserted
+
+        except Exception as e:
+            logger.error(f"Batch connection insert failed: {e}")
+            self.conn.rollback()
+            return 0
+
+    def create_indexes(self):
+        """
+        Create performance indexes if they don't exist.
+        Should be called after database initialization.
+        """
+        indexes = [
+            # Connections table indexes
+            ("idx_connections_device_ip", "connections", "device_ip"),
+            ("idx_connections_timestamp", "connections", "timestamp"),
+            ("idx_connections_dest_ip", "connections", "dest_ip"),
+            ("idx_connections_protocol", "connections", "protocol"),
+
+            # Alerts table indexes
+            ("idx_alerts_device_ip", "alerts", "device_ip"),
+            ("idx_alerts_timestamp", "alerts", "timestamp"),
+            ("idx_alerts_severity", "alerts", "severity"),
+            ("idx_alerts_acknowledged", "alerts", "acknowledged"),
+
+            # Devices table indexes
+            ("idx_devices_last_seen", "devices", "last_seen"),
+            ("idx_devices_device_type", "devices", "device_type"),
+            ("idx_devices_is_blocked", "devices", "is_blocked"),
+            ("idx_devices_is_trusted", "devices", "is_trusted"),
+
+            # ML predictions indexes
+            ("idx_ml_predictions_connection_id", "ml_predictions", "connection_id"),
+            ("idx_ml_predictions_timestamp", "ml_predictions", "timestamp"),
+            ("idx_ml_predictions_is_anomaly", "ml_predictions", "is_anomaly"),
+        ]
+
+        try:
+            cursor = self.conn.cursor()
+            created = 0
+
+            for index_name, table, column in indexes:
+                try:
+                    cursor.execute(f"""
+                        CREATE INDEX IF NOT EXISTS {index_name}
+                        ON {table}({column})
+                    """)
+                    created += 1
+                except sqlite3.Error as e:
+                    logger.warning(f"Could not create index {index_name}: {e}")
+
+            self.conn.commit()
+            logger.info(f"✓ Created/verified {created} database indexes")
+
+        except sqlite3.Error as e:
+            logger.error(f"Index creation failed: {e}")
+
+    def optimize_database(self):
+        """
+        Perform database optimization operations.
+        Run this periodically (e.g., weekly) to maintain performance.
+        """
+        try:
+            logger.info("Starting database optimization...")
+
+            # Analyze tables to update query optimizer statistics
+            cursor = self.conn.cursor()
+            cursor.execute("ANALYZE")
+            logger.info("✓ Updated query statistics")
+
+            # Checkpoint WAL
+            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.info("✓ Checkpointed WAL")
+
+            # Vacuum to reclaim space (if not too large)
+            db_size_mb = self.db_path.stat().st_size / 1024 / 1024
+            if db_size_mb < 100:  # Only vacuum if DB < 100MB
+                old_isolation = self.conn.isolation_level
+                self.conn.isolation_level = None
+                try:
+                    cursor.execute("VACUUM")
+                    logger.info("✓ Vacuumed database")
+                finally:
+                    self.conn.isolation_level = old_isolation
+            else:
+                logger.info("⊘ Skipped VACUUM (database too large)")
+
+            self.conn.commit()
+            logger.info("✓ Database optimization complete")
+
+        except sqlite3.Error as e:
+            logger.error(f"Database optimization failed: {e}")
+
+    def get_database_stats(self) -> Dict:
+        """
+        Get comprehensive database statistics.
+
+        Returns:
+            Dictionary with various database metrics
+        """
+        try:
+            cursor = self.conn.cursor()
+
+            # Table row counts
+            tables = {}
+            for table in ['devices', 'connections', 'alerts', 'ml_predictions',
+                         'users', 'device_groups', 'malicious_ips']:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    tables[table] = cursor.fetchone()[0]
+                except sqlite3.Error:
+                    tables[table] = 0
+
+            # Storage metrics
+            db_size = self.db_path.stat().st_size
+
+            wal_size = 0
+            wal_path = Path(str(self.db_path) + '-wal')
+            if wal_path.exists():
+                wal_size = wal_path.stat().st_size
+
+            # Recent activity
+            cursor.execute("""
+                SELECT COUNT(*) FROM connections
+                WHERE timestamp > datetime('now', '-1 hour')
+            """)
+            recent_connections = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM alerts
+                WHERE timestamp > datetime('now', '-24 hours')
+            """)
+            recent_alerts = cursor.fetchone()[0]
+
+            return {
+                'tables': tables,
+                'storage': {
+                    'database_size_mb': round(db_size / 1024 / 1024, 2),
+                    'wal_size_mb': round(wal_size / 1024 / 1024, 2),
+                    'total_size_mb': round((db_size + wal_size) / 1024 / 1024, 2)
+                },
+                'activity': {
+                    'connections_last_hour': recent_connections,
+                    'alerts_last_24h': recent_alerts
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get database stats: {e}")
+            return {}
 
     def close(self):
         """Close database connection."""

@@ -19,6 +19,7 @@ import subprocess
 import smtplib
 import random
 import psutil
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
@@ -2446,21 +2447,31 @@ login_layout = dbc.Container([
                                     )
                                 ], className="floating-input-group"),
 
-                                # Password Strength Meter
+                                # Password Strength Meter & Requirements
                                 html.Div([
                                     html.Div([
                                         html.Small("Password Strength:", className="text-secondary d-block mb-1", style={"fontSize": "0.85rem"}),
                                         html.Div([
                                             html.Div(id="password-strength-bar", style={
-                                                "height": "4px",
-                                                "borderRadius": "2px",
+                                                "height": "8px",
+                                                "borderRadius": "4px",
                                                 "backgroundColor": "var(--border-color)",
                                                 "transition": "all 0.3s ease",
                                                 "width": "0%"
                                             })
-                                        ], style={"width": "100%", "backgroundColor": "var(--bg-tertiary)", "borderRadius": "2px", "height": "4px"}),
+                                        ], style={"width": "100%", "backgroundColor": "var(--bg-tertiary)", "borderRadius": "4px", "height": "8px"}),
                                         html.Small(id="password-strength-text", className="text-muted d-block mt-1", style={"fontSize": "0.8rem"})
-                                    ], id="password-strength-container", style={"display": "none"})
+                                    ], id="password-strength-container", style={"display": "block"}), # Always show strength container
+                                    html.Div([
+                                        html.Small("Password must contain:", className="text-secondary d-block mt-2 fw-bold"),
+                                        html.Ul([
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-length"), "At least 8 characters"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-upper"), "An uppercase letter (A-Z)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-lower"), "A lowercase letter (a-z)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-digit"), "A number (0-9)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-special"), "A special character (!@#$...)"])
+                                        ], className="list-unstyled text-muted password-requirements", style={"fontSize": "0.8rem", "paddingLeft": "1rem"})
+                                    ])
                                 ], className="mb-2"),
 
                                 # Confirm Password Input with Floating Label
@@ -2473,14 +2484,16 @@ login_layout = dbc.Container([
                                         autocomplete="new-password",
                                         className="form-control",
                                         style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
-                                    ),
-                                    html.Label("Confirm Password", htmlFor="register-password-confirm"),
+                                    )
+                                    ,html.Label("Confirm Password", htmlFor="register-password-confirm"),
                                     dbc.Button(
                                         html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
                                         id="register-password-confirm-toggle-btn",
                                         className="password-toggle-btn"
                                     )
-                                ], className="floating-input-group mb-3"),
+                                ], className="floating-input-group mb-0"), # Adjusted mb-3 to mb-0
+                                html.Div(id="password-match-feedback", className="validation-feedback mb-3"), # Added password match feedback
+
 
                                 # Send Verification Code Button
                                 dbc.Button(
@@ -2510,8 +2523,8 @@ login_layout = dbc.Container([
 
                                 # Hidden role field - always viewer for self-registration
                                 dcc.Store(id="register-role", data="viewer"),
-                                dcc.Store(id="verification-code-sent", data=False),
-                                dcc.Store(id="email-verified", data=False),
+                                dcc.Store(id='verification-code-sent', storage_type='memory'),
+                                dcc.Store(id='email-verified', storage_type='memory'),
 
                                 # Register Button
                                 dbc.Button(
@@ -2519,7 +2532,7 @@ login_layout = dbc.Container([
                                     id="register-button",
                                     className="w-100 mt-2 cyber-button-modern",
                                     size="lg",
-                                    disabled=True,
+                                    disabled=False,
                                 ),
 
                                 # Security Guarantees Below Register Form
@@ -4989,7 +5002,9 @@ dashboard_layout = dbc.Container([
                                 dbc.Label("Current Password", className="fw-bold"),
                                 dbc.InputGroup([
                                     dbc.InputGroupText(html.I(className="fa fa-lock")),
-                                    dbc.Input(id='profile-current-password', type='password', placeholder="Enter current password")
+                                    dbc.Input(id='profile-current-password', type='password', placeholder="Enter current password"),
+                                    dbc.Button(html.I(className="fa fa-eye", id='profile-current-password-toggle-icon'),
+                                               id="profile-current-password-toggle-btn", color="light", n_clicks=0)
                                 ], className="mb-3"),
 
                                 dbc.Row([
@@ -4997,7 +5012,9 @@ dashboard_layout = dbc.Container([
                                         dbc.Label("New Password", className="fw-bold"),
                                         dbc.InputGroup([
                                             dbc.InputGroupText(html.I(className="fa fa-lock")),
-                                            dbc.Input(id='profile-new-password', type='password', placeholder="Enter new password")
+                                            dbc.Input(id='profile-new-password', type='password', placeholder="Enter new password"),
+                                            dbc.Button(html.I(className="fa fa-eye", id='profile-new-password-toggle-icon'),
+                                                       id="profile-new-password-toggle-btn", color="light", n_clicks=0)
                                         ], className="mb-2"),
                                         html.Small("Minimum 8 characters with letters and numbers", className="text-muted d-block mb-3")
                                     ], md=6),
@@ -5005,7 +5022,9 @@ dashboard_layout = dbc.Container([
                                         dbc.Label("Confirm New Password", className="fw-bold"),
                                         dbc.InputGroup([
                                             dbc.InputGroupText(html.I(className="fa fa-check-circle")),
-                                            dbc.Input(id='profile-new-password-confirm', type='password', placeholder="Confirm new password")
+                                            dbc.Input(id='profile-new-password-confirm', type='password', placeholder="Confirm new password"),
+                                            dbc.Button(html.I(className="fa fa-eye", id={'type': 'profile-password-toggle-icon', 'index': 'new-confirm'}),
+                                                       id={"type": "profile-password-toggle-btn", "index": "new-confirm"}, color="light", n_clicks=0)
                                         ], className="mb-2"),
                                         html.Small("Re-enter your new password", className="text-muted d-block mb-3")
                                     ], md=6)
@@ -9690,6 +9709,64 @@ dashboard_layout = dbc.Container([
         ]),
     ], id="lockdown-modal", is_open=False),
 
+    # Bulk Delete Confirmation Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirm Delete")),
+        dbc.ModalBody([
+            html.Div([
+                html.I(className="fa fa-trash fa-3x text-danger mb-3"),
+                html.H5("Are you sure you want to delete selected devices?"),
+                html.P(id="bulk-delete-confirm-message", className="text-muted"),
+                html.Hr(),
+                html.P("This action cannot be undone!", className="text-warning fw-bold")
+            ], className="text-center")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="bulk-delete-cancel", color="secondary"),
+            dbc.Button("Delete", id="bulk-delete-confirm", color="danger"),
+        ]),
+    ], id="bulk-delete-modal", is_open=False),
+
+    # User Delete Confirmation Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirm Delete User")),
+        dbc.ModalBody([
+            html.Div([
+                html.I(className="fa fa-user-times fa-3x text-danger mb-3"),
+                html.H5("Are you sure you want to delete this user?"),
+                html.P(id="user-delete-confirm-username", className="fw-bold text-muted"),
+                html.Hr(),
+                html.P("This will permanently delete the user account and all associated data!", className="text-warning fw-bold"),
+                html.P("This action cannot be undone!", className="text-danger")
+            ], className="text-center")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="user-delete-cancel", color="secondary"),
+            dbc.Button("Delete User", id="user-delete-confirm", color="danger"),
+        ]),
+    ], id="user-delete-modal", is_open=False),
+    dcc.Store(id='user-delete-id-store', data=None),
+
+    # Block/Unblock Device Confirmation Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle(id="block-device-modal-title")),
+        dbc.ModalBody([
+            html.Div([
+                html.I(id="block-device-modal-icon", className="fa fa-ban fa-3x text-warning mb-3"),
+                html.H5(id="block-device-modal-question"),
+                html.P(id="block-device-modal-ip", className="fw-bold text-muted"),
+                html.Hr(),
+                html.P(id="block-device-modal-warning", className="text-warning fw-bold")
+            ], className="text-center")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="block-device-cancel", color="secondary"),
+            dbc.Button(id="block-device-confirm-btn", color="danger"),
+        ]),
+    ], id="block-device-modal", is_open=False),
+    dcc.Store(id='block-device-ip-store', data=None),
+    dcc.Store(id='block-device-action-store', data=None),
+
     # Toast Detail Modal - For viewing detailed toast messages
     dbc.Modal([
         dbc.ModalHeader(
@@ -11344,111 +11421,144 @@ def clear_toast_history(n_clicks):
 
     raise dash.exceptions.PreventUpdate
 
-# Block Device Callback
+# Block Device Callback - Show confirmation modal
 @app.callback(
-    Output('toast-container', 'children', allow_duplicate=True),
+    [Output('block-device-modal', 'is_open'),
+     Output('block-device-ip-store', 'data'),
+     Output('block-device-action-store', 'data'),
+     Output('block-device-modal-title', 'children'),
+     Output('block-device-modal-icon', 'className'),
+     Output('block-device-modal-question', 'children'),
+     Output('block-device-modal-ip', 'children'),
+     Output('block-device-modal-warning', 'children'),
+     Output('block-device-confirm-btn', 'children'),
+     Output('block-device-confirm-btn', 'color')],
     Input({'type': 'device-block-btn', 'ip': dash.dependencies.ALL}, 'n_clicks'),
     prevent_initial_call=True
 )
-def toggle_device_block(n_clicks):
-    """Handle device blocking/unblocking via firewall"""
-    # Get device IP from callback context
+def show_block_device_modal(n_clicks):
+    """Show confirmation modal before blocking/unblocking device."""
     ctx = dash.callback_context
     if not ctx.triggered_id:
         raise dash.exceptions.PreventUpdate
 
-    # Ensure the callback was triggered by an actual click, not initial render
     if not n_clicks or all(c is None for c in n_clicks):
         raise dash.exceptions.PreventUpdate
 
     device_ip = ctx.triggered_id['ip']
 
     try:
-        # Get device details including MAC address and current blocked status
         device = get_device_details(device_ip)
         if not device:
-            return ToastManager.error(
-                "Device not found",
-                detail_message=f"Unable to find device with IP: {device_ip}"
-            )
-
-        mac_address = device.get('mac_address')
-        if not mac_address:
-            return ToastManager.warning(
-                "MAC Address Missing",
-                detail_message=f"Cannot block device {device_ip} - MAC address is unknown"
-            )
+            raise dash.exceptions.PreventUpdate
 
         current_blocked = bool(device.get('is_blocked', False))
         new_blocked_status = not current_blocked
+        device_name = device.get('device_name') or device.get('custom_name') or device_ip
+
+        if new_blocked_status:
+            return (
+                True, device_ip, 'block',
+                "⚠️ Confirm Block Device",
+                "fa fa-ban fa-3x text-danger mb-3",
+                "Are you sure you want to block this device?",
+                f"Device: {device_name} ({device_ip})",
+                "This device will be prevented from accessing your network.",
+                "Block Device", "danger"
+            )
+        else:
+            return (
+                True, device_ip, 'unblock',
+                "✓ Confirm Unblock Device",
+                "fa fa-check-circle fa-3x text-success mb-3",
+                "Are you sure you want to unblock this device?",
+                f"Device: {device_name} ({device_ip})",
+                "This device will be allowed to access your network.",
+                "Unblock Device", "success"
+            )
+    except Exception as e:
+        logger.error(f"Error showing block modal: {e}")
+        raise dash.exceptions.PreventUpdate
+
+
+# Block Device Confirmed Callback
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('block-device-modal', 'is_open', allow_duplicate=True)],
+    [Input('block-device-confirm-btn', 'n_clicks'),
+     Input('block-device-cancel', 'n_clicks')],
+    [State('block-device-ip-store', 'data'),
+     State('block-device-action-store', 'data')],
+    prevent_initial_call=True
+)
+def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
+    """Handle device blocking/unblocking via firewall"""
+    ctx = dash.callback_context
+    if not ctx.triggered_id:
+        raise dash.exceptions.PreventUpdate
+
+    button_id = ctx.triggered_id
+
+    # Cancel button clicked
+    if button_id == 'block-device-cancel':
+        return dash.no_update, False
+
+    # Confirm button clicked
+    if button_id == 'block-device-confirm-btn' and device_ip and action:
+        new_blocked_status = (action == 'block')
 
         # Update database first
         db_manager.set_device_blocked(device_ip, new_blocked_status)
 
-        # Call firewall manager to apply/remove block
-        import subprocess
-        from pathlib import Path
+        action_text = "blocked" if new_blocked_status else "unblocked"
+        toast_type = "warning" if new_blocked_status else "success"
 
-        project_root = Path(__file__).parent.parent
-        firewall_script = project_root / 'scripts' / 'firewall_manager.py'
+        # Try to apply firewall rules if MAC address is available
+        device = get_device_details(device_ip)
+        mac_address = device.get('mac_address') if device else None
 
-        if new_blocked_status:
-            # Block the device
-            command = [sys.executable, str(firewall_script), '--block', mac_address]
-            action_text = "blocked"
-            alert_color = "danger"
-            toast_color = "danger"
+        firewall_applied = False
+        if mac_address and config.get('firewall', 'enabled', default=False):
+            try:
+                import subprocess
+                from pathlib import Path
+
+                project_root = Path(__file__).parent.parent
+                firewall_script = project_root / 'scripts' / 'firewall_manager.py'
+
+                if new_blocked_status:
+                    command = [sys.executable, str(firewall_script), '--block', mac_address]
+                else:
+                    command = [sys.executable, str(firewall_script), '--unblock', mac_address]
+
+                result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=10)
+                logger.info(f"Device {device_ip} ({mac_address}) {action_text}: {result.stdout}")
+                firewall_applied = True
+
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr if e.stderr else str(e)
+                logger.error(f"Failed to apply firewall rules for {device_ip}: {error_msg}")
+
+            except subprocess.TimeoutExpired:
+                logger.error(f"Timeout while applying firewall rules for {device_ip}")
+
+        # Return success message
+        if firewall_applied:
+            message = f"Device {device_ip} ({mac_address}) successfully {action_text}"
+        elif mac_address:
+            message = f"Device {device_ip} {action_text} in database (firewall disabled)"
         else:
-            # Unblock the device
-            command = [sys.executable, str(firewall_script), '--unblock', mac_address]
-            action_text = "unblocked"
-            alert_color = "success"
-            toast_color = "success"
+            message = f"Device {device_ip} {action_text} in database (MAC unknown, firewall not applied)"
 
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=10)
-            logger.info(f"Device {device_ip} ({mac_address}) {action_text}: {result.stdout}")
+        if toast_type == "success":
+            toast = ToastManager.success(f"Device {action_text.capitalize()}", detail_message=message)
+        else:
+            toast = ToastManager.warning(f"Device {action_text.capitalize()}", detail_message=message)
 
-            if toast_color == "success":
-                return ToastManager.success(
-                    f"Device {action_text.capitalize()}",
-                    detail_message=f"Device {device_ip} ({mac_address}) successfully {action_text}"
-                )
-            else:
-                return ToastManager.warning(
-                    f"Device {action_text.capitalize()}",
-                    detail_message=f"Device {device_ip} ({mac_address}) has been {action_text}"
-                )
+        return toast, False
 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else str(e)
-            logger.error(f"Failed to {action_text} device {device_ip}: {error_msg}")
+    raise dash.exceptions.PreventUpdate
 
-            # Check if firewall is disabled
-            if not config.get('firewall', 'enabled', default=False):
-                return ToastManager.warning(
-                    "Firewall Disabled",
-                    detail_message="Firewall integration is disabled in config. Enable it to block devices."
-                )
-
-            return ToastManager.error(
-                f"{action_text.capitalize()} Failed",
-                detail_message=f"Failed to {action_text} device {device_ip}: {error_msg}"
-            )
-
-        except subprocess.TimeoutExpired:
-            logger.error(f"Timeout while trying to {action_text} device {device_ip}")
-            return ToastManager.warning(
-                "Timeout",
-                detail_message=f"Operation timed out while trying to {action_text} device {device_ip}. Check firewall configuration."
-            )
-
-    except Exception as e:
-        logger.error(f"Error toggling block for device {device_ip}: {e}")
-        return ToastManager.error(
-            "Error",
-            detail_message=f"Error toggling block for device {device_ip}: {str(e)}"
-        )
 
 # ============================================================================
 # CALLBACKS - ALERTS
@@ -13589,6 +13699,33 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
         # Return toast directly - don't use auth-notification-store to avoid duplicate toasts
         return toast, "/", None
     else:
+        # Check if login failed due to unverified email (except for admin user)
+        user_data = auth_manager.get_user_by_username(username)
+        if user_data and not user_data.get('email_verified') and username.lower() != 'admin':
+            # User exists but email is not verified
+            logger.warning(f"Login attempt with unverified email: {username}")
+
+            detail_msg = f"Email Verification Required:\n\n"
+            detail_msg += f"Your account has been created but your email address has not been verified.\n\n"
+            detail_msg += f"To complete registration:\n"
+            detail_msg += f"  1. Check your email inbox for the verification code\n"
+            detail_msg += f"  2. Enter the code in the registration form\n"
+            detail_msg += f"  3. Or click the verification link in the email\n\n"
+            detail_msg += f"If you didn't receive the email:\n"
+            detail_msg += f"  • Check your spam/junk folder\n"
+            detail_msg += f"  • Request a new verification code\n"
+            detail_msg += f"  • Contact administrator for assistance\n\n"
+            detail_msg += f"Account: {username}\n"
+            detail_msg += f"Email: {user_data.get('email', 'Not set')}"
+
+            toast = ToastManager.warning(
+                "Please verify your email address before logging in.",
+                header="Email Verification Required",
+                duration="long",
+                detail_message=detail_msg
+            )
+            return toast, dash.no_update, dash.no_update
+
         # Login failed - record failed attempt
         is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
 
@@ -13934,6 +14071,49 @@ def toggle_register_confirm_password(n_clicks, current_type):
     return 'password', 'fa fa-eye'
 
 
+# Password toggle callbacks for profile page
+@app.callback(
+    [Output('profile-current-password', 'type'),
+     Output('profile-current-password-toggle-icon', 'className')],
+    Input('profile-current-password-toggle-btn', 'n_clicks'),
+    State('profile-current-password', 'type'),
+    prevent_initial_call=True
+)
+def toggle_profile_current_password(n_clicks, current_type):
+    """Toggle current password visibility on profile page"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
+@app.callback(
+    [Output('profile-new-password', 'type'),
+     Output('profile-new-password-toggle-icon', 'className')],
+    Input('profile-new-password-toggle-btn', 'n_clicks'),
+    State('profile-new-password', 'type'),
+    prevent_initial_call=True
+)
+def toggle_profile_new_password(n_clicks, current_type):
+    """Toggle new password visibility on profile page"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
+@app.callback(
+    [Output('profile-new-password-confirm', 'type'),
+     Output({'type': 'profile-password-toggle-icon', 'index': 'new-confirm'}, 'className')],
+    Input({'type': 'profile-password-toggle-btn', 'index': 'new-confirm'}, 'n_clicks'),
+    State('profile-new-password-confirm', 'type'),
+    prevent_initial_call=True
+)
+def toggle_profile_confirm_password(n_clicks, current_type):
+    """Toggle confirm new password visibility on profile page"""
+    if current_type == 'password':
+        return 'text', 'fa fa-eye-slash'
+    return 'password', 'fa fa-eye'
+
+
 # Real-time Email Validation
 @app.callback(
     [Output('email-validation-feedback', 'children'),
@@ -14257,7 +14437,152 @@ def verify_code(code, email, code_sent):
         )
         return False, True, toast
 
+# Auto-fill verification code from URL parameter
+@app.callback(
+    [Output('verification-code', 'value'),
+     Output('verification-code-container', 'style', allow_duplicate=True),
+     Output('tabs', 'active_tab', allow_duplicate=True)],
+    Input('url', 'search'),
+    prevent_initial_call=True
+)
+def autofill_verification_code(search):
+    """Auto-fill verification code if provided in URL parameter"""
+    if not search:
+        raise dash.exceptions.PreventUpdate
+
+    # Parse query parameters
+    from urllib.parse import parse_qs
+    params = parse_qs(search.lstrip('?'))
+
+    # Check if verify parameter exists
+    if 'verify' in params and params['verify']:
+        code = params['verify'][0]
+        if code and len(code) == 6 and code.isdigit():
+            # Show verification code container and switch to register tab
+            return code, {"display": "block"}, "register-tab"
+
+    raise dash.exceptions.PreventUpdate
+
 # Registration callback
+# Real-time Password Strength and Match Feedback
+@app.callback(
+    [Output('password-strength-bar', 'style', allow_duplicate=True),
+     Output('password-strength-text', 'children', allow_duplicate=True),
+     Output('password-strength-container', 'style', allow_duplicate=True),
+     Output('req-length', 'className'),
+     Output('req-upper', 'className'),
+     Output('req-lower', 'className'),
+     Output('req-digit', 'className'),
+     Output('req-special', 'className'),
+     Output('password-match-feedback', 'children'),
+     Output('password-match-feedback', 'className'),
+     Output('register-button', 'disabled', allow_duplicate=True)],
+    [Input('register-password', 'value'),
+     Input('register-password-confirm', 'value')],
+    [State('email-verified', 'data')],
+    prevent_initial_call=True
+)
+def update_password_feedback_and_button_state(password, password_confirm, email_verified):
+    # Initialize outputs
+    bar_style = {"height": "8px", "width": "0%", "borderRadius": "4px", "transition": "all 0.3s ease", "backgroundColor": "var(--border-color)"}
+    strength_text = ""
+    strength_container_style = {"display": "block"}
+
+    # Requirement icons (initially red X)
+    req_class_red = "fa fa-times-circle me-2 text-danger"
+    req_class_green = "fa fa-check-circle me-2 text-success"
+    req_length = req_class_red
+    req_upper = req_class_red
+    req_lower = req_class_red
+    req_digit = req_class_red
+    req_special = req_class_red
+
+    match_feedback_children = ""
+    match_feedback_class = "validation-feedback mb-3"
+    register_button_disabled = True
+
+    # Password Matching
+    if password and password_confirm:
+        if password == password_confirm:
+            match_feedback_children = html.Div([
+                html.I(className="fa fa-check-circle me-1"),
+                "Passwords match"
+            ], className="text-success")
+            match_feedback_class = "validation-feedback mb-3 text-success"
+            register_button_disabled = False # Temporarily enable, will be re-evaluated by strength
+        else:
+            match_feedback_children = html.Div([
+                html.I(className="fa fa-times-circle me-1"),
+                "Passwords do not match"
+            ], className="text-danger")
+            match_feedback_class = "validation-feedback mb-3 text-danger"
+            register_button_disabled = True
+    elif not password_confirm and password:
+        match_feedback_children = html.Div([
+            html.I(className="fa fa-info-circle me-1"),
+            "Please confirm password"
+        ], className="text-muted")
+        match_feedback_class = "validation-feedback mb-3 text-muted"
+        register_button_disabled = True
+    else:
+        register_button_disabled = True # Disable if either password field is empty
+
+    # Password Strength
+    if password:
+        score = 0
+        if len(password) >= 8:
+            score += 1
+            req_length = req_class_green
+        if re.search(r"[A-Z]", password):
+            score += 1
+            req_upper = req_class_green
+        if re.search(r"[a-z]", password):
+            score += 1
+            req_lower = req_class_green
+        if re.search(r"\d", password):
+            score += 1
+            req_digit = req_class_green
+        if re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password):
+            score += 1
+            req_special = req_class_green
+
+        # Max score is 5 for all criteria met + length
+        colors = ["#ef4444", "#f59e0b", "#fbbf24", "#10b981", "#059669", "#059669"] # Adjusted colors for 6 levels
+        labels = ["Very Weak", "Weak", "Fair", "Good", "Strong", "Very Strong"]
+        widths = ["0%", "20%", "40%", "60%", "80%", "100%"]
+
+        # If length requirement isn't met, cap score
+        actual_score = score if len(password) >= 8 else min(score, 1)
+
+        bar_style = {
+            "height": "8px",
+            "width": widths[actual_score],
+            "backgroundColor": colors[actual_score],
+            "borderRadius": "4px",
+            "transition": "all 0.3s ease"
+        }
+        strength_text = labels[actual_score]
+
+        # Determine if password is strong enough based on AuthManager logic (all 5 criteria)
+        is_strong = (len(password) >= 8 and
+                     re.search(r"[A-Z]", password) and
+                     re.search(r"[a-z]", password) and
+                     re.search(r"\d", password) and
+                     re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password))
+
+        # Final decision on button enablement
+        if not is_strong or password != password_confirm or not email_verified:
+            register_button_disabled = True
+        else:
+            register_button_disabled = False
+
+    return (
+        bar_style, strength_text, strength_container_style,
+        req_length, req_upper, req_lower, req_digit, req_special,
+        match_feedback_children, match_feedback_class, register_button_disabled
+    )
+
+
 @app.callback(
     [Output('auth-tabs', 'active_tab', allow_duplicate=True),
      Output('toast-container', 'children', allow_duplicate=True)],
@@ -14266,22 +14591,13 @@ def verify_code(code, email, code_sent):
      State('register-username', 'value'),
      State('register-password', 'value'),
      State('register-password-confirm', 'value'),
-     State('register-role', 'data'),
-     State('email-verified', 'data')],
+     State('register-role', 'data')],
     prevent_initial_call=True
 )
-def handle_registration(n_clicks, email, username, password, password_confirm, role, email_verified):
+def handle_registration(n_clicks, email, username, password, password_confirm, role):
     """Handle user registration"""
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
-
-    # Check email verification
-    if not email_verified:
-        toast = ToastManager.warning(
-            "Email Not Verified",
-            detail_message="Please verify your email address first"
-        )
-        return dash.no_update, toast
 
     # Validation
     if not email or not username or not password or not password_confirm:
@@ -14298,10 +14614,10 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
         )
         return dash.no_update, toast
 
-    if len(password) < 4:
-        toast = ToastManager.warning(
-            "Validation Error",
-            detail_message="Password must be at least 4 characters"
+    if not auth_manager.is_password_strong_enough(password):
+        toast = ToastManager.error(
+            "Password Not Strong Enough",
+            detail_message="Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one digit, and one special character."
         )
         return dash.no_update, toast
 
@@ -14313,25 +14629,411 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
         return dash.no_update, toast
 
     # Attempt to create user
-    success = auth_manager.create_user(username, password, role or 'viewer')
+    success = auth_manager.create_user(username, password, role or 'viewer', email)
 
     if success:
-        # Clean up verification code
-        if email in verification_codes:
-            del verification_codes[email]
+        # Send verification email
+        try:
+            auth_manager.send_verification_email(email)
+            logger.info(f"Verification email sent to {email} for user {username}")
+        except Exception as e:
+            logger.error(f"Failed to send verification email: {e}")
+            # Don't fail registration if email fails, user can verify later
 
         logger.info(f"New user registered: {username} (role: {role or 'viewer'}, email: {email})")
         toast = ToastManager.success(
             "Account Created",
-            detail_message="Account created successfully! Please login."
+            detail_message="Account created successfully! Please check your email to verify your account."
         )
         return "login-tab", toast
     else:
         toast = ToastManager.error(
             "Registration Failed",
-            detail_message="Username already exists"
+            detail_message="Username or email already exists"
         )
         return dash.no_update, toast
+
+@server.route('/verify/<code>')
+def verify_email(code):
+    """Redirect to registration page with verification code for user to enter"""
+    # Validate that the code exists and is not expired
+    import sqlite3
+    from datetime import datetime
+
+    db_path = config.get('database', 'path', fallback='data/database/iot_monitor.db')
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT email, expires_at, verified
+            FROM email_verification_codes
+            WHERE code = ?
+        """, (code,))
+
+        result = cursor.fetchone()
+        conn.close()
+
+        if not result:
+            # Invalid code
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Invalid Code - IoTSentinel</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    }
+                    .container {
+                        background: white;
+                        padding: 40px;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                        text-align: center;
+                        max-width: 450px;
+                    }
+                    .error-icon {
+                        font-size: 64px;
+                        color: #ef4444;
+                        margin-bottom: 20px;
+                    }
+                    h1 {
+                        color: #333;
+                        margin-bottom: 10px;
+                    }
+                    p {
+                        color: #666;
+                        line-height: 1.6;
+                    }
+                    .login-btn {
+                        display: inline-block;
+                        margin-top: 20px;
+                        padding: 12px 30px;
+                        background: #667eea;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        transition: background 0.3s;
+                    }
+                    .login-btn:hover {
+                        background: #5568d3;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="error-icon">✗</div>
+                    <h1>Invalid Verification Code</h1>
+                    <p>The verification code is invalid or does not exist.</p>
+                    <p>Please check the link in your email or request a new verification code.</p>
+                    <a href="/" class="login-btn">Go to Registration</a>
+                </div>
+            </body>
+            </html>
+            """
+
+        email, expires_at, verified = result
+
+        if verified:
+            # Already verified
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Already Verified - IoTSentinel</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    }
+                    .container {
+                        background: white;
+                        padding: 40px;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                        text-align: center;
+                        max-width: 400px;
+                    }
+                    .info-icon {
+                        font-size: 64px;
+                        color: #3b82f6;
+                        margin-bottom: 20px;
+                    }
+                    h1 {
+                        color: #333;
+                        margin-bottom: 10px;
+                    }
+                    p {
+                        color: #666;
+                        line-height: 1.6;
+                    }
+                    .login-btn {
+                        display: inline-block;
+                        margin-top: 20px;
+                        padding: 12px 30px;
+                        background: #667eea;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        transition: background 0.3s;
+                    }
+                    .login-btn:hover {
+                        background: #5568d3;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="info-icon">ℹ</div>
+                    <h1>Already Verified</h1>
+                    <p>This email has already been verified.</p>
+                    <p>You can now login to your IoTSentinel account.</p>
+                    <a href="/" class="login-btn">Go to Login</a>
+                </div>
+            </body>
+            </html>
+            """
+
+        # Check if expired
+        if datetime.fromisoformat(expires_at) < datetime.now():
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Code Expired - IoTSentinel</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    }
+                    .container {
+                        background: white;
+                        padding: 40px;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                        text-align: center;
+                        max-width: 450px;
+                    }
+                    .warning-icon {
+                        font-size: 64px;
+                        color: #f59e0b;
+                        margin-bottom: 20px;
+                    }
+                    h1 {
+                        color: #333;
+                        margin-bottom: 10px;
+                    }
+                    p {
+                        color: #666;
+                        line-height: 1.6;
+                    }
+                    .login-btn {
+                        display: inline-block;
+                        margin-top: 20px;
+                        padding: 12px 30px;
+                        background: #667eea;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        transition: background 0.3s;
+                    }
+                    .login-btn:hover {
+                        background: #5568d3;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="warning-icon">⏱</div>
+                    <h1>Verification Code Expired</h1>
+                    <p>This verification code has expired.</p>
+                    <p>Please request a new verification code from the registration page.</p>
+                    <a href="/" class="login-btn">Go to Registration</a>
+                </div>
+            </body>
+            </html>
+            """
+
+        # Valid code - redirect to registration page to enter the code
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Enter Verification Code - IoTSentinel</title>
+            <meta http-equiv="refresh" content="3;url=/?verify={code}">
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                }}
+                .container {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                    text-align: center;
+                    max-width: 500px;
+                }}
+                .info-icon {{
+                    font-size: 64px;
+                    color: #667eea;
+                    margin-bottom: 20px;
+                }}
+                h1 {{
+                    color: #333;
+                    margin-bottom: 10px;
+                }}
+                p {{
+                    color: #666;
+                    line-height: 1.6;
+                    margin: 10px 0;
+                }}
+                .code-display {{
+                    background: #f3f4f6;
+                    padding: 15px 25px;
+                    border-radius: 8px;
+                    font-size: 24px;
+                    font-weight: bold;
+                    letter-spacing: 3px;
+                    color: #667eea;
+                    margin: 20px 0;
+                    font-family: 'Courier New', monospace;
+                }}
+                .redirect-text {{
+                    color: #999;
+                    font-size: 14px;
+                    margin-top: 20px;
+                }}
+                .spinner {{
+                    border: 3px solid #f3f4f6;
+                    border-top: 3px solid #667eea;
+                    border-radius: 50%;
+                    width: 30px;
+                    height: 30px;
+                    animation: spin 1s linear infinite;
+                    margin: 20px auto 10px;
+                }}
+                @keyframes spin {{
+                    0% {{ transform: rotate(0deg); }}
+                    100% {{ transform: rotate(360deg); }}
+                }}
+                .login-btn {{
+                    display: inline-block;
+                    margin-top: 15px;
+                    padding: 12px 30px;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    transition: background 0.3s;
+                }}
+                .login-btn:hover {{
+                    background: #5568d3;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="info-icon">📧</div>
+                <h1>Enter Your Verification Code</h1>
+                <p>Please enter this code in the registration form:</p>
+                <div class="code-display">{code}</div>
+                <p style="font-size: 14px; color: #888;">Copy this code and paste it in the verification field.</p>
+                <div class="spinner"></div>
+                <p class="redirect-text">Redirecting to registration page in 3 seconds...</p>
+                <a href="/?verify={code}" class="login-btn">Go Now</a>
+            </div>
+        </body>
+        </html>
+        """
+
+    except Exception as e:
+        logger.error(f"Error in verify_email route: {e}")
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error - IoTSentinel</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                }
+                .container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                    text-align: center;
+                    max-width: 400px;
+                }
+                .error-icon {
+                    font-size: 64px;
+                    color: #ef4444;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #333;
+                    margin-bottom: 10px;
+                }
+                p {
+                    color: #666;
+                    line-height: 1.6;
+                }
+                .retry-btn {
+                    display: inline-block;
+                    margin-top: 20px;
+                    padding: 12px 30px;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    transition: background 0.3s;
+                }
+                .retry-btn:hover {
+                    background: #5568d3;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error-icon">✗</div>
+                <h1>Verification Error</h1>
+                <p>An error occurred while processing your verification.</p>
+                <p>Please try again or contact support.</p>
+                <a href="/" class="retry-btn">Back to Login</a>
+            </div>
+        </body>
+        </html>
+        """
 
 
 # User list callback (Admin only)
@@ -14557,12 +15259,12 @@ def create_new_user(n_clicks, username, email, password, role):
         )
         return dbc.Alert("Username must be at least 3 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
-    if len(password) < 4:
+    if not auth_manager.is_password_strong_enough(password):
         toast = ToastManager.warning(
             "Validation Error",
-            detail_message="Password must be at least 4 characters"
+            detail_message="Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character."
         )
-        return dbc.Alert("Password must be at least 4 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
+        return dbc.Alert("Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     # Create user
     success = auth_manager.create_user(username, password, role or 'viewer', email)
@@ -14606,25 +15308,25 @@ def create_new_user(n_clicks, username, email, password, role):
         )
         return dbc.Alert("Username already exists", color="danger"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
-# Delete user callback (Admin only)
+# Delete user callback - Show confirmation modal
 @app.callback(
-    [Output('user-list-container', 'children', allow_duplicate=True),
-     Output('toast-container', 'children', allow_duplicate=True)],
+    [Output('user-delete-modal', 'is_open'),
+     Output('user-delete-id-store', 'data'),
+     Output('user-delete-confirm-username', 'children')],
     Input({'type': 'delete-user-btn', 'index': dash.dependencies.ALL}, 'n_clicks'),
+    [State('user-delete-modal', 'is_open'),
+     State('user-delete-id-store', 'data')],
     prevent_initial_call=True
 )
-def delete_user(n_clicks):
-    """Delete a user (Admin only)"""
+def show_delete_user_modal(n_clicks, is_open, stored_user_id):
+    """Show confirmation modal before deleting user"""
     if not current_user.is_authenticated or not current_user.is_admin():
         raise dash.exceptions.PreventUpdate
 
-    # Get user_id from callback context
     ctx = dash.callback_context
     if not ctx.triggered_id:
         raise dash.exceptions.PreventUpdate
 
-    # Ensure the callback was triggered by an actual click, not initial render
-    # With ALL pattern, n_clicks is a list - check if any are not None
     if not n_clicks or all(c is None for c in n_clicks):
         raise dash.exceptions.PreventUpdate
 
@@ -14632,53 +15334,87 @@ def delete_user(n_clicks):
 
     # Prevent deleting current user
     if user_id == current_user.id:
-        toast = ToastManager.warning(
-            "Delete Failed",
-            detail_message="Cannot delete yourself!"
-        )
-        return dash.no_update, toast
+        return False, None, ""
 
-    # Delete user (pass current user ID to prevent accidents)
-    success = auth_manager.delete_user(user_id, current_user.id)
+    # Get username for display
+    users = auth_manager.get_all_users()
+    username = next((u['username'] for u in users if u['id'] == user_id), "Unknown User")
 
-    if success:
-        logger.info(f"Admin {current_user.username} deleted user ID: {user_id}")
+    return True, user_id, f"User: {username}"
 
-        # Refresh user list
-        users = auth_manager.get_all_users()
-        rows = []
-        for user in users:
-            rows.append(html.Tr([
-                html.Td([html.I(className="fa fa-user me-2"), user['username']]),
-                html.Td([dbc.Badge(user['role'].upper(), color="danger" if user['role'] == 'admin' else "primary")]),
-                html.Td([dbc.Badge("Active" if user['is_active'] else "Inactive", color="success" if user['is_active'] else "secondary")]),
-                html.Td(user.get('created_at', 'N/A')[:10], className="text-center"),
-                html.Td([
-                    dbc.Button([html.I(className="fa fa-trash")],
-                              id={'type': 'delete-user-btn', 'index': user['id']},
-                              color="danger", size="sm", outline=True,
-                              disabled=(user['username'] == current_user.username))
-                ], className="text-center")
-            ]))
 
-        user_table = dbc.Table(
-            [html.Thead(html.Tr([html.Th("Username"), html.Th("Role"), html.Th("Status"), html.Th("Created", className="text-center"), html.Th("Actions", className="text-center")]))] +
-            [html.Tbody(rows)],
-            bordered=True, hover=True, responsive=True, dark=False, className="mt-3 table-adaptive"
-        )
+# Delete user confirmed callback
+@app.callback(
+    [Output('user-list-container', 'children', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True),
+     Output('user-delete-modal', 'is_open', allow_duplicate=True)],
+    [Input('user-delete-confirm', 'n_clicks'),
+     Input('user-delete-cancel', 'n_clicks')],
+    State('user-delete-id-store', 'data'),
+    prevent_initial_call=True
+)
+def delete_user_confirmed(confirm_clicks, cancel_clicks, user_id):
+    """Delete user after confirmation"""
+    if not current_user.is_authenticated or not current_user.is_admin():
+        raise dash.exceptions.PreventUpdate
 
-        toast = ToastManager.success(
-            "User Deleted",
-            detail_message="User deleted successfully!"
-        )
+    ctx = dash.callback_context
+    if not ctx.triggered_id:
+        raise dash.exceptions.PreventUpdate
 
-        return user_table, toast
-    else:
+    button_id = ctx.triggered_id
+
+    # If cancel button clicked, just close modal
+    if button_id == 'user-delete-cancel':
+        return dash.no_update, dash.no_update, False
+
+    # If confirm button clicked, delete user
+    if button_id == 'user-delete-confirm' and user_id:
+        # Hard delete user (permanently remove from database)
+        success = auth_manager.delete_user(user_id, current_user.id, hard_delete=True)
+
+        if success:
+            logger.info(f"Admin {current_user.username} permanently deleted user ID: {user_id}")
+
+            # Refresh user list
+            users = auth_manager.get_all_users()
+            rows = []
+            for user in users:
+                rows.append(html.Tr([
+                    html.Td([html.I(className="fa fa-user me-2"), user['username']]),
+                    html.Td([dbc.Badge(user['role'].upper(), color="danger" if user['role'] == 'admin' else "primary")]),
+                    html.Td([dbc.Badge("Active" if user['is_active'] else "Inactive", color="success" if user['is_active'] else "secondary")]),
+                    html.Td(user.get('created_at', 'N/A')[:10], className="text-center"),
+                    html.Td([
+                        dbc.Button([html.I(className="fa fa-trash")],
+                                  id={'type': 'delete-user-btn', 'index': user['id']},
+                                  color="danger", size="sm", outline=True,
+                                  disabled=(user['username'] == current_user.username))
+                    ], className="text-center")
+                ]))
+
+            user_table = dbc.Table(
+                [html.Thead(html.Tr([html.Th("Username"), html.Th("Role"), html.Th("Status"), html.Th("Created", className="text-center"), html.Th("Actions", className="text-center")]))] +
+                [html.Tbody(rows)],
+                bordered=True, hover=True, striped=True, className="mb-0"
+            )
+
+            toast = ToastManager.success(
+                "User Deleted",
+                detail_message="User deleted successfully"
+            )
+            return user_table, toast, False
+
         toast = ToastManager.error(
             "Delete Failed",
-            detail_message="Error deleting user"
+            detail_message="Failed to delete user"
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, False
+
+    raise dash.exceptions.PreventUpdate
+
+
+# Update User Role (Admin only)
 
 # Update current user display in header and profile dropdown
 @app.callback(
@@ -15488,17 +16224,9 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
             return toast
 
         elif 'bulk-delete-btn' in button_id:
-            # Delete selected devices
-            conn = db_manager.conn
-            cursor = conn.cursor()
-            for ip in selected_ips:
-                cursor.execute("DELETE FROM devices WHERE device_ip = ?", (ip,))
-            conn.commit()
-            toast = ToastManager.warning(
-            "Bulk Delete",
-            detail_message=f"Deleted {count} device(s)"
-        )
-            return toast
+            # This is now handled by the confirmation modal callback
+            # Just return no_update here
+            return dash.no_update
 
     except Exception as e:
         logger.error(f"Bulk operation error: {e}")
@@ -15509,6 +16237,87 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
         return toast
 
     return dash.no_update
+
+
+# Bulk Delete Confirmation Modal
+@app.callback(
+    [Output('bulk-delete-modal', 'is_open'),
+     Output('bulk-delete-confirm-message', 'children')],
+    [Input('bulk-delete-btn', 'n_clicks'),
+     Input('bulk-delete-cancel', 'n_clicks'),
+     Input('bulk-delete-confirm', 'n_clicks')],
+    [State('bulk-delete-modal', 'is_open'),
+     State({'type': 'device-checkbox', 'index': ALL}, 'value'),
+     State({'type': 'device-checkbox', 'index': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def toggle_bulk_delete_modal(delete_clicks, cancel_clicks, confirm_clicks, is_open, checkbox_values, checkbox_ids):
+    """Show/hide bulk delete confirmation modal"""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return False, ""
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'bulk-delete-btn':
+        # Count selected devices
+        selected_count = sum(1 for val in checkbox_values if val)
+        if selected_count == 0:
+            return False, ""
+
+        message = f"You are about to delete {selected_count} device(s) from the database."
+        return True, message
+
+    # Close modal on cancel or confirm
+    return False, ""
+
+
+# Bulk Delete Confirmed Action
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    Input('bulk-delete-confirm', 'n_clicks'),
+    [State({'type': 'device-checkbox', 'index': ALL}, 'value'),
+     State({'type': 'device-checkbox', 'index': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
+    """Execute bulk delete after confirmation"""
+    if not confirm_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    # Get selected device IPs
+    selected_ips = [
+        checkbox_ids[i]['index']
+        for i, checked in enumerate(checkbox_values)
+        if checked
+    ]
+
+    if not selected_ips:
+        return dash.no_update
+
+    try:
+        count = len(selected_ips)
+        conn = db_manager.conn
+        cursor = conn.cursor()
+
+        for ip in selected_ips:
+            cursor.execute("DELETE FROM devices WHERE device_ip = ?", (ip,))
+
+        conn.commit()
+
+        toast = ToastManager.warning(
+            "Bulk Delete",
+            detail_message=f"Deleted {count} device(s)"
+        )
+        return toast
+
+    except Exception as e:
+        logger.error(f"Bulk delete error: {e}")
+        toast = ToastManager.error(
+            "Delete Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return toast
 
 
 # Bulk Trust All Unknown Devices

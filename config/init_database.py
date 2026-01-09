@@ -139,6 +139,7 @@ def init_database():
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             email TEXT,
+            email_verified INTEGER DEFAULT 0,
             role TEXT CHECK(role IN ('admin', 'viewer')) DEFAULT 'viewer',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
@@ -146,21 +147,62 @@ def init_database():
         )
     ''')
 
-    # Create default admin user (password: from env var or fallback to 'admin')
-    # Password hash for 'admin' using bcrypt
+    # Add email_verified column if table exists but column doesn't (migration)
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Create default admin user
     import bcrypt
     import os
-    default_password = os.environ.get("IOTSENTINEL_ADMIN_PASSWORD", "admin")  # pragma: allowlist secret
+    import getpass
 
-    if default_password == "admin": # pragma: allowlist secret
-        print("  ⚠️  Using default admin password. For production, set the IOTSENTINEL_ADMIN_PASSWORD environment variable.")
+    # Check if an admin user already exists
+    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+    admin_exists = cursor.fetchone()[0] > 0
 
-    password_hash = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    admin_username_to_print = "admin" # For the final summary message
 
-    cursor.execute('''
-        INSERT OR IGNORE INTO users (username, password_hash, role)
-        VALUES (?, ?, ?)
-    ''', ('admin', password_hash, 'admin'))
+    if admin_exists:
+        print("\nAn admin user already exists. Skipping admin creation.")
+        # Get existing admin username for display
+        cursor.execute("SELECT username FROM users WHERE role = 'admin' LIMIT 1")
+        try:
+            admin_username_to_print = cursor.fetchone()[0]
+        except TypeError: # No admin found, should not happen with admin_exists check but good practice
+            admin_username_to_print = "[existing admin]"
+
+    else:
+        print("\n--- Create Admin User ---")
+        # Fallback for non-interactive environments (e.g., in a script or container)
+        if not sys.stdout.isatty():
+             admin_username = "admin"
+             admin_password = os.environ.get("IOTSENTINEL_ADMIN_PASSWORD", "admin")  # pragma: allowlist secret
+             if admin_password == "admin": # pragma: allowlist secret
+                print("  ⚠️  Running in a non-interactive shell. Using default admin credentials (admin/admin).")
+                print("     For production, set the IOTSENTINEL_ADMIN_PASSWORD environment variable for security.")
+        else: # Interactive prompt
+            admin_username = input("Enter admin username [default: admin]: ") or "admin"
+            while True:
+                admin_password = getpass.getpass(f"Enter password for '{admin_username}': ")
+                if not admin_password:
+                    print("Password cannot be empty. Please try again.")
+                    continue
+
+                confirm_password = getpass.getpass("Confirm password: ")
+                if admin_password == confirm_password:
+                    break
+                else:
+                    print("Passwords do not match. Please try again.")
+
+        admin_username_to_print = admin_username
+        password_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+        cursor.execute('''
+            INSERT OR IGNORE INTO users (username, password_hash, role)
+            VALUES (?, ?, ?)
+        ''', (admin_username, password_hash, 'admin'))
 
     # User Preferences table
     cursor.execute('''
@@ -930,13 +972,12 @@ def init_database():
     print("  - alert_rules")
     print("  - device_groups")
     print("  - device_group_members")
-    print("\n✓ Default admin user created:")
-    print("  Username: admin")
-    if default_password == "admin": # pragma: allowlist secret
-        print("  Password: admin")
-        print("  ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN!")
+    if not admin_exists:
+        print("\n✓ Default admin user created:")
+        print(f"  Username: {admin_username_to_print}")
+        print("  Password: [set during script execution]")
     else:
-        print("  Password: [set from IOTSENTINEL_ADMIN_PASSWORD environment variable]")
+        print(f"\n✓ Admin user ('{admin_username_to_print}') already configured.")
     print("\n✓ Default alert rules created:")
     print("  - High Data Transfer (1 GB/hour)")
     print("  - Excessive Connections (500/hour)")

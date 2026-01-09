@@ -322,3 +322,92 @@ class TestSeverityHelpers:
         assert 'Review' in email_notifier._get_recommended_actions('high')
         assert 'Review' in email_notifier._get_recommended_actions('medium')
         assert 'Review' in email_notifier._get_recommended_actions('low')
+
+
+@pytest.fixture
+def db_manager():
+    """Fixture to provide a mock DatabaseManager."""
+    db = MagicMock()
+    db.create_alert.return_value = 123  # Example alert ID
+    return db
+
+
+class TestAlertCreation:
+    """Test suite for alert creation and storage."""
+
+    def test_alert_creation(self, db_manager, mock_config):
+        """Test that an alert can be created in the database."""
+        # Arrange
+        from alerts.alert_service import AlertService
+        alert_service = AlertService(db_manager, mock_config)
+
+        # Act
+        alert_id = alert_service.create_alert(
+            device_ip='192.168.1.TEST',
+            severity='medium',
+            anomaly_score=0.85,
+            explanation='Test alert for system validation',
+            send_notification=False
+        )
+
+        # Assert
+        assert alert_id is not None
+        db_manager.create_alert.assert_called_once()
+
+
+class TestRateLimiter:
+    """Test suite for the rate limiting functionality."""
+
+    def test_rate_limiter_blocks_excessive_alerts(self):
+        """Test that the rate limiter blocks alerts exceeding the threshold."""
+        # Arrange
+        from alerts.alert_service import RateLimiter, Alert
+        limiter = RateLimiter(
+            max_per_device_per_hour=3,
+            max_global_per_hour=5,
+            cooldown_minutes=1
+        )
+        alerts_sent = 0
+
+        # Act
+        for i in range(5):
+            alert = Alert(
+                device_ip='192.168.1.100',
+                severity='high',
+                anomaly_score=0.9 + i * 0.01,
+                explanation=f'Test alert {i+1}'
+            )
+            should_send, _ = limiter.should_send(alert)
+            if should_send:
+                limiter.record_sent(alert)
+                alerts_sent += 1
+
+        # Assert
+        assert alerts_sent == 3
+
+
+class TestReportGeneration:
+    """Test suite for report generation."""
+
+    def test_report_generation(self, db_manager):
+        """Test the generation of weekly report data."""
+        # Arrange
+        from alerts.report_scheduler import ReportGenerator
+        from alerts.alert_service import AlertService
+
+        # Mock methods that ReportGenerator calls
+        db_manager.get_recent_alerts.return_value = []
+        db_manager.get_device_count.return_value = 0
+        db_manager.get_connection_count.return_value = 0
+        db_manager.get_bandwidth_stats.return_value = []
+
+        alert_service = AlertService(db_manager, MagicMock())
+        generator = ReportGenerator(db_manager, alert_service)
+
+        # Act
+        report = generator.generate_weekly_report()
+
+        # Assert
+        assert 'summary' in report
+        assert 'period' in report
+        assert report.get('report_type') == 'Weekly'

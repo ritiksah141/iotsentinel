@@ -8,6 +8,7 @@ Provides user authentication, session management, and password utilities.
 import bcrypt
 import sqlite3
 import logging
+import re
 from datetime import datetime
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -55,6 +56,34 @@ class AuthManager:
             self.db_manager = DatabaseManager(db_path=db_path)
             self.db_path = db_path
 
+    def is_password_strong_enough(self, password: str) -> bool:
+        """
+        Check if a password meets complexity requirements.
+
+        - Minimum 8 characters
+        - At least one uppercase letter
+        - At least one lowercase letter
+        - At least one digit
+        - At least one special character
+
+        Args:
+            password: The password to check.
+
+        Returns:
+            True if the password is strong enough, False otherwise.
+        """
+        if len(password) < 8:
+            return False
+        if not re.search(r"[A-Z]", password):
+            return False
+        if not re.search(r"[a-z]", password):
+            return False
+        if not re.search(r"\d", password):
+            return False
+        if not re.search(r"[!@#$%^&*(),.?:{}|<>]", password):
+            return False
+        return True
+
     def verify_user(self, username: str, password: str) -> Optional[User]:
         """
         Verify username and password.
@@ -71,7 +100,7 @@ class AuthManager:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT id, username, password_hash, role, is_active
+                SELECT id, username, password_hash, role, is_active, email_verified
                 FROM users
                 WHERE username = ?
             """, (username,))
@@ -84,6 +113,11 @@ class AuthManager:
 
             if not user_row['is_active']:
                 logger.warning(f"Login attempt with inactive user: {username}")
+                return None
+
+            # Enforce email verification for login (except for admin user created during initialization)
+            if not user_row['email_verified'] and username.lower() != 'admin':
+                logger.warning(f"Login attempt with unverified email: {username}")
                 return None
 
             # Verify password
@@ -180,6 +214,7 @@ class AuthManager:
 
             user_row = cursor.fetchone()
 
+
             if user_row:
                 return dict(user_row)
             return None
@@ -214,6 +249,7 @@ class AuthManager:
             """, (username, password_hash, role, email))
 
             conn.commit()
+
 
             logger.info(f"Created new user: {username} (role: {role})")
             return True
@@ -251,6 +287,7 @@ class AuthManager:
 
             conn.commit()
 
+
             logger.info(f"Password changed for user ID: {user_id}")
             return True
 
@@ -282,6 +319,7 @@ class AuthManager:
 
             conn.commit()
 
+
             logger.info(f"Profile updated for user ID: {user_id}")
             return True
 
@@ -292,16 +330,17 @@ class AuthManager:
             logger.error(f"Error updating profile for user {user_id}: {e}")
             return False
 
-    def delete_user(self, user_id: int, current_user_id: int = None) -> bool:
+    def delete_user(self, user_id: int, current_user_id: int = None, hard_delete: bool = False) -> bool:
         """
-        Soft delete user (set is_active = 0).
+        Delete user (soft or hard delete).
 
         Args:
             user_id: User ID to delete
             current_user_id: Current logged-in user ID (to prevent self-deletion)
+            hard_delete: If True, permanently delete user. If False, soft delete (set is_active = 0)
 
         Returns:
-            True if user deactivated successfully, False otherwise
+            True if user deleted successfully, False otherwise
         """
         try:
             # Prevent self-deletion
@@ -312,20 +351,41 @@ class AuthManager:
             conn = self.db_manager.conn
             cursor = conn.cursor()
 
-            cursor.execute("""
-                UPDATE users
-                SET is_active = 0
-                WHERE id = ?
-            """, (user_id,))
+            if hard_delete:
+                # Hard delete - permanently remove user
+                cursor.execute("""
+                    DELETE FROM users
+                    WHERE id = ?
+                """, (user_id,))
+                logger.info(f"Permanently deleted user ID: {user_id}")
+            else:
+                # Soft delete - deactivate user
+                cursor.execute("""
+                    UPDATE users
+                    SET is_active = 0
+                    WHERE id = ?
+                """, (user_id,))
+                logger.info(f"Deactivated user ID: {user_id}")
 
             conn.commit()
-
-            logger.info(f"Deactivated user ID: {user_id}")
             return True
 
         except sqlite3.Error as e:
-            logger.error(f"Error deactivating user {user_id}: {e}")
+            logger.error(f"Error deleting user {user_id}: {e}")
             return False
+
+    def hard_delete_user(self, user_id: int, current_user_id: int = None) -> bool:
+        """
+        Permanently delete user from database.
+
+        Args:
+            user_id: User ID to delete
+            current_user_id: Current logged-in user ID (to prevent self-deletion)
+
+        Returns:
+            True if user deleted successfully, False otherwise
+        """
+        return self.delete_user(user_id, current_user_id, hard_delete=True)
 
     def get_all_users(self) -> list:
         """
@@ -347,6 +407,7 @@ class AuthManager:
             """)
 
             users = [dict(row) for row in cursor.fetchall()]
+
 
             return users
 
@@ -377,6 +438,7 @@ class AuthManager:
             """, (user_id, preference_key))
 
             result = cursor.fetchone()
+
 
             if result:
                 return result['preference_value']
@@ -412,6 +474,7 @@ class AuthManager:
 
             conn.commit()
 
+
             logger.info(f"Set preference {preference_key} for user {user_id}")
             return True
 
@@ -441,6 +504,7 @@ class AuthManager:
             """, (user_id,))
 
             preferences = {row['preference_key']: row['preference_value'] for row in cursor.fetchall()}
+
 
             # Apply defaults for missing preferences
             defaults = self._get_default_preferences()
@@ -496,6 +560,7 @@ class AuthManager:
 
             conn.commit()
 
+
             logger.info(f"Updated {len(settings)} settings for user {user_id}")
             return True
 
@@ -525,6 +590,7 @@ class AuthManager:
             user_row = cursor.fetchone()
 
             if not user_row:
+
                 return None
 
             user_id = user_row[0]
@@ -540,6 +606,7 @@ class AuthManager:
             """, (user_id, reset_token, expires_at))
 
             conn.commit()
+
 
             logger.info(f"Created password reset token for user ID: {user_id}")
             return reset_token
@@ -573,20 +640,24 @@ class AuthManager:
             token_row = cursor.fetchone()
 
             if not token_row:
+
                 return None
 
             user_id, expires_at, used = token_row
 
             # Check if token is already used
             if used:
+
                 logger.warning(f"Attempted to use already-used reset token")
                 return None
 
             # Check if token is expired
             expires_datetime = datetime.fromisoformat(expires_at)
             if datetime.now() > expires_datetime:
+
                 logger.warning(f"Attempted to use expired reset token")
                 return None
+
 
             return user_id
 
@@ -627,6 +698,7 @@ class AuthManager:
 
             conn.commit()
 
+
             logger.info(f"Password reset completed for user ID: {user_id}")
             return True
 
@@ -656,6 +728,7 @@ class AuthManager:
             """, (username,))
 
             user_row = cursor.fetchone()
+
 
             if user_row:
                 return dict(user_row)
@@ -688,6 +761,7 @@ class AuthManager:
 
             user_row = cursor.fetchone()
 
+
             if user_row:
                 return dict(user_row)
             return None
@@ -695,3 +769,162 @@ class AuthManager:
         except sqlite3.Error as e:
             logger.error(f"Error getting user by email {email}: {e}")
             return None
+    def send_verification_email(self, email: str, base_url: str = None) -> bool:
+        """
+        Generate and send email verification code.
+
+        Args:
+            email: Email address to verify
+            base_url: Base URL for verification link (optional, defaults to localhost)
+
+        Returns:
+            True if verification email sent successfully, False otherwise
+        """
+        import secrets
+        from datetime import datetime, timedelta
+
+        try:
+            # Generate secure 6-digit code
+            code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+
+            # Calculate expiration (10 minutes from now)
+            expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
+
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+
+            # Store verification code
+            cursor.execute("""
+                INSERT INTO email_verification_codes (email, code, expires_at, verified)
+                VALUES (?, ?, ?, 0)
+            """, (email, code, expires_at))
+
+            conn.commit()
+
+            # Send verification email
+            try:
+                from alerts.email_notifier import EmailNotifier
+                from config.config_manager import config
+
+                # Use the global config instance
+                email_notifier = EmailNotifier(config, self.db_manager.db_path if hasattr(self.db_manager, 'db_path') else None)
+
+                # Determine base URL for verification link
+                if not base_url:
+                    base_url = "http://localhost:8050"  # Default for development
+
+                if email_notifier.is_enabled():
+                    email_notifier.send_verification_code_email(email, code, base_url)
+                    logger.info(f"Verification email sent to {email}")
+                else:
+                    logger.warning(f"SMTP not configured. Verification code for {email}: {code}")
+                    logger.info(f"Verification link: {base_url}/verify/{code}")
+                    logger.info("To enable email sending, configure SMTP settings in config/default_config.json")
+
+            except Exception as e:
+                logger.error(f"Failed to send verification email: {e}")
+                # Still return True since code is stored in database
+                logger.info(f"Verification code for {email}: {code} (email sending failed)")
+
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error creating verification code for {email}: {e}")
+            return False
+
+    def verify_email_code(self, code: str) -> bool:
+        """
+        Verify email verification code and mark email as verified.
+
+        Args:
+            code: 6-digit verification code
+
+        Returns:
+            True if code is valid and email verified, False otherwise
+        """
+        from datetime import datetime
+
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+
+            # Find verification code
+            cursor.execute("""
+                SELECT id, email, expires_at, verified
+                FROM email_verification_codes
+                WHERE code = ?
+            """, (code,))
+
+            code_row = cursor.fetchone()
+
+            if not code_row:
+                logger.warning("Invalid verification code attempted")
+                return False
+
+            code_id, email, expires_at, verified = code_row
+
+            # Check if already verified
+            if verified:
+                logger.info(f"Code already verified for {email}")
+                return True
+
+            # Check if expired
+            expires_datetime = datetime.fromisoformat(expires_at)
+            if datetime.now() > expires_datetime:
+                logger.warning(f"Expired verification code attempted for {email}")
+                return False
+
+            # Mark as verified
+            cursor.execute("""
+                UPDATE email_verification_codes
+                SET verified = 1
+                WHERE id = ?
+            """, (code_id,))
+
+            # Update user's email_verified status if user exists
+            cursor.execute("""
+                UPDATE users
+                SET email_verified = 1
+                WHERE email = ?
+            """, (email,))
+
+            conn.commit()
+
+            logger.info(f"Email verified successfully for {email}")
+            return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Error verifying email code: {e}")
+            return False
+
+    def get_verification_status(self, email: str) -> bool:
+        """
+        Check if an email address has been verified.
+
+        Args:
+            email: Email address to check
+
+        Returns:
+            True if email is verified, False otherwise
+        """
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT verified
+                FROM email_verification_codes
+                WHERE email = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (email,))
+
+            result = cursor.fetchone()
+
+            if result and result['verified']:
+                return True
+            return False
+
+        except sqlite3.Error as e:
+            logger.error(f"Error checking verification status for {email}: {e}")
+            return False
