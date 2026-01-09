@@ -75,8 +75,11 @@ class EmailNotifier(NotificationHandler):
             except Exception as e:
                 logger.warning(f"Could not initialize report components: {e}")
 
-        if self._enabled:
-            logger.info("EmailNotifier initialized and enabled")
+        # Log initialization status with proper configuration check
+        if self._enabled and self.is_enabled():
+            logger.info("EmailNotifier initialized and fully configured")
+        elif self._enabled:
+            logger.warning("EmailNotifier enabled but SMTP credentials not configured")
         else:
             logger.info("EmailNotifier initialized but disabled")
 
@@ -939,5 +942,127 @@ IoTSentinel - Network Security Monitoring
 
         message.attach(MIMEText(body_text, 'plain'))
         message.attach(MIMEText(body_html, 'html'))
+
+        return self._send_with_retry(message)
+    def send_verification_code_email(self, email: str, code: str, base_url: str = "http://localhost:8050") -> NotificationResult:
+        """
+        Send email verification code to user.
+
+        Args:
+            email: Recipient email address
+            code: 6-digit verification code
+            base_url: Base URL for verification link (default: http://localhost:8050)
+
+        Returns:
+            NotificationResult indicating success or failure
+        """
+        if not self.is_enabled():
+            return NotificationResult(
+                channel="email",
+                success=False,
+                message="Email notifications are not enabled or configured"
+            )
+
+        subject = "IoTSentinel - Email Verification Code"
+
+        # Plain text version
+        verification_link = f"{base_url}/verify/{code}"
+        body_text = f"""
+IoTSentinel Email Verification
+
+Your verification code is: {code}
+
+Or click this link to verify your email:
+{verification_link}
+
+This code will expire in 10 minutes.
+
+If you didn't request this code, please ignore this email.
+
+---
+IoTSentinel - Network Security Monitoring
+"""
+
+        # HTML version
+        body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                   color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: white; padding: 30px; border: 1px solid #e0e0e0; }}
+        .code-box {{ background: #f8f9fa; border: 2px dashed #60a5fa;
+                     padding: 20px; margin: 20px 0; text-align: center;
+                     border-radius: 8px; }}
+        .code {{ font-size: 32px; font-weight: bold; letter-spacing: 8px;
+                 color: #60a5fa; font-family: 'Courier New', monospace; }}
+        .footer {{ background: #f8f9fa; padding: 20px; text-align: center;
+                   font-size: 12px; color: #666; border-radius: 0 0 10px 10px; }}
+        .warning {{ color: #856404; background: #fff3cd; padding: 10px;
+                    border-radius: 5px; margin-top: 20px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Email Verification</h1>
+            <p style="margin: 0; opacity: 0.9;">IoTSentinel Security</p>
+        </div>
+        <div class="content">
+            <h2>Verify Your Email Address</h2>
+            <p>Thank you for registering with IoTSentinel. To complete your registration,
+               please use the verification code below:</p>
+
+            <div class="code-box">
+                <div class="code">{code}</div>
+            </div>
+
+            <p>Enter this code in the registration form to verify your email address.</p>
+
+            <p style="text-align: center; margin: 20px 0;">
+                <strong>Or click the button below to auto-fill the code:</strong>
+            </p>
+
+            <p style="text-align: center;">
+                <a href="{base_url}/verify/{code}"
+                   style="display: inline-block; padding: 12px 30px; background: #667eea;
+                          color: white; text-decoration: none; border-radius: 5px;
+                          font-weight: bold;">Go to Verification Page</a>
+            </p>
+
+            <p style="text-align: center; font-size: 13px; color: #888; margin-top: 10px;">
+                (You will still need to enter the code shown above)
+            </p>
+
+            <div class="warning">
+                <strong>⏰ Important:</strong> This code will expire in 10 minutes.
+            </div>
+
+            <p style="margin-top: 20px; font-size: 14px; color: #666;">
+                If you didn't request this code, please ignore this email.
+                Your account will not be created without verification.
+            </p>
+        </div>
+        <div class="footer">
+            <p>IoTSentinel - Network Security Monitoring</p>
+            <p>This is an automated message, please do not reply.</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+        # Create email message
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = self._sender_email
+        message["To"] = email
+        message['Date'] = datetime.now().strftime("%a, %d %b %Y %H:%M:%S %z")
+
+        message.attach(MIMEText(body_text, "plain"))
+        message.attach(MIMEText(body_html, "html"))
 
         return self._send_with_retry(message)

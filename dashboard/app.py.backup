@@ -19,6 +19,7 @@ import subprocess
 import smtplib
 import random
 import psutil
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
@@ -173,13 +174,13 @@ db_manager = DatabaseManager(DB_PATH)
 from utils.device_group_manager import DeviceGroupManager
 
 # Initialize device group manager
-group_manager = DeviceGroupManager(DB_PATH)
+group_manager = DeviceGroupManager(db_manager=db_manager)
 
 # Initialize chart factory for centralized chart generation
 chart_factory = ChartFactory()
 
 # Initialize universal export helper (supports CSV, JSON, PDF, Excel)
-export_helper = DashExportHelper(DB_PATH)
+export_helper = DashExportHelper(db_manager=db_manager)
 
 # Initialize Advanced Reporting & Analytics
 try:
@@ -297,7 +298,7 @@ except Exception as e:
     report_scheduler = None
 
 # Authentication setup
-auth_manager = AuthManager(DB_PATH)
+auth_manager = AuthManager(db_manager=db_manager)
 
 # Rate limiting for login attempts (5 attempts, 5-minute lockout)
 login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
@@ -325,10 +326,10 @@ except Exception as e:
     network_segmentation = None
     firmware_manager = None
 
-# Initialize innovation feature modules (use DB_PATH for direct SQLite access)
+# Initialize innovation feature modules (use db_manager for database access)
 try:
-    network_security_scorer = get_security_scorer(db_path=DB_PATH)
-    privacy_analyzer = get_privacy_analyzer(db_path=DB_PATH)
+    network_security_scorer = get_security_scorer(db_manager=db_manager)
+    privacy_analyzer = get_privacy_analyzer(db_manager=db_manager)
     logger.info("Innovation features initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize innovation features: {e}")
@@ -362,7 +363,7 @@ def load_user(user_id):
 
 # Initialize Google OAuth handler
 try:
-    oauth_handler = GoogleOAuthHandler(server, DB_PATH)
+    oauth_handler = GoogleOAuthHandler(server, db_manager=db_manager)
     if oauth_handler.enabled:
         logger.info("Google OAuth initialized successfully")
     else:
@@ -373,7 +374,7 @@ except Exception as e:
 
 # Initialize WebAuthn handler for biometric authentication
 try:
-    webauthn_handler = WebAuthnHandler(DB_PATH)
+    webauthn_handler = WebAuthnHandler(db_manager=db_manager)
     if is_webauthn_available():
         logger.info("WebAuthn initialized successfully")
     else:
@@ -2446,21 +2447,31 @@ login_layout = dbc.Container([
                                     )
                                 ], className="floating-input-group"),
 
-                                # Password Strength Meter
+                                # Password Strength Meter & Requirements
                                 html.Div([
                                     html.Div([
                                         html.Small("Password Strength:", className="text-secondary d-block mb-1", style={"fontSize": "0.85rem"}),
                                         html.Div([
                                             html.Div(id="password-strength-bar", style={
-                                                "height": "4px",
-                                                "borderRadius": "2px",
+                                                "height": "8px",
+                                                "borderRadius": "4px",
                                                 "backgroundColor": "var(--border-color)",
                                                 "transition": "all 0.3s ease",
                                                 "width": "0%"
                                             })
-                                        ], style={"width": "100%", "backgroundColor": "var(--bg-tertiary)", "borderRadius": "2px", "height": "4px"}),
+                                        ], style={"width": "100%", "backgroundColor": "var(--bg-tertiary)", "borderRadius": "4px", "height": "8px"}),
                                         html.Small(id="password-strength-text", className="text-muted d-block mt-1", style={"fontSize": "0.8rem"})
-                                    ], id="password-strength-container", style={"display": "none"})
+                                    ], id="password-strength-container", style={"display": "block"}), # Always show strength container
+                                    html.Div([
+                                        html.Small("Password must contain:", className="text-secondary d-block mt-2 fw-bold"),
+                                        html.Ul([
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-length"), "At least 8 characters"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-upper"), "An uppercase letter (A-Z)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-lower"), "A lowercase letter (a-z)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-digit"), "A number (0-9)"]),
+                                            html.Li([html.I(className="fa fa-times-circle me-2 text-danger", id="req-special"), "A special character (!@#$...)"])
+                                        ], className="list-unstyled text-muted password-requirements", style={"fontSize": "0.8rem", "paddingLeft": "1rem"})
+                                    ])
                                 ], className="mb-2"),
 
                                 # Confirm Password Input with Floating Label
@@ -2473,14 +2484,16 @@ login_layout = dbc.Container([
                                         autocomplete="new-password",
                                         className="form-control",
                                         style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
-                                    ),
-                                    html.Label("Confirm Password", htmlFor="register-password-confirm"),
+                                    )
+                                    ,html.Label("Confirm Password", htmlFor="register-password-confirm"),
                                     dbc.Button(
                                         html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
                                         id="register-password-confirm-toggle-btn",
                                         className="password-toggle-btn"
                                     )
-                                ], className="floating-input-group mb-3"),
+                                ], className="floating-input-group mb-0"), # Adjusted mb-3 to mb-0
+                                html.Div(id="password-match-feedback", className="validation-feedback mb-3"), # Added password match feedback
+
 
                                 # Send Verification Code Button
                                 dbc.Button(
@@ -3004,44 +3017,10 @@ dashboard_layout = dbc.Container([
     dcc.Interval(id='security-score-interval', interval=30*1000, n_intervals=0),
 
     # ============================================================================
-    # PRIVACY DASHBOARD - Data Minimization
-    # ============================================================================
-    html.Div(id='privacy-dashboard-section', children=[
-        dbc.Card([
-            dbc.CardHeader([
-                html.Div([
-                    html.Div([
-                        html.I(className="fa fa-user-shield me-2", style={"color": "#8b5cf6"}),
-                        html.Span("Privacy Dashboard - What Your Devices Collect", className="fw-bold"),
-                    ], className="d-flex align-items-center"),
-                    html.Div([
-                        html.Small(id="privacy-last-updated", children="Last updated: Never",
-                                 className="badge bg-light text-dark me-2", style={"padding": "0.4rem 0.6rem"}),
-                        dbc.Button([
-                            html.I(className="fa fa-sync-alt me-1"),
-                            "Refresh"
-                        ], id="privacy-refresh-btn", size="sm", color="light", outline=True)
-                    ], className="d-flex align-items-center")
-                ], className="d-flex justify-content-between align-items-center w-100")
-            ], className="bg-gradient-purple text-white"),
-            dbc.CardBody([
-                # Summary Row
-                dbc.Row([
-                    dbc.Col([
-                        html.Div(id="privacy-summary-cards")
-                    ], width=12, className="mb-3")
-                ]),
-
-                # Device Privacy Table
-                dbc.Row([
-                    dbc.Col([
-                        html.H6("Device Privacy Analysis", className="text-muted mb-3"),
-                        html.Div(id="privacy-devices-table")
-                    ], width=12)
-                ])
-            ], className="p-4")
-        ], className="glass-card border-0 shadow-lg mb-4")
-    ]),
+    # PRIVACY DASHBOARD - Moved to Privacy Monitor Modal (Device Privacy tab)
+    # Privacy dashboard content is now in the Privacy Monitor modal as the "Device Privacy" tab
+    # Keeping this placeholder for backward compatibility
+    html.Div(id='privacy-dashboard-section', children=[], style={'display': 'none'}),
 
     # Privacy device detail modal
     dbc.Modal([
@@ -6460,40 +6439,61 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
-                ], label="Data Flow", tab_id="data-flow-tab")
+                ], label="Data Flow", tab_id="data-flow-tab"),
+
+                # Device Privacy Tab
+                dbc.Tab([
+                    html.Div([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6([html.I(className="fa fa-user-shield me-2 text-purple"), "Device Privacy Analysis"], className="mb-3"),
+
+                                html.P("Analyze what data your devices collect and where it goes.", className="text-muted small mb-3"),
+
+                                # Summary Cards
+                                html.Div(id="privacy-summary-cards", className="mb-4"),
+
+                                # Device Privacy Table
+                                html.H6("Device Privacy Analysis", className="mb-3"),
+                                html.Div(id="privacy-devices-table"),
+
+                                html.Hr(className="my-4"),
+
+                                # Export Section
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Export Privacy Report:", className="fw-bold mb-2"),
+                                        dbc.Select(
+                                            id='export-format-privacy',
+                                            options=[
+                                                {'label': '📄 CSV Format', 'value': 'csv'},
+                                                {'label': '📋 JSON Format', 'value': 'json'},
+                                                {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                            ],
+                                            value='csv',
+                                            className="mb-2"
+                                        ),
+                                        dbc.Button([
+                                            html.I(className="fa fa-download me-2"),
+                                            "Export Privacy Report"
+                                        ], id='export-privacy-report-btn', color="primary", className="w-100")
+                                    ], md=6)
+                                ], className="mb-3")
+                            ])
+                        ], className="glass-card border-0 shadow-sm")
+                    ], className="p-3")
+                ], label="Device Privacy", tab_id="device-privacy-tab")
 
             ], id="privacy-modal-tabs", active_tab="privacy-score-tab")
         ]),
         dbc.ModalFooter([
-            dbc.Row([
-                dbc.Col([
-                    html.Label("Export Format:", className="fw-bold mb-2 small"),
-                    dbc.Select(
-                        id='export-format-privacy',
-                        options=[
-                            {'label': '📄 CSV Format', 'value': 'csv'},
-                            {'label': '📋 JSON Format', 'value': 'json'},
-                            {'label': '📕 PDF Report', 'value': 'pdf'},
-                            {'label': '📊 Excel Workbook', 'value': 'xlsx'}
-                        ],
-                        value='csv',
-                        size="sm",
-                        className="mb-2"
-                    )
-                ], md=4),
-                dbc.Col([
-                    dbc.Button([
-                        html.I(className="fa fa-download me-2"),
-                        "Export Report"
-                    ], id='export-privacy-report-btn', color="primary", outline=True, className="mt-4"),
-                ], md=3),
-                dbc.Col([
-                    dbc.Button([
-                        html.I(className="fa fa-times me-2"),
-                        "Close"
-                    ], id='close-privacy-modal-btn', color="secondary", outline=True, className="mt-4")
-                ], md=3)
-            ], className="w-100")
+            html.Small(id="privacy-last-updated", children="Last updated: Never", className="text-muted me-auto"),
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh"
+            ], id="privacy-refresh-btn", size="sm", color="primary", outline=True, className="me-2"),
+            dbc.Button("Close", id='close-privacy-modal-btn', color="secondary")
         ])
     ], id="privacy-modal", size="xl", is_open=False, scrollable=True),
 
@@ -14271,6 +14271,124 @@ def verify_code(code, email, code_sent):
         return False, True, toast
 
 # Registration callback
+# Real-time Password Strength and Match Feedback
+@app.callback(
+    [Output('password-strength-bar', 'style', allow_duplicate=True),
+     Output('password-strength-text', 'children', allow_duplicate=True),
+     Output('password-strength-container', 'style', allow_duplicate=True),
+     Output('req-length', 'className'),
+     Output('req-upper', 'className'),
+     Output('req-lower', 'className'),
+     Output('req-digit', 'className'),
+     Output('req-special', 'className'),
+     Output('password-match-feedback', 'children'),
+     Output('password-match-feedback', 'className'),
+     Output('register-button', 'disabled', allow_duplicate=True)],
+    [Input('register-password', 'value'),
+     Input('register-password-confirm', 'value')],
+    [State('email-verified', 'data')],
+    prevent_initial_call=True
+)
+def update_password_feedback_and_button_state(password, password_confirm, email_verified):
+    # Initialize outputs
+    bar_style = {"height": "8px", "width": "0%", "borderRadius": "4px", "transition": "all 0.3s ease", "backgroundColor": "var(--border-color)"}
+    strength_text = ""
+    strength_container_style = {"display": "block"}
+
+    # Requirement icons (initially red X)
+    req_class_red = "fa fa-times-circle me-2 text-danger"
+    req_class_green = "fa fa-check-circle me-2 text-success"
+    req_length = req_class_red
+    req_upper = req_class_red
+    req_lower = req_class_red
+    req_digit = req_class_red
+    req_special = req_class_red
+
+    match_feedback_children = ""
+    match_feedback_class = "validation-feedback mb-3"
+    register_button_disabled = True
+
+    # Password Matching
+    if password and password_confirm:
+        if password == password_confirm:
+            match_feedback_children = html.Div([
+                html.I(className="fa fa-check-circle me-1"),
+                "Passwords match"
+            ], className="text-success")
+            match_feedback_class = "validation-feedback mb-3 text-success"
+            register_button_disabled = False # Temporarily enable, will be re-evaluated by strength
+        else:
+            match_feedback_children = html.Div([
+                html.I(className="fa fa-times-circle me-1"),
+                "Passwords do not match"
+            ], className="text-danger")
+            match_feedback_class = "validation-feedback mb-3 text-danger"
+            register_button_disabled = True
+    elif not password_confirm and password:
+        match_feedback_children = html.Div([
+            html.I(className="fa fa-info-circle me-1"),
+            "Please confirm password"
+        ], className="text-muted")
+        match_feedback_class = "validation-feedback mb-3 text-muted"
+        register_button_disabled = True
+    else:
+        register_button_disabled = True # Disable if either password field is empty
+
+    # Password Strength
+    if password:
+        score = 0
+        if len(password) >= 8:
+            score += 1
+            req_length = req_class_green
+        if re.search(r"[A-Z]", password):
+            score += 1
+            req_upper = req_class_green
+        if re.search(r"[a-z]", password):
+            score += 1
+            req_lower = req_class_green
+        if re.search(r"\d", password):
+            score += 1
+            req_digit = req_class_green
+        if re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password):
+            score += 1
+            req_special = req_class_green
+
+        # Max score is 5 for all criteria met + length
+        colors = ["#ef4444", "#f59e0b", "#fbbf24", "#10b981", "#059669", "#059669"] # Adjusted colors for 6 levels
+        labels = ["Very Weak", "Weak", "Fair", "Good", "Strong", "Very Strong"]
+        widths = ["0%", "20%", "40%", "60%", "80%", "100%"]
+
+        # If length requirement isn't met, cap score
+        actual_score = score if len(password) >= 8 else min(score, 1)
+
+        bar_style = {
+            "height": "8px",
+            "width": widths[actual_score],
+            "backgroundColor": colors[actual_score],
+            "borderRadius": "4px",
+            "transition": "all 0.3s ease"
+        }
+        strength_text = labels[actual_score]
+
+        # Determine if password is strong enough based on AuthManager logic (all 5 criteria)
+        is_strong = (len(password) >= 8 and
+                     re.search(r"[A-Z]", password) and
+                     re.search(r"[a-z]", password) and
+                     re.search(r"\d", password) and
+                     re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password))
+
+        # Final decision on button enablement
+        if not is_strong or password != password_confirm or not email_verified:
+            register_button_disabled = True
+        else:
+            register_button_disabled = False
+
+    return (
+        bar_style, strength_text, strength_container_style,
+        req_length, req_upper, req_lower, req_digit, req_special,
+        match_feedback_children, match_feedback_class, register_button_disabled
+    )
+
 @app.callback(
     [Output('auth-tabs', 'active_tab', allow_duplicate=True),
      Output('toast-container', 'children', allow_duplicate=True)],
@@ -14311,10 +14429,10 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
         )
         return dash.no_update, toast
 
-    if len(password) < 4:
-        toast = ToastManager.warning(
-            "Validation Error",
-            detail_message="Password must be at least 4 characters"
+    if not auth_manager.is_password_strong_enough(password):
+        toast = ToastManager.error(
+            "Password Not Strong Enough",
+            detail_message="Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one digit, and one special character."
         )
         return dash.no_update, toast
 
@@ -14570,12 +14688,12 @@ def create_new_user(n_clicks, username, email, password, role):
         )
         return dbc.Alert("Username must be at least 3 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
-    if len(password) < 4:
+    if not auth_manager.is_password_strong_enough(password):
         toast = ToastManager.warning(
             "Validation Error",
-            detail_message="Password must be at least 4 characters"
+            detail_message="Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character."
         )
-        return dbc.Alert("Password must be at least 4 characters", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
+        return dbc.Alert("Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.", color="warning"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, toast
 
     # Create user
     success = auth_manager.create_user(username, password, role or 'viewer', email)
@@ -17424,6 +17542,12 @@ def main():
     port = config.get('dashboard', 'port', default=8050)
     debug = True
 
+    # Suppress Flask/Werkzeug HTTP access logs (keeps error logs)
+    import logging as log
+    log.getLogger('werkzeug').setLevel(log.ERROR)
+    log.getLogger('socketio').setLevel(log.WARNING)
+    log.getLogger('engineio').setLevel(log.WARNING)
+
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Enhanced Educational Edition")
     logger.info("=" * 70)
@@ -17499,10 +17623,17 @@ def main():
 
     # Try running with SocketIO, fall back if needed
     try:
-        socketio.run(app.server, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+        socketio.run(app.server, host=host, port=port, debug=debug,
+                    allow_unsafe_werkzeug=True, log_output=False)
     except Exception as e:
         logger.error(f"SocketIO failed to start: {e}")
         logger.info("Falling back to standard Dash server (WebSockets disabled)...")
+
+        # Suppress werkzeug logs for fallback server too
+        import logging as log
+        werkzeug_log = log.getLogger('werkzeug')
+        werkzeug_log.setLevel(log.ERROR)
+
         app.run(host=host, port=port, debug=debug)
 
 # Modal toggle callbacks for feature cards
@@ -31474,7 +31605,7 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
             table_rows.append(
                 html.Tr([
                     html.Td(summary['device_name']),
-                    html.Td(summary['device_type'].replace('_', ' ').title()),
+                    html.Td((summary.get('device_type') or 'unknown').replace('_', ' ').title()),
                     html.Td(dbc.Badge(f"{summary['privacy_risk_score']}/100", color=risk_color)),
                     html.Td(str(summary['data_types_count'])),
                     html.Td(str(summary['critical_data_types']), className="text-danger fw-bold" if summary['critical_data_types'] > 0 else ""),
@@ -31499,7 +31630,7 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
                 ])
             ]),
             html.Tbody(table_rows)
-        ], striped=True, hover=True, responsive=True, className="table-sm")
+        ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
 
         last_updated = f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}"
 
@@ -31537,21 +31668,36 @@ def update_privacy_dashboard(n_intervals, refresh_clicks):
 def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
     """Show detailed privacy analysis for a specific device."""
     ctx = callback_context
+
     if not ctx.triggered:
         return dash.no_update, dash.no_update, dash.no_update
 
     triggered_id = ctx.triggered[0]['prop_id']
+    triggered_value = ctx.triggered[0]['value']
+
+    # Don't process if triggered value is None or 0
+    if triggered_value is None or triggered_value == 0:
+        return dash.no_update, dash.no_update, dash.no_update
 
     # Close modal
     if 'privacy-detail-modal-close' in triggered_id:
         return False, dash.no_update, dash.no_update
 
-    # Open modal with device details
-    if detail_clicks and any(detail_clicks):
+    # Open modal with device details - check if a privacy detail button was clicked
+    if 'privacy-detail-btn' in triggered_id:
+        # Check if privacy analyzer is available
+        if privacy_analyzer is None:
+            return True, "Error", dbc.Alert("Privacy analyzer not available", color="warning")
+
         # Get device IP from triggered button
         import json
-        button_id = json.loads(triggered_id.split('.')[0])
-        device_ip = button_id['index']
+        try:
+            # Remove the .n_clicks suffix from the end
+            button_id_str = triggered_id.rsplit('.', 1)[0]
+            button_id = json.loads(button_id_str)
+            device_ip = button_id['index']
+        except (json.JSONDecodeError, KeyError, IndexError):
+            return dash.no_update, dash.no_update, dash.no_update
 
         # Get detailed analysis
         analysis = privacy_analyzer.analyze_device_data_collection(device_ip, days=7)
@@ -31607,7 +31753,7 @@ def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
                     ])
                     for svc in cloud_services.get('top_services', [])[:10]
                 ])
-            ], striped=True, hover=True, responsive=True, className="table-sm mb-4"),
+            ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-4 table-adaptive"),
 
             # Transmission statistics
             html.H6("Data Transmission Statistics", className="mt-4 mb-3"),
