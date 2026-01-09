@@ -20,6 +20,7 @@ import threading
 import subprocess
 import psutil
 from pathlib import Path
+from datetime import datetime, timedelta
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -42,6 +43,10 @@ from utils.iot_features import (
     get_network_segmentation,
     get_firmware_manager
 )
+
+# Import sustainability and lifecycle features
+from utils.sustainability_calculator import get_sustainability_calculator
+from utils.hardware_lifecycle import HardwareLifecycleManager
 
 # Import innovation feature modules
 from utils.auto_provisioner import get_auto_provisioner
@@ -133,7 +138,12 @@ class IoTSentinelOrchestrator:
             self.privacy_monitor = get_privacy_monitor(self.db)
             self.segmentation = get_network_segmentation(self.db)
             self.firmware_manager = get_firmware_manager(self.db)
-            logger.info("IoT feature modules initialized (intelligence, protocols, threats, smart home, privacy, segmentation, firmware)")
+
+            # Initialize sustainability and lifecycle features
+            self.sustainability_calc = get_sustainability_calculator(self.db)
+            self.lifecycle_manager = HardwareLifecycleManager(self.db)
+
+            logger.info("IoT feature modules initialized (intelligence, protocols, threats, smart home, privacy, segmentation, firmware, sustainability, lifecycle)")
         except Exception as e:
             logger.error(f"Failed to initialize IoT feature modules: {e}")
             # Continue without IoT features
@@ -144,6 +154,8 @@ class IoTSentinelOrchestrator:
             self.privacy_monitor = None
             self.segmentation = None
             self.firmware_manager = None
+            self.sustainability_calc = None
+            self.lifecycle_manager = None
 
         # Initialize innovation feature modules
         self.auto_provisioner = None
@@ -358,6 +370,39 @@ class IoTSentinelOrchestrator:
             firmware_thread.start()
             self.threads.append(firmware_thread)
             logger.info("IoT firmware checking started (weekly checks).")
+
+        # Start Kids Device Monitor Loop (every 30 minutes)
+        if self.privacy_monitor:
+            kids_monitor_thread = threading.Thread(
+                target=self._kids_device_monitor_loop,
+                name="KidsDeviceMonitorThread",
+                daemon=True
+            )
+            kids_monitor_thread.start()
+            self.threads.append(kids_monitor_thread)
+            logger.info("Kids device monitoring started (every 30 minutes).")
+
+        # Start Hardware Lifecycle Check Loop (daily)
+        if self.lifecycle_manager:
+            lifecycle_thread = threading.Thread(
+                target=self._hardware_lifecycle_check_loop,
+                name="HardwareLifecycleThread",
+                daemon=True
+            )
+            lifecycle_thread.start()
+            self.threads.append(lifecycle_thread)
+            logger.info("Hardware lifecycle monitoring started (daily checks).")
+
+        # Start Sustainability Metrics Loop (every 6 hours)
+        if self.sustainability_calc:
+            sustainability_thread = threading.Thread(
+                target=self._sustainability_metrics_loop,
+                name="SustainabilityMetricsThread",
+                daemon=True
+            )
+            sustainability_thread.start()
+            self.threads.append(sustainability_thread)
+            logger.info("Sustainability metrics logging started (every 6 hours).")
 
         # Start Incremental ML Update Thread (every 6 hours)
         if self.incremental_trainer and config.get('ml', {}).get('incremental_learning_enabled', True):
@@ -840,6 +885,168 @@ class IoTSentinelOrchestrator:
                 updates_available += 1
 
         return updates_available
+
+    def _kids_device_monitor_loop(self):
+        """Background loop for kids' device protection monitoring (every 30 minutes)."""
+        interval = 1800  # 30 minutes
+        logger.info(f"Kids device monitor loop started (interval: {interval}s)")
+
+        while self.running:
+            try:
+                if self.privacy_monitor:
+                    logger.info("Checking kids' devices for suspicious activity...")
+
+                    cursor = self.db.conn.cursor()
+                    cursor.execute("""
+                        SELECT device_ip, device_name
+                        FROM devices
+                        WHERE is_kids_device = 1
+                    """)
+                    kids_devices = cursor.fetchall()
+
+                    for device in kids_devices:
+                        device_ip = device['device_ip']
+                        device_name = device['device_name'] or device_ip
+
+                        # Check for suspicious activity
+                        result = self.privacy_monitor.check_kids_device_activity(device_ip)
+
+                        if result and result.get('risk_score', 0) > 50:
+                            logger.warning(
+                                f"Kids device alert for {device_name} ({device_ip}): "
+                                f"Risk score {result['risk_score']}/100"
+                            )
+
+                            # Create alert through alerting system if available
+                            if self.alerting:
+                                explanation = f"Kids Device Protection Alert for {device_name}\n\n"
+                                explanation += f"Risk Score: {result['risk_score']}/100\n\n"
+
+                                if result.get('detections'):
+                                    explanation += "Detected Issues:\n"
+                                    for detection in result['detections']:
+                                        explanation += f"- {detection}\n"
+
+                                if result.get('recommendations'):
+                                    explanation += "\nRecommended Actions:\n"
+                                    for rec in result['recommendations']:
+                                        explanation += f"- {rec}\n"
+
+                                self.alerting.create_alert(
+                                    device_ip=device_ip,
+                                    severity='high' if result['risk_score'] > 70 else 'medium',
+                                    explanation=explanation,
+                                    anomaly_score=result['risk_score'] / 100.0
+                                )
+
+                    logger.info(f"Kids device monitoring complete: checked {len(kids_devices)} devices")
+
+            except Exception as e:
+                logger.error(f"Error in kids device monitoring: {e}")
+
+            time.sleep(interval)
+
+    def _hardware_lifecycle_check_loop(self):
+        """Background loop for hardware EOL monitoring (daily)."""
+        interval = 86400  # 24 hours
+        logger.info(f"Hardware lifecycle check loop started (interval: {interval}s)")
+
+        while self.running:
+            try:
+                if self.lifecycle_manager:
+                    logger.info("Checking devices for hardware lifecycle alerts...")
+
+                    cursor = self.db.conn.cursor()
+                    cursor.execute("""
+                        SELECT device_ip, device_name, manufacturing_date, hardware_eol_date
+                        FROM devices
+                        WHERE hardware_eol_date IS NOT NULL OR manufacturing_date IS NOT NULL
+                    """)
+                    devices_to_check = cursor.fetchall()
+
+                    eol_count = 0
+                    for device in devices_to_check:
+                        device_ip = device['device_ip']
+
+                        # Check lifecycle status
+                        result = self.lifecycle_manager.check_device_lifecycle(device_ip)
+
+                        if result and result.get('is_eol'):
+                            eol_count += 1
+                            device_name = device['device_name'] or device_ip
+
+                            logger.warning(
+                                f"EOL device detected: {device_name} ({device_ip}) - "
+                                f"Unsupported since {result.get('eol_date', 'unknown')}"
+                            )
+
+                            # Create alert for EOL devices if alerting is available
+                            if self.alerting and result.get('days_until_eol', 0) < 30:
+                                explanation = f"Hardware End-of-Life Alert for {device_name}\n\n"
+                                explanation += f"EOL Date: {result.get('eol_date', 'Unknown')}\n"
+                                explanation += f"Security Risk: No more firmware updates or security patches\n\n"
+
+                                if result.get('recommendations'):
+                                    explanation += "Recommended Actions:\n"
+                                    for rec in result['recommendations']:
+                                        explanation += f"- {rec}\n"
+
+                                self.alerting.create_alert(
+                                    device_ip=device_ip,
+                                    severity='medium',
+                                    explanation=explanation,
+                                    anomaly_score=0.5
+                                )
+
+                    logger.info(f"Hardware lifecycle check complete: {eol_count} EOL devices found out of {len(devices_to_check)}")
+
+            except Exception as e:
+                logger.error(f"Error in hardware lifecycle check: {e}")
+
+            time.sleep(interval)
+
+    def _sustainability_metrics_loop(self):
+        """Background loop for sustainability metrics logging (every 6 hours)."""
+        interval = 21600  # 6 hours
+        logger.info(f"Sustainability metrics loop started (interval: {interval}s)")
+
+        while self.running:
+            try:
+                if self.sustainability_calc:
+                    logger.info("Calculating and logging sustainability metrics...")
+
+                    # Calculate carbon footprint
+                    carbon_data = self.sustainability_calc.calculate_network_carbon_footprint(hours=6)
+
+                    # Save to database
+                    if carbon_data:
+                        metrics = {
+                            'period_start': (datetime.now() - timedelta(hours=6)).isoformat(),
+                            'period_end': datetime.now().isoformat(),
+                            'total_data_gb': carbon_data.get('total_data_gb', 0),
+                            'energy_kwh': carbon_data.get('energy_kwh', 0),
+                            'carbon_kg': carbon_data.get('carbon_kg', 0),
+                            'device_count': 0,  # Will be calculated
+                            'active_device_hours': 0  # Will be calculated
+                        }
+
+                        # Get device count
+                        cursor = self.db.conn.cursor()
+                        cursor.execute("SELECT COUNT(*) as count FROM devices")
+                        metrics['device_count'] = cursor.fetchone()['count']
+
+                        # Save metrics
+                        self.sustainability_calc.save_sustainability_metrics(metrics)
+
+                        logger.info(
+                            f"Sustainability metrics saved: {carbon_data.get('carbon_kg', 0):.3f} kg CO₂, "
+                            f"{carbon_data.get('energy_kwh', 0):.3f} kWh"
+                        )
+
+            except Exception as e:
+                logger.error(f"Error in sustainability metrics calculation: {e}")
+
+            time.sleep(interval)
 
     def _incremental_ml_update_loop(self):
         """Background loop for incremental ML model updates (every 6 hours)."""

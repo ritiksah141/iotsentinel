@@ -52,9 +52,28 @@ def init_database():
             icon TEXT DEFAULT "❓",
             category TEXT DEFAULT "other",
             confidence TEXT DEFAULT "low",
-            total_connections INTEGER DEFAULT 0
+            total_connections INTEGER DEFAULT 0,
+            is_kids_device INTEGER DEFAULT 0,
+            manufacturing_date DATE,
+            hardware_eol_date DATE
         )
     ''')
+
+    # Add new columns to existing devices table (migration)
+    try:
+        cursor.execute('ALTER TABLE devices ADD COLUMN is_kids_device INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE devices ADD COLUMN manufacturing_date DATE')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE devices ADD COLUMN hardware_eol_date DATE')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Connections table (from Zeek)
     cursor.execute('''
@@ -951,12 +970,75 @@ def init_database():
         );
     ''')
 
+    # ========================================
+    # HARDWARE LIFECYCLE & E-WASTE TRACKING
+    # ========================================
+
+    # Manufacturer EOL Database - Track end-of-life dates for hardware
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS manufacturer_eol_database (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            manufacturer TEXT NOT NULL,
+            model TEXT NOT NULL,
+            device_type TEXT,
+            release_date DATE,
+            eol_date DATE,
+            support_end_date DATE,
+            replacement_model TEXT,
+            recycling_info TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(manufacturer, model)
+        );
+    ''')
+
+    # ========================================
+    # SUSTAINABILITY & GREEN METRICS
+    # ========================================
+
+    # Sustainability Metrics - Track environmental impact
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sustainability_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            period_start TIMESTAMP,
+            period_end TIMESTAMP,
+            total_data_gb REAL DEFAULT 0,
+            estimated_energy_kwh REAL DEFAULT 0,
+            carbon_footprint_kg REAL DEFAULT 0,
+            device_count INTEGER DEFAULT 0,
+            active_device_hours REAL DEFAULT 0,
+            notes TEXT
+        );
+    ''')
+
+    # Device Energy Estimates - Per-device energy tracking
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS device_energy_estimates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_ip TEXT NOT NULL,
+            device_type TEXT,
+            date DATE NOT NULL,
+            estimated_power_watts REAL DEFAULT 0,
+            active_hours REAL DEFAULT 0,
+            estimated_energy_kwh REAL DEFAULT 0,
+            data_transferred_gb REAL DEFAULT 0,
+            FOREIGN KEY (device_ip) REFERENCES devices(device_ip),
+            UNIQUE(device_ip, date)
+        );
+    ''')
+
+    # Create indexes for performance
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sustainability_timestamp ON sustainability_metrics(timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_energy_date ON device_energy_estimates(date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_energy_ip ON device_energy_estimates(device_ip)')
+
     conn.commit()
     # No need to close - using shared connection from db_manager
 
     print(f"\n✓ Database initialized: {db_path}")
     print("\nCore Tables:")
-    print("  - devices (with IoT metadata: icon, category, model, firmware)")
+    print("  - devices (with IoT metadata: icon, category, model, firmware, kids_device, hardware_eol)")
     print("  - connections")
     print("  - alerts")
     print("  - ml_predictions")
@@ -972,6 +1054,9 @@ def init_database():
     print("  - alert_rules")
     print("  - device_groups")
     print("  - device_group_members")
+    print("  - manufacturer_eol_database (Hardware Lifecycle)")
+    print("  - sustainability_metrics (Green Metrics)")
+    print("  - device_energy_estimates (Per-Device Energy)")
     if not admin_exists:
         print("\n✓ Default admin user created:")
         print(f"  Username: {admin_username_to_print}")

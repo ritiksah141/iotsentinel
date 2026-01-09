@@ -211,6 +211,195 @@ class PrivacyMonitor:
         except Exception as e:
             logger.error(f"Failed to save tracker: {e}")
 
+    def check_kids_device_activity(self, device_ip: str) -> Dict:
+        """
+        Enhanced privacy monitoring for kids' devices.
+        Detects high-risk activities and generates alerts.
+
+        Args:
+            device_ip: Device IP address
+
+        Returns:
+            Dict with risk assessment and recommendations
+        """
+        try:
+            cursor = self.db.conn.cursor()
+
+            # Check if device is marked as kids' device
+            cursor.execute("""
+                SELECT is_kids_device, device_type, device_name
+                FROM devices
+                WHERE device_ip = ?
+            """, (device_ip,))
+
+            device = cursor.fetchone()
+            if not device or not device['is_kids_device']:
+                return {'is_kids_device': False}
+
+            risk_factors = []
+            risk_score = 0
+
+            # Check 1: Social media connections
+            social_media_domains = [
+                'facebook.com', 'instagram.com', 'tiktok.com', 'snapchat.com',
+                'twitter.com', 'x.com', 'discord.com', 'whatsapp.com'
+            ]
+
+            cursor.execute("""
+                SELECT DISTINCT dest_ip
+                FROM connections
+                WHERE device_ip = ?
+                AND timestamp >= datetime('now', '-24 hours')
+            """, (device_ip,))
+
+            # Check for social media connections (simplified - in production use DNS resolution)
+            recent_connections = cursor.fetchall()
+
+            # Check 2: Unknown/suspicious IP connections
+            cursor.execute("""
+                SELECT COUNT(DISTINCT dest_ip) as unknown_ips
+                FROM connections
+                WHERE device_ip = ?
+                AND timestamp >= datetime('now', '-24 hours')
+                AND dest_ip NOT IN (
+                    SELECT ip FROM malicious_ips
+                )
+            """, (device_ip,))
+
+            unknown_count = cursor.fetchone()['unknown_ips']
+            if unknown_count > 50:
+                risk_score += 30
+                risk_factors.append(f'High number of unique connections ({unknown_count})')
+
+            # Check 3: Malicious IP connections
+            cursor.execute("""
+                SELECT COUNT(*) as malicious_count
+                FROM connections c
+                INNER JOIN malicious_ips m ON c.dest_ip = m.ip
+                WHERE c.device_ip = ?
+                AND c.timestamp >= datetime('now', '-24 hours')
+            """, (device_ip,))
+
+            malicious_count = cursor.fetchone()['malicious_count']
+            if malicious_count > 0:
+                risk_score += 50
+                risk_factors.append(f'{malicious_count} connections to malicious IPs')
+                self._generate_kids_device_alert(
+                    device_ip,
+                    'critical',
+                    f"Kids' device '{device['device_name']}' connected to {malicious_count} malicious IP(s)",
+                    {'malicious_connections': malicious_count}
+                )
+
+            # Check 4: Excessive data upload (potential oversharing)
+            cursor.execute("""
+                SELECT SUM(bytes_sent) as total_upload
+                FROM connections
+                WHERE device_ip = ?
+                AND timestamp >= datetime('now', '-24 hours')
+            """, (device_ip,))
+
+            total_upload = cursor.fetchone()['total_upload'] or 0
+            upload_mb = total_upload / (1024 * 1024)
+
+            if upload_mb > 500:  # More than 500MB upload in 24h
+                risk_score += 25
+                risk_factors.append(f'High data upload: {upload_mb:.1f}MB')
+                self._generate_kids_device_alert(
+                    device_ip,
+                    'medium',
+                    f"Kids' device '{device['device_name']}' uploaded {upload_mb:.1f}MB in 24h (possible file sharing)",
+                    {'upload_mb': upload_mb}
+                )
+
+            # Check 5: After-hours activity (11 PM - 6 AM)
+            cursor.execute("""
+                SELECT COUNT(*) as night_connections
+                FROM connections
+                WHERE device_ip = ?
+                AND timestamp >= datetime('now', '-24 hours')
+                AND (
+                    CAST(strftime('%H', timestamp) AS INTEGER) >= 23
+                    OR CAST(strftime('%H', timestamp) AS INTEGER) < 6
+                )
+            """, (device_ip,))
+
+            night_connections = cursor.fetchone()['night_connections']
+            if night_connections > 100:
+                risk_score += 15
+                risk_factors.append(f'{night_connections} connections during late hours')
+
+            # Determine overall risk level
+            if risk_score >= 60:
+                risk_level = 'critical'
+            elif risk_score >= 35:
+                risk_level = 'high'
+            elif risk_score >= 15:
+                risk_level = 'medium'
+            else:
+                risk_level = 'low'
+
+            return {
+                'is_kids_device': True,
+                'device_name': device['device_name'],
+                'device_type': device['device_type'],
+                'risk_score': risk_score,
+                'risk_level': risk_level,
+                'risk_factors': risk_factors,
+                'recommendations': self._get_kids_device_recommendations(risk_factors)
+            }
+
+        except Exception as e:
+            logger.error(f"Error checking kids device activity: {e}")
+            return {'error': str(e)}
+
+    def _generate_kids_device_alert(self, device_ip: str, severity: str,
+                                    explanation: str, indicators: Dict):
+        """Generate privacy alert for kids' devices."""
+        try:
+            from alerts.alert_manager import alert_manager
+
+            alert_manager.create_alert(
+                device_ip=device_ip,
+                severity=severity,
+                anomaly_score=0.0,
+                explanation=f"[Kids' Device Privacy] {explanation}",
+                top_features=json.dumps(indicators),
+                category='privacy'
+            )
+            logger.warning(f"Kids device alert generated for {device_ip}: {explanation}")
+
+        except Exception as e:
+            logger.error(f"Failed to generate kids device alert: {e}")
+
+    def _get_kids_device_recommendations(self, risk_factors: List[str]) -> List[str]:
+        """Get parental control recommendations based on risk factors."""
+        recommendations = []
+
+        if any('malicious' in factor.lower() for factor in risk_factors):
+            recommendations.append("⚠️ Block malicious IPs immediately")
+            recommendations.append("Review device activity with child")
+            recommendations.append("Consider activating parental control software")
+
+        if any('upload' in factor.lower() for factor in risk_factors):
+            recommendations.append("Monitor file sharing applications")
+            recommendations.append("Review cloud storage permissions")
+            recommendations.append("Educate about oversharing risks")
+
+        if any('late hours' in factor.lower() for factor in risk_factors):
+            recommendations.append("Set device usage time limits")
+            recommendations.append("Enable bedtime mode/screen time restrictions")
+
+        if any('unique connections' in factor.lower() for factor in risk_factors):
+            recommendations.append("Review installed apps and permissions")
+            recommendations.append("Enable DNS filtering for age-appropriate content")
+
+        # Always include general recommendations
+        recommendations.append("Regular check-ins about online activity")
+        recommendations.append("Keep device in common areas during use")
+
+        return recommendations
+
 
 class NetworkSegmentation:
     """Manages network segmentation and VLAN recommendations."""

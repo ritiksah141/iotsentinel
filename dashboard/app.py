@@ -67,6 +67,10 @@ from utils.iot_features import (
     get_firmware_manager
 )
 
+# Import sustainability and lifecycle features
+from utils.sustainability_calculator import get_sustainability_calculator
+from utils.hardware_lifecycle import HardwareLifecycleManager
+
 # Import enhanced toast management system
 from utils.toast_manager import ToastManager, TOAST_POSITION_STYLE, TOAST_DURATIONS
 
@@ -3886,7 +3890,22 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="quick-settings-btn", n_clicks=0)
-        ], className="masonry-item small")
+        ], className="masonry-item small"),
+
+        # Green Security Dashboard - NEW
+        html.Div([
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-leaf fa-2x mb-2", style={"color": "#10b981"}),
+                            html.H6("Sustainability", className="fw-bold mb-1"),
+                            html.P("Carbon footprint & energy", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                        ], className="text-center")
+                    ], className="p-3")
+                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+            ], id="sustainability-card-btn", n_clicks=0)
+        ], className="masonry-item medium", **{"data-category": "Analytics"})
     ], className="masonry-grid")
     ], id="features-section"),
 
@@ -5359,14 +5378,6 @@ dashboard_layout = dbc.Container([
 
                                 # Device Table
                                 html.Div(id='device-management-table'),
-
-                                # Pagination controls (placeholder, updated by callback)
-                                html.Div([
-                                    dbc.Button("← Previous", id='device-table-prev', size="sm",
-                                              disabled=True, color="primary", outline=True, style={'display': 'none'}),
-                                    dbc.Button("Next →", id='device-table-next', size="sm",
-                                              disabled=True, color="primary", outline=True, style={'display': 'none'})
-                                ], style={'display': 'none'}),
 
                                 dcc.Store(id='selected-devices-store', data=[]),
                                 dcc.Store(id='device-table-page', data=1)
@@ -8802,6 +8813,190 @@ dashboard_layout = dbc.Container([
         dcc.Store(id='performance-timestamp-store')
     ], id="performance-modal", size="xl", is_open=False, scrollable=True),
 
+    # Green Security Dashboard Modal - NEW
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-leaf me-2 text-success"),
+            "Green Security Dashboard"
+        ]), close_button=True),
+        dbc.ModalBody([
+            dbc.Tabs([
+                # Tab 1: Carbon Footprint
+                dbc.Tab([
+                    html.Div([
+                        dbc.Row([
+                            # Carbon Footprint Gauge
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.I(className="fa fa-smog me-2 text-success"),
+                                        "Network Carbon Footprint"
+                                    ], className="bg-success text-white"),
+                                    dbc.CardBody([
+                                        dcc.Graph(id='carbon-footprint-gauge', config={'displayModeBar': False}),
+                                        html.Hr(),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                html.Div([
+                                                    html.I(className="fa fa-tree me-2 text-success"),
+                                                    html.Strong("Trees to offset:", className="me-2"),
+                                                    html.Span(id='trees-needed', className="badge bg-success")
+                                                ])
+                                            ], width=6),
+                                            dbc.Col([
+                                                html.Div([
+                                                    html.I(className="fa fa-car me-2 text-warning"),
+                                                    html.Strong("Car miles equiv:", className="me-2"),
+                                                    html.Span(id='car-miles-equiv', className="badge bg-warning")
+                                                ])
+                                            ], width=6)
+                                        ])
+                                    ])
+                                ], className="glass-card border-0 shadow-sm")
+                            ], md=12, className="mb-3"),
+
+                            # Monthly Trend
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.I(className="fa fa-chart-line me-2 text-primary"),
+                                        "Carbon Footprint Trend (30 Days)"
+                                    ], className="bg-primary text-white"),
+                                    dbc.CardBody([
+                                        dcc.Graph(id='carbon-trend-chart', config={'displayModeBar': False}),
+                                        html.Hr(className="my-3"),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                html.Label("Export Sustainability Report", className="fw-bold mb-2 text-success"),
+                                                html.P("Download complete sustainability metrics in your preferred format.", className="text-muted small mb-2"),
+                                                dbc.Select(
+                                                    id='export-format-sustainability',
+                                                    options=[
+                                                        {'label': '📄 CSV Format', 'value': 'csv'},
+                                                        {'label': '📋 JSON Format', 'value': 'json'},
+                                                        {'label': '📕 PDF Report', 'value': 'pdf'},
+                                                        {'label': '📊 Excel Workbook', 'value': 'xlsx'}
+                                                    ],
+                                                    value='csv',
+                                                    className="mb-2"
+                                                ),
+                                                dbc.Button([
+                                                    html.I(className="fa fa-download me-2"),
+                                                    "Export Sustainability Data"
+                                                ], id='export-sustainability-btn', color="success", className="w-100")
+                                            ], md=6)
+                                        ])
+                                    ])
+                                ], className="glass-card border-0 shadow-sm")
+                            ], md=12)
+                        ])
+                    ], className="p-3")
+                ], label="Carbon Footprint", tab_id="carbon-tab"),
+
+                # Tab 2: Energy Consumption
+                dbc.Tab([
+                    html.Div([
+                        dbc.Row([
+                            # Energy Summary Cards
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-bolt fa-2x text-warning mb-2"),
+                                            html.H6("Today's Energy", className="text-muted mb-1"),
+                                            html.H3(id='today-energy-kwh', className="mb-0 text-primary"),
+                                            html.Small("kWh", className="text-muted")
+                                        ], className="text-center")
+                                    ])
+                                ], className="glass-card border-0 shadow-sm hover-lift")
+                            ], md=3),
+
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-dollar-sign fa-2x text-success mb-2"),
+                                            html.H6("Daily Cost", className="text-muted mb-1"),
+                                            html.H3(id='today-energy-cost', className="mb-0 text-primary"),
+                                            html.Small("USD", className="text-muted")
+                                        ], className="text-center")
+                                    ])
+                                ], className="glass-card border-0 shadow-sm hover-lift")
+                            ], md=3),
+
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-calendar-days fa-2x text-info mb-2"),
+                                            html.H6("Monthly Estimate", className="text-muted mb-1"),
+                                            html.H3(id='monthly-energy-cost', className="mb-0 text-primary"),
+                                            html.Small("USD/month", className="text-muted")
+                                        ], className="text-center")
+                                    ])
+                                ], className="glass-card border-0 shadow-sm hover-lift")
+                            ], md=3),
+
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.Div([
+                                            html.I(className="fa fa-chart-pie fa-2x text-danger mb-2"),
+                                            html.H6("Yearly Estimate", className="text-muted mb-1"),
+                                            html.H3(id='yearly-energy-cost', className="mb-0 text-primary"),
+                                            html.Small("USD/year", className="text-muted")
+                                        ], className="text-center")
+                                    ])
+                                ], className="glass-card border-0 shadow-sm hover-lift")
+                            ], md=3)
+                        ], className="mb-3"),
+
+                        # Top Energy Consumers
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardHeader([
+                                        html.I(className="fa fa-ranking-star me-2 text-danger"),
+                                        "Top 10 Energy Consumers"
+                                    ], className="bg-danger text-white"),
+                                    dbc.CardBody([
+                                        dcc.Graph(id='top-energy-consumers-chart', config={'displayModeBar': False})
+                                    ])
+                                ], className="glass-card border-0 shadow-sm")
+                            ], md=12)
+                        ])
+                    ], className="p-3")
+                ], label="Energy Consumption", tab_id="energy-tab"),
+
+                # Tab 3: Green Best Practices
+                dbc.Tab([
+                    html.Div([
+                        dbc.Alert([
+                            html.I(className="fa fa-lightbulb me-2"),
+                            html.Strong("Green Security Best Practices"),
+                            html.P("Follow these recommendations to reduce your network's environmental impact while maintaining security.", className="mb-0 mt-2")
+                        ], color="success", className="mb-3"),
+
+                        html.Div(id='green-best-practices-content')
+                    ], className="p-3")
+                ], label="Best Practices", tab_id="practices-tab")
+            ], id="sustainability-tabs", active_tab="carbon-tab")
+        ]),
+        dbc.ModalFooter([
+            html.Div(id='sustainability-timestamp-display', className="me-auto"),
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh"
+            ], id="refresh-sustainability-btn", color="success", outline=True, size="sm", className="me-2"),
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Close"
+            ], id="close-sustainability-modal-btn", color="secondary", size="sm")
+        ]),
+        dcc.Store(id='sustainability-data-store'),
+        dcc.Download(id='download-sustainability-report')
+    ], id="sustainability-modal", size="xl", is_open=False, scrollable=True),
+
     # Quick Settings Modal - Enhanced
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
@@ -9686,46 +9881,155 @@ dashboard_layout = dbc.Container([
 
     # Lockdown Confirmation Modal
     dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirm Lockdown Mode")),
+        dbc.ModalHeader(
+            dbc.ModalTitle("⚠️ Confirm Lockdown Mode"),
+            close_button=True
+        ),
         dbc.ModalBody([
             html.Div([
-                html.I(className="fa fa-exclamation-triangle fa-3x text-warning mb-3"),
-                html.H5("Are you sure you want to enable Lockdown Mode?"),
-                html.P("This will block all untrusted devices from accessing your network."),
-                html.Hr(),
-                html.P([
-                    html.Strong("Trusted devices: "),
-                    html.Span(id='lockdown-trusted-count', children="0")
-                ]),
-                html.P([
-                    html.Strong("Will be blocked: "),
-                    html.Span(id='lockdown-blocked-count', children="0", className="text-danger")
-                ])
-            ], className="text-center")
+                # Icon card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-exclamation-triangle fa-4x text-warning mb-2"),
+                    ], className="text-center py-3 bg-light")
+                ], className="mb-3 border-0"),
+
+                # Question card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5("Are you sure you want to enable Lockdown Mode?", className="text-center mb-3"),
+                        html.P("This will block all untrusted devices from accessing your network.", className="text-center text-muted mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-shield-alt text-success me-2"),
+                                        html.Strong("Trusted: "),
+                                        html.Span(id='lockdown-trusted-count', children="0", className="text-success fw-bold")
+                                    ], className="text-center py-2")
+                                ], className="border-0 bg-light")
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.I(className="fa fa-ban text-danger me-2"),
+                                        html.Strong("Will Block: "),
+                                        html.Span(id='lockdown-blocked-count', children="0", className="text-danger fw-bold")
+                                    ], className="text-center py-2")
+                                ], className="border-0 bg-light")
+                            ], width=6)
+                        ])
+                    ])
+                ], className="mb-3 border-warning"),
+            ])
         ]),
         dbc.ModalFooter([
-            dbc.Button("Cancel", id="lockdown-cancel", color="secondary", className="cyber-button"),
-            dbc.Button("Enable Lockdown", id="lockdown-confirm", color="danger", className="cyber-button"),
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Cancel"
+            ], id="lockdown-cancel", color="secondary", outline=True, className="cyber-button"),
+            dbc.Button([
+                html.I(className="fa fa-lock me-2"),
+                "Enable Lockdown"
+            ], id="lockdown-confirm", color="danger", className="cyber-button"),
         ]),
-    ], id="lockdown-modal", is_open=False),
+    ], id="lockdown-modal", is_open=False, centered=True, backdrop="static"),
 
     # Bulk Delete Confirmation Modal
     dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirm Delete")),
+        dbc.ModalHeader(
+            dbc.ModalTitle("⚠️ Confirm Delete"),
+            close_button=True
+        ),
         dbc.ModalBody([
             html.Div([
-                html.I(className="fa fa-trash fa-3x text-danger mb-3"),
-                html.H5("Are you sure you want to delete selected devices?"),
-                html.P(id="bulk-delete-confirm-message", className="text-muted"),
-                html.Hr(),
-                html.P("This action cannot be undone!", className="text-warning fw-bold")
-            ], className="text-center")
+                # Icon card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-trash fa-4x text-danger mb-2"),
+                    ], className="text-center py-3 bg-light")
+                ], className="mb-3 border-0"),
+
+                # Question card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5("Are you sure you want to delete selected devices?", className="text-center mb-3"),
+                        html.Div([
+                            html.I(className="fa fa-info-circle me-2 text-muted"),
+                            html.Span(id="bulk-delete-confirm-message", className="text-muted")
+                        ], className="text-center mb-2"),
+                    ])
+                ], className="mb-3 border-danger"),
+
+                # Warning alert
+                dbc.Alert([
+                    html.I(className="fa fa-exclamation-triangle me-2"),
+                    "This action cannot be undone!"
+                ], color="warning", className="mb-0")
+            ])
         ]),
         dbc.ModalFooter([
-            dbc.Button("Cancel", id="bulk-delete-cancel", color="secondary"),
-            dbc.Button("Delete", id="bulk-delete-confirm", color="danger"),
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Cancel"
+            ], id="bulk-delete-cancel", color="secondary", outline=True),
+            dbc.Button([
+                html.I(className="fa fa-trash me-2"),
+                "Delete"
+            ], id="bulk-delete-confirm", color="danger"),
         ]),
-    ], id="bulk-delete-modal", is_open=False),
+    ], id="bulk-delete-modal", is_open=False, centered=True, backdrop="static"),
+
+    # User Delete Confirmation Modal
+    dbc.Modal([
+        dbc.ModalHeader(
+            dbc.ModalTitle("⚠️ Confirm Delete User"),
+            close_button=True
+        ),
+        dbc.ModalBody([
+            html.Div([
+                # Icon card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(className="fa fa-user-times fa-4x text-danger mb-2"),
+                    ], className="text-center py-3 bg-light")
+                ], className="mb-3 border-0"),
+
+                # Question card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5("Are you sure you want to delete this user?", className="text-center mb-3"),
+                        html.Div([
+                            html.I(className="fa fa-user me-2 text-primary"),
+                            html.Strong("Username: "),
+                            html.Span(id="user-delete-confirm-username", className="text-primary")
+                        ], className="text-center mb-2"),
+                    ])
+                ], className="mb-3 border-danger"),
+
+                # Warning alerts
+                dbc.Alert([
+                    html.I(className="fa fa-exclamation-circle me-2"),
+                    "This will permanently delete the user account and all associated data!"
+                ], color="warning", className="mb-2"),
+                dbc.Alert([
+                    html.I(className="fa fa-exclamation-triangle me-2"),
+                    "This action cannot be undone!"
+                ], color="danger", className="mb-0")
+            ])
+        ]),
+        dbc.ModalFooter([
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Cancel"
+            ], id="user-delete-cancel", color="secondary", outline=True),
+            dbc.Button([
+                html.I(className="fa fa-user-times me-2"),
+                "Delete User"
+            ], id="user-delete-confirm", color="danger"),
+        ]),
+    ], id="user-delete-modal", is_open=False, centered=True, backdrop="static"),
+    dcc.Store(id='user-delete-id-store', data=None),
 
     # User Delete Confirmation Modal
     dbc.Modal([
@@ -9749,21 +10053,47 @@ dashboard_layout = dbc.Container([
 
     # Block/Unblock Device Confirmation Modal
     dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle(id="block-device-modal-title")),
+        dbc.ModalHeader(
+            dbc.ModalTitle(id="block-device-modal-title"),
+            close_button=True
+        ),
         dbc.ModalBody([
             html.Div([
-                html.I(id="block-device-modal-icon", className="fa fa-ban fa-3x text-warning mb-3"),
-                html.H5(id="block-device-modal-question"),
-                html.P(id="block-device-modal-ip", className="fw-bold text-muted"),
-                html.Hr(),
-                html.P(id="block-device-modal-warning", className="text-warning fw-bold")
-            ], className="text-center")
+                # Icon card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.I(id="block-device-modal-icon", className="fa fa-ban fa-4x text-warning mb-2"),
+                    ], className="text-center py-3 bg-light")
+                ], className="mb-3 border-0"),
+
+                # Question card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5(id="block-device-modal-question", className="text-center mb-3"),
+                        html.Div([
+                            html.I(className="fa fa-network-wired me-2 text-muted"),
+                            html.Strong("Device IP: "),
+                            html.Span(id="block-device-modal-ip", className="text-primary")
+                        ], className="text-center mb-2"),
+                    ])
+                ], className="mb-3 border-primary"),
+
+                # Warning card
+                dbc.Alert(
+                    id="block-device-modal-warning",
+                    color="warning",
+                    className="mb-0"
+                )
+            ])
         ]),
         dbc.ModalFooter([
-            dbc.Button("Cancel", id="block-device-cancel", color="secondary"),
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Cancel"
+            ], id="block-device-cancel", color="secondary", outline=True),
             dbc.Button(id="block-device-confirm-btn", color="danger"),
         ]),
-    ], id="block-device-modal", is_open=False),
+    ], id="block-device-modal", is_open=False, centered=True, backdrop="static"),
     dcc.Store(id='block-device-ip-store', data=None),
     dcc.Store(id='block-device-action-store', data=None),
 
@@ -13444,11 +13774,11 @@ def redirect_after_auth_toast(notification_data):
      Output('register-username', 'value'),
      Output('register-password', 'value'),
      Output('register-password-confirm', 'value'),
-     Output('verification-code', 'value'),
+     Output('verification-code', 'value', allow_duplicate=True),
      Output('forgot-password-email', 'value')],
     [Input('url', 'pathname'),
      Input('auth-notification-store', 'data')],
-    prevent_initial_call=False
+    prevent_initial_call=True
 )
 def clear_form_inputs(pathname, notification_data):
     """Clear all form inputs when showing login page or after logout"""
@@ -15798,15 +16128,15 @@ def update_device_counts(is_open):
     [Input('device-mgmt-modal', 'is_open'),
      Input('device-mgmt-tabs', 'active_tab'),
      Input('load-devices-btn', 'n_clicks'),
-     Input('device-table-prev', 'n_clicks'),
-     Input('device-table-next', 'n_clicks'),
+     Input('refresh-device-mgmt-btn', 'n_clicks'),
      Input('device-search-input', 'value'),
-     Input('device-status-filter', 'value')],
+     Input('device-status-filter', 'value'),
+     Input({'type': 'device-page-btn', 'action': ALL}, 'n_clicks')],
     [State('device-table-page', 'data'),
      State('selected-devices-store', 'data')],
     prevent_initial_call=True
 )
-def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, next_clicks, search_text, status_filter, current_page, selected_devices):
+def load_device_management_table(is_open, active_tab, load_clicks, refresh_clicks, search_text, status_filter, page_clicks, current_page, selected_devices):
     """Load devices for management with pagination"""
     ctx = callback_context
 
@@ -15818,21 +16148,31 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
         raise dash.exceptions.PreventUpdate
 
     # Check if refresh button was clicked for toast notification
-    show_refresh_toast = ctx.triggered and ctx.triggered[0]['prop_id'] == 'load-devices-btn.n_clicks'
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else ''
+    show_refresh_toast = trigger_id in ['load-devices-btn', 'refresh-device-mgmt-btn']
 
     # Determine which button was clicked
     if not ctx.triggered:
         page = 1
     else:
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'device-table-prev':
-            page = max(1, current_page - 1)
-        elif trigger_id == 'device-table-next':
-            page = current_page + 1
+        # Handle pattern-matching pagination buttons
+        if 'device-page-btn' in trigger_id:
+            try:
+                import json
+                button_id = json.loads(trigger_id)
+                action = button_id.get('action', '')
+                if action == 'prev':
+                    page = max(1, current_page - 1)
+                elif action == 'next':
+                    page = current_page + 1
+                else:
+                    page = 1
+            except:
+                page = 1
         elif trigger_id in ['device-search-input', 'device-status-filter']:
             page = 1  # Reset to page 1 when search or filter changes
         else:
-            page = 1  # Reset to page 1 on initial load
+            page = 1  # Reset to page 1 on initial load or refresh
 
     # Pagination settings
     ITEMS_PER_PAGE = 20
@@ -15966,11 +16306,11 @@ def load_device_management_table(is_open, active_tab, load_clicks, prev_clicks, 
     pagination = dbc.Row([
         dbc.Col([
             html.Div([
-                dbc.Button("← Previous", id='device-table-prev', size="sm",
+                dbc.Button("← Previous", id={'type': 'device-page-btn', 'action': 'prev'}, size="sm",
                           disabled=(page == 1), color="primary", outline=True),
                 html.Span(f" Page {page} of {total_pages} ",
                          className="mx-3 align-middle"),
-                dbc.Button("Next →", id='device-table-next', size="sm",
+                dbc.Button("Next →", id={'type': 'device-page-btn', 'action': 'next'}, size="sm",
                           disabled=(page >= total_pages), color="primary", outline=True)
             ], className="d-flex align-items-center justify-content-center")
         ])
@@ -16535,6 +16875,43 @@ def show_device_details_in_tab(clicks, ids, current_tab):
     baseline = device.get('baseline', {})
     today_stats = device.get('today_stats', {})
 
+    # Calculate hardware lifecycle info
+    mfg_date = device.get('manufacturing_date')
+    eol_date = device.get('hardware_eol_date')
+    device_age_msg = ""
+    eol_warning = None
+
+    if mfg_date:
+        from datetime import datetime
+        try:
+            mfg_datetime = datetime.fromisoformat(mfg_date) if isinstance(mfg_date, str) else mfg_date
+            age_days = (datetime.now() - mfg_datetime).days
+            age_years = age_days // 365
+            age_months = (age_days % 365) // 30
+            if age_years > 0:
+                device_age_msg = f"Device is {age_years} year(s) and {age_months} month(s) old"
+            else:
+                device_age_msg = f"Device is {age_months} month(s) old"
+        except:
+            device_age_msg = ""
+
+    if eol_date:
+        try:
+            eol_datetime = datetime.fromisoformat(eol_date) if isinstance(eol_date, str) else eol_date
+            days_to_eol = (eol_datetime - datetime.now()).days
+            if days_to_eol < 0:
+                eol_warning = dbc.Alert([
+                    html.I(className="fa fa-exclamation-triangle me-2"),
+                    f"⚠️ This device is past its End-of-Life date by {abs(days_to_eol)} days. Consider replacement for security."
+                ], color="danger", className="mb-2")
+            elif days_to_eol < 180:
+                eol_warning = dbc.Alert([
+                    html.I(className="fa fa-exclamation-circle me-2"),
+                    f"⚠️ This device will reach End-of-Life in {days_to_eol} days. Plan for replacement."
+                ], color="warning", className="mb-2")
+        except:
+            pass
+
     # Build rich detailed view (using popup content)
     details_content = html.Div([
         # Device Header
@@ -16544,63 +16921,210 @@ def show_device_details_in_tab(clicks, ids, current_tab):
                     create_device_icon(device_type, use_emoji=True, use_fa=True, size="1.5rem"),
                     html.H5(f"Device Details: {device_name}", className="mb-0 ms-2")
                 ], className="d-flex align-items-center")
-            ]),
+            ], className="bg-primary text-white"),
             dbc.CardBody([
-                # Basic Info
-                dbc.Row([
-                    dbc.Col([
-                        html.H5("Basic Information", className="text-cyber mb-3"),
-                        html.P([html.Strong("IP Address: "), device_ip]),
-                        html.P([html.Strong("MAC Address: "), device.get('mac_address', 'Unknown')]),
-                        html.P([html.Strong("Manufacturer: "), device.get('manufacturer', 'Unknown')]),
-                        html.P([html.Strong("Device Type: "), device.get('device_type', 'Unknown')]),
-                        html.P([html.Strong("First Seen: "), device.get('first_seen', 'Unknown')]),
-                        html.P([html.Strong("Last Seen: "), device.get('last_seen', 'Unknown')]),
-                    ], width=6),
-                    dbc.Col([
-                        html.H5("Security Status", className="text-cyber mb-3"),
+                # Basic Information Card
+                dbc.Card([
+                    dbc.CardBody([
                         html.Div([
-                            html.Span("Current Status: "),
+                            html.I(className="fa fa-info-circle me-2 text-primary"),
+                            html.Strong("Basic Information")
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Div([
+                                    html.I(className="fa fa-network-wired me-2 text-muted"),
+                                    html.Strong("IP Address: "),
+                                    html.Span(device_ip)
+                                ], className="mb-2"),
+                                html.Div([
+                                    html.I(className="fa fa-ethernet me-2 text-muted"),
+                                    html.Strong("MAC Address: "),
+                                    html.Span(device.get('mac_address', 'Unknown'))
+                                ], className="mb-2"),
+                                html.Div([
+                                    html.I(className="fa fa-industry me-2 text-muted"),
+                                    html.Strong("Manufacturer: "),
+                                    html.Span(device.get('manufacturer', 'Unknown'))
+                                ], className="mb-2"),
+                            ], width=6),
+                            dbc.Col([
+                                html.Div([
+                                    html.I(className="fa fa-tag me-2 text-muted"),
+                                    html.Strong("Device Type: "),
+                                    dbc.Badge(device.get('device_type', 'Unknown'), color="info", className="ms-1")
+                                ], className="mb-2"),
+                                html.Div([
+                                    html.I(className="fa fa-clock me-2 text-muted"),
+                                    html.Strong("First Seen: "),
+                                    html.Span(device.get('first_seen', 'Unknown'))
+                                ], className="mb-2"),
+                                html.Div([
+                                    html.I(className="fa fa-history me-2 text-muted"),
+                                    html.Strong("Last Seen: "),
+                                    html.Span(device.get('last_seen', 'Unknown'))
+                                ], className="mb-2"),
+                            ], width=6)
+                        ])
+                    ])
+                ], className="mb-3 border-primary"),
+
+                # Security Status Card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-shield-alt me-2 text-success"),
+                            html.Strong("Security Status")
+                        ], className="mb-3"),
+                        html.Div([
+                            html.Strong("Current Status: "),
                             create_status_indicator(device.get('status', 'unknown'), "1.2rem"),
-                            html.Strong(device.get('status', 'unknown').upper())
-                        ], className="mb-2"),
-                        html.P([html.Strong("Total Connections: "), f"{device.get('total_connections', 0):,}"]),
-                        html.P([html.Strong("Total Alerts: "), device.get('total_alerts', 0)]),
-                        html.P([html.Strong("Active Alerts: "), device.get('active_alerts', 0)]),
-                        html.Hr(),
+                            html.Span(device.get('status', 'unknown').upper(), className="ms-2 fw-bold")
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H4(f"{device.get('total_connections', 0):,}", className="mb-0 text-info"),
+                                        html.Small("Total Connections", className="text-muted")
+                                    ], className="text-center py-2")
+                                ], className="border-0 bg-light")
+                            ], width=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H4(str(device.get('total_alerts', 0)), className="mb-0 text-warning"),
+                                        html.Small("Total Alerts", className="text-muted")
+                                    ], className="text-center py-2")
+                                ], className="border-0 bg-light")
+                            ], width=4),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H4(str(device.get('active_alerts', 0)), className="mb-0 text-danger"),
+                                        html.Small("Active Alerts", className="text-muted")
+                                    ], className="text-center py-2")
+                                ], className="border-0 bg-light")
+                            ], width=4)
+                        ], className="mb-3"),
+
+                        # Trust Status Section
                         html.Div([
-                            html.Strong("Trust Status: "),
+                            html.I(className="fa fa-user-shield me-2 text-primary"),
+                            html.Strong("Trust Status"),
                             dbc.Switch(
                                 id={'type': 'device-trust-switch', 'ip': device_ip},
-                                label="Trusted Device",
+                                label="Mark as Trusted Device",
                                 value=bool(device.get('is_trusted', False)),
-                                className="d-inline-block ms-2"
+                                className="ms-3 d-inline-block"
                             )
                         ], className="mb-2"),
-                        html.Small("Trusted devices have different alert thresholds", className="text-muted"),
-                        html.Hr(),
+                        html.Small([
+                            html.I(className="fa fa-info-circle me-1"),
+                            "Trusted devices have different alert thresholds and security policies"
+                        ], className="text-muted d-block")
+                    ])
+                ], className="mb-3 border-success"),
+
+                # Kids Device Protection Section
+                dbc.Card([
+                    dbc.CardBody([
                         html.Div([
-                            html.Strong("Network Access: ", className="mb-2"),
-                            html.Div([
-                                dbc.Button(
-                                    [html.I(className="fa fa-ban me-2"), "Block Device"] if not device.get('is_blocked', False) else [html.I(className="fa fa-check-circle me-2"), "Unblock Device"],
-                                    id={'type': 'device-block-btn', 'ip': device_ip},
-                                    color="danger" if not device.get('is_blocked', False) else "success",
-                                    outline=True,
-                                    size="sm",
-                                    className="w-100 mt-2"
-                                ),
-                                html.Div(id={'type': 'block-status', 'ip': device_ip}, className="mt-2")
-                            ])
+                            html.I(className="fa fa-child me-2 text-info"),
+                            html.Strong("Kids Device Protection")
                         ], className="mb-2"),
-                        dbc.Alert(
-                            [html.I(className="fa fa-exclamation-triangle me-2"), "This device is currently BLOCKED from network access"],
-                            color="danger",
-                            className="mt-2"
-                        ) if device.get('is_blocked', False) else html.Div(),
-                        html.Small("Blocking requires firewall integration to be enabled", className="text-muted")
-                    ], width=6)
-                ]),
+                        dbc.Switch(
+                            id={'type': 'device-kids-switch', 'ip': device_ip},
+                            label="Enable Kids Device Monitoring",
+                            value=bool(device.get('is_kids_device', False)),
+                            className="mb-2"
+                        ),
+                        html.Small([
+                            html.I(className="fa fa-shield-alt me-1"),
+                            "Monitors for malicious IPs, excessive uploads, and late-night activity (11PM-6AM)"
+                        ], className="text-muted d-block"),
+                        dbc.Alert([
+                            html.I(className="fa fa-check-circle me-2"),
+                            "✅ Kids device protection is actively monitoring this device"
+                        ], color="info", className="mt-2 mb-0", style={'fontSize': '0.85rem'}) if device.get('is_kids_device', False) else html.Div()
+                    ])
+                ], className="mb-3 border-info" if device.get('is_kids_device', False) else "mb-3"),
+
+                # Hardware Lifecycle Section
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-recycle me-2 text-success"),
+                            html.Strong("Hardware Lifecycle & E-Waste Tracking")
+                        ], className="mb-3"),
+                        eol_warning if eol_warning else html.Div(),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Label([
+                                    html.I(className="fa fa-calendar me-1"),
+                                    "Manufacturing Date"
+                                ], size="sm", className="fw-bold text-primary"),
+                                dbc.Input(
+                                    id={'type': 'device-mfg-date', 'ip': device_ip},
+                                    type="date",
+                                    value=device.get('manufacturing_date') or '',
+                                    size="sm",
+                                    className="mb-2",
+                                    placeholder="YYYY-MM-DD"
+                                ),
+                                html.Small([
+                                    html.I(className="fa fa-birthday-cake me-1"),
+                                    device_age_msg
+                                ], className="text-success d-block") if device_age_msg else html.Div()
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Label([
+                                    html.I(className="fa fa-calendar-times me-1"),
+                                    "Hardware EOL Date"
+                                ], size="sm", className="fw-bold text-primary"),
+                                dbc.Input(
+                                    id={'type': 'device-eol-date', 'ip': device_ip},
+                                    type="date",
+                                    value=device.get('hardware_eol_date') or '',
+                                    size="sm",
+                                    className="mb-2",
+                                    placeholder="YYYY-MM-DD"
+                                )
+                            ], width=6)
+                        ], className="g-2 mb-2"),
+                        html.Small([
+                            html.I(className="fa fa-leaf me-1"),
+                            "Track device lifecycle for sustainability planning, security patching, and proper recycling"
+                        ], className="text-muted d-block")
+                    ])
+                ], className="mb-3 border-success"),
+
+                # Network Access Control Card
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.I(className="fa fa-network-wired me-2 text-warning"),
+                            html.Strong("Network Access Control")
+                        ], className="mb-3"),
+                        dbc.Alert([
+                            html.I(className="fa fa-ban me-2"),
+                            "⛔ This device is currently BLOCKED from network access"
+                        ], color="danger") if device.get('is_blocked', False) else html.Div(),
+                        dbc.Button(
+                            [html.I(className="fa fa-ban me-2"), "Block Device"] if not device.get('is_blocked', False) else [html.I(className="fa fa-check-circle me-2"), "Unblock Device"],
+                            id={'type': 'device-block-btn', 'ip': device_ip},
+                            color="danger" if not device.get('is_blocked', False) else "success",
+                            outline=True,
+                            size="sm",
+                            className="w-100"
+                        ),
+                        html.Div(id={'type': 'block-status', 'ip': device_ip}, className="mt-2"),
+                        html.Small([
+                            html.I(className="fa fa-info-circle me-1"),
+                            "Requires firewall integration to be enabled"
+                        ], className="text-muted d-block mt-2")
+                    ])
+                ], className="mb-3 border-warning"),
 
                 html.Hr(),
 
@@ -16656,42 +17180,100 @@ def show_device_details_in_tab(clicks, ids, current_tab):
     Input('save-device-details-btn', 'n_clicks'),
     [State({'type': 'device-trust-switch', 'ip': ALL}, 'value'),
      State({'type': 'device-trust-switch', 'ip': ALL}, 'id'),
-     State({'type': 'device-block-btn', 'ip': ALL}, 'id')],
+     State({'type': 'device-kids-switch', 'ip': ALL}, 'value'),
+     State({'type': 'device-kids-switch', 'ip': ALL}, 'id'),
+     State({'type': 'device-mfg-date', 'ip': ALL}, 'value'),
+     State({'type': 'device-mfg-date', 'ip': ALL}, 'id'),
+     State({'type': 'device-eol-date', 'ip': ALL}, 'value'),
+     State({'type': 'device-eol-date', 'ip': ALL}, 'id')],
     prevent_initial_call=True
 )
-def save_device_details(n_clicks, trust_values, trust_ids, block_ids):
-    """Save device details (trust status) and return to list"""
+def save_device_details(n_clicks, trust_values, trust_ids, kids_values, kids_ids,
+                       mfg_dates, mfg_ids, eol_dates, eol_ids):
+    """Save device details (trust status, kids device, hardware lifecycle) and return to list"""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
     try:
-        # Find the device IP from the trust switch IDs (should only be one in Details tab)
-        if trust_ids and len(trust_ids) > 0:
-            device_ip = None
-            trust_value = None
+        device_ip = None
+        trust_value = False
+        kids_value = False
+        mfg_date = None
+        eol_date = None
 
-            # Find the most recent trust switch (last one in the list)
+        # Extract device IP and values from the IDs
+        if trust_ids and len(trust_ids) > 0:
             for i, id_dict in enumerate(trust_ids):
                 if id_dict and 'ip' in id_dict:
                     device_ip = id_dict['ip']
                     trust_value = trust_values[i] if i < len(trust_values) else False
 
-            if device_ip:
-                # Update trust status in database
-                db_manager.set_device_trust(device_ip, bool(trust_value))
+        if kids_ids and len(kids_ids) > 0:
+            for i, id_dict in enumerate(kids_ids):
+                if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
+                    kids_value = kids_values[i] if i < len(kids_values) else False
 
-                toast = ToastManager.success(
-            "Changes Saved",
-            detail_message="Changes Saved"
-        )
+        if mfg_ids and len(mfg_ids) > 0:
+            for i, id_dict in enumerate(mfg_ids):
+                if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
+                    mfg_date = mfg_dates[i] if i < len(mfg_dates) and mfg_dates[i] else None
 
-                # Return to devices list
-                return toast, 'devices-list-tab'
+        if eol_ids and len(eol_ids) > 0:
+            for i, id_dict in enumerate(eol_ids):
+                if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
+                    eol_date = eol_dates[i] if i < len(eol_dates) and eol_dates[i] else None
+
+        if device_ip:
+            # Track what changed for specific toast message
+            changes = []
+
+            # Update trust status in database
+            db_manager.set_device_trust(device_ip, bool(trust_value))
+            if trust_value:
+                changes.append("marked as trusted")
+
+            # Update kids device status
+            cursor = db_manager.conn.cursor()
+            cursor.execute(
+                "UPDATE devices SET is_kids_device = ? WHERE device_ip = ?",
+                (1 if kids_value else 0, device_ip)
+            )
+            if kids_value:
+                changes.append("kids device protection enabled")
+
+            # Update hardware lifecycle dates
+            if mfg_date or eol_date:
+                cursor.execute(
+                    "UPDATE devices SET manufacturing_date = ?, hardware_eol_date = ? WHERE device_ip = ?",
+                    (mfg_date if mfg_date else None, eol_date if eol_date else None, device_ip)
+                )
+                if mfg_date and eol_date:
+                    changes.append("hardware lifecycle dates updated")
+                elif mfg_date:
+                    changes.append("manufacturing date set")
+                elif eol_date:
+                    changes.append("EOL date set")
+
+            db_manager.conn.commit()
+
+            # Create detailed success message
+            if changes:
+                detail_msg = f"Device {device_ip}: " + ", ".join(changes)
+            else:
+                detail_msg = f"Device settings updated for {device_ip}"
+
+            toast = ToastManager.success(
+                "Device Settings Saved",
+                detail_message=detail_msg
+            )
+
+            # Return to devices list
+            return toast, 'devices-list-tab'
 
         # If we couldn't find device IP, show error
         toast = ToastManager.error(
             "Save Failed",
-            detail_message="Save Failed"
+            detail_message="Could not identify device"
         )
         return toast, dash.no_update
 
@@ -16699,7 +17281,7 @@ def save_device_details(n_clicks, trust_values, trust_ids, block_ids):
         logger.error(f"Error saving device details: {e}")
         toast = ToastManager.error(
             "Save Failed",
-            detail_message="Save Failed"
+            detail_message=f"Error: {str(e)}"
         )
         return toast, dash.no_update
 
@@ -25940,6 +26522,366 @@ def update_performance_optimization(is_open, refresh_clicks):
         )
 
     return html.Div(recommendation_cards)
+
+# ============================================================================
+# SUSTAINABILITY DASHBOARD CALLBACKS
+# ============================================================================
+
+@app.callback(
+    Output("sustainability-modal", "is_open"),
+    [Input("sustainability-card-btn", "n_clicks"),
+     Input("close-sustainability-modal-btn", "n_clicks")],
+    State("sustainability-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_sustainability_modal(open_clicks, close_clicks, is_open):
+    """Toggle sustainability modal open/close."""
+    return not is_open
+
+@app.callback(
+    [Output('carbon-footprint-gauge', 'figure'),
+     Output('trees-needed', 'children'),
+     Output('car-miles-equiv', 'children'),
+     Output('carbon-trend-chart', 'figure'),
+     Output('sustainability-data-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('sustainability-modal', 'is_open'),
+     Input('refresh-sustainability-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_carbon_footprint(is_open, refresh_clicks):
+    """Update carbon footprint metrics and visualizations."""
+    from dash import callback_context
+
+    # Check if refresh button was clicked
+    show_toast = (
+        callback_context.triggered and
+        callback_context.triggered[0]['prop_id'] == 'refresh-sustainability-btn.n_clicks' and
+        refresh_clicks is not None and
+        refresh_clicks > 0
+    )
+
+    if not is_open and not show_toast:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    try:
+        # Get sustainability calculator
+        db_manager = DatabaseManager(config.get('database', 'path'))
+        sustainability_calc = get_sustainability_calculator(db_manager)
+
+        # Calculate current carbon footprint (24 hours)
+        carbon_data = sustainability_calc.calculate_network_carbon_footprint(hours=24)
+
+        # Create gauge chart for daily carbon footprint
+        gauge_fig = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=carbon_data['daily_carbon_kg'],
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "Daily Carbon Footprint (kg CO₂)", 'font': {'size': 20}},
+            delta={'reference': 10, 'increasing': {'color': "#dc2626"}},
+            gauge={
+                'axis': {'range': [None, 50], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                'bar': {'color': "#10b981"},
+                'bgcolor': "white",
+                'borderwidth': 2,
+                'bordercolor': "gray",
+                'steps': [
+                    {'range': [0, 15], 'color': '#d1fae5'},
+                    {'range': [15, 30], 'color': '#fef3c7'},
+                    {'range': [30, 50], 'color': '#fee2e2'}
+                ],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': 40
+                }
+            }
+        ))
+
+        gauge_fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font={'color': "var(--text-primary)", 'family': "Arial"},
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+
+        # Get historical data for trend chart (30 days)
+        history = sustainability_calc.get_sustainability_history(days=30)
+
+        if history:
+            dates = [datetime.fromisoformat(h['timestamp']).date() for h in history]
+            carbon_values = [h['carbon_footprint_kg'] for h in history]
+        else:
+            # If no history, create sample data point
+            dates = [datetime.now().date()]
+            carbon_values = [carbon_data['daily_carbon_kg']]
+
+        # Create trend line chart
+        trend_fig = ChartFactory.create_line_chart(
+            x_values=dates,
+            y_values=carbon_values,
+            line_color='#10b981',
+            x_title='Date',
+            y_title='Carbon Footprint (kg CO₂)',
+            fill='tozeroy'
+        )
+
+        # Format badges
+        trees_badge = f"{carbon_data['equivalent_trees']:.1f}"
+        miles_badge = f"{carbon_data['equivalent_miles_driven']:.0f}"
+
+        # Create toast if refresh was clicked
+        toast = ToastManager.success(
+            "Sustainability Metrics Updated",
+            detail_message=f"Carbon footprint data has been refreshed.\n\nDaily CO₂: {carbon_data['daily_carbon_kg']:.2f} kg\nYearly estimate: {carbon_data['yearly_carbon_kg']:.1f} kg\nTrees to offset: {carbon_data['equivalent_trees']:.1f}\n\nData reflects current network usage patterns."
+        ) if show_toast else dash.no_update
+
+        return gauge_fig, trees_badge, miles_badge, trend_fig, carbon_data, toast
+
+    except Exception as e:
+        logger.error(f"Error updating carbon footprint: {e}")
+        toast = ToastManager.error(
+            "Error Loading Sustainability Data",
+            detail_message=f"Failed to calculate carbon footprint metrics.\n\nError: {str(e)}\n\nPlease try again or check system logs."
+        ) if show_toast else dash.no_update
+
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            xaxis={'visible': False},
+            yaxis={'visible': False},
+            annotations=[{
+                'text': 'Data unavailable',
+                'xref': 'paper',
+                'yref': 'paper',
+                'showarrow': False,
+                'font': {'size': 14, 'color': 'gray'}
+            }]
+        )
+
+        return empty_fig, "N/A", "N/A", empty_fig, {}, toast
+
+@app.callback(
+    [Output('today-energy-kwh', 'children'),
+     Output('today-energy-cost', 'children'),
+     Output('monthly-energy-cost', 'children'),
+     Output('yearly-energy-cost', 'children'),
+     Output('top-energy-consumers-chart', 'figure')],
+    [Input('sustainability-tabs', 'active_tab'),
+     Input('refresh-sustainability-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_energy_consumption(active_tab, refresh_clicks):
+    """Update energy consumption metrics and charts."""
+    if active_tab != 'energy-tab':
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    try:
+        # Get sustainability calculator
+        db_manager = DatabaseManager(config.get('database', 'path'))
+        sustainability_calc = get_sustainability_calculator(db_manager)
+
+        # Calculate total energy consumption
+        energy_data = sustainability_calc.calculate_total_energy_consumption()
+
+        # Format display values
+        today_kwh = f"{energy_data.get('total_energy_kwh', 0):.2f}"
+        today_cost = f"${energy_data.get('estimated_cost_usd', 0):.2f}"
+        monthly_cost = f"${energy_data.get('monthly_estimate_cost', 0):.2f}"
+        yearly_cost = f"${energy_data.get('yearly_estimate_cost', 0):.2f}"
+
+        # Create bar chart for top energy consumers
+        device_breakdown = energy_data.get('device_breakdown', [])
+
+        if device_breakdown:
+            device_names = [f"{d.get('device_name', d.get('device_ip', 'Unknown'))[:20]}" for d in device_breakdown[:10]]
+            energy_values = [d.get('estimated_energy_kwh', 0) for d in device_breakdown[:10]]
+
+            consumers_fig = go.Figure(data=[
+                go.Bar(
+                    x=device_names,
+                    y=energy_values,
+                    marker_color='#f59e0b',
+                    text=[f"{val:.2f} kWh" for val in energy_values],
+                    textposition='auto',
+                )
+            ])
+
+            consumers_fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font={'color': "var(--text-primary)"},
+                xaxis={'title': 'Device', 'tickangle': -45},
+                yaxis={'title': 'Energy (kWh)'},
+                height=400,
+                margin=dict(l=40, r=20, t=20, b=100)
+            )
+        else:
+            consumers_fig = go.Figure()
+            consumers_fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis={'visible': False},
+                yaxis={'visible': False},
+                annotations=[{
+                    'text': 'No energy data available',
+                    'xref': 'paper',
+                    'yref': 'paper',
+                    'showarrow': False,
+                    'font': {'size': 14, 'color': 'gray'}
+                }]
+            )
+
+        return today_kwh, today_cost, monthly_cost, yearly_cost, consumers_fig
+
+    except Exception as e:
+        logger.error(f"Error updating energy consumption: {e}")
+        return "N/A", "N/A", "N/A", "N/A", go.Figure()
+
+@app.callback(
+    Output('green-best-practices-content', 'children'),
+    [Input('sustainability-tabs', 'active_tab')],
+    prevent_initial_call=True
+)
+def update_green_best_practices(active_tab):
+    """Display green security best practices."""
+    if active_tab != 'practices-tab':
+        return dash.no_update
+
+    try:
+        # Get sustainability calculator
+        db_manager = DatabaseManager(config.get('database', 'path'))
+        sustainability_calc = get_sustainability_calculator(db_manager)
+
+        # Get best practices
+        practices = sustainability_calc.get_green_best_practices()
+
+        # Create cards for each practice
+        practice_cards = []
+
+        category_icons = {
+            'Power Management': 'fa-plug',
+            'Device Lifecycle': 'fa-recycle',
+            'Network Optimization': 'fa-network-wired',
+            'Green Purchasing': 'fa-shopping-cart',
+            'Recycling': 'fa-trash-arrow-up',
+            'Security Efficiency': 'fa-shield-halved'
+        }
+
+        category_colors = {
+            'Power Management': 'success',
+            'Device Lifecycle': 'info',
+            'Network Optimization': 'primary',
+            'Green Purchasing': 'warning',
+            'Recycling': 'secondary',
+            'Security Efficiency': 'danger'
+        }
+
+        for practice in practices:
+            category = practice.get('category', 'General')
+            icon = category_icons.get(category, 'fa-leaf')
+            color = category_colors.get(category, 'success')
+
+            practice_cards.append(
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.Div([
+                            html.I(className=f"fa {icon} fa-2x text-{color} mb-2"),
+                            html.H5(practice.get('title', ''), className="mb-1"),
+                            dbc.Badge(category, color=color, className="mb-2")
+                        ], className="text-center")
+                    ], className="glass-card-header"),
+                    dbc.CardBody([
+                        html.P(practice.get('description', ''), className="mb-3"),
+                        html.Div([
+                            html.Div([
+                                html.I(className="fa fa-chart-line me-2 text-success"),
+                                html.Strong("Impact: "),
+                                html.Span(practice.get('impact', ''))
+                            ], className="mb-2"),
+                            html.Div([
+                                html.I(className="fa fa-gauge me-2 text-info"),
+                                html.Strong("Difficulty: "),
+                                html.Span(practice.get('difficulty', ''))
+                            ], className="mb-3")
+                        ]),
+                        html.Hr(),
+                        html.H6([
+                            html.I(className="fa fa-lightbulb me-2"),
+                            "Examples:"
+                        ], className="mb-2"),
+                        html.Ul([
+                            html.Li(example, className="mb-1")
+                            for example in practice.get('examples', [])
+                        ], className="mb-0 small")
+                    ])
+                ], className="glass-card border-0 shadow-sm mb-3")
+            )
+
+        return html.Div(practice_cards)
+
+    except Exception as e:
+        logger.error(f"Error loading green best practices: {e}")
+        return dbc.Alert([
+            html.I(className="fa fa-exclamation-triangle me-2"),
+            f"Error loading best practices: {str(e)}"
+        ], color="danger")
+
+# Sustainability Modal - Export Callback
+@app.callback(
+    [Output('download-sustainability-report', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('export-sustainability-btn', 'n_clicks'),
+    State('export-format-sustainability', 'value'),
+    prevent_initial_call=True
+)
+def export_sustainability_report(n_clicks, export_format):
+    """Export sustainability metrics in selected format."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Normalize format
+        format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
+        export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Get sustainability data
+        db_manager = DatabaseManager(config.get('database', 'path'))
+        sustainability_calc = get_sustainability_calculator(db_manager)
+
+        # Calculate current metrics
+        carbon_data = sustainability_calc.calculate_network_carbon_footprint(hours=24)
+        energy_data = sustainability_calc.calculate_total_energy_consumption()
+
+        # Use export_helper for consistent export pattern
+        download_data = export_helper.export_sustainability(
+            format=export_format,
+            carbon_data=carbon_data,
+            energy_data=energy_data
+        )
+
+        if download_data:
+            toast = ToastManager.success(
+                "Export Complete",
+                detail_message=f"Sustainability report exported as {export_format.upper()}"
+            )
+            return download_data, toast
+        else:
+            toast = ToastManager.error(
+                "Export Failed",
+                detail_message="Failed to generate export file"
+            )
+            return dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error exporting sustainability report: {e}")
+        toast = ToastManager.error(
+            "Export Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return dash.no_update, toast
 
 @app.callback(
     [Output('geographic-threat-map', 'figure'),

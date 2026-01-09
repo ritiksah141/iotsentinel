@@ -164,6 +164,61 @@ class DashExportHelper:
             logger.error(f"Error in export_connections: {e}")
             return None
 
+    def export_sustainability(
+        self,
+        format: str = 'csv',
+        carbon_data: dict = None,
+        energy_data: dict = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Export sustainability metrics in specified format.
+
+        Args:
+            format: One of 'csv', 'json', 'pdf', 'excel'
+            carbon_data: Carbon footprint metrics dict
+            energy_data: Energy consumption metrics dict
+
+        Returns:
+            Download dict for dcc.Download or None on error
+        """
+        try:
+            from datetime import datetime
+
+            if not carbon_data or not energy_data:
+                return None
+
+            # Use the universal exporter's methods with sustainability data
+            result = self.exporter.export_sustainability_report(
+                format=format,
+                carbon_data=carbon_data,
+                energy_data=energy_data
+            )
+
+            if not result or not result.get('content'):
+                return None
+
+            # Handle binary content (PDF, Excel)
+            if isinstance(result['content'], bytes):
+                import base64
+                content_b64 = base64.b64encode(result['content']).decode()
+                return {
+                    'content': content_b64,
+                    'filename': result['filename'],
+                    'type': result['mimetype'],
+                    'base64': True
+                }
+            else:
+                # Text content (CSV, JSON)
+                return {
+                    'content': result['content'],
+                    'filename': result['filename'],
+                    'type': result['mimetype']
+                }
+
+        except Exception as e:
+            logger.error(f"Error in export_sustainability: {e}")
+            return None
+
 
 # Example Dash callback implementations
 """
