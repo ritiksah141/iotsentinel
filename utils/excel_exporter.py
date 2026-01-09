@@ -32,7 +32,14 @@ class ExcelExporter:
     directly from database queries.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
+        """Initialize with db_manager (preferred) or db_path (legacy)."""
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
         """
         Initialize Excel exporter.
 
@@ -107,8 +114,8 @@ class ExcelExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -127,7 +134,6 @@ class ExcelExporter:
             """)
 
             devices = cursor.fetchall()
-            conn.close()
 
             # Create workbook
             wb = Workbook()
@@ -241,8 +247,8 @@ class ExcelExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -264,7 +270,6 @@ class ExcelExporter:
             """, (cutoff_date.isoformat(),))
 
             alerts = cursor.fetchall()
-            conn.close()
 
             # Create workbook
             wb = Workbook()
@@ -382,8 +387,8 @@ class ExcelExporter:
         """
         try:
             # Query database
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -428,7 +433,6 @@ class ExcelExporter:
                 """, (cutoff_time.isoformat(),))
 
             connections = cursor.fetchall()
-            conn.close()
 
             # Create workbook
             wb = Workbook()

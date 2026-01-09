@@ -34,14 +34,21 @@ logger = logging.getLogger(__name__)
 class WebAuthnHandler:
     """Handles WebAuthn registration and authentication"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
         """
         Initialize WebAuthn handler
 
         Args:
             db_path: Path to SQLite database
+            db_manager: Shared DatabaseManager instance
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_path = db_path or 'data/database/iotsentinel.db'
+            self.db_manager = DatabaseManager(db_path=self.db_path)
 
         # Get configuration from environment
         self.rp_id = os.getenv('WEBAUTHN_RP_ID', 'localhost')
@@ -142,7 +149,7 @@ class WebAuthnHandler:
             )
 
             # Store credential in database
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -161,7 +168,6 @@ class WebAuthnHandler:
             ))
 
             conn.commit()
-            conn.close()
 
             # Clean up challenge
             del self.challenges[challenge_key]
@@ -189,11 +195,10 @@ class WebAuthnHandler:
 
             if username:
                 # Get user ID from username
-                conn = sqlite3.connect(self.db_path)
+                conn = self.db_manager.conn
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
                 result = cursor.fetchone()
-                conn.close()
 
                 if result:
                     user_id = result[0]
@@ -250,7 +255,7 @@ class WebAuthnHandler:
                 logger.error("No credential ID in response")
                 return None
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -263,7 +268,6 @@ class WebAuthnHandler:
 
             if not result:
                 logger.error(f"Credential not found: {credential_id}")
-                conn.close()
                 return None
 
             user_id, public_key, current_sign_count = result
@@ -287,7 +291,6 @@ class WebAuthnHandler:
             """, (verification.new_sign_count, datetime.now(), credential_id))
 
             conn.commit()
-            conn.close()
 
             # Clean up challenge
             del self.challenges[challenge_key]
@@ -309,7 +312,7 @@ class WebAuthnHandler:
         Returns:
             List of credential descriptors
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -319,7 +322,6 @@ class WebAuthnHandler:
         """, (user_id,))
 
         results = cursor.fetchall()
-        conn.close()
 
         credentials = []
         for row in results:
@@ -342,7 +344,7 @@ class WebAuthnHandler:
         Returns:
             List of credential info dicts
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -353,7 +355,6 @@ class WebAuthnHandler:
         """, (user_id,))
 
         results = cursor.fetchall()
-        conn.close()
 
         credentials = []
         for row in results:
@@ -378,7 +379,7 @@ class WebAuthnHandler:
             True if removed successfully
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -388,7 +389,6 @@ class WebAuthnHandler:
 
             conn.commit()
             rows_affected = cursor.rowcount
-            conn.close()
 
             if rows_affected > 0:
                 logger.info(f"Removed credential {credential_id} for user {user_id}")

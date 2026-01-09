@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.config_manager import config
+from database.db_manager import DatabaseManager
 
 
 def init_database():
@@ -26,7 +27,9 @@ def init_database():
     # Create parent directory
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
+    # Use DatabaseManager for consistency
+    db_manager = DatabaseManager(db_path=db_path)
+    conn = db_manager.conn
     cursor = conn.cursor()
 
     # Devices table
@@ -907,7 +910,7 @@ def init_database():
     ''')
 
     conn.commit()
-    conn.close()
+    # No need to close - using shared connection from db_manager
 
     print(f"\n✓ Database initialized: {db_path}")
     print("\nCore Tables:")

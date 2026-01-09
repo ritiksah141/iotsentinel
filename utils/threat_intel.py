@@ -20,20 +20,28 @@ class ThreatIntelligence:
     Uses AbuseIPDB API (free tier: 1,000 lookups/day)
     """
 
-    def __init__(self, api_key: str, db_path: str, cache_hours: int = 24):
+    def __init__(self, api_key: str, db_path: str = None, db_manager=None, cache_hours: int = 24):
         """
         Initialize threat intelligence service.
 
         Args:
             api_key: AbuseIPDB API key
-            db_path: Path to SQLite database for caching
+            db_path: Path to SQLite database for caching (legacy)
+            db_manager: DatabaseManager instance (preferred)
             cache_hours: Hours to cache results (default 24)
         """
         self.api_key = api_key
-        self.db_path = db_path
         self.cache_hours = cache_hours
         self.api_url = "https://api.abuseipdb.com/api/v2/check"
         self.enabled = bool(api_key and api_key != "your_api_key_here")
+
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
 
         if self.enabled:
             self._init_database()
@@ -44,7 +52,7 @@ class ThreatIntelligence:
     def _init_database(self):
         """Create ip_reputation table if it doesn't exist"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ip_reputation (
@@ -64,7 +72,6 @@ class ThreatIntelligence:
                 )
             """)
             conn.commit()
-            conn.close()
             logger.info("IP reputation cache table initialized")
         except sqlite3.Error as e:
             logger.error(f"Error initializing ip_reputation table: {e}")
@@ -80,8 +87,8 @@ class ThreatIntelligence:
             Cached reputation data or None if expired/missing
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             # Check if we have recent data
@@ -92,7 +99,6 @@ class ThreatIntelligence:
             """, (ip_address, cutoff_time.isoformat()))
 
             row = cursor.fetchone()
-            conn.close()
 
             if row:
                 return dict(row)
@@ -111,7 +117,7 @@ class ThreatIntelligence:
             data: Reputation data from API
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -138,7 +144,6 @@ class ThreatIntelligence:
             ))
 
             conn.commit()
-            conn.close()
 
         except sqlite3.Error as e:
             logger.error(f"Error caching reputation for {ip_address}: {e}")

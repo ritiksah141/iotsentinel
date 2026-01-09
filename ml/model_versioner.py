@@ -142,7 +142,7 @@ class ModelVersioner:
     ):
         """Save model version info to database."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -161,7 +161,6 @@ class ModelVersioner:
             ))
 
             conn.commit()
-            conn.close()
 
         except Exception as e:
             logger.error(f"Error saving version to database: {e}")
@@ -183,7 +182,7 @@ class ModelVersioner:
         """
         try:
             # Get version info from database
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -195,7 +194,6 @@ class ModelVersioner:
 
             if not row:
                 logger.error(f"Version not found: {model_type} v{version}")
-                conn.close()
                 return False
 
             versioned_path = Path(row[0])
@@ -215,7 +213,6 @@ class ModelVersioner:
             ''', (model_type, version))
 
             conn.commit()
-            conn.close()
 
             # Copy to active directory
             extension = versioned_path.suffix
@@ -240,7 +237,7 @@ class ModelVersioner:
             Version string or None
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -249,7 +246,6 @@ class ModelVersioner:
             ''', (model_type,))
 
             row = cursor.fetchone()
-            conn.close()
 
             return row[0] if row else None
 
@@ -273,8 +269,8 @@ class ModelVersioner:
             List of version dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -287,7 +283,6 @@ class ModelVersioner:
             ''', (model_type, limit))
 
             versions = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return versions
 
@@ -313,8 +308,8 @@ class ModelVersioner:
             Comparison dictionary
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             # Get both versions
@@ -325,7 +320,6 @@ class ModelVersioner:
             ''', (model_type, version1, version2))
 
             versions = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             if len(versions) != 2:
                 logger.error("Could not find both versions for comparison")
@@ -415,14 +409,13 @@ class ModelVersioner:
                     metadata_file.unlink()
 
                 # Remove from database
-                conn = sqlite3.connect(self.db_path)
+                conn = self.db_manager.conn
                 cursor = conn.cursor()
                 cursor.execute(
                     "DELETE FROM model_versions WHERE model_type = ? AND version = ?",
                     (model_type, version_info['version'])
                 )
                 conn.commit()
-                conn.close()
 
             logger.info(f"Cleaned up {len(to_delete)} old versions of {model_type}")
 
@@ -437,7 +430,7 @@ class ModelVersioner:
             Dictionary with stats
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Total versions
@@ -460,7 +453,6 @@ class ModelVersioner:
             ''')
             active_versions = dict(cursor.fetchall())
 
-            conn.close()
 
             return {
                 'total_versions': total_versions,

@@ -58,7 +58,7 @@ class AutoProvisioner:
             True if device exists in database
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute(
@@ -67,7 +67,6 @@ class AutoProvisioner:
             )
 
             count = cursor.fetchone()[0]
-            conn.close()
 
             return count > 0
 
@@ -138,7 +137,7 @@ class AutoProvisioner:
     ):
         """Log device discovery event to database."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -153,7 +152,6 @@ class AutoProvisioner:
             ))
 
             conn.commit()
-            conn.close()
 
         except Exception as e:
             logger.warning(f"Could not log discovery event: {e}")
@@ -207,7 +205,7 @@ class AutoProvisioner:
                 logger.warning(f"Error classifying device: {e}")
 
         # Add device to database
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db_manager.conn
         cursor = conn.cursor()
 
         try:
@@ -246,7 +244,6 @@ class AutoProvisioner:
             conn.commit()
 
         finally:
-            conn.close()
 
     def _schedule_baseline_learning(self, device_ip: str):
         """
@@ -256,7 +253,7 @@ class AutoProvisioner:
             device_ip: Device IP address
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             scheduled_time = datetime.now() + timedelta(days=self.baseline_learning_days)
@@ -273,7 +270,6 @@ class AutoProvisioner:
             ))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Scheduled baseline learning for {device_ip} at {scheduled_time}")
 
@@ -291,7 +287,7 @@ class AutoProvisioner:
             List of task dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             if task_type:
@@ -321,7 +317,6 @@ class AutoProvisioner:
                     'created_at': row[4]
                 })
 
-            conn.close()
             return tasks
 
         except Exception as e:
@@ -336,7 +331,7 @@ class AutoProvisioner:
             task_id: Task ID
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute(
@@ -345,7 +340,6 @@ class AutoProvisioner:
             )
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Marked task {task_id} as completed")
 
@@ -360,7 +354,7 @@ class AutoProvisioner:
             Dictionary with discovery stats
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Total discovered devices
@@ -387,7 +381,6 @@ class AutoProvisioner:
             cursor.execute("SELECT COUNT(*) FROM scheduled_tasks WHERE completed = 0")
             pending_tasks = cursor.fetchone()[0]
 
-            conn.close()
 
             return {
                 'total_discovery_events': total_events,

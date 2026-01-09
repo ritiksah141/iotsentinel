@@ -173,13 +173,13 @@ db_manager = DatabaseManager(DB_PATH)
 from utils.device_group_manager import DeviceGroupManager
 
 # Initialize device group manager
-group_manager = DeviceGroupManager(DB_PATH)
+group_manager = DeviceGroupManager(db_manager=db_manager)
 
 # Initialize chart factory for centralized chart generation
 chart_factory = ChartFactory()
 
 # Initialize universal export helper (supports CSV, JSON, PDF, Excel)
-export_helper = DashExportHelper(DB_PATH)
+export_helper = DashExportHelper(db_manager=db_manager)
 
 # Initialize Advanced Reporting & Analytics
 try:
@@ -297,7 +297,7 @@ except Exception as e:
     report_scheduler = None
 
 # Authentication setup
-auth_manager = AuthManager(DB_PATH)
+auth_manager = AuthManager(db_manager=db_manager)
 
 # Rate limiting for login attempts (5 attempts, 5-minute lockout)
 login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
@@ -327,7 +327,7 @@ except Exception as e:
 
 # Initialize innovation feature modules (use db_manager for database access)
 try:
-    network_security_scorer = get_security_scorer(db_path=DB_PATH)
+    network_security_scorer = get_security_scorer(db_manager=db_manager)
     privacy_analyzer = get_privacy_analyzer(db_manager=db_manager)
     logger.info("Innovation features initialized successfully")
 except Exception as e:
@@ -362,7 +362,7 @@ def load_user(user_id):
 
 # Initialize Google OAuth handler
 try:
-    oauth_handler = GoogleOAuthHandler(server, DB_PATH)
+    oauth_handler = GoogleOAuthHandler(server, db_manager=db_manager)
     if oauth_handler.enabled:
         logger.info("Google OAuth initialized successfully")
     else:
@@ -373,7 +373,7 @@ except Exception as e:
 
 # Initialize WebAuthn handler for biometric authentication
 try:
-    webauthn_handler = WebAuthnHandler(DB_PATH)
+    webauthn_handler = WebAuthnHandler(db_manager=db_manager)
     if is_webauthn_available():
         logger.info("WebAuthn initialized successfully")
     else:
@@ -17411,6 +17411,12 @@ def main():
     port = config.get('dashboard', 'port', default=8050)
     debug = True
 
+    # Suppress Flask/Werkzeug HTTP access logs (keeps error logs)
+    import logging as log
+    log.getLogger('werkzeug').setLevel(log.ERROR)
+    log.getLogger('socketio').setLevel(log.WARNING)
+    log.getLogger('engineio').setLevel(log.WARNING)
+
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Enhanced Educational Edition")
     logger.info("=" * 70)
@@ -17486,10 +17492,17 @@ def main():
 
     # Try running with SocketIO, fall back if needed
     try:
-        socketio.run(app.server, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+        socketio.run(app.server, host=host, port=port, debug=debug,
+                    allow_unsafe_werkzeug=True, log_output=False)
     except Exception as e:
         logger.error(f"SocketIO failed to start: {e}")
         logger.info("Falling back to standard Dash server (WebSockets disabled)...")
+
+        # Suppress werkzeug logs for fallback server too
+        import logging as log
+        werkzeug_log = log.getLogger('werkzeug')
+        werkzeug_log.setLevel(log.ERROR)
+
         app.run(host=host, port=port, debug=debug)
 
 # Modal toggle callbacks for feature cards

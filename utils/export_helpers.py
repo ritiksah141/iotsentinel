@@ -21,14 +21,15 @@ class DashExportHelper:
     by dcc.Download components.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
         """
         Initialize export helper.
 
         Args:
-            db_path: Path to SQLite database
+            db_path: Path to SQLite database (legacy)
+            db_manager: DatabaseManager instance (preferred)
         """
-        self.exporter = UniversalExporter(db_path)
+        self.exporter = UniversalExporter(db_path=db_path, db_manager=db_manager)
 
     def export_devices(
         self,

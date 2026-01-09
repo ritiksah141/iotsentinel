@@ -16,7 +16,14 @@ logger = logging.getLogger(__name__)
 class RuleEngine:
     """Evaluates custom alert rules against device activity"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
+        """Initialize with db_manager (preferred) or db_path (legacy)."""
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
         """
         Initialize rule engine.
 
@@ -33,8 +40,8 @@ class RuleEngine:
             List of active rules
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -44,7 +51,6 @@ class RuleEngine:
             """)
 
             rules = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return rules
 
@@ -96,7 +102,7 @@ class RuleEngine:
     def _evaluate_data_volume(self, rule: Dict, device_ip: str) -> Optional[Dict]:
         """Evaluate data volume rule"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Calculate time window
@@ -111,7 +117,6 @@ class RuleEngine:
             """, (device_ip, cutoff_time.isoformat()))
 
             result = cursor.fetchone()
-            conn.close()
 
             if not result or result[0] is None:
                 return None
@@ -139,7 +144,7 @@ class RuleEngine:
     def _evaluate_connection_count(self, rule: Dict, device_ip: str) -> Optional[Dict]:
         """Evaluate connection count rule"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=rule['time_window_hours'])
@@ -152,7 +157,6 @@ class RuleEngine:
             """, (device_ip, cutoff_time.isoformat()))
 
             result = cursor.fetchone()
-            conn.close()
 
             if not result:
                 return None
@@ -185,7 +189,7 @@ class RuleEngine:
 
             suspicious_ports = [int(p.strip()) for p in rule['port_filter'].split(',')]
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=rule['time_window_hours'])
@@ -201,7 +205,6 @@ class RuleEngine:
             """, (device_ip, cutoff_time.isoformat(), *suspicious_ports))
 
             results = cursor.fetchall()
-            conn.close()
 
             if results:
                 ports_hit = [str(r[0]) for r in results]
@@ -234,7 +237,7 @@ class RuleEngine:
             start_hour = int(start_time_str.split(':')[0])
             end_hour = int(end_time_str.split(':')[0])
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=rule['time_window_hours'])
@@ -251,7 +254,6 @@ class RuleEngine:
             """, (device_ip, cutoff_time.isoformat(), start_hour, end_hour))
 
             results = cursor.fetchall()
-            conn.close()
 
             if results:
                 total_conns = sum(r[1] for r in results)
@@ -292,7 +294,7 @@ class RuleEngine:
 
             protocols = [p.strip().upper() for p in rule['protocol_filter'].split(',')]
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cutoff_time = datetime.now() - timedelta(hours=rule['time_window_hours'])
@@ -308,7 +310,6 @@ class RuleEngine:
             """, (device_ip, cutoff_time.isoformat(), *protocols))
 
             results = cursor.fetchall()
-            conn.close()
 
             if results:
                 protocols_hit = [r[0] for r in results]
@@ -366,7 +367,7 @@ class RuleEngine:
             rule_id: Rule ID
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -377,7 +378,6 @@ class RuleEngine:
             """, (datetime.now().isoformat(), rule_id))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Updated stats for rule {rule_id}")
 

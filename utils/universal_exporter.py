@@ -30,15 +30,23 @@ class UniversalExporter:
     data fetching from the database.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = None, db_manager=None):
         """
         Initialize universal exporter.
 
         Args:
-            db_path: Path to SQLite database
+            db_path: Path to SQLite database (legacy)
+            db_manager: DatabaseManager instance (preferred)
         """
-        self.db_path = db_path
-        self.report_gen = ReportGenerator(db_path)
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
+
+        self.report_gen = ReportGenerator(db_manager=self.db_manager)
 
         # Initialize format-specific exporters lazily
         self._pdf_exporter = None
@@ -48,14 +56,14 @@ class UniversalExporter:
     def pdf_exporter(self) -> PDFExporter:
         """Get PDF exporter instance (lazy initialization)."""
         if self._pdf_exporter is None:
-            self._pdf_exporter = PDFExporter(self.db_path)
+            self._pdf_exporter = PDFExporter(db_manager=self.db_manager)
         return self._pdf_exporter
 
     @property
     def excel_exporter(self) -> ExcelExporter:
         """Get Excel exporter instance (lazy initialization)."""
         if self._excel_exporter is None:
-            self._excel_exporter = ExcelExporter(self.db_path)
+            self._excel_exporter = ExcelExporter(db_manager=self.db_manager)
         return self._excel_exporter
 
     def export_devices(
@@ -87,8 +95,8 @@ class UniversalExporter:
             elif format == 'json':
                 # Get devices and convert to JSON
                 import sqlite3
-                conn = sqlite3.connect(self.db_path)
-                conn.row_factory = sqlite3.Row
+                conn = self.db_manager.conn
+
                 cursor = conn.cursor()
 
                 cursor.execute("""
@@ -100,7 +108,6 @@ class UniversalExporter:
                 """)
 
                 devices = [dict(row) for row in cursor.fetchall()]
-                conn.close()
 
                 export_data = {
                     'export_type': 'devices',
@@ -175,8 +182,8 @@ class UniversalExporter:
                 # Get alerts and convert to JSON
                 import sqlite3
                 from datetime import timedelta
-                conn = sqlite3.connect(self.db_path)
-                conn.row_factory = sqlite3.Row
+                conn = self.db_manager.conn
+
                 cursor = conn.cursor()
 
                 cutoff_date = datetime.now() - timedelta(days=days)
@@ -192,7 +199,6 @@ class UniversalExporter:
                 """, (cutoff_date.isoformat(),))
 
                 alerts = [dict(row) for row in cursor.fetchall()]
-                conn.close()
 
                 export_data = {
                     'export_type': 'alerts',
@@ -274,8 +280,8 @@ class UniversalExporter:
                 # Get connections and convert to JSON
                 import sqlite3
                 from datetime import timedelta
-                conn = sqlite3.connect(self.db_path)
-                conn.row_factory = sqlite3.Row
+                conn = self.db_manager.conn
+
                 cursor = conn.cursor()
 
                 cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -296,7 +302,6 @@ class UniversalExporter:
                     """, (cutoff_time.isoformat(),))
 
                 connections = [dict(row) for row in cursor.fetchall()]
-                conn.close()
 
                 export_data = {
                     'export_type': 'connections',
@@ -376,8 +381,8 @@ class UniversalExporter:
             elif format == 'json':
                 # Get alert rules and convert to JSON
                 import sqlite3
-                conn = sqlite3.connect(self.db_path)
-                conn.row_factory = sqlite3.Row
+                conn = self.db_manager.conn
+
                 cursor = conn.cursor()
 
                 cursor.execute("""
@@ -386,7 +391,6 @@ class UniversalExporter:
                 """)
 
                 rules = [dict(row) for row in cursor.fetchall()]
-                conn.close()
 
                 export_data = {
                     'export_type': 'alert_rules',

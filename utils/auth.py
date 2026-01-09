@@ -38,14 +38,22 @@ class User:
 class AuthManager:
     """Manages user authentication and session operations"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_manager=None, db_path: str = None):
         """
         Initialize authentication manager.
 
         Args:
-            db_path: Path to SQLite database
+            db_manager: DatabaseManager instance (preferred)
+            db_path: Path to SQLite database (legacy, for backward compatibility)
         """
-        self.db_path = db_path
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            # Legacy mode: import and create db_manager from path
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
 
     def verify_user(self, username: str, password: str) -> Optional[User]:
         """
@@ -59,8 +67,7 @@ class AuthManager:
             User object if credentials are valid, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -70,7 +77,6 @@ class AuthManager:
             """, (username,))
 
             user_row = cursor.fetchone()
-            conn.close()
 
             if not user_row:
                 logger.warning(f"Login attempt with unknown username: {username}")
@@ -111,8 +117,7 @@ class AuthManager:
             User object if found, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -122,7 +127,6 @@ class AuthManager:
             """, (user_id,))
 
             user_row = cursor.fetchone()
-            conn.close()
 
             if user_row and user_row['is_active']:
                 return User(
@@ -139,7 +143,7 @@ class AuthManager:
     def _update_last_login(self, user_id: int):
         """Update user's last login timestamp"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -149,7 +153,6 @@ class AuthManager:
             """, (datetime.now().isoformat(), user_id))
 
             conn.commit()
-            conn.close()
 
         except sqlite3.Error as e:
             logger.error(f"Error updating last login for user {user_id}: {e}")
@@ -165,8 +168,8 @@ class AuthManager:
             Dictionary with user data if found, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -176,7 +179,6 @@ class AuthManager:
             """, (user_id,))
 
             user_row = cursor.fetchone()
-            conn.close()
 
             if user_row:
                 return dict(user_row)
@@ -203,7 +205,7 @@ class AuthManager:
             # Hash password
             password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -212,7 +214,6 @@ class AuthManager:
             """, (username, password_hash, role, email))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Created new user: {username} (role: {role})")
             return True
@@ -239,7 +240,7 @@ class AuthManager:
             # Hash new password
             password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -249,7 +250,6 @@ class AuthManager:
             """, (password_hash, user_id))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Password changed for user ID: {user_id}")
             return True
@@ -271,7 +271,7 @@ class AuthManager:
             True if profile updated successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -281,7 +281,6 @@ class AuthManager:
             """, (username, email, user_id))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Profile updated for user ID: {user_id}")
             return True
@@ -310,7 +309,7 @@ class AuthManager:
                 logger.warning(f"Attempted self-deletion prevented for user ID: {user_id}")
                 return False
 
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -320,7 +319,6 @@ class AuthManager:
             """, (user_id,))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Deactivated user ID: {user_id}")
             return True
@@ -337,8 +335,8 @@ class AuthManager:
             List of user dictionaries
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -349,7 +347,6 @@ class AuthManager:
             """)
 
             users = [dict(row) for row in cursor.fetchall()]
-            conn.close()
 
             return users
 
@@ -370,8 +367,8 @@ class AuthManager:
             Preference value or default
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -380,7 +377,6 @@ class AuthManager:
             """, (user_id, preference_key))
 
             result = cursor.fetchone()
-            conn.close()
 
             if result:
                 return result['preference_value']
@@ -403,7 +399,7 @@ class AuthManager:
             True if preference set successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -415,7 +411,6 @@ class AuthManager:
             """, (user_id, preference_key, preference_value))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Set preference {preference_key} for user {user_id}")
             return True
@@ -435,8 +430,8 @@ class AuthManager:
             Dictionary mapping preference keys to values
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -446,7 +441,6 @@ class AuthManager:
             """, (user_id,))
 
             preferences = {row['preference_key']: row['preference_value'] for row in cursor.fetchall()}
-            conn.close()
 
             # Apply defaults for missing preferences
             defaults = self._get_default_preferences()
@@ -488,7 +482,7 @@ class AuthManager:
             True if all settings updated successfully, False otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             for key, value in settings.items():
@@ -501,7 +495,6 @@ class AuthManager:
                 """, (user_id, key, value))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Updated {len(settings)} settings for user {user_id}")
             return True
@@ -524,7 +517,7 @@ class AuthManager:
         from datetime import datetime, timedelta
 
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             # Check if user exists
@@ -532,7 +525,6 @@ class AuthManager:
             user_row = cursor.fetchone()
 
             if not user_row:
-                conn.close()
                 return None
 
             user_id = user_row[0]
@@ -548,7 +540,6 @@ class AuthManager:
             """, (user_id, reset_token, expires_at))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Created password reset token for user ID: {user_id}")
             return reset_token
@@ -570,7 +561,7 @@ class AuthManager:
         from datetime import datetime
 
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -582,25 +573,21 @@ class AuthManager:
             token_row = cursor.fetchone()
 
             if not token_row:
-                conn.close()
                 return None
 
             user_id, expires_at, used = token_row
 
             # Check if token is already used
             if used:
-                conn.close()
                 logger.warning(f"Attempted to use already-used reset token")
                 return None
 
             # Check if token is expired
             expires_datetime = datetime.fromisoformat(expires_at)
             if datetime.now() > expires_datetime:
-                conn.close()
                 logger.warning(f"Attempted to use expired reset token")
                 return None
 
-            conn.close()
             return user_id
 
         except sqlite3.Error as e:
@@ -629,7 +616,7 @@ class AuthManager:
                 return False
 
             # Mark token as used
-            conn = sqlite3.connect(self.db_path)
+            conn = self.db_manager.conn
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -639,7 +626,6 @@ class AuthManager:
             """, (token,))
 
             conn.commit()
-            conn.close()
 
             logger.info(f"Password reset completed for user ID: {user_id}")
             return True
@@ -659,8 +645,8 @@ class AuthManager:
             Dictionary with user data if found, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -670,7 +656,6 @@ class AuthManager:
             """, (username,))
 
             user_row = cursor.fetchone()
-            conn.close()
 
             if user_row:
                 return dict(user_row)
@@ -691,8 +676,8 @@ class AuthManager:
             Dictionary with user data if found, None otherwise
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            conn = self.db_manager.conn
+
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -702,7 +687,6 @@ class AuthManager:
             """, (email,))
 
             user_row = cursor.fetchone()
-            conn.close()
 
             if user_row:
                 return dict(user_row)
