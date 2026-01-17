@@ -9562,6 +9562,7 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
+    dcc.Store(id='page-visibility-store', data={'visible': True}),  # Track page visibility for auto-pause
 
     # Customize Layout Modal - Enhanced
     dbc.Modal([
@@ -14278,6 +14279,76 @@ app.clientside_callback(
     """,
     Output('widget-visibility-dummy', 'children'),
     Input('widget-preferences', 'data')
+)
+
+# Clientside callback to auto-pause refresh when page loses focus (Page Visibility API)
+app.clientside_callback(
+    """
+    function() {
+        // Use Page Visibility API to detect when user switches tabs/minimizes window
+        if (!window.pageVisibilityInitialized) {
+            window.pageVisibilityInitialized = true;
+
+            // Store original interval values
+            window.intervalStates = {
+                'refresh-interval': null,
+                'security-score-interval': null,
+                'privacy-interval': null
+            };
+
+            // Handle visibility change
+            document.addEventListener('visibilitychange', function() {
+                const isHidden = document.hidden;
+
+                // Get all interval components
+                const refreshInterval = document.getElementById('refresh-interval');
+                const securityInterval = document.getElementById('security-score-interval');
+                const privacyInterval = document.getElementById('privacy-interval');
+
+                if (isHidden) {
+                    // Page is hidden - pause all intervals
+                    console.log('🔔 Page hidden - pausing auto-refresh to save resources');
+
+                    // Disable intervals by setting max_intervals to current n_intervals
+                    // This effectively pauses them without losing state
+                    if (refreshInterval && refreshInterval._dashprivate_layout) {
+                        window.intervalStates['refresh-interval'] = refreshInterval._dashprivate_layout.props.disabled;
+                        refreshInterval._dashprivate_layout.props.disabled = true;
+                    }
+                    if (securityInterval && securityInterval._dashprivate_layout) {
+                        window.intervalStates['security-score-interval'] = securityInterval._dashprivate_layout.props.disabled;
+                        securityInterval._dashprivate_layout.props.disabled = true;
+                    }
+                    if (privacyInterval && privacyInterval._dashprivate_layout) {
+                        window.intervalStates['privacy-interval'] = privacyInterval._dashprivate_layout.props.disabled;
+                        privacyInterval._dashprivate_layout.props.disabled = true;
+                    }
+                } else {
+                    // Page is visible - resume intervals
+                    console.log('✅ Page visible - resuming auto-refresh');
+
+                    // Restore interval states
+                    if (refreshInterval && refreshInterval._dashprivate_layout) {
+                        refreshInterval._dashprivate_layout.props.disabled = window.intervalStates['refresh-interval'] || false;
+                    }
+                    if (securityInterval && securityInterval._dashprivate_layout) {
+                        securityInterval._dashprivate_layout.props.disabled = window.intervalStates['security-score-interval'] || false;
+                    }
+                    if (privacyInterval && privacyInterval._dashprivate_layout) {
+                        privacyInterval._dashprivate_layout.props.disabled = window.intervalStates['privacy-interval'] || false;
+                    }
+                }
+            });
+
+            console.log('✅ Auto-pause on focus loss initialized - intervals will pause when you switch tabs');
+        }
+
+        // Return current visibility state
+        return {visible: !document.hidden};
+    }
+    """,
+    Output('page-visibility-store', 'data'),
+    Input('page-visibility-store', 'data')
 )
 
 # ============================================================================

@@ -92,7 +92,9 @@ class TrafficForecaster:
             ORDER BY hour ASC
             """.format(hours)
 
-            hourly_data = self.db.execute_query(query)
+            cursor = self.db.conn.cursor()
+            cursor.execute(query)
+            hourly_data = cursor.fetchall()
 
             if not hourly_data:
                 logger.warning("No historical data found for training")
@@ -287,9 +289,11 @@ class TrafficForecaster:
             FROM connections
             WHERE timestamp >= datetime('now', '-1 hour')
             """
-            result = self.db.execute_query(query)
-            if result and result[0][0]:
-                return int(result[0][0])
+            cursor = self.db.conn.cursor()
+            cursor.execute(query)
+            result = cursor.fetchone()
+            if result and result[0]:
+                return int(result[0])
         except Exception as e:
             logger.error(f"Error getting device count: {e}")
 
