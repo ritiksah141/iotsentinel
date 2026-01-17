@@ -2,10 +2,10 @@
 """
 ML Inference Engine for Real-time Anomaly Detection
 
-Runs trained ML models on new network connections.
+Uses River-based incremental learning for efficient anomaly detection on Pi.
 Generates alerts for anomalies with explanations.
 
-Updated to use the production-ready AlertingSystem for notifications.
+Updated to use RiverMLEngine (incremental learning) and production-ready AlertingSystem.
 """
 
 import sys
@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import logging
-import pickle
 import json
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import config
 from database.db_manager import DatabaseManager
 from ml.feature_extractor import FeatureExtractor
+from ml.river_engine import RiverMLEngine
+from ml.smart_recommender import SmartRecommender
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,22 +43,28 @@ class InferenceEngine:
         self.extractor = FeatureExtractor()
         self.alerting = alerting_system
 
-        # Load models
-        self.autoencoder = None
-        self.isolation_forest = None
-        self.autoencoder_threshold = None
+        # Initialize River ML engine (incremental learning)
+        self.river_engine = RiverMLEngine(self.db)
 
-        self._load_models()
+        # Initialize smart recommender for context-aware suggestions
+        self.recommender = SmartRecommender(self.db)
+
         self.last_metric_update = time.time()
         self.status_file_path = Path(config.get('system', 'status_file_path', default='config/monitoring_status.json'))
 
         # Severity thresholds from config
+        ml_config = config.get_section('ml')
+        self.anomaly_threshold = ml_config.get('anomaly_threshold', 0.7)
+
         self.severity_thresholds = config.get_section('alerting').get('severity_thresholds', {
-            'critical': 0.98,
-            'high': 0.95,
-            'medium': 0.85,
-            'low': 0.70
+            'critical': 0.95,
+            'high': 0.85,
+            'medium': 0.70,
+            'low': 0.50
         })
+
+        logger.info("✓ InferenceEngine initialized with RiverMLEngine (incremental learning)")
+        logger.info(f"✓ Anomaly threshold: {self.anomaly_threshold}")
 
     def set_alerting_system(self, alerting_system):
         """
@@ -72,57 +79,9 @@ class InferenceEngine:
         self.alerting = alerting_system
         logger.info("Alerting system connected to inference engine")
 
-    def _load_models(self):
-        """Load trained ML models."""
-        # Load feature extractor
-        extractor_path = Path(config.get('ml', 'feature_extractor_path'))
-        if extractor_path.exists():
-            try:
-                self.extractor.load(extractor_path)
-                logger.info(f"✓ Feature extractor loaded")
-            except Exception as e:
-                logger.warning(f"Failed to load feature extractor: {e}")
-        else:
-            logger.warning("Feature extractor not found. Train models first.")
-
-        # Load Isolation Forest
-        if_path = Path(config.get('ml', 'isolation_forest_path'))
-        if if_path.exists():
-            try:
-                with open(if_path, 'rb') as f:
-                    self.isolation_forest = pickle.load(f)
-                logger.info(f"✓ Isolation Forest loaded")
-            except Exception as e:
-                logger.warning(f"Failed to load Isolation Forest: {e}")
-                self.isolation_forest = None
-        else:
-            logger.warning("Isolation Forest not found")
-
-        # Load Autoencoder (if TensorFlow available)
-        try:
-            import tensorflow as tf
-            ae_path = Path(config.get('ml', 'autoencoder_path'))
-            if ae_path.exists():
-                try:
-                    self.autoencoder = tf.keras.models.load_model(ae_path)
-                    logger.info(f"✓ Autoencoder loaded")
-
-                    # Load threshold
-                    threshold_path = ae_path.parent / f"{ae_path.stem}_threshold.pkl"
-                    if threshold_path.exists():
-                        try:
-                            with open(threshold_path, 'rb') as f:
-                                self.autoencoder_threshold = pickle.load(f)
-                            logger.info(f"✓ Threshold: {self.autoencoder_threshold:.4f}")
-                        except Exception as e:
-                            logger.warning(f"Failed to load autoencoder threshold: {e}")
-                except Exception as e:
-                    logger.warning(f"Failed to load Autoencoder: {e}")
-                    self.autoencoder = None
-            else:
-                logger.warning("Autoencoder not found")
-        except ImportError:
-            logger.warning("TensorFlow not available. Autoencoder disabled.")
+    def get_river_stats(self):
+        """Get River ML engine statistics for monitoring."""
+        return self.river_engine.get_stats()
 
     def _create_alert(self, device_ip: str, severity: str, anomaly_score: float,
                       explanation: str, top_features: str = None) -> int:
@@ -159,7 +118,7 @@ class InferenceEngine:
             )
 
     def process_connections(self, batch_size: int = 100):
-        """Process unprocessed connections."""
+        """Process unprocessed connections using River incremental learning."""
         # Get unprocessed connections
         connections = self.db.get_unprocessed_connections(limit=batch_size)
 
@@ -167,33 +126,23 @@ class InferenceEngine:
             logger.debug("No unprocessed connections")
             return 0
 
-        logger.info(f"Processing {len(connections)} connections...")
+        logger.info(f"Processing {len(connections)} connections with River ML...")
 
-        # Extract features
-        df = pd.DataFrame(connections)
-        X, feature_names = self.extractor.extract_features(df)
-
-        if X.shape[0] == 0:
-            logger.warning("No features extracted")
-            return 0
-
-        # Standardize
-        X_scaled = self.extractor.transform(X)
-
-        # Run inference
         anomaly_count = 0
+        attack_predictions = 0
 
-        for i, (conn_id, features) in enumerate(zip(df['id'], X_scaled)):
+        for conn in connections:
+            conn_id = conn['id']
+            device_ip = conn.get('device_ip')
+            dest_ip = conn.get('dest_ip')
 
-            # Check against threat intelligence feed
-            dest_ip = df.iloc[i].get('dest_ip')
+            # Check against threat intelligence feed first
             try:
-                is_malicious = self.db.is_ip_malicious(dest_ip)
+                is_malicious = self.db.is_ip_malicious(dest_ip) if dest_ip else False
             except Exception:
                 is_malicious = False
 
             if dest_ip and (is_malicious is True):
-                device_ip = df.iloc[i]['device_ip']
                 explanation = self._generate_malicious_ip_explanation(device_ip, dest_ip)
                 logger.warning(f"MALICIOUS IP DETECTED: {device_ip} to {dest_ip}")
 
@@ -202,52 +151,71 @@ class InferenceEngine:
                     severity='critical',
                     anomaly_score=1.0,
                     explanation=explanation,
-                    top_features=json.dumps({'malicious_ip': dest_ip})
+                    top_features=json.dumps({'malicious_ip': dest_ip, 'threat_intel': 'blocklist'})
+                )
+
+                # Store prediction
+                self.db.store_prediction(
+                    connection_id=conn_id,
+                    is_anomaly=True,
+                    anomaly_score=1.0,
+                    model_type='threat_intelligence'
                 )
 
                 anomaly_count += 1
-                continue  # Skip ML inference for this connection
+                continue  # Skip ML inference for known malicious IPs
 
-            is_anomaly = False
-            anomaly_score = 0.0
-            model_type = 'none'
+            # Prepare connection data for River
+            connection_data = {
+                'device_ip': conn.get('device_ip'),
+                'dest_ip': dest_ip,
+                'dest_port': conn.get('dest_port'),
+                'protocol': conn.get('protocol'),
+                'bytes_sent': conn.get('bytes_sent', 0),
+                'bytes_received': conn.get('bytes_received', 0),
+                'duration': conn.get('duration', 0),
+                'packets_sent': conn.get('packets_sent', 0),
+                'packets_received': conn.get('packets_received', 0)
+            }
 
-            # Isolation Forest
-            if self.isolation_forest:
-                if_pred = self.isolation_forest.predict([features])[0]
-                if_score = self.isolation_forest.score_samples([features])[0]
+            # Analyze with River ML engine (incremental learning happens automatically)
+            result = self.river_engine.analyze_connection(connection_data)
 
-                if if_pred == -1:  # Anomaly
-                    is_anomaly = True
-                    anomaly_score = abs(if_score)
-                    model_type = 'isolation_forest'
-
-            # Autoencoder
-            if self.autoencoder and self.autoencoder_threshold:
-                ae_pred = self.autoencoder.predict(features.reshape(1, -1), verbose=0)
-                reconstruction_error = np.mean(np.square(features - ae_pred[0]))
-
-                if reconstruction_error > self.autoencoder_threshold:
-                    is_anomaly = True
-                    anomaly_score = max(anomaly_score, reconstruction_error)
-                    model_type = 'autoencoder'
+            is_anomaly = result['is_anomaly']
+            anomaly_score = result['anomaly_score']
+            threat_level = result['threat_level']
+            attack_type = result.get('predicted_attack')
 
             # Store prediction
             self.db.store_prediction(
                 connection_id=conn_id,
                 is_anomaly=is_anomaly,
                 anomaly_score=float(anomaly_score),
-                model_type=model_type
+                model_type='river_incremental'
             )
 
-            # Create alert if anomaly
-            if is_anomaly:
-                device_ip = df.iloc[i]['device_ip']
+            # Create alert if anomaly detected
+            if is_anomaly and anomaly_score >= self.anomaly_threshold:
                 severity = self._calculate_severity(anomaly_score)
-                explanation = self._generate_explanation(df.iloc[i], anomaly_score, model_type)
 
-                # Get top contributing features
-                top_features = self._get_top_features(features, feature_names)
+                # Generate explanation with River insights
+                explanation = self._generate_river_explanation(
+                    conn,
+                    anomaly_score,
+                    threat_level,
+                    attack_type
+                )
+
+                # Get top contributing features from River result
+                top_features = {
+                    'anomaly_score': anomaly_score,
+                    'threat_level': threat_level,
+                    'model': 'river_halfspace_trees'
+                }
+
+                if attack_type:
+                    top_features['predicted_attack'] = attack_type
+                    top_features['attack_confidence'] = result.get('attack_confidence', 0)
 
                 self._create_alert(
                     device_ip=device_ip,
@@ -258,13 +226,28 @@ class InferenceEngine:
                 )
 
                 anomaly_count += 1
-                logger.warning(f"ANOMALY DETECTED: {device_ip} (score: {anomaly_score:.4f}, severity: {severity})")
+
+                if attack_type:
+                    attack_predictions += 1
+                    logger.warning(
+                        f"ATTACK PREDICTED: {device_ip} - {attack_type} "
+                        f"(score: {anomaly_score:.2f}, confidence: {result.get('attack_confidence', 0):.0%})"
+                    )
+                else:
+                    logger.warning(
+                        f"ANOMALY DETECTED: {device_ip} "
+                        f"(score: {anomaly_score:.2f}, severity: {severity})"
+                    )
 
         # Mark as processed
-        connection_ids = df['id'].tolist()
+        connection_ids = [conn['id'] for conn in connections]
         self.db.mark_connections_processed(connection_ids)
 
-        logger.info(f"✓ Processed {len(connections)} connections, {anomaly_count} anomalies")
+        logger.info(
+            f"✓ Processed {len(connections)} connections | "
+            f"Anomalies: {anomaly_count} | Attacks predicted: {attack_predictions}"
+        )
+
         return anomaly_count
 
     def _calculate_severity(self, score: float) -> str:
@@ -284,6 +267,63 @@ class InferenceEngine:
         else:
             return 'low'
 
+    def _generate_river_explanation(self, connection, score: float, threat_level: str, attack_type: str = None) -> str:
+        """Generate explanation using River ML analysis."""
+        device_ip = connection.get('device_ip')
+        dest_ip = connection.get('dest_ip', 'unknown')
+        dest_port = connection.get('dest_port', 'unknown')
+        protocol = connection.get('protocol', 'unknown')
+        bytes_sent = connection.get('bytes_sent', 0)
+        bytes_received = connection.get('bytes_received', 0)
+
+        explanation_parts = []
+
+        # Opening statement
+        explanation_parts.append(
+            f"⚠️ Anomalous network activity detected from {device_ip} using River incremental learning."
+        )
+
+        # Connection details
+        port_info = self._get_port_info(dest_port)
+        explanation_parts.append(
+            f"Connection: {protocol.upper()} to {dest_ip}:{dest_port} ({port_info})."
+        )
+
+        # River analysis
+        explanation_parts.append(
+            f"River's HalfSpaceTrees model detected unusual patterns "
+            f"(anomaly score: {score:.2f}, threat level: {threat_level.upper()})."
+        )
+
+        # Attack prediction if available
+        if attack_type:
+            explanation_parts.append(
+                f"🎯 Attack Pattern Detected: {attack_type}. "
+                f"This pattern was predicted by River's Hoeffding Adaptive Tree based on "
+                f"recent connection sequences from this device."
+            )
+
+        # Data transfer concerns
+        concerns = []
+        if bytes_sent and bytes_sent > 10_000_000:
+            concerns.append(f"large upload: {self._format_bytes(bytes_sent)}")
+        if bytes_received and bytes_received > 50_000_000:
+            concerns.append(f"large download: {self._format_bytes(bytes_received)}")
+
+        if concerns:
+            explanation_parts.append(f"Notable: {', '.join(concerns)}.")
+
+        # MITRE mapping
+        tactic = self._map_to_mitre(connection)
+        explanation_parts.append(f"MITRE ATT&CK: {tactic}.")
+
+        # River learning note
+        explanation_parts.append(
+            "Note: River continuously learns from your network traffic to improve detection accuracy."
+        )
+
+        return " ".join(explanation_parts)
+
     def _generate_malicious_ip_explanation(self, device_ip: str, dest_ip: str) -> str:
         """Generate explanation for malicious IP detection."""
         return (
@@ -295,64 +335,32 @@ class InferenceEngine:
             f"Potential MITRE Tactic: Command and Control (TA0011)."
         )
 
-    def _generate_explanation(self, connection, score: float, model_type: str) -> str:
-        """Generate human-readable educational explanation."""
-        device_ip = connection['device_ip']
-        dest_ip = connection.get('dest_ip', 'unknown')
-        dest_port = connection.get('dest_port', 'unknown')
-        protocol = connection.get('protocol', 'unknown')
-        bytes_sent = connection.get('bytes_sent', 0)
-        bytes_received = connection.get('bytes_received', 0)
-        duration = connection.get('duration', 0)
+    def get_device_risk_scores(self):
+        """Get risk scores for all devices from River engine."""
+        try:
+            devices = self.db.get_all_devices()
+            risk_scores = []
 
-        # Build educational explanation
-        explanation_parts = []
+            for device in devices:
+                device_ip = device.get('ip_address')
+                if device_ip:
+                    risk_data = self.river_engine.get_device_risk_score(device_ip)
+                    risk_scores.append({
+                        'device_ip': device_ip,
+                        'device_name': device.get('device_name', 'Unknown'),
+                        'risk_score': risk_data['risk_score'],
+                        'risk_level': risk_data['risk_level'],
+                        'failure_probability': risk_data.get('failure_probability', 0),
+                        'recommendations': risk_data.get('recommendations', [])
+                    })
 
-        # What happened
-        explanation_parts.append(
-            f"Unusual network activity detected from your device at {device_ip}."
-        )
+            # Sort by risk score descending
+            risk_scores.sort(key=lambda x: x['risk_score'], reverse=True)
+            return risk_scores
 
-        # Connection details
-        port_info = self._get_port_info(dest_port)
-        explanation_parts.append(
-            f"The device made a {protocol.upper()} connection to {dest_ip} on port {dest_port} ({port_info})."
-        )
-
-        # Why it's unusual
-        if model_type == 'isolation_forest':
-            explanation_parts.append(
-                f"Our Isolation Forest model flagged this connection because it stands out "
-                f"from your network's normal patterns (anomaly score: {score:.2f})."
-            )
-        elif model_type == 'autoencoder':
-            explanation_parts.append(
-                f"Our Autoencoder model detected this activity because it couldn't accurately "
-                f"reconstruct the connection pattern, indicating it's different from learned normal behavior "
-                f"(reconstruction error: {score:.2f})."
-            )
-
-        # Specific concerns
-        concerns = []
-        if bytes_sent and bytes_sent > 10_000_000:  # 10MB
-            concerns.append(f"large data upload ({self._format_bytes(bytes_sent)})")
-        if bytes_received and bytes_received > 50_000_000:  # 50MB
-            concerns.append(f"large data download ({self._format_bytes(bytes_received)})")
-        if duration and duration > 3600:  # 1 hour
-            concerns.append(f"unusually long connection ({duration/3600:.1f} hours)")
-        if dest_port in [22, 23, 3389, 5900]:
-            concerns.append("remote access port")
-
-        if concerns:
-            explanation_parts.append(
-                f"Specific concerns: {', '.join(concerns)}."
-            )
-
-        # MITRE mapping
-        tactic = self._map_to_mitre(connection)
-        explanation_parts.append(f"Potential MITRE ATT&CK Tactic: {tactic}.")
-
-        return " ".join(explanation_parts)
+        except Exception as e:
+            logger.error(f"Error getting device risk scores: {e}")
+            return []
 
     def _get_port_info(self, port) -> str:
         """Get human-readable port description."""
@@ -415,18 +423,6 @@ class InferenceEngine:
                 return f"{bytes_val:.1f} {unit}"
             bytes_val /= 1024
         return f"{bytes_val:.1f} TB"
-
-    def _get_top_features(self, features, feature_names, top_n=5):
-        """Get top contributing features."""
-        abs_features = np.abs(features)
-        top_indices = np.argsort(abs_features)[-top_n:][::-1]
-
-        top_features = {}
-        for idx in top_indices:
-            if idx < len(feature_names):
-                top_features[feature_names[idx]] = float(features[idx])
-
-        return top_features
 
     def _is_monitoring_paused(self) -> bool:
         """Check if monitoring is paused via status file."""

@@ -4,19 +4,19 @@ Comprehensive testing suite for the IoTSentinel network security monitoring syst
 
 ## 📊 Test Coverage Overview
 
-| Component | Test File | Tests | Status |
-|-----------|-----------|-------|--------|
-| Database Operations | `test_database.py` | 50+ | ✅ |
-| Zeek Log Capture | `test_capture.py` | 11 | ✅ |
-| Email Alerts | `test_alerts.py` | 15 | ✅ |
-| ML Models | `test_ml.py` | 20+ | ✅ |
-| Inference Engine | `test_inference_engine.py` | 15+ | ✅ |
-| Integration Pipeline | `test_integeration.py` | 25+ | ✅ |
-| Autoencoder Training | `test_train_autoencoder.py` | 18+ | ✅ |
-| Isolation Forest Training | `test_train_isolation_forest.py` | 17+ | ✅ |
-| Error Scenarios | `test_error_scenarios.py` | 12+ | ✅ |
-| **Dashboard Features** | `test_dashboard_features.py` | 30 | ✅ NEW |
-| **API Integration Hub** | `test_dashboard_api_integration.py` | 16 | ✅ NEW |
+| Component               | Test File                           | Tests | Status |
+| ----------------------- | ----------------------------------- | ----- | ------ |
+| Database Operations     | `test_database.py`                  | 50+   | ✅     |
+| Zeek Log Capture        | `test_capture.py`                   | 11    | ✅     |
+| Email Alerts            | `test_alerts.py`                    | 15    | ✅     |
+| ML Models               | `test_ml.py`                        | 20+   | ✅     |
+| Inference Engine        | `test_inference_engine.py`          | 15+   | ✅     |
+| Integration Pipeline    | `test_integeration.py`              | 25+   | ✅     |
+| River ML Engine         | `test_ml.py`                        | 20+   | ✅     |
+| ML Inference            | `test_integeration.py`              | 15+   | ✅     |
+| Error Scenarios         | `test_error_scenarios.py`           | 12+   | ✅     |
+| **Dashboard Features**  | `test_dashboard_features.py`        | 30    | ✅ NEW |
+| **API Integration Hub** | `test_dashboard_api_integration.py` | 16    | ✅ NEW |
 
 **Total Tests: 180+**
 
@@ -102,8 +102,8 @@ tests/
 ├── test_ml.py                         # ML model training/inference
 ├── test_inference_engine.py           # Real-time inference
 ├── test_integeration.py               # End-to-end pipeline
-├── test_train_autoencoder.py          # Autoencoder training
-├── test_train_isolation_forest.py     # Isolation Forest training
+├── test_ml.py                         # River ML engine tests
+├── test_integeration.py               # ML integration tests
 ├── test_error_scenarios.py            # Error handling
 ├── test_dashboard_features.py         # 16 competitive features
 └── test_dashboard_api_integration.py  # Threat intelligence APIs
@@ -114,7 +114,9 @@ tests/
 ## 🧪 Test Categories
 
 ### Unit Tests (`-m unit`)
+
 Test individual components in isolation:
+
 - Database operations (CRUD)
 - Feature extraction
 - Data parsing
@@ -122,14 +124,18 @@ Test individual components in isolation:
 - Alert generation
 
 ### Integration Tests (`-m integration`)
+
 Test connected systems:
+
 - Zeek logs → Parser → Database
 - Database → Feature Extraction → ML Inference
 - ML Predictions → Alert Generation
 - Complete pipeline end-to-end
 
 ### API Tests (`-m api`)
+
 Test external API integrations:
+
 - AbuseIPDB connectivity
 - VirusTotal connectivity
 - Shodan connectivity
@@ -139,7 +145,9 @@ Test external API integrations:
 - MITRE ATT&CK framework
 
 ### Dashboard Tests (`-m dashboard`)
+
 Test all 16 competitive features:
+
 1. ML Model Comparison Chart
 2. Educational Tooltips
 3. IoT Protocol Analyzer
@@ -158,7 +166,9 @@ Test all 16 competitive features:
 16. Dashboard Preferences
 
 ### Database Tests (`-m database`)
+
 Test database operations:
+
 - Device CRUD operations
 - Connection logging
 - Alert storage
@@ -166,9 +176,11 @@ Test database operations:
 - Data integrity
 
 ### ML Tests (`-m ml`)
+
 Test machine learning models:
+
 - Isolation Forest training
-- Autoencoder training
+- River ML incremental learning
 - Feature extraction
 - Model inference
 - Anomaly detection
@@ -215,16 +227,16 @@ pytest --cov=. --cov-report=term-missing:skip-covered
 
 Tests are tagged with markers for easy filtering:
 
-| Marker | Description | Count |
-|--------|-------------|-------|
-| `unit` | Unit tests for individual components | 120+ |
-| `integration` | Integration tests for connected systems | 30+ |
-| `api` | Tests requiring external API calls | 16 |
-| `database` | Tests interacting with database | 50+ |
-| `dashboard` | Tests for dashboard features | 30 |
-| `ml` | Tests for ML models | 40+ |
-| `slow` | Tests taking > 5 seconds | 20+ |
-| `critical` | Must-pass tests for production | 50+ |
+| Marker        | Description                             | Count |
+| ------------- | --------------------------------------- | ----- |
+| `unit`        | Unit tests for individual components    | 120+  |
+| `integration` | Integration tests for connected systems | 30+   |
+| `api`         | Tests requiring external API calls      | 16    |
+| `database`    | Tests interacting with database         | 50+   |
+| `dashboard`   | Tests for dashboard features            | 30    |
+| `ml`          | Tests for ML models                     | 40+   |
+| `slow`        | Tests taking > 5 seconds                | 20+   |
+| `critical`    | Must-pass tests for production          | 50+   |
 
 ### Using Markers
 
@@ -249,6 +261,7 @@ pytest -m "not api"
 ### pytest.ini
 
 The `pytest.ini` file at project root configures:
+
 - Test discovery patterns
 - Coverage settings
 - Output formatting
@@ -402,15 +415,15 @@ Current test metrics as of last run:
 
 ### Coverage by Component
 
-| Component | Coverage | Tests |
-|-----------|----------|-------|
-| Database Manager | 95% | 50+ |
-| Zeek Parser | 90% | 11 |
-| Email Alerts | 85% | 15 |
-| ML Models | 80% | 40+ |
-| Inference Engine | 85% | 15+ |
-| Dashboard (NEW) | 30% | 30 |
-| API Integration (NEW) | 40% | 16 |
+| Component             | Coverage | Tests |
+| --------------------- | -------- | ----- |
+| Database Manager      | 95%      | 50+   |
+| Zeek Parser           | 90%      | 11    |
+| Email Alerts          | 85%      | 15    |
+| ML Models             | 80%      | 40+   |
+| Inference Engine      | 85%      | 15+   |
+| Dashboard (NEW)       | 30%      | 30    |
+| API Integration (NEW) | 40%      | 16    |
 
 ---
 
@@ -465,6 +478,7 @@ pytest --cov=. --cov-report=html
 ## 📞 Support
 
 For questions about tests:
+
 1. Check this README
 2. Review existing tests for examples
 3. Check pytest documentation

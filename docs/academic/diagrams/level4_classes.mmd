@@ -1,3 +1,5 @@
+%% HISTORICAL DIAGRAM - Original TensorFlow Architecture
+%% Current system uses River ML (see ml/river_engine.py)
 classDiagram
     class DatabaseManager {
         -conn Connection
@@ -14,8 +16,8 @@ classDiagram
     class InferenceEngine {
         -db DatabaseManager
         -extractor FeatureExtractor
-        -isolation_forest IsolationForest
-        -autoencoder Model
+        -river_engine RiverMLEngine
+        %% Legacy: -isolation_forest, -autoencoder
         -threat_intel ThreatIntelClient
         +process_connections()
         +load_models()

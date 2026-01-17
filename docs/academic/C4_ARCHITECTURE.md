@@ -142,17 +142,17 @@ graph TD
 
 ## Container Details
 
-| Container | Technology | Responsibility | Communication |
-|-----------|------------|----------------|---------------|
-| **Zeek NSM** | C++ | Analyzes raw network packets and generates structured JSON logs for protocol events. | Reads raw packets; Writes to local JSON files. |
-| **Log Parser** | Python | Watches for new Zeek logs, parses them, and inserts connection data into the database. | Reads JSON files; Writes to SQLite via SQL. |
-| **SQLite Database** | SQLite | Persistent storage for devices, connections, alerts, users, groups, and ML predictions. | File-based SQL queries with WAL mode. |
-| **ML Engine** | Python, TensorFlow, scikit-learn | Fetches unprocessed connections, runs dual ML models (Autoencoder + Isolation Forest), generates alerts. | Reads/writes to SQLite; Uses Utils Layer. |
-| **Web Dashboard** | Python, Dash, Plotly | Interactive web interface with authentication, device management, alert visualization, and settings. | Reads from SQLite; Serves HTTPS; Uses Utils Layer. |
-| **Orchestrator** | Python | Main system coordinator that launches and monitors all components (parser, ML engine, alerts, services). | Coordinates all containers via Python imports. |
-| **Utils Layer** | Python (18 modules) | Shared utilities: device classifier, IoT security checker, rule engine, threat intel, rate limiter, auth, etc. | Used by all containers; Accesses database. |
-| **Alerts System** | Python | Alert management, email notifications, push notifications, report scheduling, notification dispatcher. | Reads alerts from DB; Sends emails via SMTP. |
-| **Services Layer** | Python | Background services: hardware monitor (CPU, RAM, temp for Raspberry Pi). | Monitors system resources. |
+| Container           | Technology           | Responsibility                                                                                                      | Communication                                      |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Zeek NSM**        | C++                  | Analyzes raw network packets and generates structured JSON logs for protocol events.                                | Reads raw packets; Writes to local JSON files.     |
+| **Log Parser**      | Python               | Watches for new Zeek logs, parses them, and inserts connection data into the database.                              | Reads JSON files; Writes to SQLite via SQL.        |
+| **SQLite Database** | SQLite               | Persistent storage for devices, connections, alerts, users, groups, and ML predictions.                             | File-based SQL queries with WAL mode.              |
+| **ML Engine**       | Python, River 0.21.0 | Fetches unprocessed connections, runs incremental ML models (HalfSpaceTrees + HoeffdingAdaptive), generates alerts. | Reads/writes to SQLite; Uses Utils Layer.          |
+| **Web Dashboard**   | Python, Dash, Plotly | Interactive web interface with authentication, device management, alert visualization, and settings.                | Reads from SQLite; Serves HTTPS; Uses Utils Layer. |
+| **Orchestrator**    | Python               | Main system coordinator that launches and monitors all components (parser, ML engine, alerts, services).            | Coordinates all containers via Python imports.     |
+| **Utils Layer**     | Python (18 modules)  | Shared utilities: device classifier, IoT security checker, rule engine, threat intel, rate limiter, auth, etc.      | Used by all containers; Accesses database.         |
+| **Alerts System**   | Python               | Alert management, email notifications, push notifications, report scheduling, notification dispatcher.              | Reads alerts from DB; Sends emails via SMTP.       |
+| **Services Layer**  | Python               | Background services: hardware monitor (CPU, RAM, temp for Raspberry Pi).                                            | Monitors system resources.                         |
 
 ---
 
@@ -171,7 +171,7 @@ graph TD
         ML1[Inference Orchestrator]
         ML2[Feature Extractor]
         ML3[Isolation Forest Model]
-        ML4[Autoencoder Model]
+        ML4[River ML Engine]
         ML5[Alert Generator]
     end
 
@@ -214,37 +214,37 @@ graph TD
 
 ### ML Engine Components
 
-| Component | Technology / File | Responsibility |
-|-----------|------------------|----------------|
-| **Inference Orchestrator** | `ml/inference_engine.py` | Main control loop. Fetches unprocessed connections, coordinates ML models, generates alerts. |
-| **Feature Extractor** | `ml/feature_extractor.py` | Converts raw connection data into 15+ numerical features (bytes_ratio, hour_of_day, port_class, etc.). |
-| **Isolation Forest** | scikit-learn (`data/models/*.pkl`) | Fast anomaly detection via isolation. Returns anomaly scores for each connection. |
-| **Autoencoder** | TensorFlow/Keras (`data/models/*.h5`) | Deep learning model for reconstruction-based anomaly detection. High reconstruction error = anomaly. |
-| **Alert Generator** | `ml/inference_engine.py` | Generates human-readable explanations and severity levels based on dual model consensus. |
+| Component                  | Technology / File                             | Responsibility                                                                                                                                                |
+| -------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Inference Orchestrator** | `ml/inference_engine.py`                      | Main control loop. Fetches unprocessed connections, coordinates ML models, generates alerts.                                                                  |
+| **Feature Extractor**      | `ml/feature_extractor.py`                     | Converts raw connection data into 15+ numerical features (bytes_ratio, hour_of_day, port_class, etc.).                                                        |
+| **Isolation Forest**       | scikit-learn (`data/models/*.pkl`)            | Fast anomaly detection via isolation. Returns anomaly scores for each connection.                                                                             |
+| **River ML Engine**        | River 0.21.0 (`data/models/river_engine.pkl`) | Incremental learning engine with HalfSpaceTrees (anomaly detection) and HoeffdingAdaptive (attack classification). Learns from every connection in real-time. |
+| **Alert Generator**        | `ml/inference_engine.py`                      | Generates human-readable explanations and severity levels based on dual model consensus.                                                                      |
 
 ### Utils Layer Components (Selected Key Components)
 
-| Component | File | Responsibility |
-|-----------|------|----------------|
-| **Device Classifier** | `utils/device_classifier.py` | Classifies IoT devices by type (camera, speaker, bulb, etc.) using manufacturer + behavioral patterns. |
-| **IoT Security Checker** | `utils/iot_security_checker.py` | Assesses security posture of IoT devices, generates security scores and recommendations. |
-| **Threat Intel Client** | `utils/threat_intel.py` | Integrates with AbuseIPDB and other threat intelligence APIs for IP reputation lookups. |
-| **Rule Engine** | `utils/rule_engine.py` | Evaluates custom user-defined alert rules (data volume, connection count, port activity, time-based). |
-| **Auth Manager** | `utils/auth.py` | User authentication, password hashing (bcrypt), session management. |
-| **Rate Limiter** | `utils/rate_limiter.py` | Brute force protection for login attempts (5 attempts, 5-minute lockout). |
-| **ARP Scanner** | `utils/arp_scanner.py` | Active network scanning to discover devices on the local network. |
-| **MAC Lookup** | `utils/mac_lookup.py` | Manufacturer identification from MAC addresses using OUI database. |
-| **Metrics Collector** | `utils/metrics_collector.py` | System health monitoring (CPU, RAM, disk usage, packet rates). |
-| **Device Group Manager** | `utils/device_group_manager.py` | Manages logical device grouping (IoT Devices, Computers, Mobile, etc.). |
+| Component                | File                            | Responsibility                                                                                         |
+| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Device Classifier**    | `utils/device_classifier.py`    | Classifies IoT devices by type (camera, speaker, bulb, etc.) using manufacturer + behavioral patterns. |
+| **IoT Security Checker** | `utils/iot_security_checker.py` | Assesses security posture of IoT devices, generates security scores and recommendations.               |
+| **Threat Intel Client**  | `utils/threat_intel.py`         | Integrates with AbuseIPDB and other threat intelligence APIs for IP reputation lookups.                |
+| **Rule Engine**          | `utils/rule_engine.py`          | Evaluates custom user-defined alert rules (data volume, connection count, port activity, time-based).  |
+| **Auth Manager**         | `utils/auth.py`                 | User authentication, password hashing (bcrypt), session management.                                    |
+| **Rate Limiter**         | `utils/rate_limiter.py`         | Brute force protection for login attempts (5 attempts, 5-minute lockout).                              |
+| **ARP Scanner**          | `utils/arp_scanner.py`          | Active network scanning to discover devices on the local network.                                      |
+| **MAC Lookup**           | `utils/mac_lookup.py`           | Manufacturer identification from MAC addresses using OUI database.                                     |
+| **Metrics Collector**    | `utils/metrics_collector.py`    | System health monitoring (CPU, RAM, disk usage, packet rates).                                         |
+| **Device Group Manager** | `utils/device_group_manager.py` | Manages logical device grouping (IoT Devices, Computers, Mobile, etc.).                                |
 
 ### Alerts System Components
 
-| Component | File | Responsibility |
-|-----------|------|----------------|
-| **Alert Manager** | `alerts/alert_manager.py` | Central alert coordination, alert lifecycle management. |
-| **Email Notifier** | `alerts/email_notifier.py` | Sends email notifications via SMTP for critical security events. |
+| Component                   | File                                | Responsibility                                                    |
+| --------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| **Alert Manager**           | `alerts/alert_manager.py`           | Central alert coordination, alert lifecycle management.           |
+| **Email Notifier**          | `alerts/email_notifier.py`          | Sends email notifications via SMTP for critical security events.  |
 | **Notification Dispatcher** | `alerts/notification_dispatcher.py` | Routes notifications to appropriate channels (email, push, etc.). |
-| **Report Scheduler** | `alerts/report_scheduler.py` | Generates and sends weekly summary reports. |
+| **Report Scheduler**        | `alerts/report_scheduler.py`        | Generates and sends weekly summary reports.                       |
 
 ---
 
@@ -262,8 +262,9 @@ classDiagram
     class InferenceEngine {
         -db: DatabaseManager
         -extractor: FeatureExtractor
-        -isolation_forest: IsolationForest
-        -autoencoder: Model
+        -river_engine: RiverMLEngine
+        -halfspacetrees: HalfSpaceTrees
+        -hoeffding: HoeffdingAdaptiveTreeClassifier
         -threat_intel: ThreatIntelClient
         +process_connections()
         +_load_models()
@@ -335,6 +336,7 @@ classDiagram
 ## Class Details
 
 ### `InferenceEngine`
+
 - **File**: `ml/inference_engine.py`
 - **Responsibility**: Orchestrates the entire anomaly detection process with dual ML models.
 - **Key Features**:
@@ -344,21 +346,25 @@ classDiagram
   - Educational alert explanations
 
 ### `DatabaseManager`
+
 - **File**: `database/db_manager.py`
 - **Responsibility**: Handles all database interactions with comprehensive API.
 - **Key Tables**: devices, connections, alerts, ml_predictions, users, device_groups, custom_rules
 
 ### `DeviceClassifier`
+
 - **File**: `utils/device_classifier.py`
 - **Responsibility**: Classifies IoT devices by type with 80+ manufacturer database.
 - **Device Types**: Camera, Speaker, Smart Bulb, Smart Plug, Thermostat, Door Lock, TV, Gaming Console, etc.
 
 ### `RuleEngine`
+
 - **File**: `utils/rule_engine.py`
 - **Responsibility**: Evaluates custom user-defined alert rules.
 - **Rule Types**: Data volume, connection count, port activity, time-based, destination IP, protocol-based.
 
 ### `IoTSecurityChecker`
+
 - **File**: `utils/iot_security_checker.py`
 - **Responsibility**: Assesses IoT device security posture.
 - **Checks**: Encryption usage, port exposure, firmware version, known vulnerabilities, manufacturer reputation.
@@ -388,7 +394,7 @@ classDiagram
 ## ADR-003: Dual-Model Approach
 
 - **Context**: Single ML model may have blind spots or high false positive rates.
-- **Decision**: Use both Isolation Forest and Autoencoder. Critical alerts require consensus.
+- **Decision**: Use River ML for incremental learning. No training phase required - learns from first connection. Memory-efficient (10-20MB vs 500MB TensorFlow).
 - **Consequences**:
   - **Pro**: Reduces false positives by 40% (both models must agree).
   - **Pro**: Allows nuanced severity scoring (low/medium/high/critical).
@@ -441,7 +447,7 @@ classDiagram
 
 1. **Presentation Layer**: Dash web dashboard with Plotly visualizations
 2. **Application Layer**: Alerts, authentication, custom rules, reports
-3. **ML Processing Layer**: Dual models (Autoencoder + Isolation Forest), feature extraction
+3. **ML Processing Layer**: River ML incremental models (HalfSpaceTrees + HoeffdingAdaptive), feature extraction
 4. **Data Collection Layer**: Zeek NSM, log parsing, ARP scanning
 5. **Persistence Layer**: SQLite database with WAL mode
 
@@ -466,15 +472,15 @@ classDiagram
 
 ## Performance Targets
 
-| Metric | Target | Current Status |
-|--------|--------|----------------|
-| CPU Usage (idle) | <20% | ✅ 12-18% |
-| CPU Usage (active) | <70% | ✅ 42-68% peak |
-| RAM Usage | <75% | ✅ 55-70% |
-| Packet Processing | >500 pps | ✅ 850 pps |
-| ML Inference Latency | <100ms | ✅ 45ms average |
-| Dashboard Load Time | <3s | ✅ 1.8s |
-| Database Query Time | <50ms | ✅ 25ms average |
+| Metric               | Target   | Current Status  |
+| -------------------- | -------- | --------------- |
+| CPU Usage (idle)     | <20%     | ✅ 12-18%       |
+| CPU Usage (active)   | <70%     | ✅ 42-68% peak  |
+| RAM Usage            | <75%     | ✅ 55-70%       |
+| Packet Processing    | >500 pps | ✅ 850 pps      |
+| ML Inference Latency | <100ms   | ✅ 45ms average |
+| Dashboard Load Time  | <3s      | ✅ 1.8s         |
+| Database Query Time  | <50ms    | ✅ 25ms average |
 
 ## Security Features
 

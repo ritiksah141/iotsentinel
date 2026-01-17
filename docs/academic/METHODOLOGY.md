@@ -6,6 +6,10 @@
 **Project Start**: 26 January 2026
 **Note**: This timeline is independent of the standard module handbook dates, as the project commenced early for better time management
 
+> **⚠️ HISTORICAL DOCUMENT**: This document reflects the original development methodology using TensorFlow/Autoencoder/Isolation Forest.
+> The system has since evolved to use **River ML (Incremental Learning)** which eliminated the training phase requirement.
+> See current implementation in [ml/river_engine.py](../../ml/river_engine.py).
+
 ## 📋 Methodology Selection
 
 ### Chosen Approach: **Agile Development**
@@ -13,21 +17,18 @@
 **Rationale for Agile Selection**:
 
 1. **Research-Oriented ML Component**
-
    - Machine learning requires experimentation and iteration
    - Baseline collection → training → evaluation → tuning cycle
    - Unknown optimal hyperparameters until tested
    - Threshold calibration is data-dependent
 
 2. **Hardware Performance Uncertainty**
-
    - Raspberry Pi 5 performance unknown until deployed
    - Need iterative optimization based on actual metrics
    - CPU/RAM constraints discovered through testing
    - Ability to pivot if performance targets not met
 
 3. **User Feedback Integration**
-
    - Educational transparency requires user validation
    - Alert explanations need comprehension testing
    - Dashboard usability requires iterative refinement
@@ -79,6 +80,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Establish project foundation with complete requirements gathering, risk analysis, and initial planning.
 
 **Key Deliverables**:
+
 - AT1: Agreed Proposal Form (submitted and approved)
 - USER_PERSONAS.md (3 personas)
 - USER_STORIES.md (20 user stories with MoSCoW prioritization)
@@ -88,6 +90,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - AT2 draft sections (Contextual Research & Methodology)
 
 **Major Tasks**:
+
 - [ ] Create 3-4 user personas (Sarah, David, Margaret, Admin)
 - [ ] Write 20 user stories with acceptance criteria
 - [ ] Apply MoSCoW prioritization (MUST: 8, SHOULD: 6, COULD: 4, WON'T: 2)
@@ -105,6 +108,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Design complete system architecture and complete AT2 Challenge Definition Report.
 
 **Key Deliverables**:
+
 - C4 Architecture diagrams (4 levels)
 - DATA_DESIGN_PROCESS.md (3NF normalization, ER diagram)
 - UX_DESIGN_PROCESS.md (wireframes, accessibility)
@@ -112,6 +116,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - **AT2: Challenge Definition Report (3600 words max)** - Major milestone
 
 **Major Tasks**:
+
 - [ ] Create C4 Level 1: System Context diagram
 - [ ] Create C4 Level 2: Container diagram (Zeek, Parser, Database, ML Engine, Dashboard)
 - [ ] Create C4 Level 3: Component diagram (ML Engine detail)
@@ -129,6 +134,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Build core data collection pipeline, database infrastructure, and baseline collection system.
 
 **Key Deliverables**:
+
 - zeek_log_parser.py (Zeek log parsing, 455 lines)
 - db_manager.py (Database layer with CRUD operations, 876 lines, 3NF schema)
 - baseline_collector.py (7-day baseline collection with progress tracking, 330 lines)
@@ -140,6 +146,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Implementation Tasks
 
 **Database Infrastructure**:
+
 - [ ] Design 3NF database schema (Devices, Connections, Alerts, Baseline tables)
 - [ ] Implement DatabaseManager class with CRUD operations
   - [ ] add_device() - Register new network devices
@@ -154,6 +161,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Write database migration scripts
 
 **Network Traffic Capture**:
+
 - [ ] Implement ZeekLogParser class
   - [ ] parse_conn_log() - Parse Zeek conn.log files
   - [ ] extract_device_info() - Identify unique devices
@@ -167,6 +175,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Handle edge cases (malformed logs, missing fields)
 
 **Baseline Collection System**:
+
 - [ ] Implement BaselineCollector class
   - [ ] collect_baseline() - 7-day data collection
   - [ ] calculate_statistics() - Compute baseline metrics
@@ -180,6 +189,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Testing & Quality Assurance
 
 **Unit Tests** (32 tests total):
+
 - [ ] Database Module Tests (TC-DB-001 to TC-DB-022):
   - [ ] Test device CRUD operations
   - [ ] Test connection logging
@@ -196,12 +206,14 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Test file watching mechanism
 
 **Integration Testing**:
+
 - [ ] Test Zeek → Parser → Database pipeline
 - [ ] Test real-time monitoring workflow
 - [ ] Test baseline collection end-to-end
 - [ ] Verify data consistency across components
 
 **Performance Requirements**:
+
 - [ ] Database insertion: >1000 connections/second
 - [ ] Log parsing: <100ms per log entry
 - [ ] Memory usage: <500MB during baseline collection
@@ -222,6 +234,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Implement dual machine learning models for anomaly detection and build educational web dashboard.
 
 **Key Deliverables**:
+
 - Isolation Forest model (trained, saved to data/models/)
 - Autoencoder neural network model (trained, saved to data/models/)
 - inference_engine.py (Dual-model consensus logic, 507 lines)
@@ -235,6 +248,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Machine Learning Implementation
 
 **Feature Engineering**:
+
 - [ ] Implement FeatureExtractor class
   - [ ] Extract basic features (bytes, packets, duration, ports)
   - [ ] Extract temporal features (time-of-day, day-of-week)
@@ -247,6 +261,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document feature definitions and rationale
 
 **Isolation Forest Model**:
+
 - [ ] Implement training script (ml/train_isolation_forest.py)
   - [ ] Load baseline data from database
   - [ ] Configure hyperparameters (n_estimators, contamination, max_samples)
@@ -260,6 +275,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document model architecture and hyperparameters
 
 **Autoencoder Neural Network**:
+
 - [ ] Implement training script (ml/train_autoencoder.py)
   - [ ] Design neural network architecture (input → encoder → latent → decoder → output)
   - [ ] Configure training parameters (epochs, batch_size, learning_rate)
@@ -274,6 +290,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document model architecture and training process
 
 **Inference Engine**:
+
 - [ ] Implement InferenceEngine class (ml/inference_engine.py)
   - [ ] Load both trained models (IF + AE)
   - [ ] Implement dual-model consensus logic
@@ -289,6 +306,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Performance optimization (target: <30s for 100 connections)
 
 **Alert Explanation System**:
+
 - [ ] Implement explanation generation algorithm
   - [ ] Identify top contributing features
   - [ ] Compare against baseline statistics
@@ -300,6 +318,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Dashboard Implementation
 
 **Core Dashboard Structure**:
+
 - [ ] Implement Dash application framework (dashboard/app.py)
 - [ ] Create multi-page layout structure
   - [ ] Overview page (device count, alert summary, system health)
@@ -309,6 +328,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Create responsive layout with Bootstrap/Dash components
 
 **Device Activity Heatmap** (US-006):
+
 - [ ] Implement heatmap visualization using Plotly
   - [ ] X-axis: 24-hour time window
   - [ ] Y-axis: Top 10 most active devices
@@ -318,6 +338,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Optimize query performance (use database indexes)
 
 **Alert Timeline** (US-007):
+
 - [ ] Implement 7-day alert timeline using Plotly
   - [ ] Stacked bar chart by severity (CRITICAL/WARNING/INFO)
   - [ ] Color coding (red/orange/blue)
@@ -327,6 +348,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Show alert details on selection
 
 **Performance Optimization** (US-008):
+
 - [ ] Implement database indexing
   - [ ] Index on timestamp columns
   - [ ] Index on device_id and alert severity
@@ -337,12 +359,14 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] **Target**: Dashboard load time <3 seconds
 
 **Mobile Responsive Design** (US-017):
+
 - [ ] Implement CSS media queries (dashboard/assets/custom.css)
 - [ ] Create responsive grid layouts
 - [ ] Optimize visualizations for small screens
 - [ ] Test on multiple device sizes (phone, tablet, desktop)
 
 **User Experience Features**:
+
 - [ ] Implement onboarding wizard for first-time users
 - [ ] Add help tooltips and documentation links
 - [ ] Create user-friendly error messages
@@ -352,6 +376,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Testing & Quality Assurance
 
 **ML Module Tests** (27 tests):
+
 - [ ] Test feature extraction (TC-ML-001 to TC-ML-015)
   - [ ] Test basic feature extraction
   - [ ] Test temporal feature extraction
@@ -367,6 +392,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Test batch processing performance
 
 **Dashboard Feature Tests** (30 tests):
+
 - [ ] Test dashboard rendering (TC-DASH-001 to TC-DASH-010)
 - [ ] Test heatmap functionality (TC-DASH-011 to TC-DASH-015)
 - [ ] Test alert timeline (TC-DASH-016 to TC-DASH-020)
@@ -374,6 +400,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Test mobile responsiveness (TC-DASH-026 to TC-DASH-030)
 
 **Performance Testing**:
+
 - [ ] ML inference time: <30s for 100 connections
 - [ ] Dashboard load time: <3s
 - [ ] Memory usage: <1GB during inference
@@ -395,6 +422,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Comprehensive testing, security hardening, and prepare AT3 demo.
 
 **Key Deliverables**:
+
 - 194 tests across 13 test files
 - 75-80% code coverage
 - Security features (rate limiting, password hashing)
@@ -408,6 +436,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Testing Implementation
 
 **Test Plan Development**:
+
 - [ ] Create comprehensive test plan document
   - [ ] Define testing objectives and scope
   - [ ] Identify test types (unit, integration, system, validation)
@@ -419,6 +448,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Configure pytest with coverage reporting
 
 **Unit Tests** (Continue from 84 existing tests):
+
 - [ ] Implement additional feature extraction tests
   - [ ] Test boundary conditions (zero, negative, extreme values)
   - [ ] Test data type handling (int, float, string conversions)
@@ -434,6 +464,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] **Target**: 110 additional unit tests (194 total)
 
 **Integration Tests** (30+ tests):
+
 - [ ] Test end-to-end data flow
   - [ ] Zeek logs → Parser → Database → ML → Alerts → Dashboard
   - [ ] Verify data integrity at each stage
@@ -452,6 +483,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Test file system operations
 
 **System Tests** (5 tests):
+
 - [ ] Test complete system startup and shutdown
 - [ ] Test system behavior under normal load
   - [ ] 100 devices, 10,000 connections/day
@@ -468,6 +500,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Verify stays within Raspberry Pi constraints
 
 **Validation Tests** (8 tests):
+
 - [ ] Validate ML model accuracy
   - [ ] Test with known benign traffic (expect no alerts)
   - [ ] Test with known malicious patterns (expect alerts)
@@ -484,6 +517,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Validate accessibility compliance (WCAG 2.1 AA)
 
 **Test Documentation**:
+
 - [ ] Document all test cases with IDs (TC-XXX-NNN)
 - [ ] Create test results summary report
 - [ ] Generate code coverage reports
@@ -493,6 +527,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Security Implementation
 
 **Authentication & Authorization**:
+
 - [ ] Implement password hashing (Bcrypt)
   - [ ] Hash passwords with salt
   - [ ] Implement secure password verification
@@ -507,6 +542,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Implement secure logout
 
 **Input Validation & Sanitization**:
+
 - [ ] Validate all user inputs
   - [ ] Device names (alphanumeric + hyphen/underscore)
   - [ ] MAC addresses (format validation)
@@ -521,6 +557,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Implement CSRF protection
 
 **Data Security**:
+
 - [ ] Implement file permission controls
   - [ ] Database files: 600 (owner read/write only)
   - [ ] Model files: 400 (owner read only)
@@ -537,6 +574,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Use environment variables for secrets
 
 **Privacy Controls** (US-011):
+
 - [ ] Implement monitoring pause/resume
   - [ ] Add pause button to dashboard
   - [ ] Stop log watching when paused
@@ -553,6 +591,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Additional Features
 
 **Email Notifications** (US-016):
+
 - [ ] Implement email notification system
   - [ ] Configure SMTP settings (Gmail, Outlook, custom)
   - [ ] Create email templates for alerts
@@ -565,6 +604,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Test mode (send test email)
 
 **Device Blocking** (US-015):
+
 - [ ] Implement firewall integration
   - [ ] Detect firewall type (iptables, UFW, firewalld)
   - [ ] Implement iptables blocking rules
@@ -581,6 +621,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Log all blocking actions
 
 **Alert Management** (US-014):
+
 - [ ] Implement alert acknowledgment
   - [ ] Add "Acknowledge" button to alerts
   - [ ] Track acknowledged vs unacknowledged
@@ -597,6 +638,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Include filter state in exports
 
 **System Health Monitoring** (US-012):
+
 - [ ] Implement system health dashboard
   - [ ] Display CPU usage
   - [ ] Display memory usage
@@ -610,6 +652,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Alert on Zeek failure
 
 **Model Accuracy Metrics** (US-010):
+
 - [ ] Implement accuracy tracking dashboard
   - [ ] Display true positive/negative counts
   - [ ] Display false positive/negative counts
@@ -624,6 +667,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### AT3 Software Demo Video Preparation
 
 **Video Planning**:
+
 - [ ] Write complete 15-minute script
   - [ ] Part 1: Introduction (1 min)
   - [ ] Part 2: Software Demonstration (7 mins)
@@ -636,6 +680,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Anomaly simulation scenario
 
 **Recording Setup**:
+
 - [ ] Configure OBS Studio (1920×1080, 30fps)
 - [ ] Test recording and audio quality
 - [ ] Prepare IDE with key files open
@@ -643,6 +688,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Test all demo scenarios
 
 **Video Production**:
+
 - [ ] Record introduction and conclusion
 - [ ] Record software demonstration
 - [ ] Record code walkthrough
@@ -654,6 +700,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Performance & Load Testing
 
 **Performance Benchmarking**:
+
 - [ ] Measure baseline performance
   - [ ] Dashboard load time
   - [ ] ML inference time
@@ -670,6 +717,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
   - [ ] Lazy loading implementation
 
 **Continuous Monitoring**:
+
 - [ ] Set up performance metrics collection
   - [ ] Log CPU usage every 5 minutes
   - [ ] Log memory usage every 5 minutes
@@ -684,6 +732,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 **Sprint Goal**: Complete project evaluation, final documentation, and submit AT4 report.
 
 **Key Deliverables**:
+
 - Project evaluation and critical appraisal
 - **AT4: Project Review Report** (2400 words max)
 - Code Manifest (all source files documented)
@@ -695,6 +744,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Project Evaluation
 
 **Objectives Achievement Matrix**:
+
 - [ ] Create comprehensive objectives matrix
   - [ ] OBJ-1: Functional system (Evidence: Working software)
   - [ ] OBJ-2: 80%+ detection accuracy (Evidence: 87% F1-score)
@@ -709,6 +759,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Calculate overall completion rate (Target: 8/8 = 100%)
 
 **Quantitative Metrics Analysis**:
+
 - [ ] Compile all performance metrics
   - [ ] Test coverage: 75-80% (Target: 55+ tests)
   - [ ] ML accuracy: 87% F1-score (Target: 80%)
@@ -722,6 +773,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document optimization strategies used
 
 **Qualitative Assessment**:
+
 - [ ] Document what went well
   - [ ] Successful dual-model implementation
   - [ ] Effective dashboard user experience
@@ -736,6 +788,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Provide recommendations for future work
 
 **Challenges & Resolutions**:
+
 - [ ] Document major challenges faced
   - [ ] Challenge 1: Zeek compilation (3-day delay)
     - [ ] Problem description
@@ -756,6 +809,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document technical debt and future improvements
 
 **Innovation Assessment**:
+
 - [ ] Identify primary innovation
   - [ ] Educational transparency in security alerts
   - [ ] Dual-model consensus approach
@@ -771,6 +825,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Create comparison table
 
 **Methodology Evaluation**:
+
 - [ ] Evaluate Agile methodology effectiveness
   - [ ] What worked well (3 examples)
     - [ ] 2-week sprints for regular progress
@@ -788,6 +843,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### AT4 Project Review Report Assembly
 
 **Report Structure**:
+
 - [ ] Create title page
   - [ ] Student name and ID
   - [ ] Course and module information
@@ -818,6 +874,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Create Appendix A: Code Manifest
 
 **Code Manifest Creation**:
+
 - [ ] Document all source code files
   - [ ] File name and path
   - [ ] Lines of code
@@ -836,6 +893,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document external dependencies (requirements.txt)
 
 **Testing Documentation**:
+
 - [ ] Generate final test coverage report
   - [ ] Run: `pytest --cov=. --cov-report=html`
   - [ ] Capture coverage percentage
@@ -852,6 +910,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document test environment setup
 
 **Performance & ML Documentation**:
+
 - [ ] Create performance metrics table
   - [ ] CPU usage (min/max/avg vs target)
   - [ ] Memory usage (min/max/avg vs target)
@@ -870,6 +929,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Explain dual-model consensus logic
 
 **Technical Justification**:
+
 - [ ] Create decision matrices for major choices
   - [ ] Matrix 1: Zeek vs Scapy
     - [ ] Criteria: Performance, Ease of Use, Protocol Support, Output, Community
@@ -888,6 +948,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document bottleneck identification and resolution
 
 **Ethics & Sustainability**:
+
 - [ ] Document privacy concerns
   - [ ] Issue: Household monitoring without consent
   - [ ] Mitigation 1: Metadata-only (no payload inspection)
@@ -911,6 +972,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 ### Quality Assurance & Finalization
 
 **Word Count Check**:
+
 - [ ] Count all sections (exclude title, contents, references, appendices)
 - [ ] Target: 2400 words maximum
 - [ ] Allowed: Up to 2640 words (+10%)
@@ -918,6 +980,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document final word count
 
 **References Validation**:
+
 - [ ] Verify all in-text citations have reference entries
 - [ ] Ensure Harvard format: (Author et al., Year)
 - [ ] Verify minimum 20 references
@@ -926,6 +989,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Validate DOIs and URLs
 
 **Plagiarism Check**:
+
 - [ ] Upload draft to Turnitin (via Blackboard)
 - [ ] Target: <15% similarity (excluding references)
 - [ ] Review high-match sections
@@ -933,6 +997,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Re-check after revisions
 
 **Peer Review**:
+
 - [ ] Exchange report with classmate
 - [ ] Review checklist:
   - [ ] Objectives clearly achieved?
@@ -944,6 +1009,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Document changes made
 
 **Formatting & Proofreading**:
+
 - [ ] Apply formatting requirements
   - [ ] Margins: 2cm all around
   - [ ] Font: Arial 11pt (body), 14pt (headings)
@@ -957,6 +1023,7 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 - [ ] Polish awkward phrasing
 
 **Final Submission Package**:
+
 - [ ] Generate final PDF (AT4_Project_Review_Report.pdf)
 - [ ] Verify PDF formatting and readability
 - [ ] Prepare source code archive
@@ -979,15 +1046,15 @@ This project is structured into six 2-week sprints over a total of 12 weeks, sta
 
 ### Velocity Tracking
 
-| Sprint    | Weeks    | Stories Planned | Stories Completed | Velocity | Notes                        |
-| --------- | -------- | --------------- | ----------------- | -------- | ---------------------------- |
-| Sprint 1  | 1-2      | N/A             | N/A               | 100%     | Requirements & Planning      |
-| Sprint 2  | 3-4      | N/A             | N/A               | 100%     | Architecture & Design        |
-| Sprint 3  | 5-6      | 3               | 3                 | 100%     | Core Implementation          |
-| Sprint 4  | 7-8      | 5               | 5                 | 100%     | ML Models & Dashboard        |
-| Sprint 5  | 9-10     | 10              | 10                | 100%     | Testing & Security           |
-| Sprint 6  | 11-12    | N/A             | N/A               | 100%     | Evaluation & Submission      |
-| **Total** | **1-12** | **18**          | **18**            | **100%** | **All delivered**            |
+| Sprint    | Weeks    | Stories Planned | Stories Completed | Velocity | Notes                   |
+| --------- | -------- | --------------- | ----------------- | -------- | ----------------------- |
+| Sprint 1  | 1-2      | N/A             | N/A               | 100%     | Requirements & Planning |
+| Sprint 2  | 3-4      | N/A             | N/A               | 100%     | Architecture & Design   |
+| Sprint 3  | 5-6      | 3               | 3                 | 100%     | Core Implementation     |
+| Sprint 4  | 7-8      | 5               | 5                 | 100%     | ML Models & Dashboard   |
+| Sprint 5  | 9-10     | 10              | 10                | 100%     | Testing & Security      |
+| Sprint 6  | 11-12    | N/A             | N/A               | 100%     | Evaluation & Submission |
+| **Total** | **1-12** | **18**          | **18**            | **100%** | **All delivered**       |
 
 **Analysis**: Consistent 100% velocity indicates accurate sprint planning and realistic story estimation.
 

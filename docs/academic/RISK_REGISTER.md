@@ -1,7 +1,10 @@
 # Complete Risk Register with Mitigation Strategies
 
-**Last Updated**: December 2025
-**Status**: All 20 risks assessed with strategic mitigations
+**Last Updated**: January 2026
+**Status**: All risks assessed with strategic mitigations
+
+> **⚠️ NOTE**: This document includes historical risks related to TensorFlow/Autoencoder/Isolation Forest.
+> Migration to **River ML** eliminated training-related risks (R-TECH-002, R-TECH-004).
 
 ---
 

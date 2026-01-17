@@ -9,6 +9,7 @@
 ## Error Handling Strategy
 
 IoTSentinel implements comprehensive error handling across all components to ensure:
+
 1. **Graceful Degradation**: System continues operating when non-critical components fail
 2. **Error Logging**: All errors are logged for debugging and monitoring
 3. **User Feedback**: Clear error messages for user-facing operations
@@ -21,9 +22,11 @@ IoTSentinel implements comprehensive error handling across all components to ens
 ### 1. Database Operations (`database/db_manager.py`)
 
 #### Error: Database Connection Failure
+
 **Scenario**: Database file locked or inaccessible
 
 **Handling**:
+
 ```python
 # database/db_manager.py:25
 try:
@@ -40,9 +43,11 @@ except sqlite3.Error as e:
 ---
 
 #### Error: Foreign Key Constraint Violation
+
 **Scenario**: Attempting to add connection for non-existent device
 
 **Handling**:
+
 ```python
 # database/db_manager.py:215
 # Auto-create device if it doesn't exist
@@ -57,9 +62,11 @@ cursor.execute('INSERT INTO connections ...')
 ---
 
 #### Error: Invalid Alert Severity
+
 **Scenario**: Attempting to create alert with invalid severity level
 
 **Handling**:
+
 ```python
 # database/db_manager.py:185
 VALID_SEVERITIES = ['low', 'medium', 'high', 'critical']
@@ -76,9 +83,11 @@ if severity not in VALID_SEVERITIES:
 ### 2. ML Inference Engine (`ml/inference_engine.py`)
 
 #### Error: Missing ML Model Files
+
 **Scenario**: Model files not found during inference engine startup
 
 **Handling**:
+
 ```python
 # ml/inference_engine.py:45
 try:
@@ -99,9 +108,11 @@ except Exception as e:
 ---
 
 #### Error: Feature Extraction Failure
+
 **Scenario**: Invalid connection data prevents feature extraction
 
 **Handling**:
+
 ```python
 # ml/inference_engine.py:120
 try:
@@ -121,9 +132,11 @@ except Exception as e:
 ### 3. Feature Extractor (`ml/feature_extractor.py`)
 
 #### Error: Division by Zero
+
 **Scenario**: Connection duration is zero when calculating bytes_per_second
 
 **Handling**:
+
 ```python
 # ml/feature_extractor.py:125
 bytes_per_second = total_bytes / duration if duration > 0 else 0
@@ -136,9 +149,11 @@ bytes_per_second = total_bytes / duration if duration > 0 else 0
 ---
 
 #### Error: Missing Required Fields
+
 **Scenario**: Connection data missing required fields (bytes_sent, duration, etc.)
 
 **Handling**:
+
 ```python
 # ml/feature_extractor.py:80
 conn_data.get('bytes_sent', 0)  # Default to 0 if missing
@@ -153,9 +168,11 @@ conn_data.get('duration', 0.1)  # Avoid division by zero
 ---
 
 #### Error: Empty DataFrame
+
 **Scenario**: No connections to process
 
 **Handling**:
+
 ```python
 # ml/feature_extractor.py:50
 if df.empty:
@@ -172,9 +189,11 @@ if df.empty:
 ### 4. Zeek Log Parser (`capture/zeek_log_parser.py`)
 
 #### Error: Corrupt JSON in Log File
+
 **Scenario**: Malformed JSON entry in Zeek log
 
 **Handling**:
+
 ```python
 # capture/zeek_log_parser.py:87
 try:
@@ -192,9 +211,11 @@ except json.JSONDecodeError as e:
 ---
 
 #### Error: Gzip Decompression Failure
+
 **Scenario**: Corrupted .gz file
 
 **Handling**:
+
 ```python
 # capture/zeek_log_parser.py:120
 try:
@@ -216,9 +237,11 @@ except (OSError, gzip.BadGzipFile) as e:
 ### 5. Email Notifier (`alerts/email_notifier.py`)
 
 #### Error: SMTP Authentication Failure
+
 **Scenario**: Invalid SMTP credentials
 
 **Handling**:
+
 ```python
 # alerts/email_notifier.py:89
 max_retries = 3
@@ -243,9 +266,11 @@ for attempt in range(max_retries):
 ---
 
 #### Error: Email Disabled
+
 **Scenario**: EMAIL_ENABLED=false in configuration
 
 **Handling**:
+
 ```python
 # alerts/email_notifier.py:35
 if not self.email_enabled:
@@ -262,9 +287,11 @@ if not self.email_enabled:
 ### 6. API Integration (`dashboard/app.py`)
 
 #### Error: API Connection Timeout
+
 **Scenario**: Threat intelligence API doesn't respond
 
 **Handling**:
+
 ```python
 # dashboard/app.py:9780
 def check_api_health(name, url, headers=None):
@@ -294,9 +321,11 @@ def check_api_health(name, url, headers=None):
 ### 7. Dashboard Callbacks (`dashboard/app.py`)
 
 #### Error: Callback Exception
+
 **Scenario**: Dashboard callback raises exception
 
 **Handling**:
+
 ```python
 # Example callback with error handling
 @app.callback(...)
@@ -345,11 +374,15 @@ logger.addHandler(handler)
 ### Error Log Example
 
 ```
-2024-12-14 15:30:45,123 - ml.inference_engine - WARNING - Model not found: data/models/isolation_forest.pkl. Running without ML.
-2024-12-14 15:31:12,456 - capture.zeek_log_parser - WARNING - Skipping corrupt log entry at line 142: Expecting value: line 1 column 1 (char 0)
-2024-12-14 15:32:01,789 - alerts.email_notifier - ERROR - SMTP authentication failed (attempt 1/3): (535, b'Authentication failed')
-2024-12-14 15:35:22,012 - database.db_manager - ERROR - Database connection failed: unable to open database file
+2024-12-14 15:30:45,123 - ml.inference_engine - WARNING - Model not found: data/models/river_engine.pkl. Creating new model automatically.
 ```
+
+> **Update**: River ML creates models automatically - this warning is informational only
+> 2024-12-14 15:31:12,456 - capture.zeek_log_parser - WARNING - Skipping corrupt log entry at line 142: Expecting value: line 1 column 1 (char 0)
+> 2024-12-14 15:32:01,789 - alerts.email_notifier - ERROR - SMTP authentication failed (attempt 1/3): (535, b'Authentication failed')
+> 2024-12-14 15:35:22,012 - database.db_manager - ERROR - Database connection failed: unable to open database file
+
+````
 
 ---
 
@@ -370,7 +403,7 @@ def validate_ip(ip_str):
     except ValueError:
         logger.warning(f"Invalid IP address: {ip_str}")
         return False
-```
+````
 
 **Error Handling**: Invalid IPs rejected, logged as warnings
 
@@ -381,6 +414,7 @@ def validate_ip(ip_str):
 **Component**: database/db_manager.py
 
 **Validation**:
+
 ```python
 VALID_SEVERITIES = ['low', 'medium', 'high', 'critical']
 
@@ -397,6 +431,7 @@ if severity not in VALID_SEVERITIES:
 **Component**: config/config_manager.py
 
 **Validation**:
+
 ```python
 def get_env_var(name, default=None, required=False):
     value = os.getenv(name, default)
@@ -414,6 +449,7 @@ def get_env_var(name, default=None, required=False):
 **Component**: ml/inference_engine.py, ml/feature_extractor.py
 
 **Validation**:
+
 ```python
 from pathlib import Path
 
@@ -525,20 +561,21 @@ for attempt in range(max_retries):
 
 ## Error Handling Coverage
 
-| Component | Error Scenarios | Tests | Coverage |
-|-----------|----------------|-------|----------|
-| Database | 5 | TC-DB-015, TC-DB-020, TC-DB-021 | ✅ High |
-| ML Inference | 4 | TC-INT-010, TC-ERR-002 | ✅ High |
-| Feature Extractor | 6 | TC-ML-009, TC-ML-010, TC-ML-015-018 | ✅ Comprehensive |
-| Zeek Parser | 3 | TC-CAP-002, TC-CAP-003 | ✅ Good |
-| Email Notifier | 3 | TC-ALERT-006, TC-ALERT-007 | ✅ Good |
-| API Integration | 3 | TC-API-009, TC-API-010 | ✅ Good |
+| Component         | Error Scenarios | Tests                               | Coverage         |
+| ----------------- | --------------- | ----------------------------------- | ---------------- |
+| Database          | 5               | TC-DB-015, TC-DB-020, TC-DB-021     | ✅ High          |
+| ML Inference      | 4               | TC-INT-010, TC-ERR-002              | ✅ High          |
+| Feature Extractor | 6               | TC-ML-009, TC-ML-010, TC-ML-015-018 | ✅ Comprehensive |
+| Zeek Parser       | 3               | TC-CAP-002, TC-CAP-003              | ✅ Good          |
+| Email Notifier    | 3               | TC-ALERT-006, TC-ALERT-007          | ✅ Good          |
+| API Integration   | 3               | TC-API-009, TC-API-010              | ✅ Good          |
 
 **Overall Error Handling Grade**: ✅ **EXCELLENT**
 
 ---
 
 **For AT4 Submission**: This error handling documentation demonstrates:
+
 - Comprehensive error handling strategy
 - Graceful degradation and recovery mechanisms
 - Input validation and edge case handling

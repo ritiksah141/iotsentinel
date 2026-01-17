@@ -3,9 +3,11 @@ numpy==1.24.3
 pandas==2.0.3
 scikit-learn==1.3.0
 
-# Machine Learning
-tensorflow==2.13.0
-tensorflow-metal==1.0.0  # For Apple Silicon GPU acceleration
+# Machine Learning - River for incremental learning (Pi-optimized)
+river==0.21.0  # Lightweight ML for anomaly detection
+
+# AI Assistant - Hybrid cloud/local LLM (optional)
+groq==0.4.1  # Free cloud API (14,400 requests/day)
 
 # Network Analysis - Using scapy instead of pypcap (easier to install)
 scapy==2.5.0

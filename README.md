@@ -3,7 +3,7 @@
 **Professional Network Security Monitor for Raspberry Pi using Unsupervised Machine Learning**
 
 [![Architecture](https://img.shields.io/badge/Architecture-Zeek--based-blue)]()
-[![ML](https://img.shields.io/badge/ML-Autoencoder%20%2B%20Isolation%20Forest-green)]()
+[![ML](<https://img.shields.io/badge/ML-River%20ML%20(Incremental)-green>)]()
 [![Tests](https://img.shields.io/badge/Tests-59%20passed-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/Coverage-84%25-brightgreen)]()
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-red)]()
@@ -17,7 +17,7 @@ The project's unique value proposition is **educational transparency**: it doesn
 ### Key Features
 
 - ✅ **Professional Architecture**: Leverages Zeek's powerful C++ engine for deep protocol analysis.
-- ✅ **Unsupervised ML**: A dual-model approach using an Autoencoder and an Isolation Forest for zero-day threat detection.
+- ✅ **Incremental ML**: River ML framework with HalfSpaceTrees and HoeffdingAdaptive for real-time, zero-day threat detection.
 - ✅ **Educational Dashboard**: A user-friendly web interface that explains _why_ an alert was triggered, showing the contributing factors.
 - ✅ **Privacy-First**: All data processing and analysis happens on-device. No data is sent to the cloud.
 - ✅ **Low Power**: Optimized for a Raspberry Pi 5, consuming significantly less power than a traditional desktop-based solution.
@@ -26,24 +26,28 @@ The project's unique value proposition is **educational transparency**: it doesn
 ### 🤖 IoT-Specific Features
 
 **Intelligent Device Classification**
+
 - 📷🔊💡🔌 Automatic device type detection with visual icons
 - 80+ manufacturer database (Nest, Ring, Philips Hue, Amazon, Google, etc.)
 - Smart categorization: cameras, speakers, bulbs, plugs, thermostats, locks, and more
 - Confidence scoring for classification accuracy
 
 **IoT Security Assessment**
+
 - 🛡️ Real-time security scoring (0-100) for your IoT network
 - Vulnerability detection and security recommendations
 - Device-specific security advice (e.g., "Disable remote access on cameras")
 - Risk level indicators (Low/Medium/High/Critical)
 
 **Enhanced Device Management**
+
 - Custom device naming and notes
 - Device grouping (Living Room, Kitchen, Security, etc.)
 - First seen / Last seen timestamps
 - Connection statistics and activity tracking
 
 **Educational Transparency**
+
 - Interactive tooltips explaining each chart in simple English
 - "Why is this suspicious?" explanations for alerts
 - Learning resources for understanding network security
@@ -51,18 +55,21 @@ The project's unique value proposition is **educational transparency**: it doesn
 ### 🔐 Security Features
 
 **Login Protection**
+
 - Rate limiting: 5 failed attempts = 5-minute lockout
 - Persistent SECRET_KEY from environment
 - Bcrypt password hashing with salt
 - Role-based access control (Admin/Viewer)
 
 **Deployment Security**
+
 - Automatic backups before every deployment
 - Rollback capability with timestamped backups
 - Health check endpoint (`/health`) for monitoring
 - .env template with security best practices
 
 **Network Security**
+
 - Threat intelligence integration (AbuseIPDB)
 - Firewall control and device blocking
 - Lockdown mode for emergency isolation
@@ -90,7 +97,7 @@ The system follows a modular, pipeline-based architecture:
 │  ┌──────────────────────────────┐  │
 │  │ ML Inference Engine          │  │
 │  │ - Extracts 15+ features      │  │
-│  │ - Runs Autoencoder &         │  │
+│  │ - Runs River ML Engine &     │  │
 │  │   Isolation Forest models    │  │
 │  └──────────────────────────────┘  │
 │             ↓                      │
@@ -156,11 +163,9 @@ python3 scripts/baseline_collector.py status
 After the 7-day collection period is complete, train the machine learning models:
 
 ```bash
-# Train the Isolation Forest model
-python3 ml/train_isolation_forest.py
-
-# Train the Autoencoder model
-python3 ml/train_autoencoder.py
+# River ML learns incrementally - no training phase needed!
+# The model learns automatically from the first network connection
+# Simply run the orchestrator and dashboard
 ```
 
 This will create the model files in `data/models/`.
@@ -206,11 +211,13 @@ The HTML report will be generated in the `htmlcov/` directory.
 All project documentation is organized in the **[docs/](docs/)** directory.
 
 ### 🚀 Quick Start
+
 - **[Quick Start Guide](docs/QUICK_START.md)** - Understand the two-branch system (main vs academic-evidence)
 - **[Branch Strategy](docs/BRANCH_STRATEGY.md)** - Complete workflow explanation
 - **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Deploy to Raspberry Pi
 
 ### 📖 Feature Guides
+
 - **[IoT Features](docs/IOT_FEATURES_GUIDE.md)** - IoT-specific capabilities
 - **[Authentication](docs/AUTH_INTEGRATION_GUIDE.md)** - User authentication setup
 - **[Device Grouping](docs/DEVICE_GROUPING_GUIDE.md)** - Organize devices
@@ -218,6 +225,7 @@ All project documentation is organized in the **[docs/](docs/)** directory.
 - **[Email Alerts](docs/EMAIL_SETUP.md)** - Email configuration
 
 ### 🏗️ Architecture & Planning
+
 - **[C4 Architecture](docs/C4_ARCHITECTURE.md)** - System design
 - **[Database Schema](docs/DATABASE_SCHEMA.md)** - Data structure
 - **[Risk Register](docs/RISK_REGISTER.md)** - Risk management
@@ -228,7 +236,7 @@ All project documentation is organized in the **[docs/](docs/)** directory.
 
 - **Capture**: Zeek (formerly Bro)
 - **Backend**: Python 3.11, SQLite
-- **ML**: TensorFlow/Keras (Autoencoder), scikit-learn (Isolation Forest)
+- **ML**: River 0.21.0 (HalfSpaceTrees, HoeffdingAdaptive, SNARIMAX)
 - **Frontend**: Dash by Plotly
 - **Hardware**: Raspberry Pi 5 (4GB RAM recommended)
 

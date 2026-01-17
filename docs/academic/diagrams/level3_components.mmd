@@ -3,10 +3,10 @@ flowchart TB
         direction TB
         InferenceOrch["Inference Orchestrator<br/><i>Main Controller</i>"]
 
-        subgraph Models["ML Models"]
+        subgraph Models["ML Models - River Incremental Learning"]
             FeatureExt["Feature Extractor<br/><i>Preprocessing</i>"]
-            IsoForest["Isolation Forest<br/><i>Unsupervised Detection</i>"]
-            AutoEnc["Autoencoder<br/><i>Reconstruction Error</i>"]
+            RiverEngine["River ML Engine<br/><i>HalfSpaceTrees + HoeffdingAdaptive</i>"]
+            TrafficForecaster["Traffic Forecaster<br/><i>SNARIMAX Time Series</i>"]
         end
 
         AlertGen["Alert Generator<br/><i>Severity Scoring</i>"]
@@ -33,8 +33,8 @@ flowchart TB
     DB[("💾 SQLite Database<br/><i>Persistent Storage</i>")]
 
     InferenceOrch -->|Extract| FeatureExt
-    InferenceOrch -->|Predict| IsoForest
-    InferenceOrch -->|Predict| AutoEnc
+    InferenceOrch -->|Predict| RiverEngine
+    InferenceOrch -->|Forecast| TrafficForecaster
     InferenceOrch -->|Generate| AlertGen
 
     InferenceOrch -->|Classify| DevClass
@@ -48,9 +48,9 @@ flowchart TB
     EmailNotif -->|Schedule| ReportSched
 
     style InferenceOrch fill:#F59E0B,stroke:#D97706,stroke-width:3px,color:#fff
+    style RiverEngine fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style TrafficForecaster fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
     style FeatureExt fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
-    style IsoForest fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
-    style AutoEnc fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
     style AlertGen fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
     style DevClass fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
     style SecCheck fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff

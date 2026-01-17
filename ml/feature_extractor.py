@@ -3,7 +3,7 @@
 Feature Extraction for IoTSentinel ML Models
 
 Extracts numerical features from network connection data
-for anomaly detection using Autoencoder and Isolation Forest.
+for anomaly detection using River ML (HalfSpaceTrees).
 """
 
 import sqlite3

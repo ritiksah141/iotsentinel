@@ -370,7 +370,7 @@ class DatabaseManager:
             connection_id: Connection ID this prediction is for
             is_anomaly: True if anomalous, False if normal
             anomaly_score: Anomaly score from model
-            model_type: Model used (autoencoder/isolation_forest)
+            model_type: Model used (river/legacy)
         """
         try:
             cursor = self.conn.cursor()

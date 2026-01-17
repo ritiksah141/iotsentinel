@@ -62,7 +62,7 @@ ml_predictions (
     connection_id → connections,
     is_anomaly BOOLEAN,
     anomaly_score,
-    model_type,                     -- autoencoder/isolation_forest
+    model_type,                     -- river (or legacy: autoencoder/isolation_forest)
     model_version
 )
 
@@ -428,17 +428,6 @@ device_room_assignments (
     PRIMARY KEY (device_ip, room_id)
 )
 
-smart_home_automations (
-    id PRIMARY KEY,
-    automation_name,
-    trigger_device_ip → devices,
-    trigger_event,                  -- motion_detected, door_opened, etc.
-    action_devices,                 -- JSON: array of affected device IPs
-    action_description,
-    execution_time TIMESTAMP,
-    success BOOLEAN
-)
-
 device_ecosystems (
     device_ip → devices,
     ecosystem,                      -- Google Home, Amazon Alexa, Apple HomeKit, etc.
@@ -746,7 +735,7 @@ user_toast_preferences (
 
 model_versions (
     id PRIMARY KEY,
-    model_type,                         -- autoencoder, isolation_forest, etc.
+    model_type,                         -- river, halfspacetrees, hoeffdingadaptive, snarimax
     version,                            -- Model version string
     file_path,                          -- Path to saved model file
     training_samples,                   -- Number of samples used for training

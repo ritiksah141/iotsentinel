@@ -1,8 +1,11 @@
 # User Stories for IoTSentinel
 
 **Created**: November 2024
-**Last Updated**: December 2025
+**Last Updated**: January 2026
 **Purpose**: Define functional requirements from user perspective
+
+> **⚠️ HISTORICAL DOCUMENT**: Original user stories reflect TensorFlow-based ML approach.
+> System now uses **River ML** - training stories (US-003, US-004) replaced by incremental learning.
 
 **MoSCoW Priority Key**:
 

@@ -217,60 +217,10 @@ class TestDatabaseToMLPipeline:
         assert 'duration' in feature_names
         assert 'proto_tcp' in feature_names
 
-    def test_ml_inference_with_isolation_forest(self, db, tmp_path):
-        """TC-INT-004: Verify ML inference pipeline with Isolation Forest."""
-        # Arrange - Create training data
-        db.add_device('192.168.1.100')
-
-        # Add 50 "normal" connections
-        for i in range(50):
-            db.add_connection(
-                device_ip='192.168.1.100',
-                dest_ip='8.8.8.8',
-                dest_port=80,
-                protocol='tcp',
-                duration=5.0,
-                bytes_sent=1000,
-                bytes_received=2000
-            )
-
-        # Add 5 "anomalous" connections (very large bytes)
-        for i in range(5):
-            db.add_connection(
-                device_ip='192.168.1.100',
-                dest_ip='8.8.8.8',
-                dest_port=80,
-                protocol='tcp',
-                duration=5.0,
-                bytes_sent=1000000,  # Anomalous
-                bytes_received=2000
-            )
-
-        # Extract features and train model
-        from sklearn.ensemble import IsolationForest
-
-        connections = db.get_unprocessed_connections(limit=100)
-        assert len(connections) == 55 # Verify data was inserted
-
-        df = pd.DataFrame(connections)
-
-        extractor = FeatureExtractor()
-        X, _ = extractor.extract_features(df)
-        X_scaled = extractor.fit_transform(X)
-
-        # Ensure X_scaled is 2D
-        assert len(X_scaled.shape) == 2
-        assert X_scaled.shape[0] == 55
-
-        model = IsolationForest(contamination=0.1, random_state=42)
-        model.fit(X_scaled)
-
-        # Act - Predict
-        predictions = model.predict(X_scaled)
-
-        # Assert
-        anomalies = (predictions == -1).sum()
-        assert anomalies >= 3  # Should detect at least 3 of the 5 anomalies
+    # DISABLED: Old Isolation Forest test - now using River for ML
+    # def test_ml_inference_with_isolation_forest(self, db, tmp_path):
+    #     """TC-INT-004: Verify ML inference pipeline with Isolation Forest."""
+    #     pass
 
 
 class TestEndToEndPipeline:
@@ -328,7 +278,7 @@ class TestEndToEndPipeline:
                     connection_id=conn_id,
                     is_anomaly=is_anomaly,
                     anomaly_score=float(score),
-                    model_type='isolation_forest'
+                    model_type='river'
                 )
 
                 if is_anomaly:

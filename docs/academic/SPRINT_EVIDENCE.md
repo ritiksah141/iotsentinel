@@ -5,11 +5,16 @@
 **Tracking Tool**: Trello Board
 **Duration**: 12 weeks (6 sprints)
 
+> **⚠️ HISTORICAL DOCUMENT**: This document reflects the original development using TensorFlow/Autoencoder/Isolation Forest.
+> The system has since migrated to **River ML (Incremental Learning)** for better performance and resource efficiency.
+> See [ml/river_engine.py](../../ml/river_engine.py) for current implementation.
+
 ---
 
 ## 📋 Overview
 
 This document provides evidence of sprint-based development following Agile methodology. Each sprint's progress is tracked through:
+
 - ✅ Trello board screenshots showing task progression
 - ✅ Git commit history aligned with sprint timelines
 - ✅ Deliverables mapped to user stories
@@ -20,38 +25,46 @@ This document provides evidence of sprint-based development following Agile meth
 ## ⚡ Quick Reference: Sprint Summary
 
 ### Sprint 1 (Weeks 1-2): Requirements & Planning
+
 **What was done**: Established project foundation with complete requirements gathering, risk analysis, and initial planning.
+
 - Created 3 user personas (Sarah, David, Margaret) and 20 user stories with MoSCoW prioritization
 - Built requirements traceability matrix (34 requirements mapped to user stories)
 - Identified 20+ risks with mitigation strategies (RISK_REGISTER.md)
 - Conducted literature review (10+ academic papers on IDS, ML, anomaly detection)
 - Analyzed 4 competitor products (Bitdefender BOX, Firewalla, Fingbox, Dojo)
 - Drafted AT2 sections: Contextual Research & Methodology
-**Deliverables**: USER_PERSONAS.md, USER_STORIES.md, REQUIREMENTS_TRACEABILITY_MATRIX.md, RISK_REGISTER.md, literature review, AT2 draft sections
-**User Stories**: Planning and requirements documentation (no implementation stories)
+  **Deliverables**: USER_PERSONAS.md, USER_STORIES.md, REQUIREMENTS_TRACEABILITY_MATRIX.md, RISK_REGISTER.md, literature review, AT2 draft sections
+  **User Stories**: Planning and requirements documentation (no implementation stories)
 
 ### Sprint 2 (Weeks 3-4): Architecture & Design
+
 **What was done**: Designed complete system architecture and completed AT2 Challenge Definition Report.
+
 - Created C4 architecture diagrams (4 levels: System Context, Container, Component, Class)
 - Designed 3NF database schema with ER diagram (Devices, Connections, Alerts, Baseline tables)
 - Created UX design with wireframes, color palette, and accessibility considerations (WCAG 2.1 AA)
 - Documented architectural decisions (ADRs for Zeek vs Scapy, SQLite vs alternatives)
 - Completed and submitted AT2: Challenge Definition Report (3600 words max)
-**Deliverables**: C4 architecture diagrams (4 levels), DATA_DESIGN_PROCESS.md, UX_DESIGN_PROCESS.md, Architectural Decision Records, AT2 report submission
-**User Stories**: Design and architecture documentation (no implementation stories)
+  **Deliverables**: C4 architecture diagrams (4 levels), DATA_DESIGN_PROCESS.md, UX_DESIGN_PROCESS.md, Architectural Decision Records, AT2 report submission
+  **User Stories**: Design and architecture documentation (no implementation stories)
 
 ### Sprint 3 (Weeks 5-6): Core Implementation
+
 **What was done**: Built core data collection pipeline, database infrastructure, and baseline collection system.
+
 - Implemented Zeek log parser for network traffic analysis (zeek_log_parser.py, 455 lines)
 - Created database layer with CRUD operations and 3NF schema (db_manager.py, 876 lines)
 - Built 7-day baseline collection script with progress tracking (baseline_collector.py, 330 lines)
 - Implemented automated real-time log watching mechanism
 - Wrote 32 unit tests for database and capture modules
-**Deliverables**: zeek_log_parser.py, db_manager.py, baseline_collector.py, 32 unit tests, real-time log watching
-**User Stories**: US-001 (Device Discovery), US-002 (Real-Time Monitoring), US-005 (Baseline Collection)
+  **Deliverables**: zeek_log_parser.py, db_manager.py, baseline_collector.py, 32 unit tests, real-time log watching
+  **User Stories**: US-001 (Device Discovery), US-002 (Real-Time Monitoring), US-005 (Baseline Collection)
 
 ### Sprint 4 (Weeks 7-8): ML Models & Interactive Dashboard
+
 **What was done**: Implemented dual machine learning models for anomaly detection and built educational web dashboard.
+
 - Implemented 17-feature extraction pipeline (feature_extractor.py, 320 lines)
 - Trained Isolation Forest model (unsupervised anomaly detection)
 - Trained Autoencoder neural network model (deep learning reconstruction)
@@ -62,11 +75,13 @@ This document provides evidence of sprint-based development following Agile meth
 - Optimized dashboard performance to <3s load time
 - Achieved 6.2% false positive rate (below 10% target)
 - Wrote 57 additional tests (27 ML tests + 30 dashboard tests)
-**Deliverables**: Isolation Forest model, Autoencoder model, inference_engine.py, feature_extractor.py, dashboard/app.py, mobile CSS, 84 total tests
-**User Stories**: US-003 (Anomaly Detection), US-004 (Alert Explanations), US-006 (Device Heatmap), US-007 (Alert Timeline), US-008 (Dashboard Performance)
+  **Deliverables**: Isolation Forest model, Autoencoder model, inference_engine.py, feature_extractor.py, dashboard/app.py, mobile CSS, 84 total tests
+  **User Stories**: US-003 (Anomaly Detection), US-004 (Alert Explanations), US-006 (Device Heatmap), US-007 (Alert Timeline), US-008 (Dashboard Performance)
 
 ### Sprint 5 (Weeks 9-10): Testing & Security
+
 **What was done**: Comprehensive testing, security hardening, and AT3 demo preparation.
+
 - Wrote 110 additional tests (194 total across 13 test files, 3.5× target)
 - Achieved 75-80% code coverage
 - Implemented comprehensive test suite: unit (110), integration (30+), system (5), validation (8)
@@ -78,11 +93,13 @@ This document provides evidence of sprint-based development following Agile meth
 - Implemented alert management: acknowledgment, filtering, CSV export
 - Created model accuracy metrics dashboard with user feedback mechanism
 - Prepared and recorded AT3 Software Demo Video (15 minutes)
-**Deliverables**: 194 tests, 75-80% coverage, security features, email notifications, device blocking, privacy controls, system health monitoring, AT3 video submission, 8 testing documents
-**User Stories**: US-009 (Filtering), US-010 (Metrics), US-011 (Privacy), US-012 (Health), US-013 (Export), US-014 (Acknowledgment), US-015 (Blocking), US-016 (Email), US-017 (Mobile), US-018 (Onboarding)
+  **Deliverables**: 194 tests, 75-80% coverage, security features, email notifications, device blocking, privacy controls, system health monitoring, AT3 video submission, 8 testing documents
+  **User Stories**: US-009 (Filtering), US-010 (Metrics), US-011 (Privacy), US-012 (Health), US-013 (Export), US-014 (Acknowledgment), US-015 (Blocking), US-016 (Email), US-017 (Mobile), US-018 (Onboarding)
 
 ### Sprint 6 (Weeks 11-12): Evaluation & Submission
+
 **What was done**: Completed project evaluation, final documentation, and submitted AT4 report.
+
 - Evaluated all 8 project objectives (100% achievement: OBJ-1 to OBJ-8)
 - Compiled quantitative metrics: 87% F1-score, 6.2% FP rate, <3s dashboard load, 75-80% coverage
 - Documented challenges and resolutions: Zeek compilation, Autoencoder overfitting, dashboard performance
@@ -95,20 +112,22 @@ This document provides evidence of sprint-based development following Agile meth
 - Documented ethics (privacy, responsible AI, GDPR) and sustainability (power consumption, e-waste, UN SDGs)
 - Completed peer review, plagiarism check (<15%), and final proofreading
 - Prepared final submission package and submitted AT4 report
-**Deliverables**: AT4 Project Review Report (2400 words), Code Manifest, final test reports, performance metrics, technical justification documents, ethics & sustainability analysis, complete submission package
-**Module Deliverables**: AT4 report submission, complete project documentation, final code submission
+  **Deliverables**: AT4 Project Review Report (2400 words), Code Manifest, final test reports, performance metrics, technical justification documents, ethics & sustainability analysis, complete submission package
+  **Module Deliverables**: AT4 report submission, complete project documentation, final code submission
 
 ---
 
 ## 🎯 Trello Board Evidence
 
 ### Board Link
+
 **Trello Board**: [IoTSentinel Development Board](https://trello.com/b/YOUR_BOARD_ID)
 _(Screenshots provided below for documentation)_
 
 ### Board Structure
 
 **Lists on Trello Board**:
+
 1. **Product Backlog** - All user stories (MoSCoW prioritized)
 2. **Sprint Backlog** - Current sprint's selected stories
 3. **In Progress** - Currently being worked on
@@ -124,6 +143,7 @@ _(Screenshots provided below for documentation)_
 **Sprint Goal**: Establish project foundation with complete requirements and planning
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 1 board]
 - Product Backlog: 20 user stories visible
@@ -132,6 +152,7 @@ _(Screenshots provided below for documentation)_
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ Create User Personas (3 personas: Sarah, David, Margaret)
 - ✅ Write 20 User Stories with MoSCoW prioritization
 - ✅ Requirements Traceability Matrix (34 requirements)
@@ -141,6 +162,7 @@ _(Screenshots provided below for documentation)_
 - ✅ Draft AT2 sections (Contextual Research & Methodology)
 
 **Git Commits** (Sprint 1):
+
 ```bash
 # Example commits from Sprint 1
 git log --since="2024-11-01" --until="2024-11-14" --oneline
@@ -152,6 +174,7 @@ cf7e6f3 Complete RISK_REGISTER with 20 risks
 ```
 
 **Deliverables**:
+
 - `docs/academic/USER_STORIES.md` (15KB, 537 lines)
 - `docs/academic/REQUIREMENTS_TRACEABILITY_MATRIX.md` (11KB)
 - `docs/academic/RISK_REGISTER.md` (26KB, 881 lines)
@@ -167,6 +190,7 @@ cf7e6f3 Complete RISK_REGISTER with 20 risks
 **Sprint Goal**: Design complete system architecture and complete AT2 report
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 2 board]
 - Sprint Backlog: Architecture and design tasks
@@ -175,6 +199,7 @@ cf7e6f3 Complete RISK_REGISTER with 20 risks
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ C4 Level 1: System Context Diagram
 - ✅ C4 Level 2: Container Diagram
   - Subtasks:
@@ -203,6 +228,7 @@ cf7e6f3 Complete RISK_REGISTER with 20 risks
     - Submit to Blackboard
 
 **Git Commits** (Sprint 2):
+
 ```bash
 git log --since="2024-11-15" --until="2024-11-28" --oneline
 
@@ -214,6 +240,7 @@ e9a7f45 Complete AT2 Challenge Definition Report
 ```
 
 **Deliverables**:
+
 - `docs/academic/C4_ARCHITECTURE.md` (4 levels)
 - `docs/academic/DATA_DESIGN_PROCESS.md` (3NF schema, ER diagram)
 - `docs/academic/UX_DESIGN_PROCESS.md` (wireframes, accessibility)
@@ -229,6 +256,7 @@ e9a7f45 Complete AT2 Challenge Definition Report
 **Sprint Goal**: Build core data collection pipeline and database infrastructure
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 3 board]
 - Sprint Backlog: 3 core implementation stories
@@ -237,6 +265,7 @@ e9a7f45 Complete AT2 Challenge Definition Report
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ US-001: Device Discovery
   - Subtasks:
     - Zeek log parsing
@@ -257,6 +286,7 @@ e9a7f45 Complete AT2 Challenge Definition Report
     - Tests (17 tests)
 
 **Git Commits** (Sprint 3):
+
 ```bash
 git log --since="2024-11-29" --until="2024-12-12" --oneline
 
@@ -268,6 +298,7 @@ d1f6e92 Add unit tests for database and capture modules
 ```
 
 **Deliverables**:
+
 - `capture/zeek_log_parser.py` (455 lines)
 - `database/db_manager.py` (876 lines)
 - `scripts/baseline_collector.py` (330 lines)
@@ -283,6 +314,7 @@ d1f6e92 Add unit tests for database and capture modules
 **Sprint Goal**: Implement dual ML models and build educational dashboard
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 4 board]
 - Sprint Backlog: 5 ML and dashboard stories
@@ -292,6 +324,7 @@ d1f6e92 Add unit tests for database and capture modules
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ US-003: Anomaly Detection
   - Subtasks:
     - Feature extraction (17 features)
@@ -326,6 +359,7 @@ d1f6e92 Add unit tests for database and capture modules
     - Dashboard tests (30 tests)
 
 **Challenges Documented** (Trello "Blockers" list):
+
 - 🔴 Autoencoder overfitting (18% FP rate)
   - **Resolution**: Adjusted threshold, added dropout → 6.2% FP
 - 🔴 Dashboard load time initially 7-8s
@@ -334,6 +368,7 @@ d1f6e92 Add unit tests for database and capture modules
   - **Resolution**: Model quantization, batch size tuning
 
 **Git Commits** (Sprint 4):
+
 ```bash
 git log --since="2024-12-13" --until="2024-12-26" --oneline
 
@@ -349,6 +384,7 @@ e4f2a19 US-008: Dashboard performance optimization
 ```
 
 **Deliverables**:
+
 - `ml/feature_extractor.py` (320 lines)
 - `ml/train_isolation_forest.py` (185 lines)
 - `ml/train_autoencoder.py` (275 lines)
@@ -369,6 +405,7 @@ e4f2a19 US-008: Dashboard performance optimization
 **Sprint Goal**: Comprehensive testing and security hardening
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 5 board]
 - Sprint Backlog: 7 testing/security stories
@@ -378,6 +415,7 @@ e4f2a19 US-008: Dashboard performance optimization
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ Write 194 Comprehensive Tests
   - Unit tests: 120+
   - Integration tests: 30+
@@ -401,6 +439,7 @@ e4f2a19 US-008: Dashboard performance optimization
   - Deployment guide
 
 **Testing Documentation** (Trello "Documentation" list):
+
 - ✅ TEST_PLAN.md (18KB)
 - ✅ TESTING_SUMMARY.md (15KB)
 - ✅ BUG_TRACKING.md (12KB)
@@ -410,6 +449,7 @@ e4f2a19 US-008: Dashboard performance optimization
 - ✅ INPUT_VALIDATION.md (16KB)
 
 **Git Commits** (Sprint 5):
+
 ```bash
 git log --since="2024-12-27" --until="2025-01-09" --oneline
 
@@ -424,6 +464,7 @@ a7e9d43 Coverage: Reach 75-80% test coverage
 ```
 
 **Deliverables**:
+
 - 194 tests across 13 test files
 - `docs/testing/` (8 comprehensive documents)
 - `utils/rate_limiter.py` (security)
@@ -440,6 +481,7 @@ a7e9d43 Coverage: Reach 75-80% test coverage
 **Sprint Goal**: Complete project evaluation and submit AT4 report
 
 **Trello Board Screenshot**:
+
 ```
 [PLACEHOLDER: Insert screenshot showing Sprint 6 board]
 - Sprint Backlog: Evaluation, AT4 report, Final submission
@@ -448,6 +490,7 @@ a7e9d43 Coverage: Reach 75-80% test coverage
 ```
 
 **Completed Cards** (from Trello):
+
 - ✅ Project Evaluation
   - Subtasks:
     - Objectives achievement matrix (8/8 objectives met)
@@ -487,6 +530,7 @@ a7e9d43 Coverage: Reach 75-80% test coverage
     - Verify submission confirmation
 
 **Git Commits** (Sprint 6):
+
 ```bash
 git log --since="2025-01-10" --until="2025-01-23" --oneline
 
@@ -498,6 +542,7 @@ a506d0b Merge academic branch: Add project writing files and evidence
 ```
 
 **Deliverables**:
+
 - AT4 Project Review Report (2400 words max)
 - Code Manifest (all source files documented)
 - Final test coverage reports (75-80%)
@@ -508,6 +553,7 @@ a506d0b Merge academic branch: Add project writing files and evidence
 - Source code archive (.zip)
 
 **Key Activities**:
+
 - Objectives achievement evaluation (8/8 met)
 - Quantitative and qualitative metrics compilation
 - Challenges and resolutions documentation
@@ -522,15 +568,15 @@ a506d0b Merge academic branch: Add project writing files and evidence
 
 ## 📊 Sprint Velocity Chart
 
-| Sprint | Stories Planned | Stories Completed | Velocity | Cumulative | Notes |
-|--------|----------------|-------------------|----------|------------|-------|
-| Sprint 1 | N/A | N/A | 100% | - | Requirements & Planning |
-| Sprint 2 | N/A | N/A | 100% | - | Architecture & Design |
-| Sprint 3 | 3 | 3 | 100% | 3 | Core Implementation |
-| Sprint 4 | 5 | 5 | 100% | 8 | ML Models & Dashboard |
-| Sprint 5 | 10 | 10 | 100% | 18 | Testing & Security |
-| Sprint 6 | N/A | N/A | 100% | 18 | Evaluation & Submission |
-| **Total** | **18** | **18** | **100%** | **18/18** | **All stories delivered** |
+| Sprint    | Stories Planned | Stories Completed | Velocity | Cumulative | Notes                     |
+| --------- | --------------- | ----------------- | -------- | ---------- | ------------------------- |
+| Sprint 1  | N/A             | N/A               | 100%     | -          | Requirements & Planning   |
+| Sprint 2  | N/A             | N/A               | 100%     | -          | Architecture & Design     |
+| Sprint 3  | 3               | 3                 | 100%     | 3          | Core Implementation       |
+| Sprint 4  | 5               | 5                 | 100%     | 8          | ML Models & Dashboard     |
+| Sprint 5  | 10              | 10                | 100%     | 18         | Testing & Security        |
+| Sprint 6  | N/A             | N/A               | 100%     | 18         | Evaluation & Submission   |
+| **Total** | **18**          | **18**            | **100%** | **18/18**  | **All stories delivered** |
 
 **Analysis**: Perfect 100% velocity across all 6 sprints indicates accurate planning and realistic estimation. Sprints 1, 2, and 6 focused on planning, design, and evaluation rather than implementation user stories.
 
@@ -540,16 +586,16 @@ a506d0b Merge academic branch: Add project writing files and evidence
 
 ### Sprint 5 Example Burndown
 
-| Day | Story Points Remaining | Ideal Burndown | Actual Burndown |
-|-----|------------------------|----------------|-----------------|
-| Day 0 | 21 | 21 | 21 |
-| Day 2 | 21 | 18 | 18 |
-| Day 4 | 18 | 15 | 15 |
-| Day 6 | 15 | 12 | 12 |
-| Day 8 | 12 | 9 | 10 |
-| Day 10 | 10 | 6 | 6 |
-| Day 12 | 6 | 3 | 3 |
-| Day 14 | 0 | 0 | 0 |
+| Day    | Story Points Remaining | Ideal Burndown | Actual Burndown |
+| ------ | ---------------------- | -------------- | --------------- |
+| Day 0  | 21                     | 21             | 21              |
+| Day 2  | 21                     | 18             | 18              |
+| Day 4  | 18                     | 15             | 15              |
+| Day 6  | 15                     | 12             | 12              |
+| Day 8  | 12                     | 9              | 10              |
+| Day 10 | 10                     | 6              | 6               |
+| Day 12 | 6                      | 3              | 3               |
+| Day 14 | 0                      | 0              | 0               |
 
 **Result**: Sprint completed on time with all stories delivered.
 
@@ -562,6 +608,7 @@ a506d0b Merge academic branch: Add project writing files and evidence
 **Card Title**: US-003: Anomaly Detection & Alerting
 
 **Description**:
+
 ```
 As a home user, I want automated anomaly detection so that I'm
 alerted to suspicious network behavior.
@@ -572,6 +619,7 @@ Story Points: 8
 ```
 
 **Checklist**:
+
 - [x] Feature extraction (17 features)
 - [x] Train Isolation Forest model
 - [x] Train Autoencoder model
@@ -585,11 +633,13 @@ Story Points: 8
 **Labels**: `ML`, `Backend`, `MUST-HAVE`, `Sprint-3`
 
 **Attachments**:
+
 - `ml/inference_engine.py` (code)
 - Performance benchmark results
 - Model accuracy graphs
 
 **Comments**:
+
 ```
 Day 3: Autoencoder showing 18% FP rate - investigating threshold
 Day 5: Adjusted threshold to 95th percentile - FP now 6.2% ✓
@@ -605,26 +655,31 @@ Day 8: Processing time: 24s for 100 connections (under 30s target) ✓
 ### What Went Well (Trello "Retrospective" cards)
 
 **Sprint 1**:
+
 - ✅ Clear requirements helped guide architecture
 - ✅ MoSCoW prioritization focused effort
 - ✅ Risk register identified critical issues early
 
 **Sprint 2**:
+
 - ✅ Zeek integration smoother than expected
 - ✅ Database design (3NF) prevented major refactoring
 - ✅ TDD approach caught bugs early
 
 **Sprint 3**:
+
 - ✅ Dual-model approach reduced false positives significantly
 - ✅ Batch processing met performance targets
 - ✅ Feature extraction design was extensible
 
 **Sprint 4**:
+
 - ✅ Usability testing revealed valuable insights
 - ✅ Database indexing solved performance issues
 - ✅ Mobile responsiveness easier than anticipated
 
 **Sprint 5**:
+
 - ✅ Test suite grew to 194 tests (3.5× target!)
 - ✅ Comprehensive documentation completed
 - ✅ All security features implemented
@@ -634,18 +689,22 @@ Day 8: Processing time: 24s for 100 connections (under 30s target) ✓
 ### What Could Improve (Trello "Blockers" archive)
 
 **Sprint 2**:
+
 - 🔴 Zeek compilation took 3 days (Pi resource constraints)
   - **Learning**: Factor hardware limitations into estimates
 
 **Sprint 3**:
+
 - 🔴 Autoencoder overfitting not caught until late
   - **Learning**: Earlier model validation needed
 
 **Sprint 4**:
+
 - 🔴 Dashboard performance issue discovered late in sprint
   - **Learning**: Performance testing should be continuous
 
 **Sprint 5**:
+
 - 🟡 SD card corruption lost 2 days of work
   - **Learning**: More frequent git commits and backups
 
@@ -665,6 +724,7 @@ Day 8: Processing time: 24s for 100 connections (under 30s target) ✓
 ```
 
 **Commit Message Format**:
+
 ```
 US-XXX: Brief description of change
 
@@ -675,6 +735,7 @@ Resolves #issue-number
 ```
 
 **Example**:
+
 ```bash
 commit b7c3d61
 US-007: Alert timeline with severity filtering
@@ -714,6 +775,7 @@ Resolves #34
 ### Trello Backlog (MoSCoW Order)
 
 **MUST HAVE** (8 stories):
+
 1. US-001: Device Discovery
 2. US-002: Real-Time Monitoring
 3. US-003: Anomaly Detection
@@ -723,21 +785,12 @@ Resolves #34
 7. US-007: Alert Timeline
 8. US-008: Dashboard Performance
 
-**SHOULD HAVE** (6 stories):
-9. US-009: Alert Filtering
-10. US-010: Model Metrics
-11. US-011: Privacy Controls
-12. US-012: System Health
-13. US-013: Data Export
-14. US-014: Alert Acknowledgment
+**SHOULD HAVE** (6 stories): 9. US-009: Alert Filtering 10. US-010: Model Metrics 11. US-011: Privacy Controls 12. US-012: System Health 13. US-013: Data Export 14. US-014: Alert Acknowledgment
 
-**COULD HAVE** (4 stories):
-15. US-015: Device Blocking
-16. US-016: Email Notifications
-17. US-017: Mobile Responsive
-18. US-018: Onboarding Wizard
+**COULD HAVE** (4 stories): 15. US-015: Device Blocking 16. US-016: Email Notifications 17. US-017: Mobile Responsive 18. US-018: Onboarding Wizard
 
 **WON'T HAVE** (2 items):
+
 - Deep Packet Inspection (privacy concerns)
 - Multi-Network Support (scope constraint)
 
@@ -747,16 +800,16 @@ Resolves #34
 
 ## ✅ Deliverable Evidence Matrix
 
-| Sprint | Deliverable | Trello Card | Git Commit | File Evidence |
-|--------|-------------|-------------|------------|---------------|
-| 1 | USER_STORIES.md | ✅ | a506d0b | ✅ 537 lines |
-| 1 | RISK_REGISTER.md | ✅ | cf7e6f3 | ✅ 881 lines |
-| 2 | zeek_log_parser.py | ✅ | b3f2a91 | ✅ 455 lines |
-| 2 | db_manager.py | ✅ | 7c4e1d2 | ✅ 876 lines |
-| 3 | inference_engine.py | ✅ | 2d4e8b6 | ✅ 507 lines |
-| 3 | Trained ML models | ✅ | c7f1a93 | ✅ data/models/ |
-| 4 | dashboard/app.py | ✅ | e4f8a92 | ✅ 10,899 lines |
-| 5 | 194 tests | ✅ | f7e4b91 | ✅ 13 test files |
+| Sprint | Deliverable         | Trello Card | Git Commit | File Evidence    |
+| ------ | ------------------- | ----------- | ---------- | ---------------- |
+| 1      | USER_STORIES.md     | ✅          | a506d0b    | ✅ 537 lines     |
+| 1      | RISK_REGISTER.md    | ✅          | cf7e6f3    | ✅ 881 lines     |
+| 2      | zeek_log_parser.py  | ✅          | b3f2a91    | ✅ 455 lines     |
+| 2      | db_manager.py       | ✅          | 7c4e1d2    | ✅ 876 lines     |
+| 3      | inference_engine.py | ✅          | 2d4e8b6    | ✅ 507 lines     |
+| 3      | Trained ML models   | ✅          | c7f1a93    | ✅ data/models/  |
+| 4      | dashboard/app.py    | ✅          | e4f8a92    | ✅ 10,899 lines  |
+| 5      | 194 tests           | ✅          | f7e4b91    | ✅ 13 test files |
 
 **Result**: 100% of Trello cards have corresponding git commits and file evidence.
 
@@ -767,6 +820,7 @@ Resolves #34
 ### For Grading Purposes
 
 This document provides evidence of:
+
 1. ✅ **Agile Methodology**: Sprint-based development with 2-week cycles
 2. ✅ **Planning**: Trello board with prioritized backlog (MoSCoW)
 3. ✅ **Execution**: 100% story completion across 5 sprints
@@ -777,6 +831,7 @@ This document provides evidence of:
 ### Verification
 
 Assessors can verify sprint evidence by:
+
 1. **Trello Board**: Access public board link
 2. **Git History**: Check commit dates align with sprint timelines
 3. **File Timestamps**: Verify creation dates match sprint periods
@@ -787,6 +842,7 @@ Assessors can verify sprint evidence by:
 ## 📝 Summary
 
 This sprint evidence document demonstrates:
+
 - **100% velocity** across all 6 sprints (26/26 user stories completed)
 - **Agile methodology** rigorously followed with 2-week sprint cycles
 - **Comprehensive testing** (194 tests, 75-80% coverage)
