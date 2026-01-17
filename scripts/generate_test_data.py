@@ -132,19 +132,19 @@ now = datetime.now()
 # Generate connections for last 24 hours
 for hour_offset in range(24):
     connections_this_hour = random.randint(30, 80)
-    
+
     for _ in range(connections_this_hour):
         # Random device
         device = random.choice(devices)
-        
+
         # Random destination
         dest = random.choice(destinations)
-        
+
         # Random timing within hour
         minutes = random.randint(0, 59)
         seconds = random.randint(0, 59)
         timestamp = now - timedelta(hours=hour_offset, minutes=minutes, seconds=seconds)
-        
+
         # Realistic traffic patterns
         if device['device_type'] == 'Smart TV':
             bytes_sent = random.randint(1000, 50000)
@@ -158,7 +158,7 @@ for hour_offset in range(24):
         else:
             bytes_sent = random.randint(100, 10000)
             bytes_received = random.randint(100, 50000)
-        
+
         conn_id = db.add_connection(
             device_ip=device['device_ip'],
             dest_ip=dest[0],
@@ -172,17 +172,17 @@ for hour_offset in range(24):
             packets_received=random.randint(1, 200),
             conn_state=random.choice(['SF', 'S0', 'REJ', 'RSTO'])
         )
-        
+
         if conn_id:
             connection_ids.append(conn_id)
-        
+
         # Manually set timestamp (SQLite default is now)
         cursor = db.conn.cursor()
         cursor.execute(
             "UPDATE connections SET timestamp = ? WHERE id = ?",
             (timestamp.isoformat(), conn_id)
         )
-    
+
     db.conn.commit()
 
 print(f"   ✓ Created {len(connection_ids)} connections over 24 hours")
@@ -197,17 +197,17 @@ prediction_count = 0
 for conn_id in connection_ids:
     # 95% normal, 5% anomalous
     is_anomaly = random.random() < 0.05
-    
+
     if is_anomaly:
-        anomaly_score = random.uniform(-1.0, -0.3)  # Isolation Forest negative scores
+        anomaly_score = random.uniform(-1.0, -0.3)  # River anomaly scores
     else:
         anomaly_score = random.uniform(0.3, 0.8)
-    
+
     db.store_prediction(
         connection_id=conn_id,
         is_anomaly=is_anomaly,
         anomaly_score=anomaly_score,
-        model_type=random.choice(['isolation_forest', 'autoencoder'])
+        model_type='river'
     )
     prediction_count += 1
 
@@ -246,11 +246,11 @@ alert_count = 0
 for i in range(20):  # Create 20 alerts
     device = random.choice(devices)
     template = random.choice(alert_templates)
-    
+
     # Spread alerts over last 7 days
     hours_ago = random.randint(1, 168)
     timestamp = now - timedelta(hours=hours_ago)
-    
+
     alert_id = db.create_alert(
         device_ip=device['device_ip'],
         severity=template['severity'],
@@ -258,7 +258,7 @@ for i in range(20):  # Create 20 alerts
         explanation=f"{device['device_name']}: {template['explanation']}",
         top_features=json.dumps(template['features'])
     )
-    
+
     if alert_id:
         # Set custom timestamp
         cursor = db.conn.cursor()
@@ -266,14 +266,14 @@ for i in range(20):  # Create 20 alerts
             "UPDATE alerts SET timestamp = ? WHERE id = ?",
             (timestamp.isoformat(), alert_id)
         )
-        
+
         # 30% chance alert is acknowledged
         if random.random() < 0.3:
             cursor.execute(
                 "UPDATE alerts SET acknowledged = 1, acknowledged_at = ? WHERE id = ?",
                 (timestamp + timedelta(hours=random.randint(1, 24)), alert_id)
             )
-        
+
         alert_count += 1
 
 db.conn.commit()

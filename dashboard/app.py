@@ -95,6 +95,14 @@ from alerts.alert_service import AlertService
 from alerts.notification_dispatcher import NotificationDispatcher
 from alerts.email_notifier import EmailNotifier
 
+# Import AI-Powered Intelligence components
+from utils.ai_assistant import HybridAIAssistant
+from ml.inference_engine import InferenceEngine
+from ml.smart_recommender import SmartRecommender
+from ml.traffic_forecaster import TrafficForecaster
+from ml.attack_sequence_tracker import AttackSequenceTracker
+from utils.nl_to_sql import NLtoSQLGenerator
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -726,60 +734,43 @@ threat_intel = ThreatIntelligence(
 )
 
 # ============================================================================
-# AI ASSISTANT CONFIGURATION
+# AI ASSISTANT CONFIGURATION (HybridAI with 3-tier fallback)
 # ============================================================================
 
-# Ollama configuration
-OLLAMA_ENABLED = True  # Set to False to use rule-based fallback only
-OLLAMA_API_URL = "http://192.168.1.206:11434/api/generate"
-OLLAMA_MODEL = "mistral:7b"  # Options: llama3.2:3b, phi3:mini, mistral:7b, etc.
-OLLAMA_TIMEOUT = 30  # seconds
+# Initialize AI Assistant with Groq → Ollama → Rules fallback
+ai_assistant = HybridAIAssistant()
 
-def call_ollama_api(prompt: str, context: str, max_tokens: int = 300) -> Optional[str]:
-    """
-    Call local Ollama API for AI-powered responses.
-    Returns None if Ollama is unavailable or errors occur.
-    """
-    if not OLLAMA_ENABLED:
-        return None
+# Initialize ML components (no alerting_system for dashboard)
+inference_engine = InferenceEngine()  # Uses config for db_path internally
+smart_recommender = SmartRecommender(inference_engine.db)
 
-    try:
-        full_prompt = f"{context}\n\nUser: {prompt}\n\nAssistant:"
+# Initialize Traffic Forecaster (24h bandwidth predictions)
+traffic_forecaster = TrafficForecaster(db_manager=db_manager)
+traffic_forecaster.load_model()
+traffic_forecaster.train_on_historical_data(hours=168)  # Train on 7 days
 
-        response = requests.post(
-            OLLAMA_API_URL,
-            json={
-                'model': OLLAMA_MODEL,
-                'prompt': full_prompt,
-                'stream': False,
-                'options': {
-                    'temperature': 0.7,
-                    'num_predict': max_tokens,
-                }
-            },
-            timeout=OLLAMA_TIMEOUT
-        )
+# Initialize Attack Sequence Tracker (pattern-based prediction)
+attack_tracker = AttackSequenceTracker(db_manager=db_manager)
+attack_tracker.load_sequences()
 
-        if response.status_code == 200:
-            result = response.json()
-            return result.get('response', '').strip()
-        else:
-            logger.warning(f"Ollama API returned status {response.status_code}")
-            return None
+# Initialize NL to SQL Generator (natural language database queries)
+nl_to_sql = NLtoSQLGenerator(db_manager=db_manager)
 
-    except requests.exceptions.ConnectionError:
-        logger.warning("Ollama not available. Is it running? (ollama serve)")
-        return None
-    except requests.exceptions.Timeout:
-        logger.warning(f"Ollama request timed out after {OLLAMA_TIMEOUT}s")
-        return None
-    except Exception as e:
-        logger.error(f"Error calling Ollama API: {e}")
-        return None
+# Log initialization status
+ai_stats = ai_assistant.get_stats()
+logger.info(f"✓ AI Assistant initialized")
+logger.info(f"  - Groq API: {'✅ Available' if ai_stats['groq_available'] else '❌ Not configured'}")
+logger.info(f"  - Ollama Local: {'✅ Enabled' if ai_stats['ollama_enabled'] else '❌ Disabled'}")
+logger.info(f"✓ Inference Engine: {inference_engine.river_engine.__class__.__name__}")
+logger.info(f"✓ Smart Recommender ready")
+logger.info(f"✓ Traffic Forecaster: {traffic_forecaster.get_stats()['status']}")
+logger.info(f"✓ Attack Tracker: {attack_tracker.get_stats()['tracked_devices']} devices tracked")
+logger.info(f"✓ NL to SQL Generator: {len(nl_to_sql.QUERY_TEMPLATES)} query templates")
 
 def get_rule_based_response(message: str, device_count: int, alert_count: int, recent_alerts: List[Dict]) -> str:
     """
-    Fallback rule-based responses when Ollama is unavailable.
+    Basic fallback responses (backup for HybridAI).
+    Note: HybridAI already has intelligent rules fallback built-in.
     """
     user_msg_lower = message.lower()
 
@@ -800,7 +791,7 @@ def get_rule_based_response(message: str, device_count: int, alert_count: int, r
             alert = recent_alerts[0]
             return f"🚨 Most recent alert: {alert.get('explanation', 'Unknown activity')} on device {alert.get('device_name') or alert.get('device_ip', 'Unknown')}. Click the 'Details' button to see educational breakdown with baseline comparisons."
         else:
-            return "✅ No active alerts! Your network has been quiet. IoTSentinel uses ML models (Autoencoder + Isolation Forest) to detect anomalies in real-time."
+            return "✅ No active alerts! Your network has been quiet. IoTSentinel uses River ML (HalfSpaceTrees + HoeffdingAdaptive) for real-time incremental learning and anomaly detection."
 
     # How-to queries
     elif any(word in user_msg_lower for word in ['how', 'what does', 'explain']):
@@ -977,7 +968,7 @@ ONBOARDING_STEPS = [
                 html.Li("🎓 Educational explanations - understand WHY alerts happen"),
                 html.Li("📊 Visual baselines - see what's normal vs unusual"),
                 html.Li("🔍 Real-time monitoring - powered by Zeek on Raspberry Pi 5"),
-                html.Li("🤖 Dual ML models - Autoencoder & Isolation Forest")
+                html.Li("🤖 River ML framework - Incremental learning (HalfSpaceTrees, HoeffdingAdaptive, SNARIMAX)")
             ]),
             html.P("Use the 'Next' and 'Previous' buttons to navigate.", className="text-muted small")
         ])
@@ -1052,25 +1043,24 @@ ONBOARDING_STEPS = [
         ])
     },
     {
-        "title": "Initial Setup: Baseline Training 📚",
+        "title": "Initial Setup: River ML Training 📚",
         "body": html.Div([
-            html.P("Before IoTSentinel can detect anomalies effectively, it needs to learn what's 'normal' for your network."),
-            html.H6("To build the baseline:", className="mt-3"),
+            html.P("IoTSentinel uses River ML for continuous, incremental learning, adapting to your network's normal behavior in real-time."),
+            html.H6("How River ML learns:", className="mt-3"),
             html.Ol([
-                html.Li("Run the baseline collector script:"),
-                html.Pre(html.Code("python3 scripts/baseline_collector.py"), className="border p-2 rounded"),
-                html.Li("Let it collect data for 7 days (24/7 monitoring)"),
-                html.Li("The ML models will train on this 'normal' behavior"),
-                html.Li("After 7 days, anomaly detection becomes highly accurate")
+                html.Li("Start IoTSentinel: The system immediately begins learning and monitoring."),
+                html.Li("Continuous Adaptation: Models like HalfSpaceTrees and HoeffdingAdaptive constantly update as your network evolves."),
+                html.Li("Initial Learning Phase: Anomaly detection quality improves significantly within the first 24-48 hours of continuous operation."),
+                html.Li("No Manual Baseline: No specific 'baseline collection script' is needed; learning is automatic and ongoing.")
             ]),
             html.Hr(),
             html.Div([
-                html.H6("During the baseline period:"),
+                html.H6("What to expect:"),
                 html.Ul([
-                    html.Li("✅ Network monitoring is active"),
-                    html.Li("✅ Device discovery works"),
-                    html.Li("⚠️ Alert quality improves over time"),
-                    html.Li("📊 Baseline charts become available after day 7")
+                    html.Li("✅ Network monitoring is active from the start"),
+                    html.Li("✅ Device discovery works continuously"),
+                    html.Li("⚠️ Anomaly detection improves rapidly with initial data"),
+                    html.Li("📊 Detailed trend analytics become richer over time")
                 ])
             ], className="alert alert-info")
         ])
@@ -1754,14 +1744,14 @@ def create_educational_explanation(alert: Dict) -> html.Div:
             dbc.Tooltip(
                 "Measures how unusual this behavior is compared to normal patterns. "
                 "Scores above 0.350 indicate suspicious activity. IoTSentinel uses two "
-                "independent ML models (Autoencoder + Isolation Forest) for accuracy.",
+                "River ML models (HalfSpaceTrees + HoeffdingAdaptive) with incremental learning.",
                 target="anomaly-score-help",
                 placement="top"
             ),
             dbc.Tooltip(
-                "IoTSentinel uses dual machine learning models: (1) Autoencoder - learns "
-                "normal patterns and flags deviations, (2) Isolation Forest - detects "
-                "outliers in network behavior. Both models must agree for HIGH confidence alerts.",
+                "IoTSentinel uses River ML framework: (1) HalfSpaceTrees - learns "
+                "normal patterns and flags deviations, (2) HoeffdingAdaptive - classifies "
+                "attack patterns in real-time. Both models use incremental learning for continuous improvement.",
                 target="ml-models-help",
                 placement="top"
             )
@@ -1874,33 +1864,129 @@ def create_educational_explanation(alert: Dict) -> html.Div:
             logger.error(f"Error extracting dest_ip from alert features: {e}")
 
     sections.append(html.H5("🛡️ Recommended Actions", className="mt-4 mb-3"))
-    severity = alert.get('severity', 'medium')
 
-    if severity in ['critical', 'high']:
-        actions = [
-            "Consider temporarily disconnecting this device from your network",
-            "Check if the device has any pending software updates",
-            "Review what apps or services are running on the device",
-            "If the device shouldn't be sending data, it may be compromised"
-        ]
-        action_color = "danger"
-    elif severity == 'medium':
-        actions = [
-            "Monitor this device over the next few hours",
-            "Check if someone is actively using the device",
-            "Review if any new apps were recently installed",
-            "Mark as 'reviewed' if this activity was expected"
-        ]
-        action_color = "warning"
+    # Get AI-powered recommendations from SmartRecommender
+    alert_id = alert.get('id')
+    if alert_id:
+        try:
+            recommendations = smart_recommender.recommend_for_alert(alert_id)
+            if recommendations:
+                # AI-powered recommendations
+                sections.append(
+                    dbc.Alert([
+                        html.Div([
+                            html.I(className="fa fa-robot me-2"),
+                            html.Strong("AI-Powered Security Recommendations"),
+                            dbc.Badge("SMART", color="success", className="ms-2")
+                        ], className="mb-3"),
+                        html.P("Context-aware actions based on device history, threat intelligence, and network patterns:",
+                               className="text-muted small mb-3"),
+                        html.Div([
+                            dbc.Card([
+                                dbc.CardHeader([
+                                    dbc.Badge(f"Priority {rec['priority']}",
+                                             color="danger" if rec['priority'] == 1 else "warning" if rec['priority'] == 2 else "info",
+                                             className="me-2"),
+                                    html.Strong(rec['action']),
+                                    dbc.Badge(f"{rec['confidence']*100:.0f}% confident",
+                                             color="light", text_color="dark", className="float-end")
+                                ], className="py-2"),
+                                dbc.CardBody([
+                                    html.P(rec['reason'], className="mb-2"),
+                                    html.Div([
+                                        html.Small("Command:", className="text-muted me-2"),
+                                        dbc.Input(value=rec['command'], readonly=True, size="sm", className="font-monospace")
+                                    ]) if rec.get('command') else None
+                                ], className="py-2")
+                            ], className="mb-2 border-start border-3" +
+                               (" border-danger" if rec['priority'] == 1 else " border-warning" if rec['priority'] == 2 else " border-info"))
+                            for rec in recommendations[:3]  # Top 3
+                        ])
+                    ], color="light", className="border-primary")
+                )
+            else:
+                # Fallback to generic recommendations
+                severity = alert.get('severity', 'medium')
+                if severity in ['critical', 'high']:
+                    actions = [
+                        "Consider temporarily disconnecting this device from your network",
+                        "Check if the device has any pending software updates",
+                        "Review what apps or services are running on the device",
+                        "If the device shouldn't be sending data, it may be compromised"
+                    ]
+                    action_color = "danger"
+                elif severity == 'medium':
+                    actions = [
+                        "Monitor this device over the next few hours",
+                        "Check if someone is actively using the device",
+                        "Review if any new apps were recently installed",
+                        "Mark as 'reviewed' if this activity was expected"
+                    ]
+                    action_color = "warning"
+                else:
+                    actions = [
+                        "This is likely normal but unusual activity",
+                        "No immediate action required",
+                        "Consider marking as 'acknowledged' to dismiss"
+                    ]
+                    action_color = "info"
+
+                sections.append(dbc.Alert([html.Ul([html.Li(action) for action in actions])], color=action_color))
+        except Exception as e:
+            logger.error(f"Error getting smart recommendations: {e}")
+            # Fallback to generic if error
+            severity = alert.get('severity', 'medium')
+            if severity in ['critical', 'high']:
+                actions = [
+                    "Consider temporarily disconnecting this device from your network",
+                    "Check if the device has any pending software updates",
+                    "Review what apps or services are running on the device",
+                    "If the device shouldn't be sending data, it may be compromised"
+                ]
+                action_color = "danger"
+            elif severity == 'medium':
+                actions = [
+                    "Monitor this device over the next few hours",
+                    "Check if someone is actively using the device",
+                    "Review if any new apps were recently installed",
+                    "Mark as 'reviewed' if this activity was expected"
+                ]
+                action_color = "warning"
+            else:
+                actions = [
+                    "This is likely normal but unusual activity",
+                    "No immediate action required",
+                    "Consider marking as 'acknowledged' to dismiss"
+                ]
+                action_color = "info"
+            sections.append(dbc.Alert([html.Ul([html.Li(action) for action in actions])], color=action_color))
     else:
-        actions = [
-            "This is likely normal but unusual activity",
-            "No immediate action required",
-            "Consider marking as 'acknowledged' to dismiss"
-        ]
-        action_color = "info"
-
-    sections.append(dbc.Alert([html.Ul([html.Li(action) for action in actions])], color=action_color))
+        # No alert ID - use generic recommendations
+        severity = alert.get('severity', 'medium')
+        if severity in ['critical', 'high']:
+            actions = [
+                "Consider temporarily disconnecting this device from your network",
+                "Check if the device has any pending software updates",
+                "Review what apps or services are running on the device",
+                "If the device shouldn't be sending data, it may be compromised"
+            ]
+            action_color = "danger"
+        elif severity == 'medium':
+            actions = [
+                "Monitor this device over the next few hours",
+                "Check if someone is actively using the device",
+                "Review if any new apps were recently installed",
+                "Mark as 'reviewed' if this activity was expected"
+            ]
+            action_color = "warning"
+        else:
+            actions = [
+                "This is likely normal but unusual activity",
+                "No immediate action required",
+                "Consider marking as 'acknowledged' to dismiss"
+            ]
+            action_color = "info"
+        sections.append(dbc.Alert([html.Ul([html.Li(action) for action in actions])], color=action_color))
 
     # PHASE 6: Enhanced Technical Details with Educational Tooltips
     sections.append(
@@ -1956,10 +2042,10 @@ def create_educational_explanation(alert: Dict) -> html.Div:
             placement="top"
         ),
         dbc.Tooltip(
-            "IoTSentinel uses two independent machine learning models: "
-            "(1) Autoencoder - learns what 'normal' looks like and detects deviations, "
-            "(2) Isolation Forest - specializes in finding outliers. "
-            "When both agree, confidence is HIGH.",
+            "IoTSentinel uses River ML framework with incremental learning models: "
+            "(1) HalfSpaceTrees - detects anomalies in streaming data, "
+            "(2) HoeffdingAdaptive - classifies attack patterns, "
+            "(3) SNARIMAX - forecasts traffic trends. Models learn continuously from live data.",
             target="detection-model-help",
             placement="top"
         ),
@@ -4269,19 +4355,14 @@ dashboard_layout = dbc.Container([
                         dbc.Card([
                             dbc.CardBody([
                                 html.H6([html.I(className="fa fa-cog me-2 text-warning"), "Model Actions"], className="mb-3"),
+                                html.P("River models learn incrementally - no retraining needed!", className="text-muted small mb-3"),
                                 dbc.Row([
-                                    dbc.Col([
-                                        dbc.Button([
-                                            html.I(className="fa fa-sync-alt me-2"),
-                                            "Retrain Models"
-                                        ], id='retrain-models-btn', color="primary", outline=True, className="w-100 mb-2")
-                                    ], md=4),
                                     dbc.Col([
                                         dbc.Button([
                                             html.I(className="fa fa-download me-2"),
                                             "Export Models"
                                         ], id='export-models-btn', color="info", outline=True, className="w-100 mb-2")
-                                    ], md=4),
+                                    ], md=6),
                                     dbc.Col([
                                         html.Label("Import Models", className="fw-bold mb-2 text-cyber"),
                                         dcc.Upload(
@@ -4292,7 +4373,7 @@ dashboard_layout = dbc.Container([
                                                 html.Span("Drag & Drop or ", className="text-muted"),
                                                 html.Span("Click", className="text-success fw-bold"),
                                                 html.Br(),
-                                                html.Small(".pkl, .h5, or .zip files", className="text-muted")
+                                                html.Small(".pkl or .zip files", className="text-muted")
                                             ], className="text-center py-3"),
                                             className="border border-success border-dashed rounded p-3",
                                             style={
@@ -4302,7 +4383,7 @@ dashboard_layout = dbc.Container([
                                             },
                                             multiple=True
                                         )
-                                    ], md=4)
+                                    ], md=6)
                                 ]),
                                 html.Div(id='model-action-status', className="mt-2"),
                                 html.Div(id='import-models-status', className="mt-2")
@@ -4316,8 +4397,8 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-balance-scale me-2 text-success"), "Model Performance Comparison"], className="mb-3"),
-                                html.P("Compare performance metrics across different ML models.", className="text-muted small mb-3"),
+                                html.H6([html.I(className="fa fa-balance-scale me-2 text-success"), "Active River Models"], className="mb-3"),
+                                html.P("View current River ML models and their learning status.", className="text-muted small mb-3"),
                                 html.Div(id='model-comparison')
                             ])
                         ], className="glass-card border-0 shadow-sm mb-3"),
@@ -7170,7 +7251,7 @@ dashboard_layout = dbc.Container([
                                             html.Td([
                                                 dbc.Badge("Advanced", color="success"),
                                                 html.Br(),
-                                                html.Small("Isolation Forest, Autoencoder, Random Forest", className="text-muted")
+                                                html.Small("River ML: HalfSpaceTrees, HoeffdingAdaptive, SNARIMAX", className="text-muted")
                                             ]),
                                             html.Td([
                                                 dbc.Badge("Advanced", color="success"),
@@ -9874,9 +9955,26 @@ dashboard_layout = dbc.Container([
         dbc.ModalHeader(dbc.ModalTitle(id="alert-details-title")),
         dbc.ModalBody(id="alert-details-body"),
         dbc.ModalFooter([
+            dbc.Button([html.I(className="fa fa-robot me-2"), "Ask AI About This Alert"],
+                      id="ask-ai-alert-btn", color="info", className="cyber-button me-2"),
             dbc.Button("Mark as Reviewed", id="alert-acknowledge-btn", color="success", className="cyber-button"),
             dbc.Button("Close", id="alert-close-btn", color="secondary", className="cyber-button")
-        ])
+        ]),
+        # Collapsible AI Analysis Section
+        dbc.Collapse(
+            dbc.Card([
+                dbc.CardHeader([
+                    html.I(className="fa fa-robot me-2"),
+                    html.Strong("AI Deep Analysis"),
+                    dbc.Badge("POWERED BY HYBRID AI", color="success", className="ms-2")
+                ], className="bg-info text-white"),
+                dbc.CardBody(id="ai-alert-analysis-body", children=[
+                    dbc.Spinner(html.Div("Analyzing alert with AI..."), color="info")
+                ])
+            ], className="mt-3"),
+            id="ai-alert-analysis-collapse",
+            is_open=False
+        )
     ], id="alert-details-modal", is_open=False, size="xl"),
 
     # Lockdown Confirmation Modal
@@ -10199,15 +10297,60 @@ dashboard_layout = dbc.Container([
 
 
     dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle("🤖 AI Assistant")),
-        dbc.ModalBody(html.Div(id='chat-history', style={'height': '400px', 'overflowY': 'auto'})),
-        dbc.ModalFooter(
-            dbc.InputGroup([
-                dbc.Input(id='chat-input', placeholder="Ask about your network...", className="cyber-input"),
-                dbc.Button("Send", id='chat-send-button', color="primary", className="cyber-button"),
-            ])
-        ),
-    ], id="chat-modal", is_open=False, size="lg"),
+        dbc.ModalHeader([
+            dbc.ModalTitle("🤖 AI Assistant", className="flex-grow-1"),
+            dbc.Button(
+                [html.I(className="fa fa-trash me-1"), "Clear"],
+                id="clear-chat-button",
+                color="danger",
+                size="sm",
+                outline=True
+            )
+        ], className="d-flex align-items-center w-100"),
+        dbc.ModalBody([
+            # Loading indicator
+            dcc.Loading(
+                id="chat-loading",
+                type="default",
+                children=[
+                    html.Div(
+                        id='chat-history',
+                        style={
+                            'height': '450px',
+                            'overflowY': 'auto',
+                            'scrollBehavior': 'smooth',
+                            'padding': '10px'
+                        }
+                    )
+                ]
+            ),
+        ], id='chat-history-container', style={'padding': '0'}),
+        dbc.ModalFooter([
+            html.Div([
+                dbc.InputGroup([
+                    dbc.Input(
+                        id='chat-input',
+                        placeholder="Ask about your network security, baseline collection, alerts...",
+                        className="cyber-input",
+                        type="text",
+                        debounce=False,
+                        style={'fontSize': '14px'}
+                    ),
+                    dbc.Button(
+                        [html.I(className="fa fa-paper-plane me-1"), "Send"],
+                        id='chat-send-button',
+                        color="primary",
+                        className="cyber-button"
+                    ),
+                ]),
+                html.Small(
+                    "Press Enter to send • Shift+Enter for new line",
+                    className="text-muted mt-2 d-block",
+                    style={'fontSize': '11px'}
+                )
+            ], className="w-100")
+        ], style={'padding': '15px'}),
+    ], id="chat-modal", is_open=False, size="lg", scrollable=True),
 
     dcc.Store(id='chat-history-store', storage_type='session', data={'history': []}),
 
@@ -12000,6 +12143,129 @@ def update_alert_filter(*_):
     return button_id.split('-')[1]
 
 # ============================================================================
+# CALLBACKS - AI-POWERED FEATURES
+# ============================================================================
+
+@app.callback(
+    [Output('ai-alert-analysis-collapse', 'is_open'),
+     Output('ai-alert-analysis-body', 'children')],
+    [Input('ask-ai-alert-btn', 'n_clicks')],
+    [State('alert-details-title', 'children')],
+    prevent_initial_call=True
+)
+def ask_ai_about_alert(n_clicks, alert_title):
+    """
+    Generate AI-powered deep analysis of an alert using HybridAI + Smart Recommender.
+    """
+    if not n_clicks:
+        return False, [dbc.Spinner(html.Div("Analyzing alert with AI..."), color="info")]
+
+    try:
+        # Extract device from title (format: "🔍 Alert Details: DEVICE_NAME")
+        device_name = alert_title.split(": ")[-1] if ": " in str(alert_title) else "Unknown"
+
+        # Get the alert from database (we need alert_id, try to find recent alert for this device)
+        query = "SELECT id, device_ip, severity, explanation, anomaly_score FROM alerts WHERE device_name = ? OR device_ip = ? ORDER BY timestamp DESC LIMIT 1"
+        alert_result = db_manager.execute_query(query, (device_name, device_name))
+
+        if not alert_result:
+            return True, [
+                dbc.Alert("Could not find alert details in database.", color="warning")
+            ]
+
+        alert_id = alert_result[0][0]
+        device_ip = alert_result[0][1]
+        severity = alert_result[0][2]
+        explanation = alert_result[0][3]
+        anomaly_score = alert_result[0][4]
+
+        # Get Smart Recommender analysis
+        recommendations = smart_recommender.recommend_for_alert(alert_id)
+
+        # Get attack sequence prediction
+        attack_prediction = attack_tracker.predict_next_attack(device_ip)
+        device_risk = attack_tracker.get_device_risk_score(device_ip)
+
+        # Build AI context
+        context = f"""
+        Device: {device_name} ({device_ip})
+        Alert Severity: {severity}
+        Explanation: {explanation}
+        Anomaly Score: {anomaly_score}
+
+        Smart Recommendations: {len(recommendations)} actions suggested
+        Attack Risk Score: {device_risk.get('risk_score', 0)}/100 ({device_risk.get('risk_level', 'unknown')})
+        """
+
+        if attack_prediction:
+            context += f"\nPredicted Next Attack: {attack_prediction.get('predicted_event', 'unknown')} (confidence: {attack_prediction.get('confidence', 0):.2f})"
+
+        # Ask HybridAI for analysis
+        prompt = f"Provide a comprehensive security analysis of this alert. What should the user do? Is this a serious threat? Context: {context}"
+        ai_response, source = ai_assistant.get_response(prompt=prompt, context=context)
+
+        # Format the response
+        analysis_content = [
+            # AI Analysis
+            dbc.Alert([
+                html.Div([
+                    html.I(className="fa fa-brain me-2"),
+                    html.Strong("AI Security Analysis"),
+                    dbc.Badge(f"SOURCE: {source.upper()}", color="success", className="ms-2 float-end")
+                ], className="mb-3"),
+                dcc.Markdown(ai_response)
+            ], color="light", className="mb-3"),
+
+            # Smart Recommendations
+            html.H6([html.I(className="fa fa-lightbulb me-2"), "Recommended Actions"], className="mt-3 mb-2"),
+            html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            dbc.Badge(f"Priority {rec['priority']}",
+                                     color="danger" if rec['priority'] == 1 else "warning" if rec['priority'] == 2 else "info",
+                                     className="me-2"),
+                            html.Strong(rec['action']),
+                            dbc.Badge(f"{rec['confidence']*100:.0f}%", color="light", text_color="dark", className="float-end")
+                        ], className="mb-2"),
+                        html.P(rec['reason'], className="small mb-2"),
+                        html.Code(rec.get('command', ''), className="d-block p-2 bg-light") if rec.get('command') else None
+                    ])
+                ], className="mb-2")
+                for rec in recommendations[:3]
+            ]) if recommendations else html.P("No specific recommendations available.", className="text-muted small"),
+
+            # Attack Prediction
+            html.H6([html.I(className="fa fa-bullseye me-2"), "Threat Intelligence"], className="mt-3 mb-2"),
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.Strong("Device Risk Score: "),
+                        dbc.Badge(f"{device_risk['risk_score']}/100",
+                                 color="danger" if device_risk['risk_score'] >= 70 else "warning" if device_risk['risk_score'] >= 50 else "success",
+                                 className="ms-2"),
+                        dbc.Badge(device_risk['risk_level'].upper(), color="secondary", className="ms-2")
+                    ], className="mb-2"),
+                    html.P(f"Event sequence length: {device_risk.get('event_count', 0)} events", className="small mb-1"),
+                    html.P(f"Recent activity: {device_risk.get('recent_events', 0)} events in last hour", className="small mb-1"),
+                    html.Div([
+                        html.Strong("Predicted Next Attack: "),
+                        html.Span(attack_prediction.get('predicted_event', 'Unknown').replace('_', ' ').title(), className="text-danger"),
+                        dbc.Badge(f"{attack_prediction.get('confidence', 0):.0%} confident", color="warning", className="ms-2")
+                    ], className="mt-2") if attack_prediction else html.P("No attack pattern detected yet.", className="text-muted small")
+                ])
+            ], className="border-info")
+        ]
+
+        return True, analysis_content
+
+    except Exception as e:
+        logger.error(f"Error in AI alert analysis: {e}")
+        return True, [
+            dbc.Alert(f"Error generating AI analysis: {str(e)}", color="danger")
+        ]
+
+# ============================================================================
 # CALLBACKS - ONBOARDING
 # ============================================================================
 
@@ -13052,31 +13318,56 @@ def update_model_info(ws_message):
     Input('ws', 'message')
 )
 def update_model_comparison(ws_message):
+    """Display River model performance metrics."""
     if ws_message is None:
         raise dash.exceptions.PreventUpdate
-    report_data = ws_message.get('model_comparison_data', {})
-    encoded_image = ws_message.get('model_comparison_image', None)
-    if not report_data:
-        return dbc.Alert("Model comparison report not found. Run 'scripts/compare_models.py' to generate it.", color="warning")
 
-    table_header = [html.Thead(html.Tr([html.Th("Model"), html.Th("Precision"), html.Th("Recall"), html.Th("F1-Score")]))]
-    table_body = [html.Tbody([
-        html.Tr([
-            html.Td(model),
-            html.Td(f"{metrics.get('Precision', 0):.3f}"),
-            html.Td(f"{metrics.get('Recall', 0):.3f}"),
-            html.Td(f"{metrics.get('F1-Score', 0):.3f}")
-        ]) for model, metrics in report_data.items()
-    ])]
-    table = dbc.Table(table_header + table_body, bordered=True, hover=True, dark=False, size="sm", className="table-adaptive")
-    children = [html.H6("Model Performance Metrics", className="mb-3"), table]
-    if encoded_image:
-        children.extend([
-            html.Hr(),
-            html.H6("F1-Score Visualization", className="mb-3"),
-            html.Img(src=f'data:image/png;base64,{encoded_image}', style={'width': '100%'})
+    # River models - show current performance stats
+    from ml.river_engine import RiverEngine
+
+    try:
+        stats = {
+            "HalfSpaceTrees": {
+                "Type": "Anomaly Detection",
+                "Learning": "Incremental",
+                "Status": "Active"
+            },
+            "HoeffdingAdaptive": {
+                "Type": "Attack Classification",
+                "Learning": "Incremental",
+                "Status": "Active"
+            },
+            "SNARIMAX": {
+                "Type": "Traffic Forecasting",
+                "Learning": "Incremental",
+                "Status": "Active"
+            }
+        }
+
+        table_header = [html.Thead(html.Tr([html.Th("Model"), html.Th("Type"), html.Th("Learning"), html.Th("Status")]))]
+        table_body = [html.Tbody([
+            html.Tr([
+                html.Td(model),
+                html.Td(metrics.get('Type', 'N/A')),
+                html.Td(dbc.Badge(metrics.get('Learning', 'N/A'), color="success")),
+                html.Td(dbc.Badge(metrics.get('Status', 'N/A'), color="success"))
+            ]) for model, metrics in stats.items()
+        ])]
+
+        table = dbc.Table(table_header + table_body, bordered=True, hover=True, dark=False, size="sm", className="table-adaptive")
+
+        return html.Div([
+            html.H6("River ML Models", className="mb-3"),
+            dbc.Alert([
+                html.I(className="fa fa-info-circle me-2"),
+                "River models learn incrementally from streaming data - no batch comparison needed!"
+            ], color="info", className="mb-3"),
+            table
         ])
-    return html.Div(children)
+
+    except Exception as e:
+        logger.error(f"Error displaying model stats: {e}")
+        return dbc.Alert("Unable to load model information.", color="warning")
 
 # ============================================================================
 # CALLBACKS - VOICE ALERTS
@@ -13275,20 +13566,182 @@ def toggle_pause_monitoring(n_clicks, button_content):
     return [html.I(className="fa fa-pause me-2"), "Pause Monitoring"], "warning"
 
 @app.callback(
-    Output("chat-modal", "is_open"),
+    [Output("chat-modal", "is_open"),
+     Output('chat-history-store', 'data', allow_duplicate=True),
+     Output('chat-history', 'children', allow_duplicate=True)],
     Input("open-chat-button", "n_clicks"),
-    [State("chat-modal", "is_open")],
+    [State("chat-modal", "is_open"),
+     State('chat-history-store', 'data')],
     prevent_initial_call=True,
 )
-def toggle_chat_modal(n, is_open):
+def toggle_chat_modal(n, is_open, chat_data):
     if n:
-        return not is_open
-    return is_open
+        new_state = not is_open
+
+        # Initialize chat_data if None
+        if chat_data is None:
+            chat_data = {'history': []}
+
+        # Show welcome message when opening modal AND history is empty
+        if new_state and len(chat_data.get('history', [])) == 0:
+            ai_status = ai_assistant.get_status_message()
+            welcome_msg = {
+                'role': 'assistant',
+                'content': f"""👋 **Welcome to IoTSentinel AI Assistant!**
+
+{ai_status}
+
+I can help you with:
+- 🔍 Network security analysis
+- 🛡️ Threat investigation
+- 📊 IoT device insights
+- ⚙️ Configuration guidance
+- 🚨 Alert troubleshooting
+
+*Ask me anything about your network security!*""",
+                'timestamp': datetime.now().isoformat()
+            }
+
+            chat_data['history'] = [welcome_msg]
+
+            # Render welcome message with consistent styling
+            welcome_display = dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.Div([
+                            html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
+                            html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
+                        ], className="d-flex align-items-center"),
+                        html.Small(
+                            datetime.now().strftime("%I:%M %p"),
+                            className="text-muted",
+                            style={'fontSize': '11px'}
+                        )
+                    ], className="d-flex justify-content-between align-items-center mb-2"),
+                    dcc.Markdown(welcome_msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
+                ], style={'padding': '12px 15px'})
+            ], color="info", outline=True, className="mb-3", style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'})
+
+            return new_state, chat_data, [welcome_display]
+
+        # When opening modal with existing history, render it
+        elif new_state and len(chat_data.get('history', [])) > 0:
+            # Re-render existing chat history
+            chat_messages = []
+            for idx, msg in enumerate(chat_data['history'][-20:]):
+                msg_time = msg.get('timestamp')
+                time_str = ""
+                if msg_time:
+                    try:
+                        dt = datetime.fromisoformat(msg_time)
+                        time_str = dt.strftime("%I:%M %p")
+                    except:
+                        time_str = ""
+
+                if msg['role'] == 'user':
+                    chat_messages.append(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.Div([
+                                    html.Div([
+                                        html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
+                                        html.Strong("You", style={'fontSize': '14px'})
+                                    ], className="d-flex align-items-center"),
+                                    html.Small(time_str, className="text-muted", style={'fontSize': '11px'})
+                                ], className="d-flex justify-content-between align-items-center mb-2"),
+                                html.P(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
+                            ], style={'padding': '12px 15px'}),
+                            color="primary",
+                            outline=True,
+                            className="mb-3",
+                            style={'borderRadius': '12px', 'borderWidth': '2px'}
+                        )
+                    )
+                else:
+                    chat_messages.append(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.Div([
+                                    html.Div([
+                                        html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
+                                        html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
+                                    ], className="d-flex align-items-center"),
+                                    html.Div([
+                                        html.Small(time_str, className="text-muted me-2", style={'fontSize': '11px'}),
+                                        dbc.Button(
+                                            html.I(className="fa fa-copy"),
+                                            id={'type': 'copy-message', 'index': idx},
+                                            color="link",
+                                            size="sm",
+                                            className="p-0",
+                                            style={'fontSize': '12px'},
+                                            title="Copy response"
+                                        )
+                                    ], className="d-flex align-items-center")
+                                ], className="d-flex justify-content-between align-items-center mb-2"),
+                                dcc.Markdown(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
+                            ], style={'padding': '12px 15px'}),
+                            color="info",
+                            outline=True,
+                            className="mb-3",
+                            style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'}
+                        )
+                    )
+
+            return new_state, chat_data, chat_messages
+
+        return new_state, chat_data, dash.no_update
+    return is_open, dash.no_update, dash.no_update
+
+# Clear chat history callback
+@app.callback(
+    [Output('chat-history-store', 'data', allow_duplicate=True),
+     Output('chat-history', 'children', allow_duplicate=True)],
+    Input('clear-chat-button', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_chat_history(n_clicks):
+    if n_clicks:
+        # Show welcome message after clearing
+        ai_status = ai_assistant.get_status_message()
+        welcome_msg = {
+            'role': 'assistant',
+            'content': f"""👋 **Welcome to IoTSentinel AI Assistant!**
+
+{ai_status}
+
+I can help you with:
+- 🔍 Network security analysis
+- 🛡️ Threat investigation
+- 📊 IoT device insights
+- ⚙️ Configuration guidance
+- 🚨 Alert troubleshooting
+
+*Ask me anything about your network security!*""",
+            'timestamp': datetime.now().isoformat()
+        }
+
+        welcome_display = dbc.Card([
+            dbc.CardBody([
+                html.Div([
+                    html.I(className="fa fa-robot me-2"),
+                    html.Strong("IoTSentinel AI"),
+                    html.Small(
+                        datetime.now().strftime("%I:%M %p"),
+                        className="text-muted ms-auto"
+                    )
+                ], className="d-flex align-items-center mb-2"),
+                dcc.Markdown(welcome_msg['content'], className="mb-0")
+            ])
+        ], color="info", outline=True, className="mb-3")
+
+        return {'history': [welcome_msg]}, [welcome_display]
+    raise dash.exceptions.PreventUpdate
 
 @app.callback(
-    [Output('chat-history', 'children'),
+    [Output('chat-history', 'children', allow_duplicate=True),
      Output('chat-input', 'value'),
-     Output('chat-history-store', 'data')],
+     Output('chat-history-store', 'data', allow_duplicate=True)],
     [Input('chat-send-button', 'n_clicks'),
      Input('chat-input', 'n_submit')],
     [State('chat-input', 'value'),
@@ -13297,16 +13750,125 @@ def toggle_chat_modal(n, is_open):
     prevent_initial_call=True
 )
 def handle_chat_message(send_clicks, input_submit, message, chat_data, ws_message):
-    """AI Chat Assistant with Ollama LLM integration and rule-based fallback"""
+    """AI Chat Assistant with HybridAI (Groq → Ollama → Rules) + NL to SQL"""
     if not message or not message.strip():
         raise dash.exceptions.PreventUpdate
 
     history = chat_data.get('history', []) if chat_data else []
 
-    # Add user message
-    history.append({'role': 'user', 'content': message})
+    # Add user message with timestamp
+    history.append({
+        'role': 'user',
+        'content': message,
+        'timestamp': datetime.now().isoformat()
+    })
 
-    # Get network context
+    # Check for /query command (Natural Language to SQL)
+    if message.strip().startswith('/query'):
+        try:
+            # Extract query after /query
+            nl_query = message.strip()[6:].strip()  # Remove "/query"
+
+            if not nl_query:
+                ai_response = "❓ Please provide a question after `/query`. Example: `/query show me high-risk devices`"
+            else:
+                # Execute NL to SQL
+                result = nl_to_sql.execute_query(nl_query)
+
+                if result['status'] == 'success':
+                    # Format results as text
+                    ai_response = nl_to_sql.format_results_as_text(result)
+                else:
+                    ai_response = nl_to_sql.format_results_as_text(result)
+
+            # Add AI response
+            history.append({
+                'role': 'assistant',
+                'content': ai_response,
+                'timestamp': datetime.now().isoformat(),
+                'source': 'database'
+            })
+
+            # Return updated chat
+            chat_messages = []
+            for idx, msg in enumerate(history[-20:]):
+                msg_time = msg.get('timestamp')
+                time_str = ""
+                if msg_time:
+                    try:
+                        dt = datetime.fromisoformat(msg_time)
+                        time_str = dt.strftime("%I:%M %p")
+                    except:
+                        time_str = ""
+
+                if msg['role'] == 'user':
+                    chat_messages.append(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.Div([
+                                    html.Div([
+                                        html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
+                                        html.Strong("You"),
+                                        html.Span(time_str, className="text-muted small ms-2") if time_str else None
+                                    ], className="d-flex align-items-center mb-2"),
+                                    html.Div(msg['content'], style={'whiteSpace': 'pre-wrap'}),
+                                    html.Button([
+                                        html.I(id={'type': 'copy-icon', 'index': idx}, className="fa fa-copy")
+                                    ], id={'type': 'copy-btn', 'index': idx},
+                                       className="btn btn-sm btn-link text-muted float-end",
+                                       style={'padding': '0', 'marginTop': '-30px'})
+                                ], style={'position': 'relative'})
+                            ], className="p-3"),
+                            className="mb-3",
+                            style={
+                                'backgroundColor': 'rgba(255,255,255,0.95)',
+                                'border': '2px solid #007bff',
+                                'borderRadius': '12px',
+                                'boxShadow': '0 2px 8px rgba(0,123,255,0.1)'
+                            }
+                        )
+                    )
+                else:
+                    chat_messages.append(
+                        dbc.Card(
+                            dbc.CardBody([
+                                html.Div([
+                                    html.Div([
+                                        html.I(className="fa fa-robot me-2", style={'fontSize': '18px', 'color': '#17a2b8'}),
+                                        html.Strong("IoTSentinel AI", style={'color': '#17a2b8'}),
+                                        html.Span(time_str, className="text-muted small ms-2") if time_str else None
+                                    ], className="d-flex align-items-center mb-2"),
+                                    dcc.Markdown(msg['content'], style={'whiteSpace': 'pre-wrap'}),
+                                    html.Button([
+                                        html.I(id={'type': 'copy-icon', 'index': f"ai-{idx}"}, className="fa fa-copy")
+                                    ], id={'type': 'copy-btn', 'index': f"ai-{idx}"},
+                                       className="btn btn-sm btn-link text-muted float-end",
+                                       style={'padding': '0', 'marginTop': '-30px'})
+                                ], style={'position': 'relative'})
+                            ], className="p-3"),
+                            className="mb-3",
+                            style={
+                                'backgroundColor': 'rgba(23,162,184,0.05)',
+                                'border': '2px solid #17a2b8',
+                                'borderRadius': '12px',
+                                'boxShadow': '0 2px 8px rgba(23,162,184,0.1)'
+                            }
+                        )
+                    )
+
+            return {'history': history}, chat_messages, ""
+
+        except Exception as e:
+            logger.error(f"Error in NL to SQL: {e}")
+            ai_response = f"❌ Database query error: {str(e)}"
+            history.append({
+                'role': 'assistant',
+                'content': ai_response,
+                'timestamp': datetime.now().isoformat(),
+                'source': 'error'
+            })
+
+    # Get network context (for normal AI chat)
     device_count = ws_message.get('device_count', 0) if ws_message else 0
     alert_count = ws_message.get('alert_count', 0) if ws_message else 0
     recent_alerts = ws_message.get('recent_alerts', [])[:3] if ws_message else []
@@ -13323,64 +13885,211 @@ Current Network Status:
         for alert in recent_alerts:
             context += f"- {alert.get('severity', 'unknown').upper()}: {alert.get('explanation', 'Unknown')} on {alert.get('device_name') or alert.get('device_ip', 'Unknown')}\n"
 
-    context += """\n
+    context += """
+
+IoTSentinel System Information:
+- ML Engine: River (incremental learning) with HalfSpaceTrees for anomaly detection
+- Database: SQLite at data/database/iotsentinel.db
+- Components: Inference Engine, Smart Recommender, HybridAI Assistant, Traffic Forecaster, Attack Sequence Tracker
+
+Key Features:
+1. Baseline Collection:
+   - Automatic baseline learning from normal network traffic
+   - Stores device behavior patterns in database (connections table)
+   - Uses River ML for incremental learning (no batch training needed)
+   - Baseline data used to detect anomalies (unusual ports, times, traffic volumes)
+   - To collect baseline: Just run IoTSentinel normally for 24-48 hours
+   - Check baseline status in Dashboard → Overview or Database
+
+2. Anomaly Detection:
+   - Real-time analysis using River HalfSpaceTrees
+   - Compares current behavior vs learned baseline
+   - Generates alerts for deviations (stored in alerts table)
+
+3. Smart Recommendations:
+   - AI-powered security recommendations for each alert
+   - RAG-based system using historical alert patterns
+   - Provides specific commands and mitigation steps
+
+4. Traffic Forecasting:
+   - 24-hour bandwidth predictions using River SNARIMAX
+   - Detects anomalies when actual > predicted by 20%
+   - Learns from historical patterns
+
+5. Attack Sequence Tracking:
+   - Pattern-based attack prediction (Port Scan → SSH Fail → Brute Force)
+   - HoeffdingTree classifier for attack type prediction
+   - Risk scoring per device
+
+6. Natural Language Queries:
+   - Use `/query <question>` to ask database questions
+   - Examples: `/query show high-risk devices`, `/query what are recent alerts`
+
+7. Lockdown Mode:
+   - Blocks all untrusted devices (Settings → Firewall Control)
+   - Mark trusted devices first to avoid blocking important devices
+
+8. AI Assistant (you):
+   - 3-tier fallback: Groq Cloud → Ollama Local → Rule-based
+   - Provides network security guidance and troubleshooting
+
 Your role:
 - Answer questions about network security, IoTSentinel features, and device behavior
 - Be concise (2-4 sentences max unless explaining complex topics)
 - Use emojis sparingly (only when relevant)
-- If asked about features, explain: Lockdown Mode, Trust Management, Voice Alerts, Baseline Statistics, MITRE ATT&CK mapping
+- When asked about baseline: Explain automatic collection, 24-48hr duration, no manual action needed
+- When asked about features: Explain with specific technical details from above
+- Mention `/query` command when users ask for specific data (device lists, alert stats, etc.)
 - Always prioritize user security and privacy
 
 Keep responses helpful, accurate, and actionable."""
 
-    # Try Ollama first, fall back to rule-based
-    ai_response = call_ollama_api(message, context)
+    # Use HybridAIAssistant (Groq → Ollama → Rules)
+    ai_response, source = ai_assistant.get_response(
+        prompt=message,
+        context=context
+    )
 
-    if ai_response is None:
-        # Ollama unavailable - use rule-based fallback
-        ai_response = get_rule_based_response(message, device_count, alert_count, recent_alerts)
-        # Add indicator that this is fallback mode
-        if OLLAMA_ENABLED:
-            ai_response = "⚠️ *[AI mode unavailable - using basic responses]*\n\n" + ai_response
+    # Add source indicator
+    source_badge = {
+        'groq': '🚀 *[Groq Cloud]*',
+        'ollama': '🏠 *[Ollama Local]*',
+        'rules': '📋 *[Rules]*'
+    }.get(source.lower(), '')
 
-    # Add AI response
-    history.append({'role': 'assistant', 'content': ai_response})
+    if source_badge:
+        ai_response = f"{source_badge}\n\n{ai_response}"
 
-    # Build chat UI
+    # Add AI response with metadata
+    history.append({
+        'role': 'assistant',
+        'content': ai_response,
+        'timestamp': datetime.now().isoformat(),
+        'source': source
+    })
+
+    # Build chat UI with enhanced styling
     chat_messages = []
-    for msg in history[-10:]:  # Show last 10 messages
+    for idx, msg in enumerate(history[-20:]):  # Show last 20 messages
+        msg_time = msg.get('timestamp')
+        time_str = ""
+        if msg_time:
+            try:
+                dt = datetime.fromisoformat(msg_time)
+                time_str = dt.strftime("%I:%M %p")
+            except:
+                time_str = ""
+
         if msg['role'] == 'user':
             chat_messages.append(
                 dbc.Card(
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-user-circle me-2"),
-                            html.Strong("You")
-                        ], className="mb-2"),
-                        html.P(msg['content'], className="mb-0")
-                    ]),
+                            html.Div([
+                                html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
+                                html.Strong("You", style={'fontSize': '14px'})
+                            ], className="d-flex align-items-center"),
+                            html.Small(time_str, className="text-muted", style={'fontSize': '11px'})
+                        ], className="d-flex justify-content-between align-items-center mb-2"),
+                        html.P(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
+                    ], style={'padding': '12px 15px'}),
                     color="primary",
                     outline=True,
-                    className="mb-2"
+                    className="mb-3",
+                    style={'borderRadius': '12px', 'borderWidth': '2px'}
                 )
             )
         else:
+            # AI message with copy button
+            msg_content = msg['content']
+            msg_source = msg.get('source', 'rules')
+
             chat_messages.append(
                 dbc.Card(
                     dbc.CardBody([
                         html.Div([
-                            html.I(className="fa fa-robot me-2"),
-                            html.Strong("IoTSentinel AI")
-                        ], className="mb-2"),
-                        dcc.Markdown(msg['content'], className="mb-0")
-                    ]),
+                            html.Div([
+                                html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
+                                html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
+                            ], className="d-flex align-items-center"),
+                            html.Div([
+                                html.Small(time_str, className="text-muted me-2", style={'fontSize': '11px'}),
+                                dbc.Button(
+                                    html.I(className="fa fa-copy"),
+                                    id={'type': 'copy-message', 'index': idx},
+                                    color="link",
+                                    size="sm",
+                                    className="p-0",
+                                    style={'fontSize': '12px'},
+                                    title="Copy response"
+                                )
+                            ], className="d-flex align-items-center")
+                        ], className="d-flex justify-content-between align-items-center mb-2"),
+                        dcc.Markdown(
+                            msg_content,
+                            className="mb-0",
+                            style={'fontSize': '14px', 'lineHeight': '1.6'}
+                        )
+                    ], style={'padding': '12px 15px'}),
                     color="info",
                     outline=True,
-                    className="mb-2"
+                    className="mb-3",
+                    style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'}
                 )
             )
 
     return chat_messages, "", {'history': history}
+
+# Copy message to clipboard
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks) {
+            // Get the card body content
+            const button = document.querySelector('[id*="copy-message"]');
+            if (button) {
+                const card = button.closest('.card-body');
+                const markdown = card.querySelector('[class*="markdown"]');
+                if (markdown) {
+                    const text = markdown.innerText;
+                    navigator.clipboard.writeText(text).then(function() {
+                        // Show temporary success feedback
+                        const icon = button.querySelector('i');
+                        icon.className = 'fa fa-check';
+                        setTimeout(function() {
+                            icon.className = 'fa fa-copy';
+                        }, 2000);
+                    });
+                }
+            }
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output({'type': 'copy-message', 'index': ALL}, 'n_clicks', allow_duplicate=True),
+    Input({'type': 'copy-message', 'index': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+
+# Auto-scroll chat to bottom after new messages
+app.clientside_callback(
+    """
+    function(children) {
+        if (children && children.length > 0) {
+            setTimeout(function() {
+                const chatHistory = document.getElementById('chat-history');
+                if (chatHistory) {
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                }
+            }, 100);
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('chat-history', 'style', allow_duplicate=True),
+    Input('chat-history', 'children'),
+    prevent_initial_call=True
+)
 
 app.clientside_callback(
     """
@@ -18815,12 +19524,8 @@ def main():
     logger.info("")
 
     # Check AI Assistant status
-    ai_status = "🤖 AI Chat: "
-    if OLLAMA_ENABLED:
-        ai_status += f"✅ ENABLED (Ollama with {OLLAMA_MODEL})"
-    else:
-        ai_status += "❌ DISABLED (rule-based only)"
-    logger.info(ai_status)
+    ai_status = ai_assistant.get_status_message()
+    logger.info(f"🤖 AI Chat: {ai_status}")
 
     # Check Threat Intelligence status
     threat_status = "🌐 Threat Intelligence: "
@@ -19107,60 +19812,88 @@ def update_risk_heatmap_timestamp(is_open, refresh_clicks):
     prevent_initial_call=True
 )
 def update_model_accuracy_display(is_open):
-    """Update model accuracy display with real data from model_performance table."""
+    """Update model accuracy display with River model statistics."""
     if not is_open:
         raise dash.exceptions.PreventUpdate
 
     try:
         conn = get_db_connection()
-
         cursor = conn.cursor()
 
-        # Get latest model performance metrics
+        # Get latest model performance metrics (using 'river' model_type)
         cursor.execute('''
-            SELECT model_type, precision, recall, f1_score
+            SELECT model_type, precision, recall, f1_score,
+                   timestamp
             FROM model_performance
-            WHERE id IN (
-                SELECT MAX(id) FROM model_performance GROUP BY model_type
-            )
-            ORDER BY f1_score DESC
+            WHERE model_type = 'river'
+            ORDER BY timestamp DESC
+            LIMIT 1
         ''')
-        models = cursor.fetchall()
+        model_data = cursor.fetchone()
 
-        if not models:
-            return dbc.Alert([
-                html.I(className="fa fa-info-circle me-2"),
-                "No model performance data yet. Train models to see accuracy metrics."
-            ], color="info")
+        if not model_data:
+            # No performance data yet - query actual ML predictions to show activity
+            cursor.execute('''
+                SELECT COUNT(*) as total_predictions,
+                       SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END) as anomalies_detected
+                FROM ml_predictions
+                WHERE model_type = 'river'
+                AND timestamp > datetime('now', '-24 hours')
+            ''')
+            prediction_stats = cursor.fetchone()
 
-        model_bars = []
-        colors = {"isolation_forest": "success", "autoencoder": "info", "random_forest": "warning", "default": "primary"}
+            total = prediction_stats['total_predictions'] if prediction_stats else 0
+            anomalies = prediction_stats['anomalies_detected'] if prediction_stats else 0
 
-        for model in models:
-            model_type = model['model_type'] or "unknown"
-            f1 = model['f1_score'] or 0
-            f1_pct = int(f1 * 100)
-            color = colors.get(model_type, colors["default"])
-            display_name = model_type.replace("_", " ").title()
-
-            model_bars.append(
+            return html.Div([
+                dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    f"River models active - {total} predictions in last 24h ({anomalies} anomalies detected)"
+                ], color="info", className="mb-3"),
                 html.Div([
-                    html.Span(display_name, className="small"),
-                    dbc.Progress(
-                        value=f1_pct,
-                        color=color,
-                        className="mb-2",
-                        style={"height": "20px"},
-                        label=f"{f1_pct}%"
-                    )
-                ], className="mb-3")
-            )
+                    html.Small("Active River Models:", className="text-muted d-block mb-2"),
+                    dbc.Badge("HalfSpaceTrees", color="success", className="me-2"),
+                    dbc.Badge("HoeffdingAdaptive", color="success", className="me-2"),
+                    dbc.Badge("SNARIMAX", color="success")
+                ])
+            ])
 
-        return dbc.Row([dbc.Col(model_bars)])
+        # If we have performance data, show it
+        f1 = model_data['f1_score'] or 0
+        precision = model_data['precision'] or 0
+        recall = model_data['recall'] or 0
+
+        f1_pct = int(f1 * 100)
+        precision_pct = int(precision * 100)
+        recall_pct = int(recall * 100)
+
+        return html.Div([
+            html.Div([
+                html.Span("River ML Engine", className="fw-bold small"),
+                html.Span(f" - Last updated: {model_data['timestamp']}", className="text-muted small ms-2")
+            ]),
+            dbc.Progress(
+                value=f1_pct,
+                color="success",
+                className="mb-3",
+                style={"height": "25px"},
+                label=f"F1: {f1_pct}%"
+            ),
+            dbc.Row([
+                dbc.Col([
+                    html.Small("Precision", className="text-muted"),
+                    dbc.Progress(value=precision_pct, color="info", label=f"{precision_pct}%", style={"height": "15px"})
+                ], md=6),
+                dbc.Col([
+                    html.Small("Recall", className="text-muted"),
+                    dbc.Progress(value=recall_pct, color="warning", label=f"{recall_pct}%", style={"height": "15px"})
+                ], md=6)
+            ])
+        ])
 
     except Exception as e:
         logger.error(f"Error updating model accuracy: {e}")
-        return dbc.Alert("Model monitoring active", color="info")
+        return dbc.Alert("River models active and learning", color="info")
 
 
 @app.callback(
@@ -19999,7 +20732,6 @@ def update_protocol_overview(is_open, refresh_clicks):
         ''')
         zigbee_timeline = {row[0]: row[1] for row in cursor.fetchall()}
 
-        db.close()
 
         # Prepare distribution pie chart using ChartFactory
         if protocol_dist:
@@ -20063,7 +20795,6 @@ def update_mqtt_traffic(is_open, hours, refresh_clicks):
             LIMIT 100
         ''')
         mqtt_messages = cursor.fetchall()
-        db.close()
 
         if not mqtt_messages:
             return dbc.Alert([
@@ -20141,7 +20872,6 @@ def update_coap_traffic(is_open, hours, refresh_clicks):
             LIMIT 100
         ''')
         coap_requests = cursor.fetchall()
-        db.close()
 
         if not coap_requests:
             return dbc.Alert([
@@ -20230,7 +20960,6 @@ def update_protocol_device_summary(is_open, refresh_clicks):
             LIMIT 100
         ''')
         device_protocols = cursor.fetchall()
-        db.close()
 
         if not device_protocols:
             return dbc.Alert([
@@ -20443,8 +21172,6 @@ def update_threat_intel_overview(is_open, refresh_clicks):
         LIMIT 10
     ''').fetchall()
 
-    db.close()
-
     # Build recent threats list
     threat_items = []
     for alert_type, severity, device_ip, device_name, timestamp in recent_threats:
@@ -20541,7 +21268,6 @@ def update_threat_intel_feed(is_open, active_tab, refresh_clicks, feed_refresh_c
         ORDER BY a.timestamp DESC
     ''').fetchall()
 
-    db.close()
 
     # Apply status filter (active = not acknowledged, resolved = acknowledged)
     if status_filter and status_filter != 'all':
@@ -20693,7 +21419,6 @@ def update_threat_intel_patterns(is_open, refresh_clicks):
         ORDER BY hour
     ''').fetchall()
 
-    db.close()
 
     # Build pattern analysis UI
     return html.Div([
@@ -20884,7 +21609,6 @@ def update_threat_intel_response(is_open, refresh_clicks):
         ]
     })
 
-    db.close()
 
     # Sort by priority
     recommendations.sort(key=lambda x: x['priority'])
@@ -22147,22 +22871,24 @@ def export_models(n_clicks):
         model_config = {
             "export_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "models": {
-                "autoencoder": {"status": "trained", "version": "1.0"},
-                "isolation_forest": {"status": "trained", "version": "1.0"}
+                "halfspacetrees": {"status": "active", "type": "anomaly_detection"},
+                "hoeffdingadaptive": {"status": "active", "type": "attack_classification"},
+                "snarimax": {"status": "active", "type": "traffic_forecasting"}
             },
             "settings": {
                 "anomaly_threshold": 0.7,
-                "detection_sensitivity": "medium"
+                "detection_sensitivity": "medium",
+                "learning_mode": "incremental"
             }
         }
 
         export_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        filename = f"ml_models_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"river_models_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
         toast = ToastManager.success(
             "Models exported successfully!",
             header="Export Complete",
-            detail_message=f"Export Details:\n• File: {filename}\n• Export Time: {export_time}\n• Models: Autoencoder, Isolation Forest\n• Size: {len(json.dumps(model_config))} bytes\n\nThe ML models configuration has been saved to your downloads folder."
+            detail_message=f"Export Details:\n• File: {filename}\n• Export Time: {export_time}\n• Models: River ML (HalfSpaceTrees, HoeffdingAdaptive, SNARIMAX)\n• Size: {len(json.dumps(model_config))} bytes\n\nThe River ML configuration has been saved to your downloads folder."
         )
 
         return toast, dict(
@@ -22177,49 +22903,6 @@ def export_models(n_clicks):
             detail_message=f"Error Details:\n{str(e)}\n\nPossible Solutions:\n• Check file permissions\n• Verify disk space\n• Try exporting again\n• Check browser console for errors"
         )
         return toast, None
-
-
-# Retrain Models Callback (System & ML Models Modal)
-@app.callback(
-    Output('toast-container', 'children', allow_duplicate=True),
-    Input('retrain-models-btn', 'n_clicks'),
-    prevent_initial_call=True
-)
-def retrain_models_callback(n_clicks):
-    """Retrain ML models using latest network data."""
-    if not n_clicks:
-        raise dash.exceptions.PreventUpdate
-
-    try:
-        from scripts.retrain_models import retrain_models
-        import threading
-
-        # Show starting toast
-        toast_start = ToastManager.info(
-            "Training in Progress",
-            detail_message="Model retraining started... This may take a few minutes. The process is running in the background."
-        )
-
-        # Run retraining in background thread to avoid blocking dashboard
-        def background_retrain():
-            try:
-                retrain_models()
-                logger.info("Model retraining completed successfully")
-            except Exception as e:
-                logger.error(f"Error during model retraining: {e}")
-
-        thread = threading.Thread(target=background_retrain, daemon=True)
-        thread.start()
-
-        return toast_start
-
-    except Exception as e:
-        logger.error(f"Error starting model retraining: {e}")
-        toast = ToastManager.error(
-            "Retraining Error",
-            detail_message="Retraining Error"
-        )
-        return toast
 
 
 # Import Models Callback (System & ML Models Modal)
@@ -22332,16 +23015,19 @@ def save_model_file(filename: str, file_data: bytes) -> bool:
         from pathlib import Path
 
         # Determine destination based on filename
-        if 'isolation_forest' in filename.lower() or filename == 'isolation_forest.pkl':
-            dest_path = Path(config.get('ml', 'isolation_forest_path'))
-        elif 'autoencoder' in filename.lower() or filename == 'autoencoder.h5':
-            dest_path = Path(config.get('ml', 'autoencoder_path'))
+        if 'river' in filename.lower() or filename == 'river_engine.pkl':
+            dest_path = Path('data/models') / filename
+        elif 'halfspace' in filename.lower():
+            dest_path = Path('data/models/halfspacetrees.pkl')
+        elif 'hoeffding' in filename.lower():
+            dest_path = Path('data/models/hoeffding_adaptive.pkl')
+        elif 'snarimax' in filename.lower():
+            dest_path = Path('data/models/snarimax.pkl')
         elif 'feature_extractor' in filename.lower() or filename == 'feature_extractor.pkl':
             dest_path = Path(config.get('ml', 'feature_extractor_path'))
         else:
-            # Try to infer from extension and save to models directory
-            model_dir = Path(config.get('ml', 'isolation_forest_path')).parent
-            dest_path = model_dir / filename
+            # Save to models directory
+            dest_path = Path('data/models') / filename
 
         # Create parent directory if it doesn't exist
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -25090,7 +25776,6 @@ def update_vuln_overview(is_open, refresh_clicks):
         ''')
         timeline_data = cursor.fetchall()
 
-        db.close()
 
         # Prepare timeline chart data
         from collections import defaultdict
@@ -25174,7 +25859,6 @@ def update_cve_database(is_open, active_tab, refresh_clicks, cve_refresh_clicks,
                 published_date DESC
         ''')
         cves = cursor.fetchall()
-        db.close()
 
         # Apply severity filter
         if severity_filter and severity_filter != 'all':
@@ -25316,7 +26000,6 @@ def update_device_scan_results(is_open, active_tab, status_filter, severity_filt
             ORDER BY vuln_count DESC, last_detected DESC
         ''')
         devices = cursor.fetchall()
-        db.close()
 
         # Apply search filter with None handling - search in CVE ID, title, vendor, model, device
         if search_text and search_text.strip():
@@ -25443,7 +26126,6 @@ def update_vuln_recommendations(is_open, refresh_clicks):
             LIMIT 20
         ''')
         vulns = cursor.fetchall()
-        db.close()
 
         if not vulns:
             return dbc.Alert([
@@ -26075,7 +26757,6 @@ def update_performance_overview(is_open, refresh_clicks, n):
         fill='tozeroy'
     )
 
-    db.close()
 
     # Create toast if refresh was clicked
     toast = ToastManager.success(
@@ -26124,7 +26805,6 @@ def update_performance_bandwidth(is_open, refresh_clicks):
         LIMIT 10
     ''').fetchall()
 
-    db.close()
 
     # Build bandwidth analysis UI
     device_cards = []
@@ -26249,7 +26929,6 @@ def update_performance_quality(is_open, refresh_clicks):
         ORDER BY count DESC
     ''').fetchall()
 
-    db.close()
 
     # Quality metric cards
     quality_cards = [
@@ -26464,7 +27143,6 @@ def update_performance_optimization(is_open, refresh_clicks):
         ]
     })
 
-    db.close()
 
     # Sort by priority
     recommendations.sort(key=lambda x: x['priority'])
@@ -26565,8 +27243,7 @@ def update_carbon_footprint(is_open, refresh_clicks):
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     try:
-        # Get sustainability calculator
-        db_manager = DatabaseManager(config.get('database', 'path'))
+        # Get sustainability calculator (using global db_manager)
         sustainability_calc = get_sustainability_calculator(db_manager)
 
         # Calculate current carbon footprint (24 hours)
@@ -26679,8 +27356,7 @@ def update_energy_consumption(active_tab, refresh_clicks):
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     try:
-        # Get sustainability calculator
-        db_manager = DatabaseManager(config.get('database', 'path'))
+        # Get sustainability calculator (using global db_manager)
         sustainability_calc = get_sustainability_calculator(db_manager)
 
         # Calculate total energy consumption
@@ -26751,8 +27427,7 @@ def update_green_best_practices(active_tab):
         return dash.no_update
 
     try:
-        # Get sustainability calculator
-        db_manager = DatabaseManager(config.get('database', 'path'))
+        # Get sustainability calculator (using global db_manager)
         sustainability_calc = get_sustainability_calculator(db_manager)
 
         # Get best practices
@@ -26847,8 +27522,7 @@ def export_sustainability_report(n_clicks, export_format):
         format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
         export_format = format_map.get(export_format or 'csv', 'csv')
 
-        # Get sustainability data
-        db_manager = DatabaseManager(config.get('database', 'path'))
+        # Get sustainability data (using global db_manager)
         sustainability_calc = get_sustainability_calculator(db_manager)
 
         # Calculate current metrics

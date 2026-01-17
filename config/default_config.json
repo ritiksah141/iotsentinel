@@ -27,20 +27,26 @@
     "json_format": true
   },
   "ml": {
-    "model_type": "autoencoder",
-    "autoencoder_path": "data/models/autoencoder.h5",
-    "isolation_forest_path": "data/models/isolation_forest.pkl",
+    "engine": "river",
+    "river_engine_path": "data/models/river_engine.pkl",
     "feature_extractor_path": "data/models/feature_extractor.pkl",
     "inference_batch_size": 100,
     "inference_interval_seconds": 300,
-    "anomaly_threshold": 0.95,
-    "incremental_update_interval": 21600,
-    "incremental_learning_enabled": true,
-    "model_versioning_enabled": true,
-    "keep_model_versions": 5,
-    "drift_threshold": 0.15,
-    "sliding_window_days": 7,
-    "full_retrain_interval_days": 7
+    "anomaly_threshold": 0.7,
+    "device_anomaly_threshold": 0.7,
+    "auto_save_interval": 100,
+    "note": "River-based incremental learning - no training needed!"
+  },
+  "ai_assistant": {
+    "enabled": true,
+    "groq_api_key": "",
+    "groq_enabled": true,
+    "ollama_enabled": true,
+    "ollama_url": "http://localhost:11434/api/generate",
+    "ollama_model": "phi3.5:mini",
+    "ollama_timeout": 15,
+    "fallback_to_rules": true,
+    "note": "Groq API key loaded from GROQ_API_KEY environment variable"
   },
   "database": {
     "path": "data/database/iotsentinel.db",

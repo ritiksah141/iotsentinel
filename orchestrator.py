@@ -55,7 +55,6 @@ from utils.upnp_scanner import get_upnp_scanner
 from utils.active_scanner import get_active_scanner
 from utils.vulnerability_sync import get_vulnerability_sync
 from utils.network_security_scorer import get_security_scorer
-from ml.incremental_trainer import get_incremental_trainer
 import os
 from dotenv import load_dotenv
 
@@ -164,7 +163,6 @@ class IoTSentinelOrchestrator:
         self.active_scanner = None
         self.vuln_sync = None
         self.security_scorer = None
-        self.incremental_trainer = None
 
         try:
             # Load environment variables
@@ -176,11 +174,6 @@ class IoTSentinelOrchestrator:
             self.auto_provisioner = get_auto_provisioner(db_path=db_path)
             self.security_scorer = get_security_scorer(db_path=db_path)
             logger.info("Auto-provisioner and security scorer initialized")
-
-            # Initialize incremental ML trainer if enabled
-            if config.get('ml', {}).get('incremental_learning_enabled', True):
-                self.incremental_trainer = get_incremental_trainer(db_path=db_path)
-                logger.info("Incremental ML trainer initialized")
 
             # Initialize NVD vulnerability sync if enabled
             if config.get('nvd', {}).get('enabled', True):
@@ -403,17 +396,6 @@ class IoTSentinelOrchestrator:
             sustainability_thread.start()
             self.threads.append(sustainability_thread)
             logger.info("Sustainability metrics logging started (every 6 hours).")
-
-        # Start Incremental ML Update Thread (every 6 hours)
-        if self.incremental_trainer and config.get('ml', {}).get('incremental_learning_enabled', True):
-            ml_update_thread = threading.Thread(
-                target=self._incremental_ml_update_loop,
-                name="IncrementalMLUpdateThread",
-                daemon=True
-            )
-            ml_update_thread.start()
-            self.threads.append(ml_update_thread)
-            logger.info("Incremental ML updates started (every 6 hours).")
 
         # Start NVD Vulnerability Sync Thread (daily)
         if self.vuln_sync and config.get('nvd', {}).get('enabled', True):
@@ -1045,31 +1027,6 @@ class IoTSentinelOrchestrator:
 
             except Exception as e:
                 logger.error(f"Error in sustainability metrics calculation: {e}")
-
-            time.sleep(interval)
-
-    def _incremental_ml_update_loop(self):
-        """Background loop for incremental ML model updates (every 6 hours)."""
-        interval = config.get('ml', {}).get('incremental_update_interval', 21600)  # Default 6 hours
-        logger.info(f"Incremental ML update loop started (interval: {interval}s)")
-
-        while self.running:
-            try:
-                if self.incremental_trainer:
-                    logger.info("Performing incremental ML model update...")
-                    results = self.incremental_trainer.perform_incremental_update()
-
-                    if results.get('autoencoder', {}).get('updated'):
-                        logger.info("Autoencoder updated successfully")
-                    if results.get('isolation_forest', {}).get('updated'):
-                        logger.info("Isolation Forest updated successfully")
-
-                    # Check if full retrain needed
-                    should_retrain, reason = self.incremental_trainer.should_trigger_full_retrain()
-                    if should_retrain:
-                        logger.warning(f"Full retraining recommended: {reason}")
-            except Exception as e:
-                logger.error(f"Error in incremental ML update: {e}")
 
             time.sleep(interval)
 

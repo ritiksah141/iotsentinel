@@ -466,7 +466,7 @@ class TestMLPredictionOperations:
             connection_id=conn_id,
             is_anomaly=True,
             anomaly_score=-0.75,
-            model_type='isolation_forest'
+            model_type='river'
         )
 
         # Assert
@@ -480,7 +480,7 @@ class TestMLPredictionOperations:
         assert prediction is not None
         assert prediction['is_anomaly'] == 1
         assert prediction['anomaly_score'] == -0.75
-        assert prediction['model_type'] == 'isolation_forest'
+        assert prediction['model_type'] == 'river'
 
     def test_store_multiple_predictions(self, db, sample_device):
         """TC-DB-019: Verify multiple predictions for same connection."""
@@ -498,14 +498,14 @@ class TestMLPredictionOperations:
             connection_id=conn_id,
             is_anomaly=True,
             anomaly_score=-0.75,
-            model_type='isolation_forest'
+            model_type='river'
         )
 
         db.store_prediction(
             connection_id=conn_id,
-            is_anomaly=True,
-            anomaly_score=0.92,
-            model_type='autoencoder'
+            is_anomaly=False,
+            anomaly_score=0.12,
+            model_type='river'
         )
 
         # Assert
@@ -518,8 +518,7 @@ class TestMLPredictionOperations:
 
         assert len(predictions) == 2
         model_types = [p['model_type'] for p in predictions]
-        assert 'isolation_forest' in model_types
-        assert 'autoencoder' in model_types
+        assert all(mt == 'river' for mt in model_types)
 
 
 class TestErrorHandling:

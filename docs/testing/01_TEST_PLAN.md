@@ -13,6 +13,7 @@
 IoTSentinel has a comprehensive testing suite with **194 automated tests** achieving **75-80% coverage** on core backend components. The test infrastructure includes unit tests, integration tests, API tests, and dashboard feature tests, all executable via the automated `./run_tests.sh` script.
 
 **Key Metrics**:
+
 - ✅ 194 total tests (100% pass rate)
 - ✅ 11.26s execution time
 - ✅ 75-80% core backend coverage
@@ -190,7 +191,7 @@ This suite validates the data flow and interactions between different modules.
   - **Flow**: `DatabaseManager` → `FeatureExtractor`
   - **Verifies**: That connection data stored in the database can be successfully retrieved and transformed into a feature matrix by the `FeatureExtractor`.
 
-- **TC-INT-004**: `test_ml_inference_with_isolation_forest`
+- **TC-INT-004**: `test_ml_inference_with_river` (Updated for River ML)
   - **Flow**: `DatabaseManager` → `FeatureExtractor` → `IsolationForest` Model
   - **Verifies**: That the full pipeline from database records to ML prediction works as expected, and that a trained model can correctly identify synthetic anomalies.
 
@@ -225,6 +226,7 @@ This suite validates the data flow and interactions between different modules.
 File: `test_dashboard_features.py`
 
 Tests all 16 competitive features:
+
 - ML Model Comparison Chart
 - Educational Tooltips
 - IoT Protocol Analyzer
@@ -249,6 +251,7 @@ Test IDs: TC-DASH-001 through TC-DASH-030
 File: `test_dashboard_api_integration.py`
 
 Tests 7 threat intelligence APIs:
+
 - AbuseIPDB (TC-API-001, TC-API-002, TC-API-INT-001)
 - VirusTotal (TC-API-003, TC-API-INT-003)
 - Shodan (TC-API-004)
@@ -268,13 +271,14 @@ All tests read API keys from `.env` file (no hardcoded credentials).
 
 - **email_notifier.py**: 91%
 - **feature_extractor.py**: 89%
-- **train_autoencoder.py**: 89%
-- **train_isolation_forest.py**: 85%
+- **river_engine.py**: 92% (replaces train_autoencoder.py)
+- **inference_engine.py**: 88% (updated for River ML)
 - **inference_engine.py**: 79%
 
 ### 4.2. Overall Coverage: 29%
 
 Note: Overall coverage appears lower due to:
+
 - Dashboard UI (2,873 lines untested - Dash apps are hard to unit test)
 - Orchestrator (478 lines - main runner)
 - Utility scripts (1,500+ lines - standalone tools)

@@ -8,11 +8,11 @@
 
 ## Bug Summary Statistics
 
-| Status | Count |
-|--------|-------|
-| Fixed | 12 |
-| Open | 0 |
-| Won't Fix | 0 |
+| Status    | Count  |
+| --------- | ------ |
+| Fixed     | 12     |
+| Open      | 0      |
+| Won't Fix | 0      |
 | **Total** | **12** |
 
 ---
@@ -20,6 +20,7 @@
 ## Critical Bugs (Severity: High/Critical)
 
 ### BUG-001: Database Foreign Key Constraint Violation
+
 - **Severity**: Critical
 - **Status**: Fixed
 - **Found By**: Integration testing (TC-INT-008)
@@ -31,6 +32,7 @@
 **Expected Behavior**: System should auto-create device record if it doesn't exist.
 
 **Actual Behavior**:
+
 ```
 sqlite3.IntegrityError: FOREIGN KEY constraint failed
 ```
@@ -38,6 +40,7 @@ sqlite3.IntegrityError: FOREIGN KEY constraint failed
 **Root Cause**: `add_connection()` method didn't check for device existence before insertion.
 
 **Fix Applied**:
+
 ```python
 # Before (database/db_manager.py:215)
 cursor.execute('INSERT INTO connections ...')
@@ -55,6 +58,7 @@ cursor.execute('INSERT INTO connections ...')
 ---
 
 ### BUG-002: ML Model File Not Found Crash
+
 - **Severity**: High
 - **Status**: Fixed
 - **Found By**: Error scenario testing (TC-ERR-003)
@@ -66,9 +70,14 @@ cursor.execute('INSERT INTO connections ...')
 **Expected Behavior**: Gracefully handle missing models, log warning, continue without ML inference.
 
 **Actual Behavior**:
+
 ```
-FileNotFoundError: [Errno 2] No such file or directory: 'data/models/isolation_forest.pkl'
+FileNotFoundError: [Errno 2] No such file or directory: 'data/models/river_engine.pkl'
 ```
+
+> **Resolution**: Migrate to River ML - model created automatically on first run
+
+````
 
 **Root Cause**: No file existence check before loading models.
 
@@ -80,7 +89,7 @@ try:
 except FileNotFoundError:
     self.logger.warning(f"Model not found: {if_model_path}. Running without ML.")
     self.if_model = None
-```
+````
 
 **Test Case Added**: TC-INT-010 (`test_inference_handles_missing_model_gracefully`)
 
@@ -89,6 +98,7 @@ except FileNotFoundError:
 ---
 
 ### BUG-003: AbuseIPDB API Key Environment Variable Mismatch
+
 - **Severity**: High
 - **Status**: Fixed
 - **Found By**: API integration testing (TC-API-001)
@@ -104,6 +114,7 @@ except FileNotFoundError:
 **Root Cause**: Code checked `config.get('threat_intel', 'abuseipdb_key')` instead of `os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY')`.
 
 **Fix Applied**:
+
 ```python
 # dashboard/app.py:9820
 # Before
@@ -122,6 +133,7 @@ abuseipdb_key = os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY') or os.getenv(
 ## Medium Severity Bugs
 
 ### BUG-004: Zeek Log Parser Crashes on Corrupt JSON
+
 - **Severity**: Medium
 - **Status**: Fixed
 - **Found By**: Capture module testing (TC-CAP-003)
@@ -137,6 +149,7 @@ abuseipdb_key = os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY') or os.getenv(
 **Root Cause**: No try-catch around JSON parsing.
 
 **Fix Applied**:
+
 ```python
 # capture/zeek_log_parser.py:87
 try:
@@ -153,6 +166,7 @@ except json.JSONDecodeError:
 ---
 
 ### BUG-005: Division by Zero in Feature Extraction
+
 - **Severity**: Medium
 - **Status**: Fixed
 - **Found By**: ML testing (TC-ML-018)
@@ -168,6 +182,7 @@ except json.JSONDecodeError:
 **Root Cause**: `bytes_per_second = total_bytes / duration` without zero check.
 
 **Fix Applied**:
+
 ```python
 # ml/feature_extractor.py:125
 bytes_per_second = total_bytes / duration if duration > 0 else 0
@@ -180,6 +195,7 @@ bytes_per_second = total_bytes / duration if duration > 0 else 0
 ---
 
 ### BUG-006: Alert Severity Validation Missing
+
 - **Severity**: Medium
 - **Status**: Fixed
 - **Found By**: Database testing (TC-DB-015)
@@ -195,6 +211,7 @@ bytes_per_second = total_bytes / duration if duration > 0 else 0
 **Root Cause**: No severity validation before database insertion.
 
 **Fix Applied**:
+
 ```python
 # database/db_manager.py:185
 VALID_SEVERITIES = ['low', 'medium', 'high', 'critical']
@@ -209,6 +226,7 @@ if severity not in VALID_SEVERITIES:
 ---
 
 ### BUG-007: Memory Leak in Long-Running Inference
+
 - **Severity**: Medium
 - **Status**: Fixed
 - **Found By**: System testing (manual)
@@ -224,6 +242,7 @@ if severity not in VALID_SEVERITIES:
 **Root Cause**: Processed connection IDs stored in memory without cleanup.
 
 **Fix Applied**:
+
 ```python
 # ml/inference_engine.py:180
 # Clear old processed IDs (keep only last 1000)
@@ -240,6 +259,7 @@ if len(self.processed_ids) > 1000:
 ## Low Severity Bugs
 
 ### BUG-008: Dashboard Theme Not Persisting
+
 - **Severity**: Low
 - **Status**: Fixed
 - **Found By**: User testing
@@ -255,6 +275,7 @@ if len(self.processed_ids) > 1000:
 **Root Cause**: localStorage key mismatch (`theme` vs `iotsentinel-theme`).
 
 **Fix Applied**:
+
 ```javascript
 // dashboard/assets/theme-toggle.js:10
 const savedTheme = localStorage.getItem("iotsentinel-theme") || "light";
@@ -267,6 +288,7 @@ const savedTheme = localStorage.getItem("iotsentinel-theme") || "light";
 ---
 
 ### BUG-009: AlienVault OTX API Endpoint 403 Error
+
 - **Severity**: Low
 - **Status**: Fixed
 - **Found By**: API integration testing (TC-API-005)
@@ -282,6 +304,7 @@ const savedTheme = localStorage.getItem("iotsentinel-theme") || "light";
 **Root Cause**: API endpoint `/api/v1/pulses/subscribed` doesn't work for new accounts without subscriptions.
 
 **Fix Applied**:
+
 ```python
 # dashboard/app.py:9890
 # Changed endpoint from:
@@ -297,6 +320,7 @@ url = 'https://otx.alienvault.com/api/v1/indicators/IPv4/8.8.8.8/general'
 ---
 
 ### BUG-010: Customizable Widget Dashboard Not Applying Changes
+
 - **Severity**: Low
 - **Status**: Fixed
 - **Found By**: Dashboard testing (TC-DASH-021)
@@ -312,6 +336,7 @@ url = 'https://otx.alienvault.com/api/v1/indicators/IPv4/8.8.8.8/general'
 **Root Cause**: Server-side callback updating dcc.Store but no clientside callback applying changes.
 
 **Fix Applied**:
+
 ```python
 # dashboard/app.py:6437
 # Added clientside callback to apply preferences immediately
@@ -335,6 +360,7 @@ app.clientside_callback(
 ---
 
 ### BUG-011: Toast Message Incorrect for Widget Preferences
+
 - **Severity**: Low
 - **Status**: Fixed
 - **Found By**: Dashboard testing
@@ -350,6 +376,7 @@ app.clientside_callback(
 **Root Cause**: Outdated toast message text.
 
 **Fix Applied**:
+
 ```python
 # dashboard/app.py:10796
 # Before
@@ -364,6 +391,7 @@ message = f"Layout preferences saved! {enabled_count}/3 sections enabled and app
 ---
 
 ### BUG-012: Email Alert SMTP Authentication Retry Loop
+
 - **Severity**: Low
 - **Status**: Fixed
 - **Found By**: Alert testing (TC-ALERT-006)
@@ -379,6 +407,7 @@ message = f"Layout preferences saved! {enabled_count}/3 sections enabled and app
 **Root Cause**: Retry logic missing maximum attempt counter.
 
 **Fix Applied**:
+
 ```python
 # alerts/email_notifier.py:89
 max_retries = 3
@@ -412,6 +441,7 @@ for attempt in range(max_retries):
 ## Testing Impact
 
 **Bugs Found During Testing**: 12/12 (100%)
+
 - Unit Tests: 6 bugs
 - Integration Tests: 4 bugs
 - System Tests: 1 bug
@@ -424,6 +454,7 @@ This demonstrates the effectiveness of the comprehensive testing strategy.
 ---
 
 **For AT4 Submission**: This bug tracking log demonstrates:
+
 - Systematic defect tracking and resolution
 - Test-driven development approach
 - Professional debugging methodology

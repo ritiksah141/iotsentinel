@@ -38,7 +38,7 @@ class TestMLModelComparison:
     def test_model_comparison_data_structure(self):
         """TC-DASH-001: Verify ML model comparison data structure."""
         # Arrange
-        expected_models = ['Isolation Forest', 'Autoencoder']
+        expected_models = ['River ML', 'HalfSpaceTrees', 'HoeffdingAdaptive']
         expected_metrics = ['precision', 'recall', 'f1_score', 'accuracy']
 
         # Act
@@ -48,7 +48,7 @@ class TestMLModelComparison:
         # Assert
         assert len(models) == 2
         assert 'Isolation Forest' in models
-        assert 'Autoencoder' in models
+        assert 'River' in models or 'HalfSpaceTrees' in models
         assert all(metric in metrics for metric in expected_metrics)
 
     def test_model_metrics_valid_range(self):

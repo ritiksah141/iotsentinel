@@ -3,9 +3,12 @@ numpy
 pandas
 scikit-learn
 
-# Machine Learning (Pi-optimized)
-# Note: Train models on Mac, run inference on Pi
-scikit-learn
+# Machine Learning - River for incremental learning (NO training needed!)
+river==0.21.0  # Lightweight, incremental ML (~10-20MB RAM)
+scikit-learn  # Keep for compatibility with existing code
+
+# AI Assistant - Hybrid cloud/local LLM
+groq==0.4.1  # Free cloud API (optional, 0MB RAM on Pi)
 
 # Web Dashboard
 dash
