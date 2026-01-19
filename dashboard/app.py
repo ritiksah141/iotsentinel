@@ -2611,6 +2611,25 @@ login_layout = dbc.Container([
                                     ], className="floating-input-group mb-3")
                                 ], id="verification-code-container", style={"display": "none"}),
 
+                                # Dashboard Template Selection
+                                html.Div([
+                                    html.Label([
+                                        html.I(className="fa fa-layout me-2 text-primary"),
+                                        "Choose Your Dashboard Template"
+                                    ], className="fw-bold mb-2 d-block"),
+                                    html.Small("Select a pre-configured layout (you can change this later)", className="text-muted d-block mb-2"),
+                                    dbc.Select(
+                                        id='register-template-select',
+                                        options=[
+                                            {'label': '🏠 Home User - Simplified & easy to use', 'value': 'home_user'},
+                                            {'label': '💻 Developer - All features & advanced tools', 'value': 'developer'},
+                                            {'label': '⚙️ Custom - I\'ll customize it myself', 'value': 'custom'}
+                                        ],
+                                        value='home_user',
+                                        className="mb-3"
+                                    )
+                                ], className="mb-3"),
+
                                 # Hidden role field - always viewer for self-registration
                                 dcc.Store(id="register-role", data="viewer"),
                                 dcc.Store(id='verification-code-sent', storage_type='memory'),
@@ -5211,6 +5230,46 @@ dashboard_layout = dbc.Container([
                                     className="mb-2"
                                 ),
                                 html.Small("Automatically log out after this period of inactivity", className="text-muted d-block mb-3"),
+
+                                html.Hr(),
+
+                                html.H6([html.I(className="fa fa-layout me-2 text-primary"), "Dashboard Template"], className="mb-3"),
+                                html.P("Choose a pre-configured dashboard layout optimized for your role.", className="text-muted small mb-3"),
+
+                                dbc.RadioItems(
+                                    id='dashboard-template-select',
+                                    options=[
+                                        {
+                                            'label': html.Div([
+                                                html.I(className="fa fa-home text-success me-2"),
+                                                html.Span("Home User", className="fw-bold"),
+                                                html.Br(),
+                                                html.Small("Focus: Device Status, Privacy Score, Basic Security Health", className="text-muted")
+                                            ]),
+                                            'value': 'home_user'
+                                        },
+                                        {
+                                            'label': html.Div([
+                                                html.I(className="fa fa-code text-info me-2"),
+                                                html.Span("Developer/Auditor", className="fw-bold"),
+                                                html.Br(),
+                                                html.Small("Focus: All Features, API Hub, Analytics, Performance", className="text-muted")
+                                            ]),
+                                            'value': 'developer'
+                                        },
+                                        {
+                                            'label': html.Div([
+                                                html.I(className="fa fa-sliders text-warning me-2"),
+                                                html.Span("Custom", className="fw-bold"),
+                                                html.Br(),
+                                                html.Small("Use your own customized widget layout", className="text-muted")
+                                            ]),
+                                            'value': 'custom'
+                                        }
+                                    ],
+                                    value='custom',
+                                    className="mb-3"
+                                ),
                             ])
                         ], className="glass-card border-0 shadow-sm mb-3"),
                     ], className="p-3")
@@ -5283,14 +5342,14 @@ dashboard_layout = dbc.Container([
                                             value='viewer',
                                             className="mb-2"
                                         ),
-                                        html.Small("Determines user permissions", className="text-muted d-block mb-3")
+                                        html.Small("Determines user permissions. Users can choose their own dashboard template in Preferences.", className="text-muted d-block mb-3")
                                     ], md=6)
                                 ]),
 
                                 # Role permissions explanation
                                 dbc.Card([
                                     dbc.CardBody([
-                                        html.H6([html.I(className="fa fa-info-circle me-2"), "Role Permissions"], className="mb-2"),
+                                        html.H6([html.I(className="fa fa-info-circle me-2"), "Role Permissions & Templates"], className="mb-2"),
                                         html.Div([
                                             html.Div([
                                                 html.Span("👑 Admin:", className="fw-bold text-warning me-2"),
@@ -5299,6 +5358,10 @@ dashboard_layout = dbc.Container([
                                             html.Div([
                                                 html.Span("👁️ Viewer:", className="fw-bold text-info me-2"),
                                                 "Can view dashboard, alerts, and reports. Cannot modify settings or manage users"
+                                            ], className="mb-2", style={"fontSize": "0.85rem"}),
+                                            html.Div([
+                                                html.Span("💡 Note:", className="fw-bold text-success me-2"),
+                                                "All users can select their preferred dashboard template (Security Admin, Home User, Developer, or Custom) in Preferences"
                                             ], style={"fontSize": "0.85rem"})
                                         ])
                                     ], className="py-2")
@@ -5551,6 +5614,37 @@ dashboard_layout = dbc.Container([
                         ], className="glass-card border-0 shadow-sm")
                     ], className="p-3")
                 ], label="Details", tab_id="device-details-tab"),
+
+                # Analytics Tab - NEW
+                dbc.Tab([
+                    html.Div([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                html.I(className="fa fa-chart-pie me-2"),
+                                "Device Hierarchy & Analytics"
+                            ], className="glass-card-header"),
+                            dbc.CardBody([
+                                dcc.Loading(
+                                    dcc.Graph(
+                                        id='device-hierarchy-sunburst',
+                                        config={
+                                            'displayModeBar': True,
+                                            'modeBarButtonsToRemove': ['pan2d', 'lasso2d'],
+                                            'displaylogo': False
+                                        },
+                                        style={'height': '600px'}
+                                    ),
+                                    type='circle'
+                                ),
+                                html.P([
+                                    html.I(className="fa fa-info-circle me-2"),
+                                    "Interactive sunburst chart showing 3-level device hierarchy. "
+                                    "Size represents connection count (last 24h). Click segments to drill down."
+                                ], className="text-muted small mt-2")
+                            ])
+                        ], className="glass-card border-0 shadow-sm")
+                    ], className="p-3")
+                ], label="Analytics", tab_id="device-analytics-tab"),
 
                 # Import/Export Tab
                 dbc.Tab([
@@ -6246,6 +6340,33 @@ dashboard_layout = dbc.Container([
                         ], className="glass-card-header"),
                         dbc.CardBody([
                             html.Div(id='threat-intel-attack-patterns')
+                        ])
+                    ], className="glass-card border-0 shadow-sm"),
+
+                    # Attack Path Visualization (Kill Chain)
+                    dbc.Card([
+                        dbc.CardHeader([
+                            html.I(className="fa fa-project-diagram me-2"),
+                            "Attack Path & Kill Chain Visualization"
+                        ], className="glass-card-header mt-3"),
+                        dbc.CardBody([
+                            dcc.Loading(
+                                dcc.Graph(
+                                    id='attack-path-sankey',
+                                    config={
+                                        'displayModeBar': True,
+                                        'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
+                                        'displaylogo': False
+                                    },
+                                    style={'height': '500px'}
+                                ),
+                                type='circle'
+                            ),
+                            html.P([
+                                html.I(className="fa fa-info-circle me-2"),
+                                "Interactive Sankey diagram showing attack progression through MITRE ATT&CK kill chain stages. "
+                                "Link thickness represents alert frequency."
+                            ], className="text-muted small mt-2")
                         ])
                     ], className="glass-card border-0 shadow-sm")
                 ], label="Attack Patterns", tab_id="threat-intel-patterns-tab", className="p-3"),
@@ -9563,6 +9684,12 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
     dcc.Store(id='page-visibility-store', data={'visible': True}),  # Track page visibility for auto-pause
+    dcc.Store(id='dashboard-template-store', data='custom', storage_type='local'),  # Role-based dashboard template
+
+    # Cross-chart filtering stores
+    dcc.Store(id='global-device-filter', data=None),  # Filter by device IP across all charts
+    dcc.Store(id='global-time-filter', data=None),    # Filter by time range across all charts
+    dcc.Store(id='global-severity-filter', data=None), # Filter by severity across all charts
 
     # Customize Layout Modal - Enhanced
     dbc.Modal([
@@ -11326,10 +11453,11 @@ def update_traffic_timeline(ws_message):
 
 @app.callback(
     Output('protocol-pie', 'figure'),
-    Input('ws', 'message'),
+    [Input('ws', 'message'),
+     Input('global-device-filter', 'data')],
     prevent_initial_call=True  # Performance: Lazy load protocol chart
 )
-def update_protocol_pie(ws_message):
+def update_protocol_pie(ws_message, device_filter):
     if ws_message is None:
         raise dash.exceptions.PreventUpdate
     protocol_data = ws_message.get('protocol_distribution', [])
@@ -11337,10 +11465,33 @@ def update_protocol_pie(ws_message):
         fig = go.Figure()
         fig.update_layout(title="No protocol data available", template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
+
     df = pd.DataFrame(protocol_data)
-    fig = px.pie(df, values='count', names='protocol', title='Protocol Distribution', color_discrete_sequence=px.colors.qualitative.Set2)
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+
+    # Create enhanced pie chart
+    fig = px.pie(
+        df, values='count', names='protocol',
+        title='Protocol Distribution (Click to filter)',
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+
+    # Enhanced hover template with percentages and counts
+    fig.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        hovertemplate="<b>%{label}</b><br>" +
+                      "Count: %{value}<br>" +
+                      "Percentage: %{percent}<br>" +
+                      "<i>Click to filter connections</i><extra></extra>"
+    )
+
+    fig.update_layout(
+        template='plotly_dark',
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        hovermode='closest'
+    )
+
     return fig
 
 # ============================================================================
@@ -12693,9 +12844,11 @@ IoTSentinel Network Security Monitor
 
 @app.callback(
     Output('alert-timeline', 'figure'),
-    Input('ws', 'message')
+    [Input('ws', 'message'),
+     Input('global-severity-filter', 'data')],
+    prevent_initial_call=True
 )
-def update_alert_timeline(ws_message):
+def update_alert_timeline(ws_message, severity_filter):
     if ws_message is None:
         # Return empty figure during initial load
         fig = go.Figure()
@@ -12706,10 +12859,37 @@ def update_alert_timeline(ws_message):
         fig = go.Figure()
         fig.update_layout(title="No alerts in the last 7 days")
         return fig
+
     df = pd.DataFrame(alert_timeline_data)
-    fig = px.bar(df, x="day", y="count", color="severity", title="Alerts by Day",
-                 color_discrete_map={'critical': '#dc3545', 'high': '#fd7e14', 'medium': '#17a2b8', 'low': '#6c757d'})
-    fig.update_layout(xaxis_title="Date", yaxis_title="Number of Alerts", barmode='stack')
+
+    # Apply severity filter if active
+    if severity_filter:
+        df = df[df['severity'] == severity_filter]
+
+    # Create interactive bar chart with enhanced tooltips
+    fig = px.bar(df, x="day", y="count", color="severity", title="Alerts by Day (Click to filter)",
+                 color_discrete_map={'critical': '#dc3545', 'high': '#fd7e14', 'medium': '#17a2b8', 'low': '#6c757d'},
+                 hover_data={'count': True, 'severity': True, 'day': True})
+
+    # Enhanced hover template with "View Details" hint
+    fig.update_traces(
+        hovertemplate="<b>%{x}</b><br>" +
+                      "Severity: %{fullData.name}<br>" +
+                      "Count: %{y}<br>" +
+                      "<i>Click to filter by severity</i><extra></extra>"
+    )
+
+    # Enable zoom/pan/reset controls
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Number of Alerts",
+        barmode='stack',
+        hovermode='closest',
+        dragmode='zoom',  # Enable zoom by default
+        modebar={'orientation': 'v'},
+        modebar_add=['pan2d', 'select2d', 'lasso2d', 'resetScale2d']
+    )
+
     return fig
 
 @app.callback(
@@ -12749,9 +12929,11 @@ def update_bandwidth_chart(ws_message):
 
 @app.callback(
     Output('device-heatmap', 'figure'),
-    Input('ws', 'message')
+    [Input('ws', 'message'),
+     Input('global-device-filter', 'data')],
+    prevent_initial_call=True
 )
-def update_device_heatmap(ws_message):
+def update_device_heatmap(ws_message, device_filter):
     if ws_message is None:
         raise dash.exceptions.PreventUpdate
     heatmap_data = ws_message.get('device_activity_heatmap', [])
@@ -12759,9 +12941,39 @@ def update_device_heatmap(ws_message):
         fig = go.Figure()
         fig.update_layout(title="No activity data available")
         return fig
+
     df = pd.DataFrame(heatmap_data)
-    fig = px.density_heatmap(df, x="hour", y="device_ip", z="count", title="Device Activity by Hour", color_continuous_scale="Blues")
-    fig.update_layout(xaxis_title="Hour of Day", yaxis_title="Device IP")
+
+    # Apply device filter if active
+    if device_filter:
+        df = df[df['device_ip'] == device_filter]
+
+    # Create enhanced heatmap with custom hover data
+    fig = px.density_heatmap(
+        df, x="hour", y="device_ip", z="count",
+        title="Device Activity by Hour (Click device to filter)",
+        color_continuous_scale="Blues",
+        labels={'hour': 'Hour of Day', 'device_ip': 'Device IP', 'count': 'Connections'}
+    )
+
+    # Enhanced hover template
+    fig.update_traces(
+        hovertemplate="<b>%{y}</b><br>" +
+                      "Hour: %{x}:00<br>" +
+                      "Connections: %{z}<br>" +
+                      "<i>Click to view device details</i><extra></extra>",
+        customdata=df[['device_ip']].values if not df.empty else []
+    )
+
+    # Enable zoom/pan controls
+    fig.update_layout(
+        xaxis_title="Hour of Day",
+        yaxis_title="Device IP",
+        hovermode='closest',
+        dragmode='zoom',
+        modebar_add=['pan2d', 'zoomIn2d', 'zoomOut2d', 'resetScale2d']
+    )
+
     return fig
 
 @app.callback(
@@ -15695,16 +15907,18 @@ def update_password_feedback_and_button_state(password, password_confirm, email_
 
 @app.callback(
     [Output('auth-tabs', 'active_tab', allow_duplicate=True),
-     Output('toast-container', 'children', allow_duplicate=True)],
+     Output('toast-container', 'children', allow_duplicate=True),
+     Output('dashboard-template-store', 'data', allow_duplicate=True)],
     Input('register-button', 'n_clicks'),
     [State('register-email', 'value'),
      State('register-username', 'value'),
      State('register-password', 'value'),
      State('register-password-confirm', 'value'),
-     State('register-role', 'data')],
+     State('register-role', 'data'),
+     State('register-template-select', 'value')],
     prevent_initial_call=True
 )
-def handle_registration(n_clicks, email, username, password, password_confirm, role):
+def handle_registration(n_clicks, email, username, password, password_confirm, role, template):
     """Handle user registration"""
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
@@ -15715,28 +15929,29 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
             "Validation Error",
             detail_message="Please fill in all fields"
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, dash.no_update
 
     if len(username) < 3:
         toast = ToastManager.warning(
             "Validation Error",
             detail_message="Username must be at least 3 characters"
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, dash.no_update
 
     if not auth_manager.is_password_strong_enough(password):
         toast = ToastManager.error(
             "Password Not Strong Enough",
-            detail_message="Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one digit, and one special character."
+            detail_message="Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.",
+            show_detail_button=True
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, dash.no_update
 
     if password != password_confirm:
         toast = ToastManager.error(
             "Validation Error",
             detail_message="Passwords do not match"
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, dash.no_update
 
     # Attempt to create user
     success = auth_manager.create_user(username, password, role or 'viewer', email)
@@ -15750,18 +15965,22 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
             logger.error(f"Failed to send verification email: {e}")
             # Don't fail registration if email fails, user can verify later
 
-        logger.info(f"New user registered: {username} (role: {role or 'viewer'}, email: {email})")
+        logger.info(f"New user registered: {username} (role: {role or 'viewer'}, email: {email}, template: {template or 'custom'})")
+
+        template_name = DASHBOARD_TEMPLATES.get(template or 'custom', {}).get('name', 'Custom')
         toast = ToastManager.success(
-            "Account Created",
-            detail_message="Account created successfully! Please check your email to verify your account."
+            "Account Created Successfully!",
+            detail_message=f"Your account has been created with {template_name} dashboard template. Please check your email to verify your account. After login, you can change your dashboard template in Preferences.",
+            show_detail_button=True
         )
-        return "login-tab", toast
+        return "login-tab", toast, template or 'custom'
     else:
         toast = ToastManager.error(
             "Registration Failed",
-            detail_message="Username or email already exists"
+            detail_message="Username or email already exists. Please try a different username or email address.",
+            show_detail_button=True
         )
-        return dash.no_update, toast
+        return dash.no_update, toast, dash.no_update
 
 @server.route('/verify/<code>')
 def verify_email(code):
@@ -34169,5 +34388,571 @@ def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
     return dash.no_update, dash.no_update, dash.no_update
 
 
+# ============================================================================
+# ROLE-BASED DASHBOARD TEMPLATE CALLBACKS
+# ============================================================================
+
+# Template configurations for different user roles
+DASHBOARD_TEMPLATES = {
+    'security_admin': {
+        'name': 'Security Admin',
+        'description': 'Optimized for security professionals monitoring threats',
+        'visible_features': [
+            'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
+            'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
+            'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
+            'timeline-card-btn', 'system-card-btn'
+        ],
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'home_user': {
+        'name': 'Home User',
+        'description': 'Simplified view for non-technical home users',
+        'visible_features': [
+            'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
+            'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
+            'preferences-card-btn', 'quick-settings-btn'
+        ],
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'developer': {
+        'name': 'Developer/Auditor',
+        'description': 'Full access to all features and advanced analytics',
+        'visible_features': 'all',  # Show everything
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'custom': {
+        'name': 'Custom',
+        'description': 'User-defined custom layout',
+        'visible_features': 'custom',  # Use widget-preferences store
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    }
+}
+
+
+# Save template selection to store (only when user changes it)
+@app.callback(
+    [Output('dashboard-template-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('dashboard-template-select', 'value'),
+    State('dashboard-template-store', 'data'),
+    prevent_initial_call=True
+)
+def save_dashboard_template(template, current_template):
+    """Save user's selected dashboard template preference."""
+    if not template:
+        return no_update, no_update
+
+    # Only show toast if template actually changed (not on initial sync)
+    if template == current_template:
+        return no_update, no_update
+
+    template_name = DASHBOARD_TEMPLATES.get(template, {}).get('name', template)
+    template_desc = DASHBOARD_TEMPLATES.get(template, {}).get('description', '')
+
+    toast = ToastManager.create_toast(
+        message=f"Dashboard template changed to {template_name}",
+        toast_type="info",
+        header="Layout Updated",
+        detail_message=f"{template_desc}. Your dashboard will now show features optimized for this template. You can change this anytime in Preferences.",
+        show_detail_button=True,
+        duration=4000
+    )
+
+    logger.info(f"Dashboard template changed to: {template}")
+    return template, toast
+
+
+# Apply template by hiding/showing feature cards
+app.clientside_callback(
+    """
+    function(template) {
+        // Define template configurations
+        const templates = {
+            'security_admin': {
+                visible: [
+                    'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
+                    'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
+                    'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
+                    'timeline-card-btn', 'system-card-btn'
+                ]
+            },
+            'home_user': {
+                visible: [
+                    'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
+                    'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
+                    'preferences-card-btn', 'quick-settings-btn'
+                ]
+            },
+            'developer': {
+                visible: 'all'
+            },
+            'custom': {
+                visible: 'custom'
+            }
+        };
+
+        if (!template || template === 'custom') {
+            // Don't modify layout for custom template
+            return window.dash_clientside.no_update;
+        }
+
+        const config = templates[template];
+        if (!config) return window.dash_clientside.no_update;
+
+        // Get all masonry items (feature cards)
+        const items = document.querySelectorAll('.masonry-item');
+
+        items.forEach(item => {
+            const button = item.querySelector('[id$=\"-btn\"]');
+            if (!button) return;
+
+            const buttonId = button.id;
+
+            // Show or hide based on template
+            if (config.visible === 'all') {
+                // Developer: show everything
+                item.style.display = '';
+                item.style.opacity = '1';
+                item.classList.remove('template-hidden');
+            } else if (Array.isArray(config.visible)) {
+                // Security Admin or Home User: show only specified features
+                if (config.visible.includes(buttonId)) {
+                    item.style.display = '';
+                    item.style.opacity = '1';
+                    item.classList.remove('template-hidden');
+                } else {
+                    item.style.opacity = '0';
+                    item.classList.add('template-hidden');
+                    setTimeout(() => {
+                        if (item.classList.contains('template-hidden')) {
+                            item.style.display = 'none';
+                        }
+                    }, 300);
+                }
+            }
+        });
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('features-section', 'className', allow_duplicate=True),
+    Input('dashboard-template-store', 'data'),
+    prevent_initial_call=True
+)
+
+
+# Initialize template selection from store on modal open (avoids circular dependency)
+@app.callback(
+    Output('dashboard-template-select', 'value', allow_duplicate=True),
+    Input('profile-edit-modal', 'is_open'),
+    State('dashboard-template-store', 'data'),
+    prevent_initial_call=True
+)
+def sync_template_selection(is_open, stored_template):
+    """Sync stored template preference to radio button when preferences modal opens."""
+    if not is_open:
+        return no_update
+    return stored_template or 'custom'
+
+
+# Update template options dynamically based on user role
+@app.callback(
+    Output('dashboard-template-select', 'options'),
+    Input('profile-edit-modal', 'is_open'),
+    prevent_initial_call=False
+)
+def update_template_options(is_open):
+    """Show Security Admin template option only for admin users."""
+    base_options = [
+        {
+            'label': html.Div([
+                html.I(className="fa fa-home text-success me-2"),
+                html.Span("Home User", className="fw-bold"),
+                html.Br(),
+                html.Small("Focus: Device Status, Privacy Score, Basic Security Health", className="text-muted")
+            ]),
+            'value': 'home_user'
+        },
+        {
+            'label': html.Div([
+                html.I(className="fa fa-code text-info me-2"),
+                html.Span("Developer/Auditor", className="fw-bold"),
+                html.Br(),
+                html.Small("Focus: All Features, API Hub, Analytics, Performance", className="text-muted")
+            ]),
+            'value': 'developer'
+        },
+        {
+            'label': html.Div([
+                html.I(className="fa fa-sliders text-warning me-2"),
+                html.Span("Custom", className="fw-bold"),
+                html.Br(),
+                html.Small("Use your own customized widget layout", className="text-muted")
+            ]),
+            'value': 'custom'
+        }
+    ]
+
+    # Add Security Admin option only for admin users
+    if current_user.is_authenticated and current_user.is_admin():
+        admin_option = {
+            'label': html.Div([
+                html.I(className="fa fa-shield-halved text-danger me-2"),
+                html.Span("Security Admin", className="fw-bold"),
+                html.Br(),
+                html.Small("Focus: Threat Intelligence, Alerts, Firewall, Forensics", className="text-muted")
+            ]),
+            'value': 'security_admin'
+        }
+        return [admin_option] + base_options
+
+    return base_options
+
+
 if __name__ == '__main__':
     main()
+
+
+# ============================================================================
+# CROSS-CHART FILTERING CALLBACKS
+# ============================================================================
+
+@app.callback(
+    Output('global-severity-filter', 'data'),
+    Input('alert-timeline', 'clickData'),
+    prevent_initial_call=True
+)
+def filter_by_severity_from_timeline(click_data):
+    """When user clicks on alert timeline, filter all charts by that severity."""
+    if not click_data:
+        return None
+
+    try:
+        # Extract severity from the clicked bar
+        severity = click_data['points'][0]['fullData']['name']
+        logger.info(f"Cross-chart filter activated: severity={severity}")
+        return severity
+    except (KeyError, IndexError) as e:
+        logger.error(f"Error extracting severity from click data: {e}")
+        return None
+
+
+@app.callback(
+    Output('global-device-filter', 'data'),
+    Input('device-heatmap', 'clickData'),
+    prevent_initial_call=True
+)
+def filter_by_device_from_heatmap(click_data):
+    """When user clicks on device heatmap, filter all charts by that device."""
+    if not click_data:
+        return None
+
+    try:
+        # Extract device IP from the clicked cell
+        device_ip = click_data['points'][0]['y']
+        logger.info(f"Cross-chart filter activated: device_ip={device_ip}")
+        return device_ip
+    except (KeyError, IndexError) as e:
+        logger.error(f"Error extracting device IP from click data: {e}")
+        return None
+
+
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    [Input('global-severity-filter', 'data'),
+     Input('global-device-filter', 'data')],
+    prevent_initial_call=True
+)
+def show_filter_notification(severity_filter, device_filter):
+    """Show toast notification when cross-chart filters are applied."""
+    from alerts.alert_manager import ToastManager
+
+    if severity_filter:
+        return ToastManager.info(
+            "Cross-Chart Filter Active",
+            detail_message=f"Filtering all charts by severity: {severity_filter.upper()}",
+            duration=3000
+        )
+    elif device_filter:
+        return ToastManager.info(
+            "Cross-Chart Filter Active",
+            detail_message=f"Filtering all charts by device: {device_filter}",
+            duration=3000
+        )
+
+    return dash.no_update
+
+
+# ============================================================================
+# ADVANCED VISUALIZATION CALLBACKS - ATTACK PATH & SUNBURST
+# ============================================================================
+
+@app.callback(
+    Output('attack-path-sankey', 'figure'),
+    [Input('threat-modal', 'is_open'),
+     Input('global-severity-filter', 'data')],
+    prevent_initial_call=True
+)
+def create_attack_path_visualization(is_open, severity_filter):
+    """
+    Create Sankey diagram showing attack progression through MITRE ATT&CK kill chain.
+    Maps alerts to MITRE tactics and shows attack flow.
+    """
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Query alerts and extract MITRE tactics
+        query = """
+            SELECT
+                a.explanation,
+                a.severity,
+                a.device_ip,
+                a.timestamp,
+                COUNT(*) as count
+            FROM alerts a
+            WHERE a.timestamp >= datetime('now', '-7 days')
+        """
+
+        if severity_filter:
+            query += f" AND a.severity = '{severity_filter}'"
+
+        query += " GROUP BY a.explanation, a.severity ORDER BY a.timestamp"
+
+        cursor.execute(query)
+        alerts = cursor.fetchall()
+
+        # MITRE ATT&CK Kill Chain stages
+        kill_chain_stages = [
+            "Reconnaissance",
+            "Resource Development",
+            "Initial Access",
+            "Execution",
+            "Persistence",
+            "Privilege Escalation",
+            "Defense Evasion",
+            "Credential Access",
+            "Discovery",
+            "Lateral Movement",
+            "Collection",
+            "Command and Control",
+            "Exfiltration",
+            "Impact"
+        ]
+
+        # Map alerts to kill chain stages based on MITRE mapping
+        stage_mapping = {}
+        for alert in alerts:
+            explanation = alert['explanation']
+            mitre_info = MITRE_ATTACK_MAPPING.get(explanation, {})
+            tactic = mitre_info.get('tactic', 'Unknown')
+
+            # Extract stage from tactic (e.g., "Exfiltration (TA0010)" -> "Exfiltration")
+            stage = tactic.split('(')[0].strip() if tactic != 'Unknown' else 'Unknown'
+
+            if stage not in stage_mapping:
+                stage_mapping[stage] = 0
+            stage_mapping[stage] += alert['count']
+
+        # Create Sankey diagram data
+        source_nodes = []
+        target_nodes = []
+        values = []
+        node_labels = ["Alerts Detected"] + list(stage_mapping.keys()) + ["Security Response"]
+
+        # Connect "Alerts Detected" to each attack stage
+        for idx, (stage, count) in enumerate(stage_mapping.items(), start=1):
+            source_nodes.append(0)  # From "Alerts Detected"
+            target_nodes.append(idx)  # To attack stage
+            values.append(count)
+
+        # Connect attack stages to "Security Response"
+        response_idx = len(node_labels) - 1
+        for idx, (stage, count) in enumerate(stage_mapping.items(), start=1):
+            source_nodes.append(idx)  # From attack stage
+            target_nodes.append(response_idx)  # To "Security Response"
+            values.append(count)
+
+        # Create figure
+        fig = go.Figure(data=[go.Sankey(
+            node=dict(
+                pad=15,
+                thickness=20,
+                line=dict(color="black", width=0.5),
+                label=node_labels,
+                color=["#17a2b8"] + ["#dc3545" if "Exfiltration" in label or "Impact" in label
+                       else "#fd7e14" if "Command" in label or "Lateral" in label
+                       else "#ffc107" for label in node_labels[1:-1]] + ["#28a745"]
+            ),
+            link=dict(
+                source=source_nodes,
+                target=target_nodes,
+                value=values,
+                color="rgba(0,0,0,0.2)"
+            )
+        )])
+
+        fig.update_layout(
+            title="Attack Path Visualization - MITRE ATT&CK Kill Chain",
+            font=dict(size=12),
+            height=500,
+            hovermode='closest'
+        )
+
+        return fig
+
+    except Exception as e:
+        logger.error(f"Error creating attack path visualization: {e}")
+        # Return empty figure on error
+        fig = go.Figure()
+        fig.update_layout(title=f"Error loading attack path: {str(e)}")
+        return fig
+
+
+@app.callback(
+    Output('device-hierarchy-sunburst', 'figure'),
+    [Input('device-mgmt-modal', 'is_open'),
+     Input('global-device-filter', 'data')],
+    prevent_initial_call=True
+)
+def create_device_hierarchy_sunburst(is_open, device_filter):
+    """
+    Create Sunburst chart showing hierarchical device data:
+    Center -> Device Categories -> Device Types -> Specific Devices
+    """
+    if not is_open:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Query device hierarchy data
+        cursor.execute("""
+            SELECT
+                d.device_ip,
+                d.device_name,
+                d.device_type,
+                d.manufacturer,
+                COUNT(DISTINCT c.id) as connection_count
+            FROM devices d
+            LEFT JOIN connections c ON d.device_ip = c.device_ip
+                AND c.timestamp >= datetime('now', '-24 hours')
+            GROUP BY d.device_ip, d.device_name, d.device_type, d.manufacturer
+        """)
+
+        devices = cursor.fetchall()
+
+        if not devices:
+            fig = go.Figure()
+            fig.update_layout(title="No device data available")
+            return fig
+
+        # Build hierarchical structure
+        # Format: labels, parents, values
+        labels = ["All Devices"]
+        parents = [""]
+        values = [0]  # Will be sum of all connections
+        colors = ["#17a2b8"]
+
+        # Group by device type
+        type_groups = {}
+        total_connections = 0
+
+        for device in devices:
+            device_type = device['device_type'] or "Unknown"
+            connections = device['connection_count'] or 0
+            total_connections += connections
+
+            if device_type not in type_groups:
+                type_groups[device_type] = {
+                    'devices': [],
+                    'total_connections': 0
+                }
+
+            type_groups[device_type]['devices'].append(device)
+            type_groups[device_type]['total_connections'] += connections
+
+        values[0] = total_connections  # Update root value
+
+        # Add device type level
+        type_colors = {
+            'Smart TV': '#9c27b0',
+            'Smart Speaker': '#2196f3',
+            'Camera': '#f44336',
+            'Thermostat': '#ff9800',
+            'Laptop': '#4caf50',
+            'Smartphone': '#00bcd4',
+            'Router': '#e91e63',
+            'Unknown': '#9e9e9e'
+        }
+
+        for device_type, group_data in type_groups.items():
+            labels.append(device_type)
+            parents.append("All Devices")
+            values.append(group_data['total_connections'])
+            colors.append(type_colors.get(device_type, '#607d8b'))
+
+            # Add individual devices under each type
+            for device in group_data['devices']:
+                device_label = device['device_name'] or device['device_ip']
+                labels.append(device_label)
+                parents.append(device_type)
+                values.append(device['connection_count'] or 1)
+
+                # Color based on connection activity
+                conn_count = device['connection_count'] or 0
+                if conn_count > 100:
+                    colors.append('#dc3545')  # High activity - red
+                elif conn_count > 50:
+                    colors.append('#ffc107')  # Medium activity - yellow
+                else:
+                    colors.append('#28a745')  # Low activity - green
+
+        # Create Sunburst chart
+        fig = go.Figure(go.Sunburst(
+            labels=labels,
+            parents=parents,
+            values=values,
+            marker=dict(
+                colors=colors,
+                line=dict(color='white', width=2)
+            ),
+            branchvalues="total",
+            hovertemplate='<b>%{label}</b><br>Connections: %{value}<br><extra></extra>'
+        ))
+
+        fig.update_layout(
+            title="Device Hierarchy - Interactive Sunburst Chart",
+            font=dict(size=12),
+            height=600,
+            hovermode='closest'
+        )
+
+        return fig
+
+    except Exception as e:
+        logger.error(f"Error creating sunburst chart: {e}")
+        fig = go.Figure()
+        fig.update_layout(title=f"Error loading device hierarchy: {str(e)}")
+        return fig
