@@ -147,6 +147,8 @@ app.index_string = '''
         .skeleton{background:linear-gradient(110deg,rgba(200,210,220,0.4) 8%,rgba(220,230,240,0.6) 18%,rgba(200,210,220,0.4) 33%);background-size:200% 100%;animation:shimmer 2s linear infinite;border-radius:8px}
         body.dark-mode .skeleton{background:linear-gradient(110deg,rgba(51,65,85,0.4) 8%,rgba(71,85,105,0.6) 18%,rgba(51,65,85,0.4) 33%)}
         @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        @keyframes pulse-danger{0%,100%{box-shadow:0 0 0 0 rgba(220,53,69,0.7)}50%{box-shadow:0 0 0 10px rgba(220,53,69,0)}}
+        .pulse-danger{animation:pulse-danger 2s infinite}
         </style>
         {%css%}
     </head>
@@ -2630,6 +2632,28 @@ login_layout = dbc.Container([
                                     )
                                 ], className="mb-3"),
 
+                                # Family Role Selection (for Home Users)
+                                html.Div([
+                                    html.Label([
+                                        html.I(className="fa fa-users me-2 text-info"),
+                                        "Family Member Role"
+                                    ], className="fw-bold mb-2 d-block"),
+                                    html.Small("Select your role in the family (affects available features)", className="text-muted d-block mb-2"),
+                                    dbc.Select(
+                                        id='register-family-role-select',
+                                        options=[
+                                            {'label': '👨‍👩‍👧‍👦 Parent/Guardian - Full access to all features', 'value': 'parent'},
+                                            {'label': '👶 Child - Restricted access for safety', 'value': 'kid'}
+                                        ],
+                                        value='parent',
+                                        className="mb-3"
+                                    ),
+                                    html.Small([
+                                        html.I(className="fa fa-info-circle me-1 text-info"),
+                                        "Children cannot activate emergency mode or change critical security settings"
+                                    ], className="text-muted d-block")
+                                ], className="mb-3"),
+
                                 # Hidden role field - always viewer for self-registration
                                 dcc.Store(id="register-role", data="viewer"),
                                 dcc.Store(id='verification-code-sent', storage_type='memory'),
@@ -3148,6 +3172,37 @@ dashboard_layout = dbc.Container([
         # LEFT COLUMN - Metrics, Network Activity, Devices, Quick Actions (2 cols)
         dbc.Col([
             html.Div(id='metrics-section', children=[
+
+            # Emergency Button (only visible for Home User template)
+            html.Div(id='emergency-button-container', children=[
+                dbc.Alert([
+                    html.Div([
+                        html.I(className="fa fa-exclamation-triangle fa-2x mb-2", style={"color": "#ff4444"}),
+                        html.H5("Emergency Protection", className="mb-2", style={"color": "#ff4444", "fontWeight": "700"}),
+                        html.P("Activate if you suspect a security threat", className="text-muted small mb-3"),
+                        dbc.Button([
+                            html.I(className="fa fa-shield-alt me-2"),
+                            "ACTIVATE EMERGENCY MODE"
+                        ], id="emergency-activate-btn", color="danger", size="lg", className="w-100 pulse-danger"),
+                    ], className="text-center")
+                ], color="light", className="border border-danger mb-3", style={"display": "none"})
+            ], style={"display": "none"}),
+
+            # Emergency Mode Active Banner
+            html.Div(id='emergency-active-banner', children=[
+                dbc.Alert([
+                    html.Div([
+                        html.I(className="fa fa-shield-alt fa-2x mb-2 text-warning"),
+                        html.H5("🚨 EMERGENCY MODE ACTIVE", className="mb-2 text-warning fw-bold"),
+                        html.P(id="emergency-status-text", className="mb-3"),
+                        dbc.Button([
+                            html.I(className="fa fa-unlock me-2"),
+                            "DEACTIVATE EMERGENCY MODE"
+                        ], id="emergency-deactivate-btn", color="success", size="lg", className="w-100"),
+                    ], className="text-center")
+                ], color="warning", className="border border-warning mb-3")
+            ], style={"display": "none"}),
+
             # Metrics Boxes (2 columns for squarish layout)
             dbc.Row([
                 # CPU Usage Box
@@ -5267,7 +5322,7 @@ dashboard_layout = dbc.Container([
                                             'value': 'custom'
                                         }
                                     ],
-                                    value='custom',
+                                    value=None,  # Value loaded from database via callback
                                     className="mb-3"
                                 ),
                             ])
@@ -9684,12 +9739,44 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
     dcc.Store(id='page-visibility-store', data={'visible': True}),  # Track page visibility for auto-pause
-    dcc.Store(id='dashboard-template-store', data='custom', storage_type='local'),  # Role-based dashboard template
+    dcc.Store(id='dashboard-template-store', storage_type='session'),  # Role-based dashboard template (loads from DB, no default)
+    dcc.Store(id='emergency-mode-store', data={'active': False, 'log_id': None}, storage_type='session'),  # Emergency mode state
 
     # Cross-chart filtering stores
     dcc.Store(id='global-device-filter', data=None),  # Filter by device IP across all charts
     dcc.Store(id='global-time-filter', data=None),    # Filter by time range across all charts
     dcc.Store(id='global-severity-filter', data=None), # Filter by severity across all charts
+
+    # Emergency Mode Confirmation Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-exclamation-triangle me-2 text-danger"),
+            "Activate Emergency Protection"
+        ])),
+        dbc.ModalBody([
+            html.P("This will immediately:", className="fw-bold mb-2"),
+            html.Ul([
+                html.Li("Block all unknown/untrusted devices from your network"),
+                html.Li("Enable maximum firewall protection"),
+                html.Li("Notify administrators"),
+                html.Li("Log this security event")
+            ]),
+            html.Hr(),
+            html.P("Optional: Describe what you observed (this helps us protect you better)", className="text-muted small mb-2"),
+            dbc.Textarea(id="emergency-reason-input", placeholder="E.g., 'Strange pop-ups on my phone', 'Unknown device appeared', etc.", rows=3, className="mb-3"),
+            dbc.Alert([
+                html.I(className="fa fa-info-circle me-2"),
+                "You can deactivate emergency mode at any time."
+            ], color="info")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="emergency-cancel-btn", color="secondary", outline=True),
+            dbc.Button([
+                html.I(className="fa fa-shield-alt me-2"),
+                "Activate Now"
+            ], id="emergency-confirm-btn", color="danger")
+        ])
+    ], id="emergency-confirm-modal", is_open=False),
 
     # Customize Layout Modal - Enhanced
     dbc.Modal([
@@ -15915,10 +16002,11 @@ def update_password_feedback_and_button_state(password, password_confirm, email_
      State('register-password', 'value'),
      State('register-password-confirm', 'value'),
      State('register-role', 'data'),
-     State('register-template-select', 'value')],
+     State('register-template-select', 'value'),
+     State('register-family-role-select', 'value')],
     prevent_initial_call=True
 )
-def handle_registration(n_clicks, email, username, password, password_confirm, role, template):
+def handle_registration(n_clicks, email, username, password, password_confirm, role, template, family_role):
     """Handle user registration"""
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
@@ -15957,6 +16045,91 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
     success = auth_manager.create_user(username, password, role or 'viewer', email)
 
     if success:
+        # Initialize all user preferences and settings for security and privacy
+        try:
+            conn = db_manager.conn
+            cursor = conn.cursor()
+
+            # Get the newly created user ID
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            user_result = cursor.fetchone()
+
+            if user_result:
+                new_user_id = user_result[0]
+
+                # Determine user restrictions based on family role
+                is_kid_value = '1' if family_role == 'kid' else '0'
+
+                # Comprehensive default preferences for security, privacy, and usability
+                default_preferences = [
+                    # Family & Access Control
+                    ('is_kid', is_kid_value),
+                    ('dashboard_template', template or 'custom'),
+
+                    # Security Settings (stricter for kids)
+                    ('require_2fa', '1' if is_kid_value == '0' else '0'),  # Parents should use 2FA
+                    ('session_timeout', '15' if is_kid_value == '1' else '60'),  # Kids: 15 min, Adults: 60 min
+                    ('allow_api_access', '0' if is_kid_value == '1' else '1'),  # Kids: no API access
+
+                    # Privacy Settings
+                    ('data_sharing', '0'),  # Disabled by default
+                    ('analytics_tracking', '0'),  # No tracking by default
+                    ('activity_logging', '1'),  # Enable activity logging for security
+
+                    # Notification Preferences (stricter for kids to alert parents)
+                    ('email_notifications', '1'),  # Enabled by default
+                    ('alert_notifications', 'critical,high' if is_kid_value == '0' else 'critical,high,medium'),  # Kids get more alerts
+                    ('email_recipient', email),
+
+                    # UI/UX Preferences
+                    ('refresh_interval', '10000'),  # 10 seconds
+                    ('display_density', 'comfortable'),
+                    ('theme', 'light'),
+                    ('language', 'en'),
+                    ('layout', 'grid'),
+                    ('timezone', 'UTC'),
+
+                    # Data Management
+                    ('data_retention', '30'),  # 30 days
+                    ('auto_export', 'disabled'),
+                    ('backup_schedule', 'daily'),
+                    ('backup_retention', '30'),
+
+                    # ML & Detection Settings
+                    ('anomaly_threshold', '0.85'),
+                    ('enable_ml_predictions', '1'),
+                    ('auto_block_threats', '0' if is_kid_value == '0' else '0'),  # Manual review by default
+
+                    # Device Management (stricter for kids)
+                    ('auto_trust_new_devices', '0'),  # Always require manual approval
+                    ('allow_device_blocking', '0' if is_kid_value == '1' else '1'),  # Kids can't block devices
+                    ('allow_device_deletion', '0' if is_kid_value == '1' else '1'),  # Kids can't delete devices
+
+                    # Network Settings
+                    ('enable_network_isolation', '1'),  # Enabled by default for security
+                    ('upnp_enabled', '0'),  # Disabled by default (security risk)
+
+                    # Toast Preferences
+                    ('toast_history_enabled', '1'),
+                    ('toast_retention_days', '30'),
+                    ('toast_sound_enabled', '0'),
+                    ('max_simultaneous_toasts', '3'),
+                ]
+
+                # Batch insert all preferences
+                cursor.executemany('''
+                    INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                    VALUES (?, ?, ?)
+                ''', [(new_user_id, key, value) for key, value in default_preferences])
+
+                conn.commit()
+
+                logger.info(f"Initialized {len(default_preferences)} default preferences for {username} (family_role: {'kid' if is_kid_value == '1' else 'parent'}, template: {template})")
+
+        except Exception as e:
+            logger.error(f"Failed to save user preferences during registration: {e}")
+            # Don't fail registration if preference save fails, but log it
+
         # Send verification email
         try:
             auth_manager.send_verification_email(email)
@@ -34446,22 +34619,111 @@ DASHBOARD_TEMPLATES = {
 }
 
 
-# Save template selection to store (only when user changes it)
+# ============================================================================
+# DASHBOARD TEMPLATE MANAGEMENT
+# ============================================================================
+
+# Load user's saved template from database on page load (server-side for auth)
 @app.callback(
-    [Output('dashboard-template-store', 'data'),
+    Output('dashboard-template-store', 'data'),
+    Input('url', 'pathname'),
+    prevent_initial_call=False
+)
+def load_user_template_on_page_load(pathname):
+    """Load user's saved dashboard template from database preferences."""
+    if not current_user.is_authenticated:
+        return 'custom'  # Default for non-authenticated users
+
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+
+        # Get user's saved template preference
+        cursor.execute('''
+            SELECT preference_value
+            FROM user_preferences
+            WHERE user_id = ? AND preference_key = 'dashboard_template'
+        ''', (current_user.id,))
+
+        result = cursor.fetchone()
+        if result and result[0]:
+            logger.info(f"Loading template from DB for {current_user.username}: {result[0]}")
+            return result[0]
+
+        # No saved preference - return custom as default
+        logger.info(f"No saved template for {current_user.username}, using custom")
+        return 'custom'
+
+    except Exception as e:
+        logger.error(f"Error loading user template: {e}")
+        return 'custom'
+
+
+# Save template selection to store (only when user changes it) + Audit Trail
+@app.callback(
+    [Output('dashboard-template-store', 'data', allow_duplicate=True),
      Output('toast-container', 'children', allow_duplicate=True)],
     Input('dashboard-template-select', 'value'),
     State('dashboard-template-store', 'data'),
     prevent_initial_call=True
 )
 def save_dashboard_template(template, current_template):
-    """Save user's selected dashboard template preference."""
+    """Save user's selected dashboard template preference and log to audit trail."""
     if not template:
         return no_update, no_update
 
     # Only show toast if template actually changed (not on initial sync)
     if template == current_template:
+        logger.info("No change detected, skipping auto-save")
         return no_update, no_update
+
+    # Check if this is triggered by modal opening (not a user action)
+    ctx = callback_context
+    if not ctx.triggered:
+        return no_update, no_update
+
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # If triggered by anything other than user changing the value, skip
+    if trigger_id != 'dashboard-template-select':
+        return no_update, no_update
+
+    # Log template change to audit trail (only if user is authenticated)
+    if current_user.is_authenticated:
+        try:
+            conn = db_manager.conn
+            cursor = conn.cursor()
+
+            # Get client IP and user agent (no credentials stored)
+            ip_address = request.remote_addr if request else None
+            user_agent = request.headers.get('User-Agent', 'Unknown')[:200] if request else None
+
+            # Save template to user preferences (persistent storage)
+            cursor.execute('''
+                INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                VALUES (?, 'dashboard_template', ?)
+                ON CONFLICT(user_id, preference_key)
+                DO UPDATE SET preference_value = excluded.preference_value, updated_at = CURRENT_TIMESTAMP
+            ''', (current_user.id, template))
+
+            # Log template change to audit trail
+            cursor.execute('''
+                INSERT INTO template_change_audit
+                (user_id, username, old_template, new_template, ip_address, user_agent)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                current_user.id,
+                current_user.username,
+                current_template,
+                template,
+                ip_address,
+                user_agent
+            ))
+            conn.commit()
+
+            logger.info(f"Template saved and logged: {current_user.username} changed from {current_template} to {template}")
+        except Exception as e:
+            logger.error(f"Failed to save/log template change: {e}")
 
     template_name = DASHBOARD_TEMPLATES.get(template, {}).get('name', template)
     template_desc = DASHBOARD_TEMPLATES.get(template, {}).get('description', '')
@@ -34624,6 +34886,290 @@ def update_template_options(is_open):
         return [admin_option] + base_options
 
     return base_options
+
+
+# ============================================================================
+# EMERGENCY MODE CALLBACKS
+# ============================================================================
+
+# Show/hide emergency button based on template
+app.clientside_callback(
+    """
+    function(template) {
+        const container = document.getElementById('emergency-button-container');
+        if (!container) return window.dash_clientside.no_update;
+
+        // Show emergency button only for home_user template
+        if (template === 'home_user') {
+            container.style.display = 'block';
+            // Show the alert inside
+            const alert = container.querySelector('.alert');
+            if (alert) alert.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('emergency-button-container', 'style', allow_duplicate=True),
+    Input('dashboard-template-store', 'data'),
+    prevent_initial_call=True
+)
+
+
+# Open confirmation modal
+@app.callback(
+    Output('emergency-confirm-modal', 'is_open'),
+    [Input('emergency-activate-btn', 'n_clicks'),
+     Input('emergency-cancel-btn', 'n_clicks'),
+     Input('emergency-confirm-btn', 'n_clicks')],
+    State('emergency-confirm-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_emergency_modal(activate_clicks, cancel_clicks, confirm_clicks, is_open):
+    """Toggle emergency confirmation modal."""
+    ctx = callback_context
+    if not ctx.triggered:
+        return no_update
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'emergency-activate-btn':
+        return True
+    elif button_id in ['emergency-cancel-btn', 'emergency-confirm-btn']:
+        return False
+
+    return is_open
+
+
+# Activate emergency mode
+@app.callback(
+    [Output('emergency-mode-store', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True),
+     Output('emergency-reason-input', 'value')],
+    Input('emergency-confirm-btn', 'n_clicks'),
+    [State('emergency-reason-input', 'value'),
+     State('emergency-mode-store', 'data')],
+    prevent_initial_call=True
+)
+def activate_emergency_mode(n_clicks, reason, current_state):
+    """Activate emergency protection mode."""
+    if not n_clicks or not current_user.is_authenticated:
+        return no_update, no_update, no_update
+
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+
+        # Check if user is a kid (restricted from emergency mode)
+        cursor.execute(
+            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+            (current_user.id,)
+        )
+        kid_check = cursor.fetchone()
+        if kid_check and kid_check[0] == '1':
+            toast = ToastManager.error(
+                "Access Denied",
+                detail_message="Emergency mode can only be activated by adults. Please ask a parent or guardian for help."
+            )
+            return no_update, toast, ""
+
+        # Check if already active
+        if current_state and current_state.get('active'):
+            toast = ToastManager.warning(
+                "Emergency Mode Already Active",
+                detail_message="Emergency protection is already enabled. Use the deactivate button to turn it off."
+            )
+            return no_update, toast, ""
+
+        # Get current user's IP to exclude from blocking
+        user_ip = request.remote_addr if request else None
+
+        # Block all unknown/untrusted devices EXCEPT the current user's device
+        if user_ip:
+            cursor.execute('''
+                UPDATE devices
+                SET is_blocked = 1
+                WHERE (is_trusted = 0 OR is_trusted IS NULL)
+                AND device_ip != ?
+            ''', (user_ip,))
+        else:
+            # If we can't determine user IP, block all unknown devices
+            cursor.execute('''
+                UPDATE devices
+                SET is_blocked = 1
+                WHERE is_trusted = 0 OR is_trusted IS NULL
+            ''')
+        blocked_count = cursor.rowcount
+
+        # Get client IP (no credentials)
+        ip_address = request.remote_addr if request else None
+
+        # Log emergency activation
+        action_desc = f"Blocked {blocked_count} unknown devices; Enabled maximum firewall protection"
+        if user_ip:
+            action_desc += f"; User device {user_ip} excluded from blocking"
+
+        cursor.execute('''
+            INSERT INTO emergency_mode_log
+            (triggered_by_user_id, triggered_by_username, trigger_reason,
+             actions_taken, devices_blocked, ip_address, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+        ''', (
+            current_user.id,
+            current_user.username,
+            reason or "User activated emergency mode",
+            action_desc,
+            blocked_count,
+            ip_address
+        ))
+        log_id = cursor.lastrowid
+        conn.commit()
+
+        logger.warning(f"EMERGENCY MODE ACTIVATED by {current_user.username}. Blocked {blocked_count} devices. Reason: {reason or 'None provided'}")
+
+        # Ensure SYSTEM device exists for system-level alerts
+        cursor.execute('''
+            INSERT OR IGNORE INTO devices (device_ip, device_name, device_type, is_trusted)
+            VALUES ('SYSTEM', 'System Alerts', 'system', 1)
+        ''')
+
+        # Create alert for admin
+        cursor.execute('''
+            INSERT INTO alerts (device_ip, severity, explanation)
+            VALUES ('SYSTEM', 'critical', ?)
+        ''', (f"Emergency mode activated by {current_user.username}. {blocked_count} devices blocked. Reason: {reason or 'User did not provide a reason'}",))
+        conn.commit()
+
+        toast = ToastManager.create_toast(
+            message=f"Emergency Protection Activated - {blocked_count} devices blocked",
+            toast_type="warning",
+            header="🚨 Network Secured",
+            detail_message=f"All unknown devices have been blocked. Administrators have been notified. You can deactivate emergency mode at any time from the dashboard.",
+            show_detail_button=True,
+            duration=5000
+        )
+
+        return {'active': True, 'log_id': log_id}, toast, ""
+
+    except Exception as e:
+        logger.error(f"Error activating emergency mode: {e}")
+        conn.rollback()  # Rollback any partial changes
+        toast = ToastManager.error(
+            "Emergency Mode Failed",
+            detail_message=f"Could not activate emergency protection: {str(e)}. Please contact your administrator."
+        )
+        return no_update, toast, ""
+
+
+# Deactivate emergency mode
+@app.callback(
+    [Output('emergency-mode-store', 'data', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    Input('emergency-deactivate-btn', 'n_clicks'),
+    State('emergency-mode-store', 'data'),
+    prevent_initial_call=True
+)
+def deactivate_emergency_mode(n_clicks, current_state):
+    """Deactivate emergency protection mode."""
+    if not n_clicks or not current_user.is_authenticated:
+        return no_update, no_update
+
+    if not current_state or not current_state.get('active'):
+        toast = ToastManager.warning(
+            "Emergency Mode Not Active",
+            detail_message="Emergency protection is not currently active."
+        )
+        return no_update, toast
+
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+
+        # Update emergency log
+        log_id = current_state.get('log_id')
+        if log_id:
+            cursor.execute('''
+                UPDATE emergency_mode_log
+                SET is_active = 0,
+                    deactivated_timestamp = CURRENT_TIMESTAMP,
+                    deactivated_by_user_id = ?,
+                    deactivated_by_username = ?
+                WHERE id = ?
+            ''', (current_user.id, current_user.username, log_id))
+
+            if cursor.rowcount == 0:
+                logger.warning(f"No emergency mode log found with id {log_id}")
+
+        conn.commit()
+
+        logger.info(f"Emergency mode deactivated by {current_user.username}")
+
+        toast = ToastManager.success(
+            "Emergency Mode Deactivated",
+            detail_message="Emergency protection has been disabled. Devices remain blocked - review them in Device Management to unblock if needed.",
+            show_detail_button=True
+        )
+
+        return {'active': False, 'log_id': None}, toast
+
+    except Exception as e:
+        logger.error(f"Error deactivating emergency mode: {e}")
+        conn.rollback()
+        toast = ToastManager.error(
+            "Deactivation Failed",
+            detail_message=f"Could not deactivate emergency protection: {str(e)}"
+        )
+        return no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error deactivating emergency mode: {e}")
+        toast = ToastManager.error(
+            "Deactivation Failed",
+            detail_message=f"Could not deactivate emergency mode: {str(e)}"
+        )
+        return no_update, toast
+
+
+# Update UI based on emergency mode state
+@app.callback(
+    [Output('emergency-button-container', 'style', allow_duplicate=True),
+     Output('emergency-active-banner', 'style'),
+     Output('emergency-status-text', 'children')],
+    Input('emergency-mode-store', 'data'),
+    prevent_initial_call=True
+)
+def update_emergency_ui(emergency_state):
+    """Update emergency mode UI elements."""
+    if not emergency_state or not emergency_state.get('active'):
+        # Not active - show button, hide banner
+        return {'display': 'block'}, {'display': 'none'}, ""
+
+    # Active - hide button, show banner
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+
+        log_id = emergency_state.get('log_id')
+        if log_id:
+            cursor.execute('''
+                SELECT devices_blocked, trigger_timestamp, triggered_by_username
+                FROM emergency_mode_log
+                WHERE id = ?
+            ''', (log_id,))
+            result = cursor.fetchone()
+
+            if result:
+                blocked_count, timestamp, username = result
+                status_text = f"{blocked_count} unknown devices blocked. Activated by {username} at {timestamp}."
+                return {'display': 'none'}, {'display': 'block'}, status_text
+
+        return {'display': 'none'}, {'display': 'block'}, "Emergency protection is active."
+
+    except Exception as e:
+        logger.error(f"Error updating emergency UI: {e}")
+        return {'display': 'none'}, {'display': 'block'}, "Emergency protection is active."
 
 
 if __name__ == '__main__':

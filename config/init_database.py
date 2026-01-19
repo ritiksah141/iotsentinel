@@ -319,6 +319,43 @@ def init_database():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_history ON user_login_history(user_id, login_timestamp DESC)')
 
+    # Template Change Audit Trail (Security & Compliance)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS template_change_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            old_template TEXT,
+            new_template TEXT,
+            change_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT,
+            user_agent TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_template_audit ON template_change_audit(user_id, change_timestamp DESC)')
+
+    # Emergency Mode Log (Home User Safety Feature)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS emergency_mode_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            triggered_by_user_id INTEGER NOT NULL,
+            triggered_by_username TEXT,
+            trigger_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            trigger_reason TEXT,
+            actions_taken TEXT,
+            devices_blocked INTEGER DEFAULT 0,
+            deactivated_timestamp TIMESTAMP,
+            deactivated_by_user_id INTEGER,
+            deactivated_by_username TEXT,
+            ip_address TEXT,
+            is_active INTEGER DEFAULT 1,
+            FOREIGN KEY (triggered_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (deactivated_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_emergency_log_active ON emergency_mode_log(is_active, trigger_timestamp DESC)')
+
     # Alert Rules table for custom user-defined rules
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alert_rules (
