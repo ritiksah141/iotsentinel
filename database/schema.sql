@@ -1,6 +1,6 @@
 -- IoTSentinel Database Schema Documentation
 -- This is for REFERENCE ONLY - actual schema is created by config/init_database.py
--- Last updated: 2025-12-20 (Added authentication enhancement tables)
+-- Last updated: 2026-01-19 (Added template audit trail and emergency mode logging)
 
 -- ====================================================================================
 -- CORE TABLES
@@ -166,6 +166,34 @@ user_login_history (
     login_method,                       -- 'password', 'oauth_google', 'webauthn'
     success BOOLEAN DEFAULT 1,          -- Login success/failure
     INDEX(user_id, login_timestamp DESC)
+)
+
+template_change_audit (
+    id PRIMARY KEY,
+    user_id → users,                    -- User who changed template
+    username,                           -- Username for quick reference
+    old_template,                       -- Previous template
+    new_template,                       -- New template selected
+    change_timestamp TIMESTAMP,         -- When change occurred
+    ip_address,                         -- Client IP (metadata only)
+    user_agent,                         -- Browser info (metadata only)
+    INDEX(user_id, change_timestamp DESC)
+)
+
+emergency_mode_log (
+    id PRIMARY KEY,
+    triggered_by_user_id → users,       -- User who activated emergency mode
+    triggered_by_username,              -- Username for quick reference
+    trigger_timestamp TIMESTAMP,        -- When activated
+    trigger_reason,                     -- User-provided reason
+    actions_taken,                      -- Description of actions (e.g., "Blocked 6 devices")
+    devices_blocked INTEGER DEFAULT 0,  -- Number of devices blocked
+    deactivated_timestamp TIMESTAMP,    -- When deactivated
+    deactivated_by_user_id → users,     -- User who deactivated
+    deactivated_by_username,            -- Username for quick reference
+    ip_address,                         -- Client IP (metadata only)
+    is_active BOOLEAN DEFAULT 1,        -- Currently active flag
+    INDEX(is_active, trigger_timestamp DESC)
 )
 
 -- ====================================================================================
@@ -798,6 +826,6 @@ scheduled_tasks (
 -- NOTES:
 -- - This schema is for documentation only
 -- - Actual tables are created by: config/init_database.py
--- - Total tables: 58 (10 core + 43 IoT security features + 3 toast system + 2 ML management)
--- - Last updated: 7 January 2026
+-- - Total tables: 60 (10 core + 43 IoT security features + 3 toast system + 2 ML management + 2 security audit)
+-- - Last updated: 19 January 2026 (Added template_change_audit and emergency_mode_log)
 -- ====================================================================================
