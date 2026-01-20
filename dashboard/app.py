@@ -957,6 +957,59 @@ DEVICE_TYPE_ICONS = {
     'other': {'emoji': '📱', 'fa': 'fa-microchip', 'color': '#6c757d'},
 }
 
+# Dashboard Templates for Role-Based Views
+DASHBOARD_TEMPLATES = {
+    'security_admin': {
+        'name': 'Security Admin',
+        'description': 'Optimized for security professionals monitoring threats',
+        'visible_features': [
+            'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
+            'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
+            'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
+            'timeline-card-btn', 'system-card-btn'
+        ],
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'home_user': {
+        'name': 'Home User',
+        'description': 'Simplified view for non-technical home users',
+        'visible_features': [
+            'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
+            'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
+            'preferences-card-btn', 'quick-settings-btn'
+        ],
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'developer': {
+        'name': 'Developer/Auditor',
+        'description': 'Full access to all features and advanced analytics',
+        'visible_features': 'all',  # Show everything
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    },
+    'custom': {
+        'name': 'Custom',
+        'description': 'User-defined custom layout',
+        'visible_features': 'custom',  # Use widget-preferences store
+        'widget_prefs': {
+            'metrics': True,
+            'features': True,
+            'rightPanel': True
+        }
+    }
+}
+
 # Onboarding Steps
 ONBOARDING_STEPS = [
     {
@@ -1636,8 +1689,8 @@ def create_baseline_comparison_chart(baseline: Dict, today_stats: Dict, metric_n
     return fig
 
 def create_educational_explanation(alert: Dict) -> html.Div:
-    baseline = alert.get('baseline', {})
-    today_stats = alert.get('today_stats', {})
+    baseline = alert.get('baseline') or {}
+    today_stats = alert.get('today_stats') or {}
     explanation_type = alert.get('explanation', 'Unknown')
     device_name = alert.get('device_name') or alert.get('device_ip', 'Unknown Device')
 
@@ -2006,13 +2059,13 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                 ]),
                 html.P([
                     html.Strong("Anomaly Score: "),
-                    f"{alert.get('anomaly_score', 0):.4f}",
+                    f"{alert.get('anomaly_score') or 0:.4f}",
                     html.I(className="fa fa-question-circle ms-2 text-muted",
                            id="anomaly-score-technical-help", style={"cursor": "pointer"})
                 ]),
                 html.P([
                     html.Strong("Detection Model: "),
-                    alert.get('model_types', 'N/A'),
+                    alert.get('model_types') or 'N/A',
                     html.I(className="fa fa-question-circle ms-2 text-muted",
                            id="detection-model-help", style={"cursor": "pointer"})
                 ]),
@@ -2022,7 +2075,7 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                     html.I(className="fa fa-question-circle ms-2 text-muted",
                            id="feature-contrib-help", style={"cursor": "pointer"})
                 ]),
-                html.Pre(json.dumps(json.loads(alert.get('top_features', '{}')), indent=2))
+                html.Pre(json.dumps(json.loads(alert.get('top_features') or '{}'), indent=2))
             ], title="🔬 Technical Details (Advanced)")
         ], start_collapsed=True, className="mt-3")
     )
@@ -3583,7 +3636,16 @@ dashboard_layout = dbc.Container([
                                      size="sm", color="info", outline=True, className="filter-btn-modern"),
                             dbc.Button([html.I(className="fa fa-info-circle")], id="filter-low",
                                      size="sm", color="secondary", outline=True, className="filter-btn-modern")
-                        ], className="w-100 mb-3", style={"gap": "0.25rem"})
+                        ], className="w-100 mb-2", style={"gap": "0.25rem"}),
+                        # Show reviewed alerts checkbox
+                        dbc.Checklist(
+                            options=[{"label": "Show Reviewed", "value": 1}],
+                            value=[],
+                            id="show-reviewed-alerts",
+                            inline=True,
+                            className="mt-2",
+                            style={"fontSize": "0.8rem"}
+                        )
                     ], className="mb-3"),
 
                     # Alerts Container (FIXED HEIGHT)
@@ -8823,18 +8885,125 @@ dashboard_layout = dbc.Container([
     # API Integration Hub Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle([
-            html.I(className="fa fa-code me-2 text-primary"),
-            "API Integration Hub"
-        ])),
+            html.I(className="fa fa-plug me-2 text-primary"),
+            "API Integration Hub - Free-Tier Integrations"
+        ]), close_button=True),
         dbc.ModalBody([
             dbc.Alert([
                 html.I(className="fa fa-info-circle me-2"),
-                "Monitor external threat intelligence API integrations."
+                "Configure and manage external API integrations for threat intelligence, notifications, ticketing, and automation. All credentials are encrypted before storage."
             ], color="info", className="mb-4"),
 
-            html.Div(id='api-integration-status')
-        ])
-    ], id="api-hub-modal", size="lg", is_open=False),
+            dbc.Tabs([
+                # Overview Tab
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.I(className="fa fa-plug fa-2x text-success mb-2")
+                                    ]),
+                                    html.H3(id="api-hub-enabled-count", className="mb-1"),
+                                    html.P("Enabled Integrations", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                                ], className="text-center p-2")
+                            ], className="glass-card border-0 shadow-sm mb-3")
+                        ], md=3),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.I(className="fa fa-heartbeat fa-2x text-info mb-2")
+                                    ]),
+                                    html.H3(id="api-hub-healthy-count", className="mb-1"),
+                                    html.P("Healthy Services", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                                ], className="text-center p-2")
+                            ], className="glass-card border-0 shadow-sm mb-3")
+                        ], md=3),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.I(className="fa fa-check-circle fa-2x text-success mb-2")
+                                    ]),
+                                    html.H3(id="api-hub-total-requests", className="mb-1"),
+                                    html.P("Total Requests", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                                ], className="text-center p-2")
+                            ], className="glass-card border-0 shadow-sm mb-3")
+                        ], md=3),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.I(className="fa fa-percentage fa-2x text-primary mb-2")
+                                    ]),
+                                    html.H3(id="api-hub-success-rate", className="mb-1"),
+                                    html.P("Success Rate", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                                ], className="text-center p-2")
+                            ], className="glass-card border-0 shadow-sm mb-3")
+                        ], md=3)
+                    ]),
+                    html.Div(id='api-hub-integration-cards', className="mt-3")
+                ], label="Overview", tab_id="api-hub-overview"),
+
+                # Threat Intelligence Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-threat-intel-content')
+                ], label="Threat Intel (8)", tab_id="api-hub-threat"),
+
+                # Notifications Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-notifications-content')
+                ], label="Notifications (5)", tab_id="api-hub-notifications"),
+
+                # Ticketing Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-ticketing-content')
+                ], label="Ticketing (4)", tab_id="api-hub-ticketing"),
+
+                # Geolocation Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-geolocation-content')
+                ], label="Geolocation (3)", tab_id="api-hub-geo"),
+
+                # Webhooks Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-webhooks-content')
+                ], label="Webhooks (4)", tab_id="api-hub-webhooks"),
+
+                # Settings Tab
+                dbc.Tab([
+                    html.Div(id='api-hub-settings-content')
+                ], label="Settings", tab_id="api-hub-settings")
+            ], id="api-hub-tabs", active_tab="api-hub-overview")
+        ], style={"maxHeight": "70vh", "overflowY": "auto"}),
+        dbc.ModalFooter([
+            dbc.Button([
+                html.I(className="fa fa-sync-alt me-2"),
+                "Refresh All"
+            ], id="api-hub-refresh-btn", color="primary", outline=True, size="sm", className="me-2"),
+            dbc.Button([
+                html.I(className="fa fa-times me-2"),
+                "Close"
+            ], id="api-hub-close-btn", color="secondary", size="sm")
+        ]),
+        dcc.Store(id='api-hub-store'),
+        # Download component for API Hub config export
+        dcc.Download(id='download-api-hub-config')
+    ], id="api-hub-modal", size="xl", is_open=False, scrollable=True),
+
+    # API Integration Configuration Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle(id="api-config-modal-title"), close_button=True),
+        dbc.ModalBody([
+            html.Div(id='api-config-form-content')
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Save Configuration", id="api-config-save-btn", color="primary", className="me-2"),
+            dbc.Button("Cancel", id="api-config-cancel-btn", color="secondary")
+        ]),
+        dcc.Store(id='api-config-store')
+    ], id="api-config-modal", size="lg", is_open=False),
 
     # Benchmarking Modal
     dbc.Modal([
@@ -9736,6 +9905,7 @@ dashboard_layout = dbc.Container([
     WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"),
     dcc.Interval(id='refresh-interval', interval=30*1000, n_intervals=0),  # 30 second refresh (optimized for performance)
     dcc.Store(id='alert-filter', data='all'),
+    dcc.Store(id='alerts-data-store', data=[]),  # Store recent alerts data
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
     dcc.Store(id='page-visibility-store', data={'visible': True}),  # Track page visibility for auto-pause
@@ -10191,6 +10361,9 @@ dashboard_layout = dbc.Container([
             is_open=False
         )
     ], id="alert-details-modal", is_open=False, size="xl"),
+
+    # Store for current alert ID
+    dcc.Store(id='current-alert-id', data=None),
 
     # Lockdown Confirmation Modal
     dbc.Modal([
@@ -12276,19 +12449,124 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
 # CALLBACKS - ALERTS
 # ============================================================================
 
+# Store alerts data from websocket OR interval (fallback for Mac/websocket issues)
+@app.callback(
+    Output('alerts-data-store', 'data'),
+    [Input('ws', 'message'), Input('refresh-interval', 'n_intervals')]
+)
+def store_alerts_data(ws_message, n_intervals):
+    print(f"\n[STORE CALLBACK] ws_message is None: {ws_message is None}, interval: {n_intervals}")
+
+    # Try websocket first
+    if ws_message is not None:
+        recent_alerts = ws_message.get('recent_alerts', [])
+        print(f"[STORE CALLBACK - WEBSOCKET] Storing {len(recent_alerts)} alerts")
+        if recent_alerts:
+            print(f"[STORE CALLBACK - WEBSOCKET] First alert: {recent_alerts[0].get('alert_type', 'unknown')}")
+        return recent_alerts
+
+    # Fallback: Fetch from database directly (for Mac or websocket failures)
+    print(f"[STORE CALLBACK - FALLBACK] Fetching alerts from database...")
+    try:
+        cursor = db_manager.conn.cursor()
+        cursor.execute("""
+            SELECT
+                a.id,
+                a.timestamp,
+                a.device_ip,
+                d.device_name,
+                a.severity,
+                a.anomaly_score,
+                a.explanation,
+                a.top_features,
+                a.acknowledged,
+                a.acknowledged_at
+            FROM alerts a
+            LEFT JOIN devices d ON a.device_ip = d.device_ip
+            WHERE a.timestamp >= datetime('now', '-24 hours')
+            ORDER BY a.timestamp DESC
+            LIMIT 100
+        """)
+
+        rows = cursor.fetchall()
+        recent_alerts = []
+        for row in rows:
+            recent_alerts.append({
+                'id': row[0],
+                'timestamp': row[1],
+                'device_ip': row[2],
+                'device_name': row[3] or 'Unknown Device',
+                'severity': row[4],
+                'anomaly_score': row[5],
+                'explanation': row[6],
+                'top_features': row[7],
+                'acknowledged': row[8] or 0,
+                'acknowledged_at': row[9]
+            })
+
+        print(f"[STORE CALLBACK - FALLBACK] Fetched {len(recent_alerts)} alerts from database")
+        if recent_alerts:
+            print(f"[STORE CALLBACK - FALLBACK] Acknowledged alerts: {sum(1 for a in recent_alerts if a.get('acknowledged') == 1)}")
+        return recent_alerts
+
+    except Exception as e:
+        print(f"[STORE CALLBACK - FALLBACK] Error fetching alerts: {e}")
+        return []
+
+# Display alerts with filtering
 @app.callback(
     Output('alerts-container-compact', 'children'),
-    [Input('ws', 'message'), Input('alert-filter', 'data')]
+    [Input('alerts-data-store', 'data'), Input('alert-filter', 'data'), Input('show-reviewed-alerts', 'value')],
+    prevent_initial_call=False
 )
-def update_alerts_compact(ws_message, filter_severity):
-    if ws_message is None:
-        # Show skeleton loader during initial load
-        return create_alert_skeleton(count=5)
-    recent_alerts_raw = ws_message.get('recent_alerts', [])
+def update_alerts_compact(recent_alerts_raw, filter_severity, show_reviewed):
+    # DEBUG: Always log when callback is triggered
+    print(f"\n[CALLBACK TRIGGERED] alerts_count={len(recent_alerts_raw) if recent_alerts_raw else 0}, filter={filter_severity}, show_reviewed={show_reviewed}")
+
+    # Handle empty or missing alerts
+    if not recent_alerts_raw:
+        return dbc.Alert([
+            html.Div([
+                html.I(className="fa fa-check-circle me-2", style={'fontSize': '1.5rem'}),
+                html.Div([
+                    html.H5("All Clear!", className="mb-1"),
+                    html.P("No security alerts detected in the last 24 hours.", className="mb-0 small text-muted")
+                ])
+            ], className="d-flex align-items-center")
+        ], color="success", className="compact-alert")
+
     df = pd.DataFrame(recent_alerts_raw)
 
-    if filter_severity != 'all' and not df.empty:
+    # DEBUG: Show what we're working with
+    print(f"\n{'='*60}")
+    print(f"[ALERT FILTERING DEBUG]")
+    print(f"{'='*60}")
+    print(f"show_reviewed raw value: {show_reviewed}")
+    print(f"show_reviewed type: {type(show_reviewed)}")
+    print(f"Total alerts before filtering: {len(df)}")
+    if not df.empty:
+        print(f"Acknowledged column values: {df['acknowledged'].value_counts().to_dict()}")
+
+    # Filter out acknowledged alerts unless user wants to see them
+    if not df.empty:
+        # show_reviewed is a list: [] when unchecked, [1] when checked
+        show_acknowledged = show_reviewed and len(show_reviewed) > 0
+        print(f"show_acknowledged (computed): {show_acknowledged}")
+
+        if not show_acknowledged:
+            print(f"Filtering OUT acknowledged alerts (keeping only acknowledged=0)")
+            df = df[df['acknowledged'] == 0]
+        else:
+            print(f"Showing ALL alerts (including acknowledged)")
+
+        print(f"Alerts after acknowledged filtering: {len(df)}")
+
+    if filter_severity and filter_severity != 'all' and not df.empty:
+        print(f"Applying severity filter: {filter_severity}")
         df = df[df['severity'] == filter_severity]
+        print(f"Alerts after severity filtering: {len(df)}")
+
+    print(f"{'='*60}\n")
 
     if len(df) == 0:
         return dbc.Alert([
@@ -12303,18 +12581,29 @@ def update_alerts_compact(ws_message, filter_severity):
 
     alert_items = []
     for _, alert in df.iterrows():
-        device_name = alert['device_name'] or alert['device_ip']
-        severity = alert['severity']
+        # Safely extract device name
+        device_name = alert.get('device_name') or alert.get('device_ip', 'Unknown Device')
+        severity = alert.get('severity', 'medium')
         config = SEVERITY_CONFIG.get(severity, SEVERITY_CONFIG['medium'])
 
+        # Safely parse timestamp
         try:
-            dt = datetime.fromisoformat(alert['timestamp'])
-            time_str = dt.strftime('%H:%M')
-        except:
+            timestamp = alert.get('timestamp')
+            if timestamp:
+                dt = datetime.fromisoformat(timestamp)
+                time_str = dt.strftime('%H:%M')
+            else:
+                time_str = "N/A"
+        except Exception as e:
             time_str = "N/A"
 
-        mitre_info = MITRE_ATTACK_MAPPING.get(alert['explanation'], {})
+        # Safely get MITRE tactic
+        explanation = alert.get('explanation', 'Unknown')
+        mitre_info = MITRE_ATTACK_MAPPING.get(explanation, {})
         tactic = mitre_info.get('tactic', 'Unknown').split('(')[0].strip()
+
+        # Check if alert is acknowledged/reviewed
+        is_reviewed = alert.get('acknowledged', 0) == 1
 
         alert_items.append(
             dbc.Card([
@@ -12323,15 +12612,16 @@ def update_alerts_compact(ws_message, filter_severity):
                         html.Div([
                             dbc.Badge([html.I(className=f"fa {config['icon']} me-1"), severity.upper()],
                                      color=config['color'], className="me-2"),
-                            dbc.Badge(tactic, color="dark", outline=True, className="badge-sm")
+                            dbc.Badge(tactic, color="dark", className="badge-sm"),
+                            dbc.Badge("✓ Reviewed", color="success", className="ms-1") if is_reviewed else None
                         ]),
                         html.Small(time_str, className="text-cyber")
                     ], className="d-flex justify-content-between mb-2"),
                     html.Strong(device_name, className="d-block mb-1"),
-                    html.P(alert['explanation'][:80] + "..." if len(alert['explanation']) > 80 else alert['explanation'],
+                    html.P(explanation[:80] + "..." if explanation and len(explanation) > 80 else (explanation or "No description available"),
                            className="alert-text-compact mb-2"),
                     dbc.Button([html.I(className="fa fa-info-circle me-1"), "Details"],
-                              id={'type': 'alert-detail-btn', 'index': int(alert['id'])},
+                              id={'type': 'alert-detail-btn', 'index': int(alert.get('id', 0))},
                               size="sm", color=config['color'], outline=True, className="w-100 cyber-button")
                 ], className="p-2")
             ], className=f"alert-card-compact mb-2 border-{config['color']}")
@@ -12341,7 +12631,8 @@ def update_alerts_compact(ws_message, filter_severity):
 @app.callback(
     [Output('alert-details-modal', 'is_open'),
      Output('alert-details-title', 'children'),
-     Output('alert-details-body', 'children')],
+     Output('alert-details-body', 'children'),
+     Output('current-alert-id', 'data')],
     [Input({'type': 'alert-detail-btn', 'index': dash.dependencies.ALL}, 'n_clicks'),
      Input('alert-close-btn', 'n_clicks')],
     [State('alert-details-modal', 'is_open')],
@@ -12350,24 +12641,72 @@ def update_alerts_compact(ws_message, filter_severity):
 def toggle_alert_details(btn_clicks, close_click, is_open):
     ctx = callback_context
     if not ctx.triggered:
-        return False, "", ""
+        return False, "", "", None
+
     trigger_id = ctx.triggered[0]['prop_id']
+
+    # Close button clicked
     if 'alert-close-btn' in trigger_id:
-        return False, "", ""
+        return False, "", "", None
+
+    # Detail button clicked - check if it was actually clicked (not None)
     if 'alert-detail-btn' in trigger_id:
+        # Check if any button was actually clicked (has a non-None value)
+        if not any(btn_clicks):
+            return dash.no_update
+
         try:
             trigger_data = json.loads(trigger_id.split('.')[0])
             alert_id = trigger_data['index']
         except (json.JSONDecodeError, KeyError):
-            return False, "", ""
+            return False, "", "", None
+
         alert = get_alert_with_context(alert_id)
         if not alert:
-            return True, "Alert Not Found", html.P("Could not load alert details.")
+            return True, "Alert Not Found", html.P("Could not load alert details."), None
+
         device_name = alert.get('device_name') or alert.get('device_ip', 'Unknown')
         title = f"🔍 Alert Details: {device_name}"
         body = create_educational_explanation(alert)
-        return True, title, body
-    return False, "", ""
+        return True, title, body, alert_id
+
+    return dash.no_update
+
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('alert-details-modal', 'is_open', allow_duplicate=True)],
+    [Input('alert-acknowledge-btn', 'n_clicks')],
+    [State('current-alert-id', 'data')],
+    prevent_initial_call=True
+)
+def acknowledge_alert_callback(n_clicks, alert_id):
+    """Mark alert as reviewed/acknowledged."""
+    if not n_clicks or not alert_id:
+        return dash.no_update, dash.no_update
+
+    try:
+        success = db_manager.acknowledge_alert(alert_id)
+
+        if success:
+            toast = ToastManager.success(
+                "Alert Reviewed",
+                detail_message=f"Alert #{alert_id} has been marked as reviewed."
+            )
+            return toast, False  # Close the modal
+        else:
+            toast = ToastManager.error(
+                "Failed to Mark as Reviewed",
+                detail_message="Failed to mark alert as reviewed. Please try again."
+            )
+            return toast, dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error acknowledging alert {alert_id}: {e}")
+        toast = ToastManager.error(
+            "Error Acknowledging Alert",
+            detail_message=f"An error occurred: {str(e)}"
+        )
+        return toast, dash.no_update
 
 @app.callback(
     Output('alert-filter', 'data'),
@@ -12401,22 +12740,51 @@ def ask_ai_about_alert(n_clicks, alert_title):
 
     try:
         # Extract device from title (format: "🔍 Alert Details: DEVICE_NAME")
-        device_name = alert_title.split(": ")[-1] if ": " in str(alert_title) else "Unknown"
+        device_identifier = alert_title.split(": ")[-1] if ": " in str(alert_title) else "Unknown"
 
-        # Get the alert from database (we need alert_id, try to find recent alert for this device)
-        query = "SELECT id, device_ip, severity, explanation, anomaly_score FROM alerts WHERE device_name = ? OR device_ip = ? ORDER BY timestamp DESC LIMIT 1"
-        alert_result = db_manager.execute_query(query, (device_name, device_name))
+        # Get the alert from database - device_identifier could be IP or name
+        # First try to get device_ip from devices table if it's a name
+        cursor = db_manager.conn.cursor()
+        cursor.execute(
+            "SELECT device_ip FROM devices WHERE device_name = ? OR device_ip = ? OR custom_name = ? LIMIT 1",
+            (device_identifier, device_identifier, device_identifier)
+        )
+        device_row = cursor.fetchone()
+
+        if device_row:
+            device_ip_to_search = device_row[0]
+        else:
+            # Assume it's already an IP
+            device_ip_to_search = device_identifier
+
+        # Now get the alert
+        cursor.execute(
+            "SELECT id, device_ip, severity, explanation, anomaly_score FROM alerts WHERE device_ip = ? ORDER BY timestamp DESC LIMIT 1",
+            (device_ip_to_search,)
+        )
+        alert_result = cursor.fetchone()
 
         if not alert_result:
             return True, [
                 dbc.Alert("Could not find alert details in database.", color="warning")
             ]
 
-        alert_id = alert_result[0][0]
-        device_ip = alert_result[0][1]
-        severity = alert_result[0][2]
-        explanation = alert_result[0][3]
-        anomaly_score = alert_result[0][4]
+        alert_id = alert_result[0]
+        device_ip = alert_result[1]
+        severity = alert_result[2]
+        explanation = alert_result[3]
+        anomaly_score = alert_result[4]
+
+        # Get device name for display
+        cursor.execute(
+            "SELECT device_name, custom_name FROM devices WHERE device_ip = ?",
+            (device_ip,)
+        )
+        device_row = cursor.fetchone()
+        if device_row and (device_row[1] or device_row[0]):
+            device_name = device_row[1] or device_row[0]
+        else:
+            device_name = device_ip
 
         # Get Smart Recommender analysis
         recommendations = smart_recommender.recommend_for_alert(alert_id)
@@ -26671,12 +27039,941 @@ def update_vuln_recommendations(is_open, refresh_clicks):
 
 @app.callback(
     Output("api-hub-modal", "is_open"),
-    Input("api-hub-card-btn", "n_clicks"),
+    [Input("api-hub-card-btn", "n_clicks"),
+     Input("api-hub-close-btn", "n_clicks")],
     State("api-hub-modal", "is_open"),
     prevent_initial_call=True
 )
-def toggle_api_hub_modal(n, is_open):
+def toggle_api_hub_modal(open_clicks, close_clicks, is_open):
     return not is_open
+
+# API Hub - Overview Stats
+@app.callback(
+    [Output('api-hub-enabled-count', 'children'),
+     Output('api-hub-healthy-count', 'children'),
+     Output('api-hub-total-requests', 'children'),
+     Output('api-hub-success-rate', 'children'),
+     Output('api-hub-integration-cards', 'children'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('api-hub-modal', 'is_open'),
+     Input('api-hub-refresh-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_api_hub_overview(is_open, refresh_clicks):
+    ctx = callback_context
+
+    if not is_open:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    # Check if refresh button was clicked
+    toast = dash.no_update
+    if ctx.triggered and 'api-hub-refresh-btn' in ctx.triggered[0]['prop_id']:
+        toast = ToastManager.info("Refreshing", detail_message="API Hub data refreshed successfully")
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        conn = get_db_connection()
+        mgr = IntegrationManager(db_manager)
+
+        # Get all integrations
+        integrations = mgr.get_all_integrations()
+
+        # Calculate stats
+        enabled_count = sum(1 for i in integrations if i['is_enabled'])
+        healthy_count = sum(1 for i in integrations if i['health_status'] == 'healthy')
+        total_requests = sum(i['total_requests'] for i in integrations)
+        total_successful = sum(i['successful_requests'] for i in integrations)
+        success_rate = f"{int(total_successful / total_requests * 100)}%" if total_requests > 0 else "N/A"
+
+        # Group by category
+        categories = {}
+        for integration in integrations:
+            cat = integration['category']
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(integration)
+
+        # Create category cards
+        category_names = {
+            'threat_intel': 'Threat Intelligence',
+            'geolocation': 'Geolocation',
+            'notifications': 'Notifications',
+            'ticketing': 'Ticketing',
+            'webhooks': 'Webhooks'
+        }
+
+        category_icons = {
+            'threat_intel': 'shield-alt',
+            'geolocation': 'globe',
+            'notifications': 'bell',
+            'ticketing': 'tasks',
+            'webhooks': 'plug'
+        }
+
+        cards = []
+        for cat, integrations_list in categories.items():
+            enabled = sum(1 for i in integrations_list if i['is_enabled'])
+            total = len(integrations_list)
+            healthy = sum(1 for i in integrations_list if i['health_status'] == 'healthy' and i['is_enabled'])
+
+            cards.append(
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader([
+                            html.I(className=f"fa fa-{category_icons.get(cat, 'cog')} me-2"),
+                            category_names.get(cat, cat.title())
+                        ], className="glass-card-header"),
+                        dbc.CardBody([
+                            html.Div([
+                                html.H4(f"{enabled}/{total}", className="mb-1"),
+                                html.P("Enabled", className="text-muted small mb-2"),
+                                html.Div([
+                                    html.I(className=f"fa fa-circle text-{'success' if healthy == enabled and enabled > 0 else 'warning'} me-1"),
+                                    html.Small(f"{healthy} healthy", className="text-muted")
+                                ])
+                            ])
+                        ])
+                    ], className="glass-card border-0 shadow-sm h-100")
+                ], md=4, className="mb-3")
+            )
+
+        return (
+            str(enabled_count),
+            str(healthy_count),
+            str(total_requests),
+            success_rate,
+            dbc.Row(cards),
+            toast
+        )
+
+    except Exception as e:
+        logger.error(f"Error updating API hub overview: {e}")
+        return "0", "0", "0", "N/A", dbc.Alert(f"Error: {str(e)}", color="danger"), dash.no_update
+
+# API Hub - Threat Intel Tab
+@app.callback(
+    Output('api-hub-threat-intel-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_threat_intel_tab(active_tab):
+    if active_tab != 'api-hub-threat':
+        return dash.no_update
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        mgr = IntegrationManager(db_manager)
+        integrations = mgr.get_integrations_by_category('threat_intel')
+
+        return create_integration_config_ui(integrations, 'threat_intel')
+
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# API Hub - Notifications Tab
+@app.callback(
+    Output('api-hub-notifications-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_notifications_tab(active_tab):
+    if active_tab != 'api-hub-notifications':
+        return dash.no_update
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        mgr = IntegrationManager(db_manager)
+        integrations = mgr.get_integrations_by_category('notifications')
+
+        return create_integration_config_ui(integrations, 'notifications')
+
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# API Hub - Ticketing Tab
+@app.callback(
+    Output('api-hub-ticketing-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_ticketing_tab(active_tab):
+    if active_tab != 'api-hub-ticketing':
+        return dash.no_update
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        mgr = IntegrationManager(db_manager)
+        integrations = mgr.get_integrations_by_category('ticketing')
+
+        return create_integration_config_ui(integrations, 'ticketing')
+
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# API Hub - Geolocation Tab
+@app.callback(
+    Output('api-hub-geolocation-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_geolocation_tab(active_tab):
+    if active_tab != 'api-hub-geo':
+        return dash.no_update
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        mgr = IntegrationManager(db_manager)
+        integrations = mgr.get_integrations_by_category('geolocation')
+
+        return create_integration_config_ui(integrations, 'geolocation')
+
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# API Hub - Webhooks Tab
+@app.callback(
+    Output('api-hub-webhooks-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_webhooks_tab(active_tab):
+    if active_tab != 'api-hub-webhooks':
+        return dash.no_update
+
+    try:
+        from alerts.integration_system import IntegrationManager
+
+        mgr = IntegrationManager(db_manager)
+        integrations = mgr.get_integrations_by_category('webhooks')
+
+        return create_integration_config_ui(integrations, 'webhooks')
+
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+
+# API Hub - Settings Tab
+@app.callback(
+    Output('api-hub-settings-content', 'children'),
+    Input('api-hub-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_api_hub_settings_tab(active_tab):
+    if active_tab != 'api-hub-settings':
+        return dash.no_update
+
+    try:
+        return dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader([
+                            html.I(className="fa fa-cog me-2"),
+                            "Integration Hub Settings"
+                        ], className="glass-card-header"),
+                        dbc.CardBody([
+                            # Rate Limiting Settings
+                            html.H6([html.I(className="fa fa-tachometer-alt me-2"), "Rate Limiting"], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Global Daily Request Limit", className="form-label"),
+                                    dbc.Input(type="number", value=10000, disabled=True, size="sm"),
+                                    html.Small("Maximum total API requests per day across all integrations", className="text-muted")
+                                ], md=6),
+                                dbc.Col([
+                                    html.Label("Request Timeout (seconds)", className="form-label"),
+                                    dbc.Input(type="number", value=30, disabled=True, size="sm"),
+                                    html.Small("Maximum time to wait for API responses", className="text-muted")
+                                ], md=6)
+                            ], className="mb-4"),
+
+                            html.Hr(),
+
+                            # Encryption Settings
+                            html.H6([html.I(className="fa fa-lock me-2"), "Security & Encryption"], className="mb-3"),
+                            dbc.Alert([
+                                html.I(className="fa fa-shield-alt me-2"),
+                                "All API credentials are encrypted using AES-256 Fernet encryption before database storage. ",
+                                "The encryption key is stored in .env as ",
+                                html.Code("IOTSENTINEL_ENCRYPTION_KEY"),
+                                ". Never share or commit this key!"
+                            ], color="success", className="mb-3"),
+
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Encryption Status", className="form-label"),
+                                    dbc.InputGroup([
+                                        dbc.InputGroupText(html.I(className="fa fa-check-circle text-success")),
+                                        dbc.Input(value="Active - AES-256 Fernet", disabled=True, size="sm")
+                                    ]),
+                                ], md=6),
+                                dbc.Col([
+                                    html.Label("Credential Storage", className="form-label"),
+                                    dbc.InputGroup([
+                                        dbc.InputGroupText(html.I(className="fa fa-database text-info")),
+                                        dbc.Input(value="SQLite - Encrypted Blobs", disabled=True, size="sm")
+                                    ]),
+                                ], md=6)
+                            ], className="mb-4"),
+
+                            html.Hr(),
+
+                            # Legacy Integration Info - UPDATED
+                            html.H6([html.I(className="fa fa-sync-alt me-2"), "Legacy Code Integration"], className="mb-3"),
+                            dbc.Alert([
+                                html.I(className="fa fa-check-circle me-2"),
+                                html.Strong("✅ UPDATED: "),
+                                "The legacy threat intelligence system (utils/threat_intel.py) has been updated to support Integration Hub! ",
+                                html.Br(),
+                                html.Br(),
+                                html.Strong("Priority order for API keys: "),
+                                html.Br(),
+                                "1️⃣ Direct parameter (highest priority)",
+                                html.Br(),
+                                "2️⃣ Environment variable (.env)",
+                                html.Br(),
+                                "3️⃣ Integration Hub (encrypted database) ← NEW!",
+                                html.Br(),
+                                html.Br(),
+                                html.Strong("What this means: "),
+                                html.Br(),
+                                "• You can safely remove API keys from .env",
+                                html.Br(),
+                                "• Legacy code automatically reads from Integration Hub",
+                                html.Br(),
+                                "• All threat intelligence features continue working",
+                                html.Br(),
+                                "• Single source of truth: Integration Hub database",
+                                html.Br(),
+                                html.Br(),
+                                html.I(className="fa fa-shield-alt me-2"),
+                                html.Strong("Security: "),
+                                "Keys in .env are plaintext. Keys in Integration Hub are AES-256 encrypted!"
+                            ], color="success", className="mb-3"),
+
+                            html.Hr(),
+
+                            # Data Management
+                            html.H6([html.I(className="fa fa-database me-2"), "Data Management"], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Button([
+                                        html.I(className="fa fa-trash-alt me-2"),
+                                        "Clear Request Logs"
+                                    ], id="api-hub-clear-logs-btn", color="danger", outline=True, size="sm", className="w-100 mb-2"),
+                                    html.Small("Remove all API request history", className="text-muted")
+                                ], md=4),
+                                dbc.Col([
+                                    dbc.Button([
+                                        html.I(className="fa fa-sync-alt me-2"),
+                                        "Reset Health Status"
+                                    ], id="api-hub-reset-health-btn", color="warning", outline=True, size="sm", className="w-100 mb-2"),
+                                    html.Small("Clear health check cache", className="text-muted")
+                                ], md=4),
+                                dbc.Col([
+                                    html.Label("Export Format:", className="fw-bold mb-2 small"),
+                                    dbc.Select(
+                                        id='api-hub-export-format',
+                                        options=[
+                                            {'label': '📄 CSV Format', 'value': 'csv'},
+                                            {'label': '📋 JSON Format', 'value': 'json'},
+                                            {'label': '📕 PDF Report', 'value': 'pdf'},
+                                            {'label': '📊 Excel Workbook', 'value': 'excel'}
+                                        ],
+                                        value='json',
+                                        size="sm",
+                                        className="mb-2"
+                                    ),
+                                    dbc.Button([
+                                        html.I(className="fa fa-download me-2"),
+                                        "Export Config"
+                                    ], id="api-hub-export-config-btn", color="info", outline=True, size="sm", className="w-100 mb-2"),
+                                    html.Small("Download integration settings", className="text-muted")
+                                ], md=4)
+                            ]),
+
+                            html.Hr(),
+
+                            # Quick Setup Guide
+                            html.H6([html.I(className="fa fa-rocket me-2"), "Quick Setup Guide"], className="mb-3"),
+                            dbc.Alert([
+                                html.I(className="fa fa-lightbulb me-2"),
+                                html.Strong("New to Integration Hub? "),
+                                "Follow these steps:",
+                                html.Br(),
+                                html.Br(),
+                                "1️⃣ Navigate to any integration category tab (Threat Intel, Notifications, etc.)",
+                                html.Br(),
+                                "2️⃣ Click ",
+                                html.Strong("Configure"),
+                                " on an integration card",
+                                html.Br(),
+                                "3️⃣ Enter your API credentials (get free keys from provider websites)",
+                                html.Br(),
+                                "4️⃣ Click ",
+                                html.Strong("Test"),
+                                " to verify the connection",
+                                html.Br(),
+                                "5️⃣ Toggle ",
+                                html.Strong("Enable"),
+                                " to activate the integration",
+                                html.Br(),
+                                html.Br(),
+                                html.I(className="fa fa-check-circle text-success me-2"),
+                                "All credentials are automatically encrypted with AES-256 before storage!"
+                            ], color="info", className="mb-0")
+                        ])
+                    ], className="glass-card border-0 shadow-sm")
+                ], md=12)
+            ]),
+
+            # Confirmation modals
+            dbc.Modal([
+                dbc.ModalHeader(dbc.ModalTitle([
+                    html.I(className="fa fa-exclamation-triangle me-2 text-danger"),
+                    "Clear Request Logs?"
+                ])),
+                dbc.ModalBody([
+                    html.P("This will permanently delete all API request history from the database."),
+                    html.P([
+                        html.Strong("Warning: "),
+                        "This action cannot be undone!"
+                    ], className="text-danger mb-0")
+                ]),
+                dbc.ModalFooter([
+                    dbc.Button("Cancel", id="cancel-clear-logs-btn", color="secondary", size="sm", className="me-2"),
+                    dbc.Button([
+                        html.I(className="fa fa-trash-alt me-2"),
+                        "Clear Logs"
+                    ], id="confirm-clear-logs-btn", color="danger", size="sm")
+                ])
+            ], id="clear-logs-confirm-modal", is_open=False),
+
+            dbc.Modal([
+                dbc.ModalHeader(dbc.ModalTitle([
+                    html.I(className="fa fa-sync-alt me-2 text-warning"),
+                    "Reset Health Status?"
+                ])),
+                dbc.ModalBody([
+                    html.P("This will clear all health check results and force re-validation of all integrations."),
+                    html.P("The next health check will run automatically within a few minutes.", className="text-muted mb-0")
+                ]),
+                dbc.ModalFooter([
+                    dbc.Button("Cancel", id="cancel-reset-health-btn", color="secondary", size="sm", className="me-2"),
+                    dbc.Button([
+                        html.I(className="fa fa-sync-alt me-2"),
+                        "Reset Status"
+                    ], id="confirm-reset-health-btn", color="warning", size="sm")
+                ])
+            ], id="reset-health-confirm-modal", is_open=False)
+        ], fluid=True)
+
+    except Exception as e:
+        logger.error(f"Error rendering API Hub settings: {e}")
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+
+def create_integration_config_ui(integrations, category):
+    """Helper function to create integration configuration UI."""
+
+    cards = []
+
+    for integration in integrations:
+        # Status badge
+        status_color = {
+            'healthy': 'success',
+            'degraded': 'warning',
+            'error': 'danger',
+            'untested': 'secondary'
+        }.get(integration['health_status'], 'secondary')
+
+        status_badge = dbc.Badge(
+            integration['health_status'].title(),
+            color=status_color,
+            className="ms-2"
+        )
+
+        # Priority badge
+        priority_color = {
+            'high': 'danger',
+            'medium': 'warning',
+            'low': 'info'
+        }.get(integration['priority'], 'secondary')
+
+        priority_badge = dbc.Badge(
+            f"{integration['priority'].title()} Priority",
+            color=priority_color,
+            pill=True
+        )
+
+        # Create card
+        card = dbc.Col([
+            dbc.Card([
+                dbc.CardHeader([
+                    html.Div([
+                        html.I(className=f"fa fa-{integration['icon']} me-2"),
+                        html.Strong(integration['name']),
+                        status_badge
+                    ], className="d-flex align-items-center justify-content-between")
+                ], className="glass-card-header"),
+                dbc.CardBody([
+                    html.P(integration['description'], className="text-muted small mb-2"),
+                    html.Div([
+                        priority_badge,
+                        dbc.Badge(integration['free_tier'], color="success", className="ms-2")
+                    ], className="mb-3"),
+
+                    html.Div([
+                        html.Small(f"Requests: {integration['total_requests']} | Success: {integration['successful_requests']} | Failed: {integration['failed_requests']}",
+                                 className="text-muted d-block mb-2")
+                    ]),
+
+                    html.Hr(),
+
+                    # Action buttons
+                    dbc.ButtonGroup([
+                        dbc.Button([
+                            html.I(className="fa fa-cog me-1"),
+                            "Configure"
+                        ], id={"type": "config-integration", "index": integration['id']},
+                           color="primary", size="sm", outline=True),
+                        dbc.Button([
+                            html.I(className="fa fa-vial me-1"),
+                            "Test"
+                        ], id={"type": "test-integration", "index": integration['id']},
+                           color="info", size="sm", outline=True),
+                        dbc.Button([
+                            html.I(className=f"fa fa-{'toggle-on' if integration['is_enabled'] else 'toggle-off'} me-1"),
+                            "Enabled" if integration['is_enabled'] else "Disabled"
+                        ], id={"type": "toggle-integration", "index": integration['id']},
+                           color="success" if integration['is_enabled'] else "secondary",
+                           size="sm", outline=not integration['is_enabled'])
+                    ], className="w-100"),
+
+                    # Documentation link
+                    html.Div([
+                        html.A([
+                            html.I(className="fa fa-book me-1"),
+                            "Documentation"
+                        ], href=integration['docs_url'], target="_blank",
+                           className="small text-muted text-decoration-none d-block mt-2")
+                    ])
+                ])
+            ], className="glass-card border-0 shadow-sm h-100")
+        ], md=6, lg=4, className="mb-3")
+
+        cards.append(card)
+
+    if not cards:
+        return dbc.Alert("No integrations available in this category.", color="info")
+
+    return dbc.Row(cards)
+
+
+# API Hub - Configure Integration Button
+@app.callback(
+    [Output('api-config-modal', 'is_open'),
+     Output('api-config-modal-title', 'children'),
+     Output('api-config-form-content', 'children'),
+     Output('api-config-store', 'data')],
+    [Input({'type': 'config-integration', 'index': ALL}, 'n_clicks'),
+     Input('api-config-save-btn', 'n_clicks'),
+     Input('api-config-cancel-btn', 'n_clicks')],
+    [State('api-config-modal', 'is_open'),
+     State('api-config-store', 'data'),
+     State({'type': 'api-config-field', 'field': ALL}, 'value'),
+     State({'type': 'api-config-field', 'field': ALL}, 'id'),
+     State({'type': 'config-integration-enable', 'index': ALL}, 'value')],
+    prevent_initial_call=True
+)
+def handle_integration_config(config_clicks, save_click, cancel_click, is_open, store_data,
+                              field_values, field_ids, enable_values):
+    """Handle integration configuration modal."""
+    from alerts.integration_system import IntegrationManager, INTEGRATIONS
+
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    trigger_id = ctx.triggered[0]['prop_id']
+
+    # Cancel button clicked
+    if 'api-config-cancel-btn' in trigger_id:
+        return False, dash.no_update, dash.no_update, None
+
+    # Save button clicked
+    if 'api-config-save-btn' in trigger_id and store_data:
+        try:
+            integration_id = store_data.get('integration_id')
+            mgr = IntegrationManager(db_manager)
+
+            # Build credentials dict from form fields
+            credentials = {}
+            if field_values and field_ids:
+                for value, field_id in zip(field_values, field_ids):
+                    field_name = field_id['field']
+                    if value:  # Only include non-empty values
+                        credentials[field_name] = value
+
+            # Get enabled status
+            enabled = bool(enable_values[0]) if enable_values else False
+
+            # Save configuration (credentials will be encrypted automatically)
+            success = mgr.configure_integration(integration_id, enabled=enabled, **credentials)
+
+            if success:
+                return False, dash.no_update, dash.no_update, None
+            else:
+                return True, dash.no_update, dbc.Alert("Failed to save configuration", color="danger"), store_data
+
+        except Exception as e:
+            logger.error(f"Error saving integration config: {e}")
+            return True, dash.no_update, dbc.Alert(f"Error: {str(e)}", color="danger"), store_data
+
+    # Configure button clicked - open modal
+    if any(config_clicks):
+        # Find which button was clicked
+        integration_id = None
+        for i, clicks in enumerate(config_clicks):
+            if clicks:
+                button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+                integration_id = eval(button_id)['index']
+                break
+
+        if not integration_id or integration_id not in INTEGRATIONS:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        integration_info = INTEGRATIONS[integration_id]
+        mgr = IntegrationManager(db_manager)
+        integration_data = mgr.get_integration(integration_id)
+
+        # Build configuration form
+        form_fields = []
+
+        # Add enable/disable switch
+        form_fields.append(
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Enable Integration"),
+                    dbc.Switch(
+                        id={'type': 'config-integration-enable', 'index': integration_id},
+                        value=integration_data.get('is_enabled', False),
+                        className="mb-3"
+                    )
+                ])
+            ])
+        )
+
+        # Add fields based on integration requirements
+        for field in integration_info.get('setup_fields', []):
+            field_label = field.replace('_', ' ').title()
+            field_type = "password" if field in ['password', 'api_key', 'api_secret', 'api_token',
+                                                  'personal_access_token', 'bot_token', 'webhook_key',
+                                                  'user_key'] else "text"
+
+            placeholder = f"Enter your {field_label.lower()}"
+            if field == 'webhook_url':
+                placeholder = f"https://..."
+            elif field == 'smtp_port':
+                placeholder = "587"
+
+            form_fields.append(
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label(field_label),
+                        dbc.Input(
+                            id={'type': 'api-config-field', 'field': field},
+                            type=field_type,
+                            placeholder=placeholder,
+                            className="mb-3"
+                        )
+                    ])
+                ])
+            )
+
+        # Add helpful information
+        info_alert = dbc.Alert([
+            html.H5([html.I(className=f"fa fa-{integration_info['icon']} me-2"), integration_info['name']]),
+            html.P(integration_info['description'], className="mb-2"),
+            html.Hr(),
+            html.Div([
+                html.Strong("Free Tier: "),
+                html.Span(integration_info['free_tier'], className="text-success")
+            ], className="mb-2"),
+            html.Div([
+                html.Strong("Priority: "),
+                dbc.Badge(integration_info['priority'].title(),
+                         color={'high': 'danger', 'medium': 'warning', 'low': 'info'}[integration_info['priority']])
+            ], className="mb-2"),
+            html.Hr(),
+            html.Small([
+                html.I(className="fa fa-book me-1"),
+                html.A("View Documentation", href=integration_info['docs_url'],
+                      target="_blank", className="text-decoration-none")
+            ])
+        ], color="info", className="mb-3")
+
+        form_content = html.Div([
+            info_alert,
+            html.Div(form_fields)
+        ])
+
+        title = [
+            html.I(className=f"fa fa-{integration_info['icon']} me-2"),
+            f"Configure {integration_info['name']}"
+        ]
+
+        store_data = {'integration_id': integration_id}
+
+        return True, title, form_content, store_data
+
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+# API Hub - Test Integration Button
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    Input({'type': 'test-integration', 'index': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+def test_integration_handler(test_clicks):
+    """Test an integration to verify it's working."""
+    from alerts.integration_system import IntegrationManager
+    from alerts.integration_actions import IntegrationActions
+
+    if not any(test_clicks):
+        return dash.no_update
+
+    ctx = callback_context
+    button_id = eval(ctx.triggered[0]['prop_id'].split('.')[0])
+    integration_id = button_id['index']
+
+    try:
+        mgr = IntegrationManager(db_manager)
+        actions = IntegrationActions(db_manager)
+        integration = mgr.get_integration(integration_id)
+
+        if not integration or not integration['is_enabled']:
+            return ToastManager.error("Integration Not Enabled",
+                                     detail_message="Please configure and enable this integration first.")
+
+        # Test based on category
+        success = False
+        error_msg = None
+
+        try:
+            if integration['category'] == 'notifications':
+                if integration_id == 'slack':
+                    success = actions.send_slack_alert("🧪 Test alert from IoTSentinel", "low")
+                elif integration_id == 'discord':
+                    success = actions.send_discord_alert("🧪 Test alert from IoTSentinel", "low")
+                elif integration_id == 'telegram':
+                    success = actions.send_telegram_alert("🧪 Test alert from IoTSentinel")
+                elif integration_id == 'email_smtp':
+                    success = actions.send_email_alert("Test Alert", "This is a test from IoTSentinel")
+
+            elif integration['category'] == 'threat_intel':
+                # Test with Google DNS IP (known safe)
+                result = actions.query_threat_intel("8.8.8.8")
+                success = bool(result and result.get('sources'))
+
+            elif integration['category'] == 'geolocation':
+                result = actions.get_ip_geolocation("8.8.8.8")
+                success = bool(result)
+
+            else:
+                success = True  # Other categories don't have easy tests
+
+        except Exception as e:
+            error_msg = str(e)
+            success = False
+
+        if success:
+            mgr.update_health_status(integration_id, 'healthy')
+            return ToastManager.success("Integration Test Passed",
+                                       detail_message=f"{integration['name']} is working correctly!")
+        else:
+            mgr.update_health_status(integration_id, 'error', error_msg)
+            return ToastManager.error("Integration Test Failed",
+                                     detail_message=error_msg or "Please check your configuration.")
+
+    except Exception as e:
+        logger.error(f"Error testing integration: {e}")
+        return ToastManager.error("Test Error", detail_message=str(e))
+
+
+# API Hub - Toggle Integration Enable/Disable
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    Input({'type': 'toggle-integration', 'index': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+def toggle_integration_handler(toggle_clicks):
+    """Toggle integration enabled/disabled state."""
+    from alerts.integration_system import IntegrationManager
+
+    if not any(toggle_clicks):
+        return dash.no_update
+
+    ctx = callback_context
+    button_id = eval(ctx.triggered[0]['prop_id'].split('.')[0])
+    integration_id = button_id['index']
+
+    try:
+        mgr = IntegrationManager(db_manager)
+        integration = mgr.get_integration(integration_id)
+
+        if not integration:
+            return ToastManager.error("Error", detail_message="Integration not found")
+
+        # Toggle the state
+        if integration['is_enabled']:
+            success = mgr.disable_integration(integration_id)
+            if success:
+                return ToastManager.info("Integration Disabled",
+                                        detail_message=f"{integration['name']} has been disabled")
+        else:
+            # Check if configured before enabling
+            creds = mgr.get_integration_credentials(integration_id)
+            if not creds:
+                return ToastManager.warning("Configuration Required",
+                                           detail_message="Please configure this integration before enabling it")
+
+            success = mgr.configure_integration(integration_id, enabled=True, **creds)
+            if success:
+                return ToastManager.success("Integration Enabled",
+                                           detail_message=f"{integration['name']} is now active")
+
+        return dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error toggling integration: {e}")
+        return ToastManager.error("Error", detail_message=str(e))
+
+
+# API Hub Settings - Clear Logs Confirmation Modal
+@app.callback(
+    Output("clear-logs-confirm-modal", "is_open"),
+    [Input("api-hub-clear-logs-btn", "n_clicks"),
+     Input("cancel-clear-logs-btn", "n_clicks"),
+     Input("confirm-clear-logs-btn", "n_clicks")],
+    State("clear-logs-confirm-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_clear_logs_modal(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return not is_open
+
+
+# API Hub Settings - Clear Request Logs
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output("clear-logs-confirm-modal", "is_open", allow_duplicate=True)],
+    Input("confirm-clear-logs-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def clear_request_logs_handler(confirm_clicks):
+    """Clear all API request logs from database."""
+    if not confirm_clicks:
+        return dash.no_update, dash.no_update
+
+    try:
+        cursor = db_manager.conn.cursor()
+        cursor.execute("DELETE FROM api_integration_logs")
+        db_manager.conn.commit()
+
+        return ToastManager.success("Logs Cleared",
+                                   detail_message="All API request logs have been deleted"), False
+    except Exception as e:
+        logger.error(f"Error clearing logs: {e}")
+        return ToastManager.error("Error", detail_message=str(e)), False
+
+
+# API Hub Settings - Reset Health Confirmation Modal
+@app.callback(
+    Output("reset-health-confirm-modal", "is_open"),
+    [Input("api-hub-reset-health-btn", "n_clicks"),
+     Input("cancel-reset-health-btn", "n_clicks"),
+     Input("confirm-reset-health-btn", "n_clicks")],
+    State("reset-health-confirm-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_reset_health_modal(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return not is_open
+
+
+# API Hub Settings - Reset Health Status
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output("reset-health-confirm-modal", "is_open", allow_duplicate=True)],
+    Input("confirm-reset-health-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def reset_health_status_handler(confirm_clicks):
+    """Reset all integration health statuses."""
+    if not confirm_clicks:
+        return dash.no_update, dash.no_update
+
+    try:
+        cursor = db_manager.conn.cursor()
+        cursor.execute("""
+            UPDATE api_integrations
+            SET health_status = 'untested',
+                last_health_check = NULL
+        """)
+        db_manager.conn.commit()
+
+        return ToastManager.success("Health Status Reset",
+                                   detail_message="All health checks have been cleared. Re-validation will occur automatically."), False
+    except Exception as e:
+        logger.error(f"Error resetting health: {e}")
+        return ToastManager.error("Error", detail_message=str(e)), False
+
+
+# API Hub Settings - Export Configuration
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('download-api-hub-config', 'data')],
+    Input("api-hub-export-config-btn", "n_clicks"),
+    State('api-hub-export-format', 'value'),
+    prevent_initial_call=True
+)
+def export_config_handler(export_clicks, export_format):
+    """Export integration configuration (credentials excluded for security)."""
+    if not export_clicks:
+        return dash.no_update, dash.no_update
+
+    try:
+        export_format = export_format or 'json'
+        logger.info(f"API Hub export config button clicked (format: {export_format})")
+
+        # Use export_helper for consistent export pattern (like other export buttons)
+        download_data = export_helper.export_integrations(format=export_format)
+
+        logger.info(f"Export data returned: {download_data is not None}")
+
+        if download_data:
+            logger.info(f"Preparing download: {download_data.get('filename')}")
+            return (
+                ToastManager.success("Configuration Exported",
+                                   detail_message=f"Download started as {export_format.upper()} (credentials excluded for security)"),
+                download_data
+            )
+        else:
+            logger.warning("Export integrations returned None")
+            return (
+                ToastManager.error("Export Failed",
+                                 detail_message="No data available or export failed"),
+                None
+            )
+    except Exception as e:
+        logger.error(f"Error exporting config: {e}", exc_info=True)
+        return ToastManager.error("Error", detail_message=str(e)), None
+
 
 @app.callback(
     Output("benchmark-modal", "is_open"),
@@ -34565,59 +35862,7 @@ def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
 # ROLE-BASED DASHBOARD TEMPLATE CALLBACKS
 # ============================================================================
 
-# Template configurations for different user roles
-DASHBOARD_TEMPLATES = {
-    'security_admin': {
-        'name': 'Security Admin',
-        'description': 'Optimized for security professionals monitoring threats',
-        'visible_features': [
-            'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
-            'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
-            'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
-            'timeline-card-btn', 'system-card-btn'
-        ],
-        'widget_prefs': {
-            'metrics': True,
-            'features': True,
-            'rightPanel': True
-        }
-    },
-    'home_user': {
-        'name': 'Home User',
-        'description': 'Simplified view for non-technical home users',
-        'visible_features': [
-            'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
-            'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
-            'preferences-card-btn', 'quick-settings-btn'
-        ],
-        'widget_prefs': {
-            'metrics': True,
-            'features': True,
-            'rightPanel': True
-        }
-    },
-    'developer': {
-        'name': 'Developer/Auditor',
-        'description': 'Full access to all features and advanced analytics',
-        'visible_features': 'all',  # Show everything
-        'widget_prefs': {
-            'metrics': True,
-            'features': True,
-            'rightPanel': True
-        }
-    },
-    'custom': {
-        'name': 'Custom',
-        'description': 'User-defined custom layout',
-        'visible_features': 'custom',  # Use widget-preferences store
-        'widget_prefs': {
-            'metrics': True,
-            'features': True,
-            'rightPanel': True
-        }
-    }
-}
-
+# Note: DASHBOARD_TEMPLATES constant is defined in the CONSTANTS section
 
 # ============================================================================
 # DASHBOARD TEMPLATE MANAGEMENT

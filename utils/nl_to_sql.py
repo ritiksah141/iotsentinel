@@ -214,7 +214,9 @@ class NLtoSQLGenerator:
             if 'LIMIT' not in sql.upper():
                 sql += f" LIMIT {max_results}"
 
-            results = self.db.execute_query(sql)
+            cursor = self.db.conn.cursor()
+            cursor.execute(sql)
+            results = cursor.fetchall()
 
             # Get column names (extract from SQL or use default)
             columns = self._extract_column_names(sql)

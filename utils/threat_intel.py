@@ -2,11 +2,17 @@
 """
 Threat Intelligence Module for IoTSentinel
 Provides IP reputation lookups using AbuseIPDB API with local caching
+
+Now supports reading API keys from:
+1. Direct parameter (legacy)
+2. Environment variable (.env)
+3. Integration Hub (encrypted database)
 """
 
 import logging
 import sqlite3
 import requests
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -20,20 +26,21 @@ class ThreatIntelligence:
     Uses AbuseIPDB API (free tier: 1,000 lookups/day)
     """
 
-    def __init__(self, api_key: str, db_path: str = None, db_manager=None, cache_hours: int = 24):
+    def __init__(self, api_key: str = None, db_path: str = None, db_manager=None, cache_hours: int = 24):
         """
         Initialize threat intelligence service.
 
         Args:
-            api_key: AbuseIPDB API key
+            api_key: AbuseIPDB API key (optional - will try env vars and Integration Hub)
             db_path: Path to SQLite database for caching (legacy)
             db_manager: DatabaseManager instance (preferred)
             cache_hours: Hours to cache results (default 24)
         """
-        self.api_key = api_key
+        # Try multiple sources for API key
+        self.api_key = self._get_api_key(api_key, db_manager)
         self.cache_hours = cache_hours
         self.api_url = "https://api.abuseipdb.com/api/v2/check"
-        self.enabled = bool(api_key and api_key != "your_api_key_here")
+        self.enabled = bool(self.api_key and self.api_key != "your_api_key_here")
 
         if db_manager is not None:
             self.db_manager = db_manager
@@ -47,7 +54,48 @@ class ThreatIntelligence:
             self._init_database()
             logger.info("Threat Intelligence enabled with AbuseIPDB")
         else:
-            logger.warning("Threat Intelligence disabled - no valid API key")
+            logger.warning("Threat Intelligence disabled - no valid API key found")
+
+    def _get_api_key(self, api_key: str, db_manager) -> Optional[str]:
+        """
+        Get API key from multiple sources in priority order:
+        1. Direct parameter (highest priority)
+        2. Environment variable
+        3. Integration Hub (encrypted database)
+
+        Args:
+            api_key: Direct API key parameter
+            db_manager: Database manager for Integration Hub access
+
+        Returns:
+            API key or None
+        """
+        # 1. Direct parameter
+        if api_key and api_key != "your_api_key_here":  # pragma: allowlist secret
+            logger.debug("Using API key from direct parameter")
+            return api_key
+
+        # 2. Environment variable
+        env_key = os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY')
+        if env_key and env_key != "your_api_key_here": # pragma: allowlist secret
+            logger.debug("Using API key from environment variable")
+            return env_key
+
+        # 3. Integration Hub (encrypted database)
+        if db_manager is not None:
+            try:
+                from alerts.integration_system import IntegrationManager
+                mgr = IntegrationManager(db_manager)
+                credentials = mgr.get_integration_credentials('abuseipdb')
+
+                if credentials and credentials.get('api_key'):
+                    logger.info("Using API key from Integration Hub (encrypted)")
+                    return credentials['api_key']
+            except Exception as e:
+                logger.debug(f"Could not load from Integration Hub: {e}")
+
+        logger.warning("No AbuseIPDB API key found in any source")
+        return None
 
     def _init_database(self):
         """Create ip_reputation table if it doesn't exist"""
