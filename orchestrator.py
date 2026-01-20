@@ -55,6 +55,10 @@ from utils.upnp_scanner import get_upnp_scanner
 from utils.active_scanner import get_active_scanner
 from utils.vulnerability_sync import get_vulnerability_sync
 from utils.network_security_scorer import get_security_scorer
+
+# Import API Integration Hub
+from alerts.integration_system import IntegrationManager
+
 import os
 from dotenv import load_dotenv
 
@@ -163,6 +167,7 @@ class IoTSentinelOrchestrator:
         self.active_scanner = None
         self.vuln_sync = None
         self.security_scorer = None
+        self.integration_manager = None
 
         try:
             # Load environment variables
@@ -174,6 +179,11 @@ class IoTSentinelOrchestrator:
             self.auto_provisioner = get_auto_provisioner(db_path=db_path)
             self.security_scorer = get_security_scorer(db_path=db_path)
             logger.info("Auto-provisioner and security scorer initialized")
+
+            # Initialize API Integration Hub
+            self.integration_manager = IntegrationManager(db_path=db_path)
+            enabled_count = len([i for i in self.integration_manager.get_all_integrations() if i.get('enabled')])
+            logger.info(f"API Integration Hub initialized ({enabled_count} integrations enabled)")
 
             # Initialize NVD vulnerability sync if enabled
             if config.get('nvd', {}).get('enabled', True):
@@ -484,6 +494,14 @@ class IoTSentinelOrchestrator:
             logger.info(f"    - Protocol Analysis: ✓")
             logger.info(f"    - Privacy Monitoring: ✓")
             logger.info(f"    - Smart Home Integration: ✓")
+
+        # API Integration Hub status
+        if self.integration_manager:
+            integrations = self.integration_manager.get_all_integrations()
+            enabled = [i for i in integrations if i.get('enabled')]
+            logger.info(f"  API Integration Hub: {len(enabled)}/{len(integrations)} integrations enabled")
+            if enabled:
+                logger.info(f"    - Active integrations: {', '.join([i['name'] for i in enabled[:5]])}")
 
         logger.info("=" * 60)
 

@@ -1070,6 +1070,60 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_energy_date ON device_energy_estimates(date)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_energy_ip ON device_energy_estimates(device_ip)')
 
+    # =============================================================================
+    # API INTEGRATIONS - Secure storage of external API credentials
+    # =============================================================================
+
+    print("\n🔌 Initializing API Integration Hub...")
+
+    # API Integrations table - stores configuration for external API integrations
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_integrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            integration_name TEXT UNIQUE NOT NULL,
+            integration_type TEXT NOT NULL,
+            category TEXT CHECK(category IN ('threat_intel', 'geolocation', 'notifications', 'ticketing', 'webhooks')) NOT NULL,
+            priority TEXT CHECK(priority IN ('high', 'medium', 'low')) DEFAULT 'medium',
+            is_enabled INTEGER DEFAULT 0,
+            api_key_encrypted TEXT,
+            api_secret_encrypted TEXT,
+            config_json TEXT,
+            rate_limit_per_day INTEGER,
+            rate_limit_per_month INTEGER,
+            last_used TIMESTAMP,
+            total_requests INTEGER DEFAULT 0,
+            successful_requests INTEGER DEFAULT 0,
+            failed_requests INTEGER DEFAULT 0,
+            last_error TEXT,
+            last_health_check TIMESTAMP,
+            health_status TEXT CHECK(health_status IN ('healthy', 'degraded', 'error', 'untested')) DEFAULT 'untested',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_category ON api_integrations(category, is_enabled)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_status ON api_integrations(health_status, is_enabled)')
+
+    # API Integration Usage Logs - track API usage for rate limiting and analytics
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_integration_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            integration_id INTEGER NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            request_type TEXT,
+            request_params TEXT,
+            response_status INTEGER,
+            response_time_ms INTEGER,
+            success INTEGER DEFAULT 1,
+            error_message TEXT,
+            FOREIGN KEY (integration_id) REFERENCES api_integrations(id) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_logs_time ON api_integration_logs(integration_id, timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_logs_success ON api_integration_logs(success, timestamp)')
+
     conn.commit()
     # No need to close - using shared connection from db_manager
 
@@ -1094,6 +1148,8 @@ def init_database():
     print("  - manufacturer_eol_database (Hardware Lifecycle)")
     print("  - sustainability_metrics (Green Metrics)")
     print("  - device_energy_estimates (Per-Device Energy)")
+    print("  - api_integrations (API Integration Hub)")
+    print("  - api_integration_logs (API Usage Tracking)")
     if not admin_exists:
         print("\n✓ Default admin user created:")
         print(f"  Username: {admin_username_to_print}")

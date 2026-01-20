@@ -101,11 +101,18 @@ class SmartRecommender:
 
         # Rule: Malicious IP detected
         if 'MALICIOUS' in alert_type or 'THREAT' in alert_type:
+            dst_ip = alert.get('dst_ip', 'unknown')
+            # Only provide iptables command if we have a valid destination IP
+            if dst_ip and dst_ip != 'unknown':
+                command = f"sudo iptables -A OUTPUT -d {dst_ip} -j DROP"
+            else:
+                command = f"# Review connections from {device_ip}: tcpdump -i eth0 host {device_ip}"
+
             recommendations.append({
                 'priority': 1,
-                'action': 'Block destination IP immediately',
-                'reason': f"Destination {alert.get('dst_ip', 'unknown')} is known malicious (threat intelligence)",
-                'command': f"sudo iptables -A OUTPUT -d {alert.get('dst_ip', '0.0.0.0')} -j DROP",
+                'action': 'Block destination IP immediately' if dst_ip != 'unknown' else 'Investigate suspicious connections',
+                'reason': f"Destination {dst_ip} is known malicious (threat intelligence)" if dst_ip != 'unknown' else 'Malicious activity detected',
+                'command': command,
                 'confidence': 0.95
             })
 
@@ -124,11 +131,15 @@ class SmartRecommender:
             device_type = device_context.get('type', 'Device')
             dst_country = alert.get('dst_country', 'unknown location')
 
+            # Only add whois command if we have destination info
+            dst_ip = alert.get('dst_ip')
+            command = f"whois {dst_ip} && nslookup {dst_ip}" if dst_ip else f"# Investigate device {device_ip} connections: tcpdump -i eth0 host {device_ip}"
+
             recommendations.append({
                 'priority': 1,
                 'action': 'Verify destination legitimacy',
                 'reason': f"{device_type} contacting {dst_country} for first time - unusual behavior",
-                'command': f"whois {alert.get('dst_ip', '')} && nslookup {alert.get('dst_ip', '')}",
+                'command': command,
                 'confidence': 0.80
             })
 
@@ -207,7 +218,7 @@ class SmartRecommender:
                     'priority': 2,
                     'action': 'Investigate uploaded data',
                     'reason': 'Determine what information was exfiltrated',
-                    'command': f"tcpdump -r /opt/zeek/logs -n host {alert.get('dst_ip', '')} -w investigation.pcap",
+                    'command': f"tcpdump -i eth0 -n host {device_ip} -w investigation.pcap",
                     'confidence': 0.85
                 })
 
@@ -259,8 +270,7 @@ class SmartRecommender:
     def _get_alert(self, alert_id: int) -> Optional[dict]:
         """Fetch alert details from database."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            cursor = self.db.conn.cursor()
 
             cursor.execute("""
                 SELECT
@@ -271,7 +281,6 @@ class SmartRecommender:
             """, (alert_id,))
 
             row = cursor.fetchone()
-            conn.close()
 
             if not row:
                 return None
@@ -293,8 +302,7 @@ class SmartRecommender:
             return {'type': 'Unknown', 'name': 'unknown', 'manufacturer': 'Unknown'}
 
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            cursor = self.db.conn.cursor()
 
             cursor.execute("""
                 SELECT
@@ -305,7 +313,6 @@ class SmartRecommender:
             """, (device_ip,))
 
             row = cursor.fetchone()
-            conn.close()
 
             if row:
                 return {
@@ -327,8 +334,7 @@ class SmartRecommender:
     def _get_historical_behavior(self, src_ip: str, dst_port: Optional[int]) -> dict:
         """Check if this connection pattern was seen before."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            cursor = self.db.conn.cursor()
 
             # Check if device contacted this port before
             cursor.execute("""
@@ -338,7 +344,6 @@ class SmartRecommender:
             """, (src_ip, dst_port or 0))
 
             count = cursor.fetchone()[0]
-            conn.close()
 
             return {
                 'has_contacted_before': count > 0,
@@ -352,8 +357,7 @@ class SmartRecommender:
     def _get_similar_alerts(self, alert: dict) -> List[dict]:
         """Find similar alerts in last 24h."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            cursor = self.db.conn.cursor()
 
             cursor.execute("""
                 SELECT id, timestamp, severity
@@ -369,7 +373,6 @@ class SmartRecommender:
                   alert.get('id')))
 
             rows = cursor.fetchall()
-            conn.close()
 
             return [
                 {'id': row[0], 'timestamp': row[1], 'severity': row[2]}
@@ -383,8 +386,7 @@ class SmartRecommender:
     def _count_recent_auth_failures(self, src_ip: str) -> int:
         """Count failed authentication attempts in last 5 minutes."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            cursor = self.db.conn.cursor()
 
             cursor.execute("""
                 SELECT COUNT(*) FROM alerts
@@ -394,7 +396,6 @@ class SmartRecommender:
             """, (src_ip,))
 
             count = cursor.fetchone()[0]
-            conn.close()
             return count
 
         except Exception as e:
