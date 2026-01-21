@@ -9,6 +9,7 @@ import os
 import sqlite3
 import secrets
 import json
+import base64
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 from webauthn import (
@@ -152,14 +153,18 @@ class WebAuthnHandler:
             conn = self.db_manager.conn
             cursor = conn.cursor()
 
+            # Convert binary data to base64 for storage
+            credential_id_b64 = base64.b64encode(verification.credential_id).decode('utf-8') if isinstance(verification.credential_id, bytes) else verification.credential_id
+            public_key_b64 = base64.b64encode(verification.credential_public_key).decode('utf-8') if isinstance(verification.credential_public_key, bytes) else verification.credential_public_key
+
             cursor.execute("""
                 INSERT INTO webauthn_credentials
                 (user_id, credential_id, public_key, sign_count, aaguid, device_name, created_at, last_used)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user_id,
-                verification.credential_id.decode('utf-8') if isinstance(verification.credential_id, bytes) else verification.credential_id,
-                verification.credential_public_key.decode('utf-8') if isinstance(verification.credential_public_key, bytes) else verification.credential_public_key,
+                credential_id_b64,
+                public_key_b64,
                 verification.sign_count,
                 verification.aaguid,
                 device_name,
@@ -250,9 +255,28 @@ class WebAuthnHandler:
             challenge_data = self.challenges[challenge_key]
 
             # Get credential from database
-            credential_id = credential_data.get('id')
-            if not credential_id:
+            # The credential ID from the client is base64url-encoded
+            # We need to convert it to the same format we stored (base64)
+            credential_id_from_client = credential_data.get('id')
+            if not credential_id_from_client:
                 logger.error("No credential ID in response")
+                return None
+
+            # The rawId field contains the actual bytes - use that for lookup
+            credential_raw_id = credential_data.get('rawId')
+            if not credential_raw_id:
+                logger.error("No rawId in credential response")
+                return None
+
+            # rawId is base64-encoded string from our client code, decode and re-encode
+            # to match what we stored
+            try:
+                # Decode the rawId bytes
+                credential_id_bytes = base64.b64decode(credential_raw_id)
+                # Re-encode to match storage format
+                credential_id_lookup = base64.b64encode(credential_id_bytes).decode('utf-8')
+            except Exception as e:
+                logger.error(f"Error decoding credential ID: {e}")
                 return None
 
             conn = self.db_manager.conn
@@ -262,15 +286,18 @@ class WebAuthnHandler:
                 SELECT user_id, public_key, sign_count
                 FROM webauthn_credentials
                 WHERE credential_id = ?
-            """, (credential_id,))
+            """, (credential_id_lookup,))
 
             result = cursor.fetchone()
 
             if not result:
-                logger.error(f"Credential not found: {credential_id}")
+                logger.error(f"Credential not found: {credential_id_lookup}")
                 return None
 
             user_id, public_key, current_sign_count = result
+
+            # Decode public key from base64
+            public_key_bytes = base64.b64decode(public_key) if isinstance(public_key, str) else public_key
 
             # Verify authentication response
             verification = verify_authentication_response(
@@ -278,7 +305,7 @@ class WebAuthnHandler:
                 expected_challenge=challenge_data['challenge'],
                 expected_origin=self.origin,
                 expected_rp_id=self.rp_id,
-                credential_public_key=public_key.encode('utf-8') if isinstance(public_key, str) else public_key,
+                credential_public_key=public_key_bytes,
                 credential_current_sign_count=current_sign_count
             )
 
@@ -288,7 +315,7 @@ class WebAuthnHandler:
                 SET sign_count = ?,
                     last_used = ?
                 WHERE credential_id = ?
-            """, (verification.new_sign_count, datetime.now(), credential_id))
+            """, (verification.new_sign_count, datetime.now(), credential_id_lookup))
 
             conn.commit()
 
@@ -326,9 +353,11 @@ class WebAuthnHandler:
         credentials = []
         for row in results:
             credential_id = row[0]
+            # Decode base64 credential ID to bytes
+            credential_id_bytes = base64.b64decode(credential_id) if isinstance(credential_id, str) else credential_id
             credentials.append(
                 PublicKeyCredentialDescriptor(
-                    id=credential_id.encode('utf-8') if isinstance(credential_id, str) else credential_id
+                    id=credential_id_bytes
                 )
             )
 

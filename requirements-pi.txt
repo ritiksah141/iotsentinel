@@ -27,6 +27,8 @@ PyJWT
 cryptography
 bcrypt
 Flask-Login
+pyotp==2.9.0                    # TOTP/2FA token generation
+qrcode[pil]==8.2                # QR code generation for 2FA
 
 # Utilities
 python-dateutil
