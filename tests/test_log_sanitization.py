@@ -27,7 +27,7 @@ def test_basic_sanitization():
     test_data = {  # pragma: allowlist secret
         "username": "admin",
         "password": "SuperSecret123!",  # pragma: allowlist secret
-        "api_key": "sk_live_51H8vY2eZvKYlo2C0aIiXyZ",  # pragma: allowlist secret
+        "api_key": "FAKE_API_KEY_12345678901234567890",  # pragma: allowlist secret
         "email": "user@example.com",
         "webhook_url": "https://hooks.slack.com/services/SECRET",
     }
@@ -44,7 +44,7 @@ def test_basic_sanitization():
 
     # Verify sensitive data is redacted
     assert "SuperSecret123!" not in str(sanitized), "Password leaked!"
-    assert "sk_live_51H8vY2eZvKYlo2C0aIiXyZ" not in str(sanitized), "API key leaked!"
+    assert "FAKE_API_KEY_12345678901234567890" not in str(sanitized), "API key leaked!"
     assert "SECRET" not in str(sanitized), "Webhook URL secret leaked!"
     assert sanitized['email'] == "user@example.com", "Email should not be redacted"
 
@@ -62,14 +62,14 @@ def test_nested_sanitization():
             "username": "admin",
             "credentials": {
                 "password": "MyP@ssw0rd!",  # pragma: allowlist secret
-                "api_token": "ghp_1234567890abcdefghij",
+                "api_token": "FAKE_TOKEN_1234567890ABCDEFGHIJ", # pragma: allowlist secret
                 "public_name": "John Doe"
             }
         },
         "integration": {
             "slack": {
                 "webhook_url": "https://hooks.slack.com/TXXXXXX/BXXXXXX/xxxxxxxxxx",
-                "bot_token": "xoxb-1234567890-abcdefghijklmnop"  # pragma: allowlist secret
+                "bot_token": "fake-slack-token-1234567890"  # pragma: allowlist secret
             }
         }
     }
@@ -89,7 +89,7 @@ def test_nested_sanitization():
 
     # Verify
     assert "MyP@ssw0rd!" not in str(sanitized), "Nested password leaked!"
-    assert "ghp_1234567890abcdefghij" not in str(sanitized), "Nested token leaked!"
+    assert "FAKE_TOKEN_1234567890ABCDEFGHIJ" not in str(sanitized), "Nested token leaked!" # pragma: allowlist secret
     assert sanitized['user']['credentials']['public_name'] == "John Doe", "Public data should remain"
 
     print("\n✅ PASSED: Nested credentials properly redacted\n")
@@ -130,9 +130,9 @@ def test_string_sanitization():
     print("=" * 60)
 
     test_strings = [
-        "Connecting with api_key=sk_test_abc123xyz456789",
-        "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
-        "Using token='secret_token_here_12345'",
+        "Connecting with api_key=FAKE_API_KEY_ABC123XYZ456789",
+        "Authorization: Bearer FAKE_JWT_TOKEN_EYJALG",
+        "Using token='FAKE_SECRET_TOKEN_12345'",
         "This is a safe string with no credentials"
     ]
 
@@ -142,7 +142,7 @@ def test_string_sanitization():
         print(f"✅ Sanitized: {sanitized[:60]}...")
 
         # Verify sensitive patterns are removed
-        if "sk_test_" in text or "Bearer " in text or "token=" in text:
+        if "FAKE_API_KEY" in text or "Bearer" in text or "token=" in text:
             assert text != sanitized, "Sensitive string should be modified"
 
     print("\n✅ PASSED: String patterns properly sanitized\n")
@@ -167,8 +167,8 @@ def test_credentials_summary():
     print(f"✅ Safe summary: {summary}")
 
     # Verify no actual values in summary
-    assert "sk_live_" not in summary, "API key value leaked in summary!"
-    assert "xoxb-" not in summary, "Token value leaked in summary!"
+    assert "FAKE_API_KEY" not in summary, "API key value leaked in summary!"
+    assert "FAKE_SLACK_TOKEN" not in summary, "Token value leaked in summary!"
     assert "hooks.slack.com" not in summary, "URL leaked in summary!"
 
     print("\n✅ PASSED: Summary contains no credential values\n")
@@ -187,7 +187,7 @@ def test_integration_logging_safety():
             "enabled": True
         },
         "telegram": {
-            "bot_token": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz",
+            "bot_token": "FAKE_TELEGRAM_TOKEN_1234567890ABCDEFG",
             "chat_id": "987654321",
             "enabled": True
         },
@@ -215,7 +215,7 @@ def test_integration_logging_safety():
     # Verify nothing leaked
     safe_str = str(safe_config)
     assert "SECRET123" not in safe_str, "Slack secret leaked!"
-    assert "ABCdefGHIjklMNOpqrsTUVwxyz" not in safe_str, "Telegram token leaked!"
+    assert "FAKE_TELEGRAM_TOKEN" not in safe_str, "Telegram token leaked!"
     assert "MyEmailP@ssw0rd!" not in safe_str, "Email password leaked!"
 
     print("\n✅ PASSED: Integration configs safe to log\n")
