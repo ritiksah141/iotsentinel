@@ -19,7 +19,7 @@ from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('alerts')  # Use dedicated alerts logger
 
 
 class AlertSeverity(Enum):

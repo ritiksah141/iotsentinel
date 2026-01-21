@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import config
 from database.db_manager import DatabaseManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ml')  # Use dedicated ML logger
 
 
 class FeatureExtractor:

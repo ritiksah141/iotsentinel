@@ -110,27 +110,86 @@ from utils.nl_to_sql import NLtoSQLGenerator
 
 load_dotenv()
 
-# Configure logging with file handlers
+# ============================================================================
+# COMPREHENSIVE LOGGING CONFIGURATION
+# ============================================================================
 log_dir = 'data/logs'
 os.makedirs(log_dir, exist_ok=True)
 
-# Main application logger
+# Standard formatter for all logs
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+audit_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# 1. Main application logger (dashboard & general operations)
+main_handler = logging.FileHandler(os.path.join(log_dir, 'iotsentinel.log'))
+main_handler.setFormatter(log_formatter)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(log_dir, 'iotsentinel.log')),
-        logging.StreamHandler()
-    ]
+    handlers=[main_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
 
-# Audit logger (dedicated file for security events)
+# 2. Audit logger (authentication, user actions, security events)
 audit_file_logger = logging.getLogger('audit')
 audit_file_logger.setLevel(logging.INFO)
 audit_handler = logging.FileHandler(os.path.join(log_dir, 'audit.log'))
-audit_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+audit_handler.setFormatter(audit_formatter)
 audit_file_logger.addHandler(audit_handler)
+
+# 3. ML logger (machine learning, anomaly detection, forecasting)
+ml_logger = logging.getLogger('ml')
+ml_logger.setLevel(logging.INFO)
+ml_handler = logging.FileHandler(os.path.join(log_dir, 'ml.log'))
+ml_handler.setFormatter(log_formatter)
+ml_logger.addHandler(ml_handler)
+
+# 4. Alerts logger (alert generation, notifications, integrations)
+alerts_logger = logging.getLogger('alerts')
+alerts_logger.setLevel(logging.INFO)
+alerts_handler = logging.FileHandler(os.path.join(log_dir, 'alerts.log'))
+alerts_handler.setFormatter(log_formatter)
+alerts_logger.addHandler(alerts_handler)
+
+# 5. Hardware logger (GPIO, LED, physical monitoring)
+hardware_logger = logging.getLogger('hardware')
+hardware_logger.setLevel(logging.INFO)
+hardware_handler = logging.FileHandler(os.path.join(log_dir, 'hardware.log'))
+hardware_handler.setFormatter(log_formatter)
+hardware_logger.addHandler(hardware_handler)
+
+# 6. Database logger (DB operations, maintenance, queries)
+db_logger = logging.getLogger('database')
+db_logger.setLevel(logging.INFO)
+db_handler = logging.FileHandler(os.path.join(log_dir, 'database.log'))
+db_handler.setFormatter(log_formatter)
+db_logger.addHandler(db_handler)
+
+# 7. Error logger (centralized ERROR and CRITICAL from all modules)
+error_logger = logging.getLogger('errors')
+error_logger.setLevel(logging.ERROR)
+error_handler = logging.FileHandler(os.path.join(log_dir, 'error.log'))
+error_handler.setFormatter(log_formatter)
+error_logger.addHandler(error_handler)
+
+# 8. API logger (external API calls, webhooks, integrations)
+api_logger = logging.getLogger('api')
+api_logger.setLevel(logging.INFO)
+api_handler = logging.FileHandler(os.path.join(log_dir, 'api.log'))
+api_handler.setFormatter(log_formatter)
+api_logger.addHandler(api_handler)
+
+# Configure root logger to also send ERROR+ to error.log
+logging.getLogger().addHandler(error_handler)
+
+logger.info("="*70)
+logger.info("IoTSentinel Logging System Initialized")
+logger.info(f"Log Directory: {os.path.abspath(log_dir)}")
+logger.info("Active Logs: iotsentinel.log, audit.log, ml.log, alerts.log,")
+logger.info("             hardware.log, database.log, error.log, api.log")
+logger.info("="*70)
 
 # Import atexit for cleanup handlers
 import atexit
