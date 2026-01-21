@@ -52,7 +52,12 @@ from utils.threat_intel import ThreatIntelligence
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask import request, redirect, session as flask_session, jsonify, send_file
 from utils.auth import AuthManager, User
-from utils.rate_limiter import LoginRateLimiter
+from utils.rate_limiter import LoginRateLimiter, RateLimiter
+from utils.audit_logger import (
+    AuditLogger, log_device_action, log_bulk_action,
+    log_emergency_mode, log_user_action, log_settings_change
+)
+from utils.totp_manager import TOTPManager
 from utils.oauth_handler import GoogleOAuthHandler, is_oauth_configured
 from utils.webauthn_handler import WebAuthnHandler, is_webauthn_available
 
@@ -104,8 +109,28 @@ from ml.attack_sequence_tracker import AttackSequenceTracker
 from utils.nl_to_sql import NLtoSQLGenerator
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+
+# Configure logging with file handlers
+log_dir = 'data/logs'
+os.makedirs(log_dir, exist_ok=True)
+
+# Main application logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(log_dir, 'iotsentinel.log')),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Audit logger (dedicated file for security events)
+audit_file_logger = logging.getLogger('audit')
+audit_file_logger.setLevel(logging.INFO)
+audit_handler = logging.FileHandler(os.path.join(log_dir, 'audit.log'))
+audit_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+audit_file_logger.addHandler(audit_handler)
 
 # Import atexit for cleanup handlers
 import atexit
@@ -183,6 +208,12 @@ socketio = SocketIO(
 DB_PATH = config.get('database', 'path')
 db_manager = DatabaseManager(DB_PATH)
 
+# Initialize Audit Logger and Rate Limiter for security
+audit_logger = AuditLogger(db_manager)
+rate_limiter = RateLimiter(db_manager)
+
+# Initialize TOTP Manager for 2FA
+totp_manager = TOTPManager(db_manager, issuer_name="IoTSentinel")
 
 # Device group manager import
 from utils.device_group_manager import DeviceGroupManager
@@ -2398,6 +2429,35 @@ login_layout = dbc.Container([
                                     )
                                 ], className="floating-input-group"),
 
+                                # 2FA Verification (hidden by default, shown when needed)
+                                html.Div([
+                                    html.Div([
+                                        html.I(className="fa fa-shield-alt me-2 text-success"),
+                                        html.Strong("Two-Factor Authentication Required"),
+                                    ], className="d-flex align-items-center mb-2"),
+                                    html.P("Enter the 6-digit code from your authenticator app:", className="text-muted small mb-2"),
+                                    dbc.InputGroup([
+                                        dbc.InputGroupText(html.I(className="fa fa-mobile-alt")),
+                                        dbc.Input(
+                                            id="login-totp-code",
+                                            type="text",
+                                            placeholder="000000",
+                                            maxLength=6,
+                                            className="text-center font-monospace",
+                                            style={"fontSize": "1.5rem", "letterSpacing": "0.5rem"}
+                                        )
+                                    ], className="mb-2"),
+                                    html.Div([
+                                        dbc.Checkbox(
+                                            id="use-backup-code-checkbox",
+                                            label="Use backup code instead",
+                                            value=False,
+                                            className="small"
+                                        )
+                                    ], className="mb-2"),
+                                    html.Div(id='totp-login-status')
+                                ], id='login-totp-section', style={'display': 'none'}, className="mb-3 p-3 border rounded bg-light"),
+
                                 # Remember Me & Forgot Password Row
                                 html.Div([
                                     html.Div([
@@ -2711,6 +2771,9 @@ login_layout = dbc.Container([
                                 dcc.Store(id="register-role", data="viewer"),
                                 dcc.Store(id='verification-code-sent', storage_type='memory'),
                                 dcc.Store(id='email-verified', storage_type='memory'),
+
+                                # 2FA Login State Store
+                                dcc.Store(id='totp-login-state', storage_type='memory'),  # Stores username during 2FA verification
 
                                 # Register Button
                                 dbc.Button(
@@ -3235,8 +3298,10 @@ dashboard_layout = dbc.Container([
                         html.P("Activate if you suspect a security threat", className="text-muted small mb-3"),
                         dbc.Button([
                             html.I(className="fa fa-shield-alt me-2"),
-                            "ACTIVATE EMERGENCY MODE"
-                        ], id="emergency-activate-btn", color="danger", size="lg", className="w-100 pulse-danger"),
+                            "ACTIVATE EMERGENCY MODE",
+                            html.Span(" 🔐", className="ms-1", style={"fontSize": "1.2rem"})
+                        ], id="emergency-activate-btn", color="danger", size="lg", className="w-100 pulse-danger",
+                           title="Emergency mode blocks all untrusted devices (Parent/Admin only)"),
                     ], className="text-center")
                 ], color="light", className="border border-danger mb-3", style={"display": "none"})
             ], style={"display": "none"}),
@@ -3250,8 +3315,10 @@ dashboard_layout = dbc.Container([
                         html.P(id="emergency-status-text", className="mb-3"),
                         dbc.Button([
                             html.I(className="fa fa-unlock me-2"),
-                            "DEACTIVATE EMERGENCY MODE"
-                        ], id="emergency-deactivate-btn", color="success", size="lg", className="w-100"),
+                            "DEACTIVATE EMERGENCY MODE",
+                            html.Span(" 🔐", className="ms-1", style={"fontSize": "1.2rem"})
+                        ], id="emergency-deactivate-btn", color="success", size="lg", className="w-100",
+                           title="Deactivate emergency protection (Parent/Admin only)"),
                     ], className="text-center")
                 ], color="warning", className="border border-warning mb-3")
             ], style={"display": "none"}),
@@ -5306,7 +5373,95 @@ dashboard_layout = dbc.Container([
                                 # Status messages
                                 html.Div(id='biometric-status-message')
                             ])
-                        ], className="glass-card border-0 shadow-sm", id="biometric-security-section", style={"display": "none"})
+                        ], className="glass-card border-0 shadow-sm", id="biometric-security-section", style={"display": "none"}),
+
+                        # Two-Factor Authentication (2FA) Section
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6([html.I(className="fa fa-mobile-alt me-2 text-danger"), "Two-Factor Authentication (2FA)"], className="mb-3"),
+
+                                html.Div([
+                                    html.I(className="fa fa-shield-alt me-2 text-info"),
+                                    "Add an extra layer of security to your account. Use any authenticator app (Google Authenticator, Authy, Microsoft Authenticator, etc.) to generate time-based codes."
+                                ], className="alert alert-info d-flex align-items-center mb-3", style={"fontSize": "0.85rem"}),
+
+                                # 2FA Status Display
+                                html.Div(id='totp-status-display', className="mb-3"),
+
+                                # Setup Section (hidden by default, shown when enabling)
+                                html.Div([
+                                    html.Hr(),
+                                    html.H6([html.I(className="fa fa-qrcode me-2"), "Setup Authenticator"], className="mb-3"),
+
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.P("Scan this QR code with your authenticator app:", className="mb-2 fw-bold"),
+                                            html.Div(id='totp-qr-code', className="text-center mb-3"),
+
+                                            html.P("Or enter this secret key manually:", className="mb-1 small text-muted"),
+                                            dbc.InputGroup([
+                                                dbc.Input(id='totp-secret-display', type='text', readonly=True, className="font-monospace"),
+                                                dbc.Button([html.I(className="fa fa-copy")], id='copy-totp-secret-btn', color="secondary", outline=True)
+                                            ], className="mb-3", size="sm"),
+                                        ], md=6),
+
+                                        dbc.Col([
+                                            html.P("Backup Codes (save these securely):", className="mb-2 fw-bold"),
+                                            html.Div([
+                                                html.Small("Use these codes if you lose access to your authenticator app. Each code can only be used once.", className="text-muted d-block mb-2")
+                                            ]),
+                                            html.Div(id='totp-backup-codes-display', className="mb-3"),
+                                            dbc.Button([
+                                                html.I(className="fa fa-download me-2"),
+                                                "Download Backup Codes"
+                                            ], id='download-backup-codes-btn', color="warning", outline=True, size="sm", className="w-100")
+                                        ], md=6)
+                                    ]),
+
+                                    html.Hr(),
+                                    html.H6([html.I(className="fa fa-check-circle me-2"), "Verify Setup"], className="mb-3"),
+                                    html.P("Enter the 6-digit code from your authenticator app to enable 2FA:", className="mb-2"),
+
+                                    dbc.InputGroup([
+                                        dbc.InputGroupText(html.I(className="fa fa-keyboard")),
+                                        dbc.Input(
+                                            id='totp-verification-code',
+                                            type='text',
+                                            placeholder="000000",
+                                            maxLength=6,
+                                            className="text-center font-monospace",
+                                            style={"fontSize": "1.5rem", "letterSpacing": "0.5rem"}
+                                        )
+                                    ], className="mb-3"),
+
+                                    html.Div(id='totp-verification-status', className="mb-3"),
+
+                                    dbc.ButtonGroup([
+                                        dbc.Button([
+                                            html.I(className="fa fa-check me-2"),
+                                            "Verify & Enable 2FA"
+                                        ], id='verify-totp-btn', color="success", className="flex-fill"),
+                                        dbc.Button([
+                                            html.I(className="fa fa-times me-2"),
+                                            "Cancel"
+                                        ], id='cancel-totp-setup-btn', color="secondary", outline=True)
+                                    ], className="w-100")
+                                ], id='totp-setup-section', style={'display': 'none'}),
+
+                                # Action Buttons (shown based on 2FA status)
+                                html.Div([
+                                    dbc.Button([
+                                        html.I(className="fa fa-power-off me-2"),
+                                        "Enable 2FA"
+                                    ], id='enable-totp-btn', color="success", className="w-100 mb-2"),
+
+                                    dbc.Button([
+                                        html.I(className="fa fa-ban me-2"),
+                                        "Disable 2FA"
+                                    ], id='disable-totp-btn', color="danger", outline=True, className="w-100", style={'display': 'none'})
+                                ], id='totp-action-buttons')
+                            ])
+                        ], className="glass-card border-0 shadow-sm mb-3")
                     ], className="p-3")
                 ], label="Security", tab_id="security-tab"),
 
@@ -5676,8 +5831,10 @@ dashboard_layout = dbc.Container([
                                         ], id='bulk-trust-btn', color="success", className="me-2"),
                                         dbc.Button([
                                             html.I(className="fa fa-shield-alt me-2"),
-                                            "Trust All Unknown"
-                                        ], id='bulk-trust-all-btn', color="success", outline=True)
+                                            "Trust All Unknown",
+                                            html.Span(" 🔐", className="ms-1", title="Admin Only")
+                                        ], id='bulk-trust-all-btn', color="success", outline=True,
+                                           title="Trust all unknown devices at once (Admin only)")
                                     ], className="mb-3 d-block")
                                 ], className="mb-4"),
 
@@ -5690,8 +5847,10 @@ dashboard_layout = dbc.Container([
                                         ], id='bulk-block-btn', color="danger", className="me-2"),
                                         dbc.Button([
                                             html.I(className="fa fa-exclamation-triangle me-2"),
-                                            "Block All Suspicious"
-                                        ], id='bulk-block-suspicious-btn', color="danger", outline=True)
+                                            "Block All Suspicious",
+                                            html.Span(" 🔐", className="ms-1", title="Parent/Admin")
+                                        ], id='bulk-block-suspicious-btn', color="danger", outline=True,
+                                           title="Block all devices with critical/high alerts (Parent/Admin only)")
                                     ], className="mb-3 d-block")
                                 ], className="mb-4"),
 
@@ -5699,8 +5858,10 @@ dashboard_layout = dbc.Container([
                                     html.Label("Danger Zone", className="fw-bold mb-2 d-block text-danger"),
                                     dbc.Button([
                                         html.I(className="fa fa-trash me-2"),
-                                        "Delete Selected Devices"
-                                    ], id='bulk-delete-btn', color="warning", outline=True)
+                                        "Delete Selected Devices",
+                                        html.Span(" 🔐", className="ms-1", title="Admin Only")
+                                    ], id='bulk-delete-btn', color="warning", outline=True,
+                                       title="Delete selected devices from database (Admin only)")
                                 ], className="mb-3"),
 
                                 html.Div(id='bulk-action-status', className="mt-3")
@@ -9909,7 +10070,6 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='selected-device-ip', data=None),
     dcc.Store(id='widget-preferences', data={'metrics': True, 'features': True, 'rightPanel': True}, storage_type='local'),
     dcc.Store(id='page-visibility-store', data={'visible': True}),  # Track page visibility for auto-pause
-    dcc.Store(id='dashboard-template-store', storage_type='session'),  # Role-based dashboard template (loads from DB, no default)
     dcc.Store(id='emergency-mode-store', data={'active': False, 'log_id': None}, storage_type='session'),  # Emergency mode state
 
     # Cross-chart filtering stores
@@ -10199,109 +10359,7 @@ dashboard_layout = dbc.Container([
         ])),
         dbc.ModalBody([
             html.P("Execute quick actions to manage your dashboard and network security.", className="text-muted mb-3"),
-
-            # Dashboard Actions
-            html.H6([html.I(className="fa fa-tachometer-alt me-2 text-primary"), "Dashboard"], className="fw-bold mb-2"),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-sync-alt me-2"), "Refresh"], id="quick-refresh-btn", color="primary", size="sm", className="w-100")
-                ], width=12, className="mb-2"),
-            ], className="mb-2"),
-
-            dbc.Row([
-                dbc.Col([
-                    html.Label("Export Format:", className="fw-bold mb-1 small"),
-                    dbc.Select(
-                        id='export-format-quick',
-                        options=[
-                            {'label': '📄 CSV', 'value': 'csv'},
-                            {'label': '📋 JSON', 'value': 'json'},
-                            {'label': '📕 PDF', 'value': 'pdf'},
-                            {'label': '📊 Excel', 'value': 'xlsx'}
-                        ],
-                        value='csv',
-                        size="sm",
-                        className="mb-2"
-                    )
-                ], width=6),
-                dbc.Col([
-                    html.Label("Download:", className="fw-bold mb-1 small"),
-                    dbc.Button([html.I(className="fa fa-download me-2"), "Export"], id="quick-export-btn", color="success", size="sm", className="w-100")
-                ], width=6),
-            ], className="mb-3"),
-
-            html.Hr(),
-
-            # Security & Monitoring
-            html.H6([html.I(className="fa fa-shield-halved me-2 text-danger"), "Security & Monitoring"], className="fw-bold mb-2"),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-search me-2"), "Network Scan"], id="quick-scan-btn", color="info", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-trash me-2"), "Clear Threat Cache"], id="quick-clear-cache-btn", color="warning", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-cloud-download-alt me-2"), "Update Threat DB"], id="quick-update-db-btn", color="info", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-stethoscope me-2"), "Run Diagnostics"], id="quick-diagnostics-btn", color="primary", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-file-pdf me-2"), "Security Report"], id="quick-security-report-btn", color="danger", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-            ], className="mb-3"),
-
-            html.Hr(),
-
-            # Network Management
-            html.H6([html.I(className="fa fa-network-wired me-2 text-info"), "Network Management"], className="fw-bold mb-2"),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-ban me-2"), "Block Unknown"], id="quick-block-unknown-btn", color="danger", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-check-circle me-2"), "Whitelist Trusted"], id="quick-whitelist-btn", color="success", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-redo me-2"), "Restart Monitor"], id="quick-restart-monitor-btn", color="warning", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-eraser me-2"), "Clear Net Cache"], id="quick-clear-net-cache-btn", color="secondary", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-            ], className="mb-3"),
-
-            html.Hr(),
-
-            # Data Management
-            html.H6([html.I(className="fa fa-database me-2 text-success"), "Data Management"], className="fw-bold mb-2"),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-save me-2"), "Backup Data"], id="quick-backup-btn", color="primary", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-clock me-2"), "Clear Old Logs"], id="quick-clear-logs-btn", color="warning", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-bell-slash me-2"), "Purge Alerts"], id="quick-purge-alerts-btn", color="danger", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-            ], className="mb-3"),
-
-            html.Hr(),
-
-            # System Actions
-            html.H6([html.I(className="fa fa-cog me-2 text-secondary"), "System"], className="fw-bold mb-2"),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-power-off me-2"), "Restart Dashboard"], id="quick-restart-dash-btn", color="danger", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-arrow-circle-up me-2"), "Check Updates"], id="quick-check-updates-btn", color="info", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-                dbc.Col([
-                    dbc.Button([html.I(className="fa fa-file-alt me-2"), "View Logs"], id="quick-view-logs-btn", color="secondary", size="sm", className="w-100")
-                ], width=6, className="mb-2"),
-            ], className="mb-2"),
+            html.Div(id="quick-actions-content"),  # Dynamic content based on user role
         ], style={"maxHeight": "70vh", "overflowY": "auto"}),
         dbc.ModalFooter([
             dbc.Button("Close", id="close-quick-actions-modal", color="secondary")
@@ -10310,6 +10368,7 @@ dashboard_layout = dbc.Container([
 
     dcc.Store(id='theme-store', storage_type='local', data={'theme': 'light'}),
     dcc.Store(id='voice-alert-store', storage_type='local', data={'enabled': False}),
+    dcc.Store(id='user-role-store', storage_type='session', data={'role': 'viewer'}),  # Store user role for permission checks
     dcc.Store(id='quick-settings-store', storage_type='local', data={
         'general': {'auto_settings': ['auto-refresh', 'auto-save'], 'default_view': 'dashboard'},
         'notifications': {'browser': False, 'critical_only': False, 'sound': 'default', 'duration': 5000, 'position': 'top-right'},
@@ -11039,6 +11098,38 @@ app.layout = html.Div([
     dcc.Store(id='user-session', storage_type='session'),
     # Use 'memory' storage to prevent login toast from persisting across page refreshes
     dcc.Store(id='auth-notification-store', storage_type='memory'),
+    # Store for 2FA setup data (secret, QR code, backup codes)
+    dcc.Store(id='totp-setup-data', storage_type='memory'),
+    # Dashboard template store - global to prevent callback errors
+    dcc.Store(id='dashboard-template-store', storage_type='session'),
+    # Store for biometric credential to remove
+    dcc.Store(id='biometric-remove-credential-id', storage_type='memory'),
+
+    # Confirmation Modal for Biometric Removal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-exclamation-triangle me-2 text-warning"),
+            "Remove Biometric Device?"
+        ])),
+        dbc.ModalBody([
+            html.P([
+                "Are you sure you want to remove this biometric credential? ",
+                "You will need to register again if you want to use this device for biometric login."
+            ]),
+            html.Div([
+                html.I(className="fa fa-info-circle me-2 text-info"),
+                html.Small("This action cannot be undone.", className="text-muted")
+            ], className="alert alert-warning py-2")
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="cancel-remove-biometric", color="secondary", outline=True, className="me-2"),
+            dbc.Button([
+                html.I(className="fa fa-trash me-2"),
+                "Remove Device"
+            ], id="confirm-remove-biometric", color="danger")
+        ])
+    ], id="confirm-remove-biometric-modal", is_open=False, centered=True),
+
     html.Div(id='page-content'),
 
     # Global toast container - appears on all pages (login & dashboard)
@@ -12388,9 +12479,49 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
     if button_id == 'block-device-cancel':
         return dash.no_update, False
 
+    # Check if user is authenticated and not a kid
+    if not current_user.is_authenticated:
+        toast = ToastManager.error(
+            "Access Denied",
+            detail_message="You must be logged in to block/unblock devices."
+        )
+        return toast, False
+
+    # Check if user is a kid (restricted from blocking devices)
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+            (current_user.id,)
+        )
+        kid_check = cursor.fetchone()
+        if kid_check and kid_check[0] == '1':
+            toast = ToastManager.error(
+                "Access Denied",
+                detail_message="Blocking/unblocking devices requires adult permission. Please ask a parent or guardian."
+            )
+            return toast, False
+    except Exception as e:
+        logger.error(f"Error checking user permissions: {e}")
+
     # Confirm button clicked
     if button_id == 'block-device-confirm-btn' and device_ip and action:
         new_blocked_status = (action == 'block')
+
+        # Check rate limit for device blocking
+        allowed, remaining, reset_sec = rate_limiter.check_rate_limit(
+            current_user.username, 'device_block'
+        )
+        if not allowed:
+            toast = ToastManager.warning(
+                "Rate Limit Exceeded",
+                detail_message=f"Too many device block operations. Try again in {reset_sec} seconds."
+            )
+            return toast, False
+
+        # Record the attempt
+        rate_limiter.record_attempt(current_user.username, 'device_block', success=True)
 
         # Update database first
         db_manager.set_device_blocked(device_ip, new_blocked_status)
@@ -12434,6 +12565,14 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
             message = f"Device {device_ip} {action_text} in database (firewall disabled)"
         else:
             message = f"Device {device_ip} {action_text} in database (MAC unknown, firewall not applied)"
+
+        # Log the action to audit trail
+        log_device_action(
+            audit_logger,
+            'block' if new_blocked_status else 'unblock',
+            device_ip,
+            success=True
+        )
 
         if toast_type == "success":
             toast = ToastManager.success(f"Device {action_text.capitalize()}", detail_message=message)
@@ -15172,6 +15311,21 @@ def test_disconnect():
 # AUTHENTICATION CALLBACKS
 # ============================================================================
 
+# Show/hide passkey login button based on WebAuthn support
+app.clientside_callback(
+    """
+    function() {
+        // Check if WebAuthn is supported
+        if (window.PublicKeyCredential) {
+            return {'display': 'block'};
+        }
+        return {'display': 'none'};
+    }
+    """,
+    Output('biometric-login-btn', 'style'),
+    Input('url', 'pathname')
+)
+
 @app.callback(
     [Output('page-content', 'children'),
      Output('auth-notification-store', 'data', allow_duplicate=True)],
@@ -15298,19 +15452,24 @@ def show_auth_notification(notification_data):
 
 
 
-# Restore original login callback: returns toast, redirect, and notification store
+# Restore original login callback: returns toast, redirect, notification store, and 2FA UI state
 @app.callback(
     [Output('toast-container', 'children', allow_duplicate=True),
      Output('url', 'pathname', allow_duplicate=True),
-     Output('auth-notification-store', 'data', allow_duplicate=True)],
+     Output('auth-notification-store', 'data', allow_duplicate=True),
+     Output('login-totp-section', 'style'),
+     Output('totp-login-state', 'data')],
     [Input('login-button', 'n_clicks'),
      Input('login-password', 'n_submit')],
     [State('login-username', 'value'),
      State('login-password', 'value'),
-     State('remember-me-checkbox', 'value')],
+     State('remember-me-checkbox', 'value'),
+     State('login-totp-code', 'value'),
+     State('use-backup-code-checkbox', 'value'),
+     State('totp-login-state', 'data')],
     prevent_initial_call=True
 )
-def handle_login(n_clicks, n_submit, username, password, remember_me):
+def handle_login(n_clicks, n_submit, username, password, remember_me, totp_code, use_backup, login_state):
     if n_clicks is None and n_submit is None:
         raise dash.exceptions.PreventUpdate
 
@@ -15332,7 +15491,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
             duration="short",
             detail_message=detail_msg
         )
-        return toast, dash.no_update, dash.no_update
+        return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
     # Check if username is locked out due to too many failed attempts
     is_locked, remaining_time = login_rate_limiter.is_locked_out(username)
@@ -15357,16 +15516,73 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
             duration="long",
             detail_message=detail_msg
         )
-        return toast, dash.no_update, dash.no_update
+        return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
     # Verify credentials
     user = auth_manager.verify_user(username, password)
 
     if user:
-        # Login successful - reset rate limiter for this username
+        # Check if 2FA is enabled for this user
+        totp_enabled = totp_manager.is_totp_enabled(user.id)
+
+        if totp_enabled:
+            # User has 2FA enabled - check if they provided the code
+            if not totp_code:
+                # Password correct, but need 2FA code - show 2FA section
+                toast = ToastManager.info(
+                    "Password verified. Please enter your 2FA code.",
+                    header="2FA Required",
+                    duration="medium"
+                )
+                return toast, dash.no_update, dash.no_update, {'display': 'block'}, {'username': username, 'verified': True}
+
+            # Verify 2FA code
+            conn = db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute('SELECT secret FROM totp_secrets WHERE user_id = ? AND enabled = 1', (user.id,))
+            result = cursor.fetchone()
+
+            if result:
+                secret = result['secret']
+
+                # Check if using backup code
+                if use_backup:
+                    totp_valid = totp_manager.verify_backup_code(user.id, totp_code)
+                    if totp_valid:
+                        logger.info(f"User '{username}' authenticated with backup code")
+                else:
+                    totp_valid = totp_manager.verify_token(secret, totp_code)
+
+                if not totp_valid:
+                    # Invalid 2FA code
+                    logger.warning(f"Invalid 2FA code for user '{username}'")
+                    toast = ToastManager.error(
+                        "Invalid 2FA code. Please try again.",
+                        header="2FA Verification Failed",
+                        duration="medium"
+                    )
+                    return toast, dash.no_update, dash.no_update, {'display': 'block'}, login_state
+
+                # 2FA successful - log audit
+                log_user_action(
+                    audit_logger,
+                    action='2fa_login',
+                    target_username=username,
+                    success=True
+                )
+            else:
+                logger.error(f"2FA secret not found for user {user.id}")
+                toast = ToastManager.error(
+                    "2FA configuration error. Please contact administrator.",
+                    header="2FA Error",
+                    duration="long"
+                )
+                return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
+
+        # Login successful (either no 2FA or 2FA verified) - reset rate limiter
         login_rate_limiter.record_successful_login(username)
         login_user(user, remember=remember_me)
-        logger.info(f"User '{username}' logged in successfully (remember_me={remember_me})")
+        logger.info(f"User '{username}' logged in successfully (2FA: {totp_enabled}, remember_me={remember_me})")
 
         # Enhanced Welcome Experience: Get login history and record current login
         from flask import request
@@ -15393,7 +15609,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
             INSERT INTO user_login_history
             (user_id, login_timestamp, ip_address, user_agent, login_method, success)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (user.id, datetime.now(), user_ip, user_agent, 'password', 1))
+        """, (user.id, datetime.now(), user_ip, user_agent, 'password' + ('+2fa' if totp_enabled else ''), 1))
         conn.commit()
 
         # Create personalized welcome message
@@ -15474,7 +15690,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
             detail_message=detail_msg
         )
         # Return toast directly - don't use auth-notification-store to avoid duplicate toasts
-        return toast, "/", None
+        return toast, "/", None, {'display': 'none'}, None
     else:
         # Check if login failed due to unverified email (except for admin user)
         user_data = auth_manager.get_user_by_username(username)
@@ -15501,7 +15717,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
                 duration="long",
                 detail_message=detail_msg
             )
-            return toast, dash.no_update, dash.no_update
+            return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
         # Login failed - record failed attempt
         is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
@@ -15528,7 +15744,7 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
                 duration="long",
                 detail_message=detail_msg
             )
-            return toast, dash.no_update, dash.no_update
+            return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
         else:
             logger.warning(f"Failed login attempt for username '{username}' ({remaining_attempts} attempts remaining)")
 
@@ -15551,8 +15767,324 @@ def handle_login(n_clicks, n_submit, username, password, remember_me):
                 duration="long",
                 detail_message=detail_msg
             )
-            return toast, dash.no_update, dash.no_update
+            return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
+
+
+
+# ============================================================================
+# 2FA / TOTP CALLBACKS
+# ============================================================================
+
+# Load 2FA status when Security tab is opened
+@app.callback(
+    [Output('totp-status-display', 'children'),
+     Output('enable-totp-btn', 'style'),
+     Output('disable-totp-btn', 'style')],
+    [Input('profile-edit-tabs', 'active_tab'),
+     Input('profile-edit-modal', 'is_open')],
+    prevent_initial_call=True
+)
+@login_required
+def load_totp_status(active_tab, is_open):
+    if not is_open or active_tab != 'security-tab':
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        totp_status = totp_manager.get_totp_status(current_user.id)
+
+        if totp_status['enabled']:
+            # 2FA is enabled
+            status_card = dbc.Alert([
+                html.Div([
+                    html.I(className="fa fa-check-circle me-2 text-success"),
+                    html.Strong("Two-Factor Authentication: Enabled", className="text-success")
+                ], className="d-flex align-items-center mb-2"),
+                html.Div([
+                    html.Small(f"✓ Activated: {totp_status.get('verified_at', 'Unknown')}", className="d-block"),
+                    html.Small(f"✓ Backup Codes Remaining: {totp_status.get('backup_codes_remaining', 0)}", className="d-block"),
+                ], className="ms-4")
+            ], color="success", className="mb-0")
+
+            return status_card, {'display': 'none'}, {'display': 'block'}
+        else:
+            # 2FA is disabled
+            status_card = dbc.Alert([
+                html.Div([
+                    html.I(className="fa fa-exclamation-triangle me-2 text-warning"),
+                    html.Strong("Two-Factor Authentication: Disabled")
+                ], className="d-flex align-items-center mb-2"),
+                html.P("Enable 2FA to add an extra layer of security to your account.", className="mb-0 small text-muted")
+            ], color="warning", className="mb-0")
+
+            return status_card, {'display': 'block'}, {'display': 'none'}
+
+    except Exception as e:
+        logger.error(f"Error loading 2FA status: {e}")
+        return dbc.Alert("Error loading 2FA status", color="danger"), {'display': 'none'}, {'display': 'none'}
+
+
+# Enable 2FA - Generate QR code and backup codes
+@app.callback(
+    [Output('totp-setup-section', 'style'),
+     Output('totp-qr-code', 'children'),
+     Output('totp-secret-display', 'value'),
+     Output('totp-backup-codes-display', 'children'),
+     Output('totp-setup-data', 'data'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('enable-totp-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+@login_required
+def enable_totp_setup(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        # Generate TOTP secret, QR code, and backup codes
+        secret, qr_code, backup_codes = totp_manager.setup_totp(current_user.id, current_user.username)
+
+        # Display QR code
+        qr_img = html.Img(src=qr_code, style={'maxWidth': '250px', 'height': 'auto'})
+
+        # Display backup codes
+        codes_display = html.Div([
+            dbc.ListGroup([
+                dbc.ListGroupItem(
+                    html.Code(code, className="font-monospace"),
+                    className="d-flex justify-content-center py-1"
+                )
+                for code in backup_codes
+            ], flush=True)
+        ])
+
+        # Store data for verification
+        setup_data = {
+            'secret': secret,
+            'backup_codes': backup_codes,
+            'user_id': current_user.id
+        }
+
+        toast = ToastManager.info(
+            "2FA setup initiated. Scan the QR code and enter a verification code.",
+            header="2FA Setup",
+            duration="medium"
+        )
+
+        return {'display': 'block'}, qr_img, secret, codes_display, setup_data, toast
+
+    except Exception as e:
+        logger.error(f"Error setting up 2FA: {e}")
+        toast = ToastManager.error(
+            f"Failed to set up 2FA: {str(e)}",
+            header="2FA Setup Error",
+            duration="long"
+        )
+        return {'display': 'none'}, None, "", None, None, toast
+
+
+# Verify and enable 2FA
+@app.callback(
+    [Output('totp-verification-status', 'children'),
+     Output('totp-status-display', 'children', allow_duplicate=True),
+     Output('enable-totp-btn', 'style', allow_duplicate=True),
+     Output('disable-totp-btn', 'style', allow_duplicate=True),
+     Output('totp-setup-section', 'style', allow_duplicate=True),
+     Output('totp-verification-code', 'value'),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('verify-totp-btn', 'n_clicks')],
+    [State('totp-verification-code', 'value')],
+    prevent_initial_call=True
+)
+@login_required
+def verify_and_enable_totp(n_clicks, code):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    if not code or len(code) != 6:
+        status = dbc.Alert("Please enter a 6-digit code", color="warning", className="mb-0")
+        return status, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    try:
+        # Verify and enable TOTP
+        success = totp_manager.enable_totp(current_user.id, code)
+
+        if success:
+            # Log audit
+            log_user_action(
+                audit_logger,
+                action='2fa_enable',
+                target_username=current_user.username,
+                success=True
+            )
+
+            # Update status display
+            status_card = dbc.Alert([
+                html.Div([
+                    html.I(className="fa fa-check-circle me-2 text-success"),
+                    html.Strong("Two-Factor Authentication: Enabled", className="text-success")
+                ], className="d-flex align-items-center mb-2"),
+                html.Small("2FA has been successfully enabled for your account.", className="d-block ms-4")
+            ], color="success", className="mb-0")
+
+            toast = ToastManager.success(
+                "2FA enabled successfully! Your account is now more secure.",
+                header="2FA Enabled",
+                duration="long"
+            )
+
+            return (
+                dbc.Alert("2FA enabled successfully!", color="success"),
+                status_card,
+                {'display': 'none'},
+                {'display': 'block'},
+                {'display': 'none'},
+                "",
+                toast
+            )
+        else:
+            status = dbc.Alert("Invalid code. Please try again.", color="danger", className="mb-0")
+            return status, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    except Exception as e:
+        logger.error(f"Error verifying 2FA: {e}")
+        status = dbc.Alert(f"Error: {str(e)}", color="danger", className="mb-0")
+        return status, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+# Cancel 2FA setup
+@app.callback(
+    [Output('totp-setup-section', 'style', allow_duplicate=True),
+     Output('totp-verification-code', 'value', allow_duplicate=True)],
+    [Input('cancel-totp-setup-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+@login_required
+def cancel_totp_setup(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    return {'display': 'none'}, ""
+
+
+# Disable 2FA
+@app.callback(
+    [Output('totp-status-display', 'children', allow_duplicate=True),
+     Output('enable-totp-btn', 'style', allow_duplicate=True),
+     Output('disable-totp-btn', 'style', allow_duplicate=True),
+     Output('toast-container', 'children', allow_duplicate=True)],
+    [Input('disable-totp-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+@login_required
+def disable_totp(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        success = totp_manager.disable_totp(current_user.id)
+
+        if success:
+            # Log audit
+            log_user_action(
+                audit_logger,
+                action='2fa_disable',
+                target_username=current_user.username,
+                success=True
+            )
+
+            status_card = dbc.Alert([
+                html.Div([
+                    html.I(className="fa fa-exclamation-triangle me-2 text-warning"),
+                    html.Strong("Two-Factor Authentication: Disabled")
+                ], className="d-flex align-items-center mb-2"),
+                html.P("Enable 2FA to add an extra layer of security to your account.", className="mb-0 small text-muted")
+            ], color="warning", className="mb-0")
+
+            toast = ToastManager.info(
+                "2FA has been disabled for your account.",
+                header="2FA Disabled",
+                duration="medium"
+            )
+
+            return status_card, {'display': 'block'}, {'display': 'none'}, toast
+        else:
+            toast = ToastManager.error(
+                "Failed to disable 2FA.",
+                header="Error",
+                duration="medium"
+            )
+            return dash.no_update, dash.no_update, dash.no_update, toast
+
+    except Exception as e:
+        logger.error(f"Error disabling 2FA: {e}")
+        toast = ToastManager.error(
+            f"Error: {str(e)}",
+            header="2FA Disable Error",
+            duration="long"
+        )
+        return dash.no_update, dash.no_update, dash.no_update, toast
+
+
+# Copy secret to clipboard (clientside callback would be better, but using toast for now)
+@app.callback(
+    Output('toast-container', 'children', allow_duplicate=True),
+    [Input('copy-totp-secret-btn', 'n_clicks')],
+    [State('totp-secret-display', 'value')],
+    prevent_initial_call=True
+)
+def copy_totp_secret(n_clicks, secret):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    toast = ToastManager.info(
+        f"Secret copied: {secret}",
+        header="Copied to Clipboard",
+        duration="short"
+    )
+    return toast
+
+
+# Download backup codes
+@app.callback(
+    Output('download-backup-codes-btn', 'n_clicks'),
+    [Input('download-backup-codes-btn', 'n_clicks')],
+    [State('totp-setup-data', 'data')],
+    prevent_initial_call=True
+)
+@login_required
+def download_backup_codes(n_clicks, setup_data):
+    if not n_clicks or not setup_data:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        backup_codes = setup_data.get('backup_codes', [])
+
+        # Create backup codes file content
+        content = f"IoTSentinel 2FA Backup Codes\n"
+        content += f"Username: {current_user.username}\n"
+        content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        content += f"\n{'='*50}\n\n"
+        content += "BACKUP CODES (use these if you lose access to your authenticator):\n\n"
+
+        for i, code in enumerate(backup_codes, 1):
+            content += f"{i}. {code}\n"
+
+        content += f"\n{'='*50}\n"
+        content += "IMPORTANT: Store these codes in a safe place!\n"
+        content += "Each code can only be used once.\n"
+
+        # Create download
+        filename = f"iotsentinel_backup_codes_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.txt"
+
+        # Note: In a real implementation, you would use dcc.Download component
+        # For now, just log it
+        logger.info(f"Backup codes download requested for user {current_user.username}")
+
+    except Exception as e:
+        logger.error(f"Error downloading backup codes: {e}")
+
+    return 0  # Reset clicks
 
 
 # Forgot Password Modal Toggle
@@ -17142,6 +17674,14 @@ def create_new_user(n_clicks, username, email, password, role):
     if success:
         logger.info(f"Admin {current_user.username} created new user: {username} (role: {role})")
 
+        # Log to audit trail
+        log_user_action(
+            audit_logger,
+            'create',
+            username,
+            success=True
+        )
+
         # Refresh user list
         users = auth_manager.get_all_users()
         rows = []
@@ -17172,6 +17712,13 @@ def create_new_user(n_clicks, username, email, password, role):
 
         return dbc.Alert([html.I(className="fa fa-check-circle me-2"), f"User '{username}' created successfully!"], color="success"), "", "", "", user_table, toast
     else:
+        log_user_action(
+            audit_logger,
+            'create',
+            username,
+            success=False,
+            error_message="Username already exists"
+        )
         toast = ToastManager.error(
             "User Creation Failed",
             detail_message="Username already exists"
@@ -17533,7 +18080,7 @@ def manage_biometric_section(is_open):
                                 dbc.Col([
                                     dbc.Button([html.I(className="fa fa-trash")],
                                     id={"type": "remove-biometric-btn", "index": credential_id},
-                                    color="danger", size="sm", outline=True, title="Remove device")
+                                    color="danger", size="sm", outline=True, title="Remove device", n_clicks=0)
                                 ], md=3, className="d-flex justify-content-end")
                             ])
                         ])
@@ -17588,20 +18135,135 @@ app.clientside_callback(
 )
 
 
-# Remove biometric credential
+# Biometric/Passkey Login (similar to GitHub)
+app.clientside_callback(
+    """
+    async function(n_clicks) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+
+        // Check if WebAuthn is supported
+        if (!window.PublicKeyCredential) {
+            return {
+                'props': {
+                    'children': 'Passkey authentication is not supported in this browser. Please use Chrome, Edge, Safari, or Firefox.',
+                    'color': 'warning',
+                    'className': 'mb-2'
+                },
+                'type': 'Alert',
+                'namespace': 'dash_bootstrap_components'
+            };
+        }
+
+        try {
+            // Get authentication options from server
+            const optionsResponse = await fetch('/api/webauthn/generate-authentication-options', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+
+            if (!optionsResponse.ok) {
+                throw new Error('Failed to get authentication options');
+            }
+
+            const options = await optionsResponse.json();
+
+            // Convert challenge from base64
+            options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+            // Convert credential IDs if present
+            if (options.allowCredentials) {
+                options.allowCredentials = options.allowCredentials.map(cred => ({
+                    ...cred,
+                    id: Uint8Array.from(atob(cred.id.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+                }));
+            }
+
+            // Request authentication
+            const credential = await navigator.credentials.get({
+                publicKey: options
+            });
+
+            // Prepare credential for server
+            const credentialData = {
+                id: credential.id,
+                rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+                response: {
+                    clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+                    authenticatorData: btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))),
+                    signature: btoa(String.fromCharCode(...new Uint8Array(credential.response.signature))),
+                    userHandle: credential.response.userHandle ? btoa(String.fromCharCode(...new Uint8Array(credential.response.userHandle))) : null
+                },
+                type: credential.type
+            };
+
+            // Verify with server
+            const verifyResponse = await fetch('/api/webauthn/verify-authentication', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    credential: credentialData,
+                    challenge_key: options.challenge_key
+                })
+            });
+
+            const result = await verifyResponse.json();
+
+            if (result.success) {
+                // Redirect to dashboard
+                window.location.href = '/';
+                return window.dash_clientside.no_update;
+            } else {
+                return {
+                    'props': {
+                        'children': result.error || 'Authentication failed. Please try again.',
+                        'color': 'danger',
+                        'className': 'mb-2'
+                    },
+                    'type': 'Alert',
+                    'namespace': 'dash_bootstrap_components'
+                };
+            }
+
+        } catch (error) {
+            console.error('Passkey authentication error:', error);
+            return {
+                'props': {
+                    'children': error.name === 'NotAllowedError' ? 'Authentication cancelled or timed out.' : 'Passkey authentication failed: ' + error.message,
+                    'color': 'warning',
+                    'className': 'mb-2'
+                },
+                'type': 'Alert',
+                'namespace': 'dash_bootstrap_components'
+            };
+        }
+    }
+    """,
+    Output('totp-login-status', 'children'),  # Reuse this output for biometric status
+    Input('biometric-login-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+
+
+# Open confirmation modal for biometric removal
 @app.callback(
-    [Output('toast-container', 'children', allow_duplicate=True),
-     Output('profile-edit-modal', 'is_open', allow_duplicate=True)],
+    [Output('biometric-remove-credential-id', 'data'),
+     Output('confirm-remove-biometric-modal', 'is_open', allow_duplicate=True)],
     Input({"type": "remove-biometric-btn", "index": ALL}, "n_clicks"),
     prevent_initial_call=True
 )
-def remove_biometric_device(n_clicks_list):
-    """Remove a biometric credential"""
+def open_biometric_remove_confirmation(n_clicks_list):
+    """Open confirmation modal before removing biometric credential"""
     if not current_user.is_authenticated or not webauthn_handler:
         raise dash.exceptions.PreventUpdate
 
     ctx = callback_context
     if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    # Check if any button was actually clicked (n_clicks > 0)
+    if not n_clicks_list or not any(n_clicks_list):
         raise dash.exceptions.PreventUpdate
 
     # Get credential ID from button that was clicked
@@ -17613,21 +18275,63 @@ def remove_biometric_device(n_clicks_list):
     except:
         raise dash.exceptions.PreventUpdate
 
+    # Store credential ID and open modal
+    return credential_id, True
+
+
+# Cancel biometric removal
+@app.callback(
+    Output('confirm-remove-biometric-modal', 'is_open', allow_duplicate=True),
+    Input('cancel-remove-biometric', 'n_clicks'),
+    prevent_initial_call=True
+)
+def cancel_biometric_removal(n_clicks):
+    """Close confirmation modal without removing"""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return False
+
+
+# Confirm and remove biometric credential
+@app.callback(
+    [Output('toast-container', 'children', allow_duplicate=True),
+     Output('confirm-remove-biometric-modal', 'is_open', allow_duplicate=True),
+     Output('profile-edit-modal', 'is_open', allow_duplicate=True)],
+    Input('confirm-remove-biometric', 'n_clicks'),
+    State('biometric-remove-credential-id', 'data'),
+    prevent_initial_call=True
+)
+def confirm_remove_biometric_device(n_clicks, credential_id):
+    """Remove biometric credential after confirmation"""
+    if not n_clicks or not credential_id:
+        raise dash.exceptions.PreventUpdate
+
+    if not current_user.is_authenticated or not webauthn_handler:
+        raise dash.exceptions.PreventUpdate
+
     # Remove credential
     success = webauthn_handler.remove_credential(current_user.id, credential_id)
 
     if success:
+        # Log the action
+        audit_logger.log_user_action(
+            action="biometric_removed",
+            username=current_user.username,
+            success=True,
+            details=f"Credential ID: {credential_id[:10]}..."
+        )
+
         toast = ToastManager.success(
             "Device Removed",
-            detail_message="Biometric credential removed successfully"
+            detail_message="Biometric credential has been removed successfully. You can register a new device anytime."
         )
-        return toast, True  # Reopen modal to refresh list
+        return toast, False, True  # Close confirmation modal, reopen profile to refresh list
     else:
         toast = ToastManager.error(
             "Removal Failed",
-            detail_message="Failed to remove biometric credential"
+            detail_message="Failed to remove biometric credential. Please try again."
         )
-        return toast, dash.no_update
+        return toast, False, dash.no_update
 
 
 # ============================================================================
@@ -18161,9 +18865,17 @@ def toggle_bulk_delete_modal(delete_clicks, cancel_clicks, confirm_clicks, is_op
     prevent_initial_call=True
 )
 def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
-    """Execute bulk delete after confirmation"""
+    """Execute bulk delete after confirmation (Admin only)"""
     if not confirm_clicks:
         raise dash.exceptions.PreventUpdate
+
+    # Admin-only check
+    if not current_user.is_authenticated or not current_user.is_admin():
+        toast = ToastManager.error(
+            "Access Denied",
+            detail_message="Bulk device deletion is restricted to administrators only."
+        )
+        return toast
 
     # Get selected device IPs
     selected_ips = [
@@ -18175,6 +18887,20 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
     if not selected_ips:
         return dash.no_update
 
+    # Check rate limit for bulk operations
+    allowed, remaining, reset_sec = rate_limiter.check_rate_limit(
+        current_user.username, 'bulk_operation'
+    )
+    if not allowed:
+        toast = ToastManager.warning(
+            "Rate Limit Exceeded",
+            detail_message=f"Too many bulk operations. Try again in {reset_sec} seconds."
+        )
+        return toast
+
+    # Record the attempt
+    rate_limiter.record_attempt(current_user.username, 'bulk_operation', success=True)
+
     try:
         count = len(selected_ips)
         conn = db_manager.conn
@@ -18185,6 +18911,9 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
 
         conn.commit()
 
+        # Log to audit trail
+        log_bulk_action(audit_logger, 'delete', count, success=True)
+
         toast = ToastManager.warning(
             "Bulk Delete",
             detail_message=f"Deleted {count} device(s)"
@@ -18193,6 +18922,7 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
 
     except Exception as e:
         logger.error(f"Bulk delete error: {e}")
+        log_bulk_action(audit_logger, 'delete', count, success=False, error_message=str(e))
         toast = ToastManager.error(
             "Delete Failed",
             detail_message=f"Error: {str(e)}"
@@ -18207,9 +18937,31 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
     prevent_initial_call=True
 )
 def bulk_trust_all_unknown(n_clicks):
-    """Trust all unknown/unclassified devices."""
+    """Trust all unknown/unclassified devices (Admin only)."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    # Admin-only check
+    if not current_user.is_authenticated or not current_user.is_admin():
+        toast = ToastManager.error(
+            "Access Denied",
+            detail_message="Bulk trust operations are restricted to administrators only."
+        )
+        return toast
+
+    # Check rate limit
+    allowed, remaining, reset_sec = rate_limiter.check_rate_limit(
+        current_user.username, 'bulk_operation'
+    )
+    if not allowed:
+        toast = ToastManager.warning(
+            "Rate Limit Exceeded",
+            detail_message=f"Too many bulk operations. Try again in {reset_sec} seconds."
+        )
+        return toast
+
+    # Record the attempt
+    rate_limiter.record_attempt(current_user.username, 'bulk_operation', success=True)
 
     try:
         conn = get_db_connection()
@@ -18222,6 +18974,9 @@ def bulk_trust_all_unknown(n_clicks):
         count = cursor.rowcount
         conn.commit()
 
+        # Log to audit trail
+        log_bulk_action(audit_logger, 'trust', count, success=True)
+
         toast = ToastManager.success(
             "Bulk Trust Complete",
             detail_message="Bulk Trust Complete"
@@ -18230,6 +18985,7 @@ def bulk_trust_all_unknown(n_clicks):
 
     except Exception as e:
         logger.error(f"Error trusting all: {e}")
+        log_bulk_action(audit_logger, 'trust', 0, success=False, error_message=str(e))
         toast = ToastManager.error(
             "Error",
             detail_message="Error"
@@ -18244,9 +19000,49 @@ def bulk_trust_all_unknown(n_clicks):
     prevent_initial_call=True
 )
 def bulk_block_suspicious(n_clicks):
-    """Block all suspicious devices (those with alerts)."""
+    """Block all suspicious devices (those with alerts) - Admin/Parent only."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    # Permission check - kids cannot bulk block
+    if not current_user.is_authenticated:
+        toast = ToastManager.error(
+            "Access Denied",
+            detail_message="You must be logged in to bulk block devices."
+        )
+        return toast
+
+    # Check if user is a kid
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+            (current_user.id,)
+        )
+        kid_check = cursor.fetchone()
+        if kid_check and kid_check[0] == '1':
+            toast = ToastManager.error(
+                "Access Denied",
+                detail_message="Bulk blocking devices requires adult permission. Please ask a parent or guardian."
+            )
+            return toast
+    except Exception as e:
+        logger.error(f"Error checking user permissions: {e}")
+
+    # Check rate limit
+    allowed, remaining, reset_sec = rate_limiter.check_rate_limit(
+        current_user.username, 'bulk_operation'
+    )
+    if not allowed:
+        toast = ToastManager.warning(
+            "Rate Limit Exceeded",
+            detail_message=f"Too many bulk operations. Try again in {reset_sec} seconds."
+        )
+        return toast
+
+    # Record the attempt
+    rate_limiter.record_attempt(current_user.username, 'bulk_operation', success=True)
 
     try:
         conn = get_db_connection()
@@ -18263,6 +19059,9 @@ def bulk_block_suspicious(n_clicks):
         count = cursor.rowcount
         conn.commit()
 
+        # Log to audit trail
+        log_bulk_action(audit_logger, 'block_suspicious', count, success=True)
+
         toast = ToastManager.error(
             "Bulk Block Complete",
             detail_message="Bulk Block Complete"
@@ -18271,6 +19070,7 @@ def bulk_block_suspicious(n_clicks):
 
     except Exception as e:
         logger.error(f"Error blocking suspicious: {e}")
+        log_bulk_action(audit_logger, 'block_suspicious', 0, success=False, error_message=str(e))
         toast = ToastManager.error(
             "Error",
             detail_message="Error"
@@ -20763,7 +21563,7 @@ def toggle_firewall_modal(n, is_open):
     prevent_initial_call=True
 )
 def handle_firewall_modal_actions(save_clicks, cancel_clicks, lockdown_state):
-    """Handle Firewall modal Save and Cancel actions."""
+    """Handle Firewall modal Save and Cancel actions (Admin/Parent only)."""
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update
@@ -20783,6 +21583,32 @@ def handle_firewall_modal_actions(save_clicks, cancel_clicks, lockdown_state):
         return False, toast
 
     elif button_id == 'save-firewall-btn':
+        # Permission check - kids cannot change firewall settings
+        if not current_user.is_authenticated:
+            toast = ToastManager.error(
+                "Access Denied",
+                detail_message="You must be logged in to change firewall settings."
+            )
+            return False, toast
+
+        # Check if user is a kid
+        try:
+            conn = db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+                (current_user.id,)
+            )
+            kid_check = cursor.fetchone()
+            if kid_check and kid_check[0] == '1':
+                toast = ToastManager.error(
+                    "Access Denied",
+                    detail_message="Firewall and lockdown settings can only be changed by adults. Please ask a parent or guardian."
+                )
+                return False, toast
+        except Exception as e:
+            logger.error(f"Error checking user permissions: {e}")
+
         # Save button - apply lockdown state and close modal
         try:
             # Here you would typically save the lockdown state to database or config
@@ -31702,34 +32528,281 @@ def update_live_threat_feed(n):
         logger.error(f"Error updating live threat feed: {e}")
         return html.P("Unable to load threats", className="text-muted text-center mb-0 py-3 small")
 
+# Update user role store on page load
+@app.callback(
+    Output('user-role-store', 'data'),
+    Input('url', 'pathname'),
+    prevent_initial_call=False
+)
+def update_user_role(pathname):
+    """Store current user's role for permission checks."""
+    if current_user.is_authenticated:
+        return {'role': current_user.role}
+    return {'role': 'viewer'}
+
+# Populate Quick Actions modal content based on user role
+@app.callback(
+    Output('quick-actions-content', 'children'),
+    [Input('quick-actions-modal', 'is_open'),
+     Input('user-role-store', 'data')],
+    prevent_initial_call=False
+)
+def populate_quick_actions_content(is_open, user_data):
+    """Dynamically populate Quick Actions modal based on user role and family role."""
+    if not is_open and is_open is not None:
+        return []
+
+    user_role = user_data.get('role', 'viewer') if user_data else 'viewer'
+    is_admin = user_role == 'admin'
+
+    # Check family role (kid vs parent)
+    is_kid = False
+    if current_user.is_authenticated:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+                (current_user.id,)
+            )
+            result = cursor.fetchone()
+            is_kid = result and result['preference_value'] == '1'
+        except Exception as e:
+            logger.error(f"Error checking family role: {e}")
+
+    content = []
+
+    # Dashboard Actions (All users except kids get export)
+    refresh_section = [
+        html.H6([html.I(className="fa fa-tachometer-alt me-2 text-primary"), "Dashboard"], className="fw-bold mb-2"),
+        dbc.Row([
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-sync-alt me-2"), "Refresh"], id="quick-refresh-btn", color="primary", size="sm", className="w-100")
+            ], width=12, className="mb-2"),
+        ], className="mb-2"),
+    ]
+
+    if not is_kid:
+        # Export is available for all users except kids
+        refresh_section.extend([
+            html.Label("Export Security Report (Alerts, Devices, Statistics):", className="fw-bold mb-1 small text-muted"),
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Format:", className="fw-bold mb-1 small"),
+                    dbc.Select(
+                        id='export-format-quick',
+                        options=[
+                            {'label': '📄 CSV', 'value': 'csv'},
+                            {'label': '📋 JSON', 'value': 'json'},
+                            {'label': '📕 PDF', 'value': 'pdf'},
+                            {'label': '📊 Excel', 'value': 'xlsx'}
+                        ],
+                        value='csv',
+                        size="sm",
+                        className="mb-2"
+                    )
+                ], width=6),
+                dbc.Col([
+                    html.Label("Download:", className="fw-bold mb-1 small"),
+                    dbc.Button([html.I(className="fa fa-download me-2"), "Export"], id="quick-export-btn", color="success", size="sm", className="w-100")
+                ], width=6),
+            ], className="mb-3"),
+        ])
+
+    refresh_section.append(html.Hr())
+    content.extend(refresh_section)
+
+    # Security & Monitoring (Kids have very limited access)
+    if is_kid:
+        # Kids can only view diagnostics, nothing else
+        security_buttons = [
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-stethoscope me-2"), "Run Diagnostics"], id="quick-diagnostics-btn", color="primary", size="sm", className="w-100")
+            ], width=12, className="mb-2"),
+        ]
+    else:
+        # Non-kids get scan and diagnostics
+        security_buttons = [
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-search me-2"), "Network Scan"], id="quick-scan-btn", color="info", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-stethoscope me-2"), "Run Diagnostics"], id="quick-diagnostics-btn", color="primary", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+        ]
+
+        # Admin-only security actions
+        if is_admin:
+            security_buttons.extend([
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-trash me-2"), "Clear Threat Cache", html.Span(" 🔐", className="ms-1")],
+                        id="quick-clear-cache-btn",
+                        color="warning",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2"),
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-cloud-download-alt me-2"), "Update Threat DB", html.Span(" 🔐", className="ms-1")],
+                        id="quick-update-db-btn",
+                        color="info",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2"),
+            ])
+
+    content.extend([
+        html.H6([html.I(className="fa fa-shield-halved me-2 text-danger"), "Security & Monitoring"], className="fw-bold mb-2"),
+        dbc.Row(security_buttons, className="mb-3"),
+        html.Hr(),
+    ])
+
+    # Network Management (Admin only - kids and regular users don't see this)
+    if is_admin and not is_kid:
+        content.extend([
+            html.H6([
+                html.I(className="fa fa-network-wired me-2 text-info"),
+                "Network Management",
+                html.Span(" (Admin Only)", className="ms-2 small text-muted")
+            ], className="fw-bold mb-2"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-ban me-2"), "Block Unknown", html.Span(" 🔐", className="ms-1")],
+                        id="quick-block-unknown-btn",
+                        color="danger",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2"),
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-check-circle me-2"), "Whitelist Trusted", html.Span(" 🔐", className="ms-1")],
+                        id="quick-whitelist-btn",
+                        color="success",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2"),
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-redo me-2"), "Restart Monitor", html.Span(" 🔐", className="ms-1")],
+                        id="quick-restart-monitor-btn",
+                        color="warning",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2"),
+                dbc.Col([
+                    dbc.Button([html.I(className="fa fa-eraser me-2"), "Clear Net Cache"], id="quick-clear-net-cache-btn", color="secondary", size="sm", className="w-100")
+                ], width=6, className="mb-2"),
+            ], className="mb-3"),
+            html.Hr(),
+        ])
+
+    # Data Management (Kids cannot backup or manage data)
+    if not is_kid:
+        data_buttons = [
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-save me-2"), "Backup Data"], id="quick-backup-btn", color="primary", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-clock me-2"), "Clear Old Logs"], id="quick-clear-logs-btn", color="warning", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+        ]
+
+        if is_admin:
+            data_buttons.append(
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-bell-slash me-2"), "Purge Alerts", html.Span(" 🔐", className="ms-1")],
+                        id="quick-purge-alerts-btn",
+                        color="danger",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2")
+            )
+
+        content.extend([
+            html.H6([html.I(className="fa fa-database me-2 text-success"), "Data Management"], className="fw-bold mb-2"),
+            dbc.Row(data_buttons, className="mb-3"),
+            html.Hr(),
+        ])
+
+    # System Actions (Kids have very limited access)
+    if is_kid:
+        # Kids can only view logs
+        system_buttons = [
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-file-alt me-2"), "View Logs"], id="quick-view-logs-btn", color="secondary", size="sm", className="w-100")
+            ], width=12, className="mb-2"),
+        ]
+    else:
+        system_buttons = [
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-arrow-circle-up me-2"), "Check Updates"], id="quick-check-updates-btn", color="info", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+            dbc.Col([
+                dbc.Button([html.I(className="fa fa-file-alt me-2"), "View Logs"], id="quick-view-logs-btn", color="secondary", size="sm", className="w-100")
+            ], width=6, className="mb-2"),
+        ]
+
+        if is_admin:
+            system_buttons.insert(0,
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="fa fa-power-off me-2"), "Restart Dashboard", html.Span(" 🔐", className="ms-1")],
+                        id="quick-restart-dash-btn",
+                        color="danger",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6, className="mb-2")
+            )
+
+    content.extend([
+        html.H6([html.I(className="fa fa-cog me-2 text-secondary"), "System"], className="fw-bold mb-2"),
+        dbc.Row(system_buttons, className="mb-2"),
+    ])
+
+    # Add role indicator at bottom
+    if is_kid:
+        content.append(
+            html.Div([
+                html.Hr(),
+                html.Small([
+                    html.I(className="fa fa-child me-2 text-info"),
+                    "👶 Child Account - You have limited access for safety. Contact your parent/guardian for full access."
+                ], className="text-muted d-block text-center fw-bold")
+            ])
+        )
+    elif not is_admin:
+        content.append(
+            html.Div([
+                html.Hr(),
+                html.Small([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "Some advanced actions are restricted to administrators. Contact your admin for access."
+                ], className="text-muted d-block text-center")
+            ])
+        )
+
+    return content
+
 # Quick Actions modal toggle callback
 @app.callback(
     Output('quick-actions-modal', 'is_open'),
     [Input('quick-actions-button', 'n_clicks'),
-     Input('close-quick-actions-modal', 'n_clicks'),
-     Input('quick-refresh-btn', 'n_clicks'),
-     Input('quick-scan-btn', 'n_clicks'),
-     Input('quick-export-btn', 'n_clicks'),
-     Input('quick-clear-cache-btn', 'n_clicks'),
-     Input('quick-update-db-btn', 'n_clicks'),
-     Input('quick-diagnostics-btn', 'n_clicks'),
-     Input('quick-security-report-btn', 'n_clicks'),
-     Input('quick-block-unknown-btn', 'n_clicks'),
-     Input('quick-whitelist-btn', 'n_clicks'),
-     Input('quick-restart-monitor-btn', 'n_clicks'),
-     Input('quick-clear-net-cache-btn', 'n_clicks'),
-     Input('quick-backup-btn', 'n_clicks'),
-     Input('quick-clear-logs-btn', 'n_clicks'),
-     Input('quick-purge-alerts-btn', 'n_clicks'),
-     Input('quick-restart-dash-btn', 'n_clicks'),
-     Input('quick-check-updates-btn', 'n_clicks'),
-     Input('quick-view-logs-btn', 'n_clicks')],
+     Input('close-quick-actions-modal', 'n_clicks')],
     [State('quick-actions-modal', 'is_open')],
     prevent_initial_call=True
 )
-def toggle_quick_actions_modal(*args):
+def toggle_quick_actions_modal(open_clicks, close_clicks, is_open):
     """Toggle Quick Actions modal."""
-    is_open = args[-1]  # Last argument is the state
     ctx = dash.callback_context
     if not ctx.triggered:
         return is_open
@@ -31739,8 +32812,8 @@ def toggle_quick_actions_modal(*args):
     # Open modal when quick-actions-button is clicked
     if button_id == 'quick-actions-button':
         return True
-    # Close modal when close button or any action button is clicked
-    elif button_id != 'quick-actions-button':
+    # Close modal when close button is clicked
+    elif button_id == 'close-quick-actions-modal':
         return False
 
     return is_open
@@ -31748,8 +32821,7 @@ def toggle_quick_actions_modal(*args):
 # Quick Actions button callbacks
 @app.callback(
     [Output('refresh-interval', 'n_intervals', allow_duplicate=True),
-     Output('quick-refresh-toast', 'is_open'),
-     Output('quick-refresh-toast', 'children')],
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('quick-refresh-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31757,13 +32829,16 @@ def quick_refresh(n):
     """Trigger dashboard refresh by resetting interval."""
     if n:
         logger.info("Quick refresh triggered - resetting interval")
-        return 0, True, "Dashboard data refreshed successfully!"
-    return dash.no_update, False, ""
+        toast = ToastManager.success(
+            "Dashboard data refreshed successfully!",
+            category="dashboard",
+            duration="short"
+        )
+        return 0, toast
+    return dash.no_update, dash.no_update
 
 @app.callback(
-    [Output('quick-scan-toast', 'is_open', allow_duplicate=True),
-     Output('quick-scan-toast', 'children', allow_duplicate=True),
-     Output('quick-scan-toast', 'icon', allow_duplicate=True)],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-scan-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31778,51 +32853,126 @@ def quick_scan(n):
                 subprocess.Popen(['python3', str(zeek_script)],
                                stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL)
-                return True, "Network scan started! Results will appear shortly.", "success"
+                return ToastManager.success(
+                    "Network scan started!",
+                    detail_message="Results will appear shortly.",
+                    category="security",
+                    duration="medium"
+                )
             else:
                 logger.warning("zeek_capture.py not found, scan not available")
-                return True, "Scan feature not configured. Please set up Zeek first.", "warning"
+                return ToastManager.warning(
+                    "Scan feature not configured",
+                    detail_message="Please set up Zeek first.",
+                    category="security"
+                )
         except Exception as e:
             logger.error(f"Failed to start scan: {e}")
-            return True, f"Scan failed: {str(e)}", "danger"
-    return False, "", "info"
+            return ToastManager.error(
+                "Scan failed",
+                detail_message=str(e),
+                category="security"
+            )
+    return dash.no_update
 
 @app.callback(
     [Output('download-export', 'data', allow_duplicate=True),
-     Output('quick-export-toast', 'is_open'),
-     Output('quick-export-toast', 'children')],
+     Output('toast-container', 'children', allow_duplicate=True)],
     Input('quick-export-btn', 'n_clicks'),
     State('export-format-quick', 'value'),
     prevent_initial_call=True
 )
 def quick_export(n, export_format):
-    """Export security report in selected format."""
+    """Export comprehensive security report in selected format."""
     if n:
         try:
-            logger.info(f"Generating security report export in {export_format} format")
+            logger.info(f"Generating comprehensive security report export in {export_format} format")
+            conn = get_db_connection()
 
             # Normalize format (xlsx -> excel)
             format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
             export_format = format_map.get(export_format or 'csv', 'csv')
 
-            # Export alerts (last 7 days) using universal export helper
-            download_data = export_helper.export_alerts(format=export_format, days=7)
+            if export_format == 'csv' or export_format == 'excel' or export_format == 'json':
+                # For structured formats, export using the helper
+                download_data = export_helper.export_alerts(format=export_format, days=30)
+            else:
+                # For PDF/TXT, generate detailed text report
+                import io
+                output = io.StringIO()
+
+                # Header
+                output.write("="*60 + "\n")
+                output.write("      IoTSentinel Security Report (Comprehensive)\n")
+                output.write("="*60 + "\n")
+                output.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+                # Summary statistics
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE timestamp > datetime("now", "-24 hours")')
+                alerts_24h = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE timestamp > datetime("now", "-7 days")')
+                alerts_7d = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM devices')
+                total_devices = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 1')
+                trusted_devices = cursor.fetchone()['count']
+                cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_blocked = 1')
+                blocked_devices = cursor.fetchone()['count']
+
+                output.write("SUMMARY\n")
+                output.write("-"*60 + "\n")
+                output.write(f"Total Devices: {total_devices}\n")
+                output.write(f"Trusted Devices: {trusted_devices}\n")
+                output.write(f"Blocked Devices: {blocked_devices}\n")
+                output.write(f"Alerts (24h): {alerts_24h}\n")
+                output.write(f"Alerts (7d): {alerts_7d}\n\n")
+
+                # Recent alerts
+                cursor.execute('''
+                    SELECT timestamp, severity, device_ip, explanation
+                    FROM alerts
+                    ORDER BY timestamp DESC
+                    LIMIT 100
+                ''')
+                alerts = cursor.fetchall()
+
+                output.write("RECENT ALERTS (Last 100)\n")
+                output.write("-"*60 + "\n")
+                for alert in alerts:
+                    output.write(f"[{alert['timestamp']}] {alert['severity'].upper()}: {alert['device_ip']} - {alert['explanation']}\n")
+
+                filename = f"iotsentinel_security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                download_data = dict(content=output.getvalue(), filename=filename)
 
             if download_data:
-                return download_data, True, f"Security report exported as {export_format.upper()}"
+                toast = ToastManager.success(
+                    f"Security report exported as {export_format.upper()}",
+                    category="data",
+                    duration="short"
+                )
+                return download_data, toast
             else:
-                return None, True, "Export failed - no data available"
+                toast = ToastManager.warning(
+                    "Export failed - no data available",
+                    category="data"
+                )
+                return None, toast
 
         except Exception as e:
             logger.error(f"Export failed: {e}")
-            return None, True, f"Export failed: {str(e)}"
-    return None, False, ""
+            toast = ToastManager.error(
+                "Export failed",
+                detail_message=str(e),
+                category="data"
+            )
+            return None, toast
+    return None, dash.no_update
 
 # === SECURITY & MONITORING ACTIONS ===
 
 @app.callback(
-    [Output('quick-clear-cache-toast', 'is_open'),
-     Output('quick-clear-cache-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-clear-cache-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31838,16 +32988,27 @@ def quick_clear_cache(n):
                 deleted = cursor.rowcount
                 conn.commit()
                 logger.info(f"Cleared {deleted} old alerts from cache")
-                return True, f"Cache cleared! Removed {deleted} old alerts."
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    "Cache cleared!",
+                    detail_message=f"Removed {deleted} old alerts.",
+                    category="security",
+                    duration="medium"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="security"
+            )
         except Exception as e:
             logger.error(f"Failed to clear cache: {e}")
-            return True, f"Failed to clear cache: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to clear cache",
+                detail_message=str(e),
+                category="security"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-update-db-toast', 'is_open'),
-     Output('quick-update-db-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-update-db-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31858,15 +33019,23 @@ def quick_update_db(n):
             logger.info("Updating threat database")
             # In a real implementation, this would fetch from threat intelligence feeds
             # For now, we'll just simulate the update
-            return True, "Threat database updated successfully! Latest signatures loaded."
+            return ToastManager.success(
+                "Threat database updated successfully!",
+                detail_message="Latest signatures loaded.",
+                category="security",
+                duration="medium"
+            )
         except Exception as e:
             logger.error(f"Failed to update database: {e}")
-            return True, f"Update failed: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Update failed",
+                detail_message=str(e),
+                category="security"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-diagnostics-toast', 'is_open'),
-     Output('quick-diagnostics-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-diagnostics-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31899,83 +33068,25 @@ def quick_diagnostics(n):
 
             result = " | ".join(diagnostics)
             logger.info(f"Diagnostics complete: {result}")
-            return True, result
-        except Exception as e:
-            logger.error(f"Diagnostics failed: {e}")
-            return True, f"Diagnostics failed: {str(e)}"
-    return False, ""
-
-@app.callback(
-    [Output('download-export', 'data', allow_duplicate=True),
-     Output('quick-security-report-toast', 'is_open'),
-     Output('quick-security-report-toast', 'children')],
-    [Input('quick-security-report-btn', 'n_clicks')],
-    prevent_initial_call=True
-)
-def quick_security_report(n):
-    """Generate detailed security report."""
-    if n:
-        try:
-            logger.info("Generating detailed security report")
-            conn = get_db_connection()
-
-            import io
-            output = io.StringIO()
-
-            # Header
-            output.write("="*60 + "\n")
-            output.write("      IoTSentinel Security Report (Detailed)\n")
-            output.write("="*60 + "\n")
-            output.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-            # Summary statistics
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE timestamp > datetime("now", "-24 hours")')
-            alerts_24h = cursor.fetchone()['count']
-            cursor.execute('SELECT COUNT(*) as count FROM devices')
-            total_devices = cursor.fetchone()['count']
-            cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 1')
-            trusted_devices = cursor.fetchone()['count']
-
-            output.write("SUMMARY\n")
-            output.write("-"*60 + "\n")
-            output.write(f"Total Devices: {total_devices}\n")
-            output.write(f"Trusted Devices: {trusted_devices}\n")
-            output.write(f"Alerts (24h): {alerts_24h}\n\n")
-
-            # Recent alerts
-            cursor.execute('''
-                SELECT timestamp, severity, device_ip, explanation
-                FROM alerts
-                ORDER BY timestamp DESC
-                LIMIT 50
-            ''')
-            alerts = cursor.fetchall()
-
-            output.write("RECENT ALERTS\n")
-            output.write("-"*60 + "\n")
-            for alert in alerts:
-                output.write(f"[{alert['timestamp']}] {alert['severity'].upper()}: {alert['device_ip']} - {alert['explanation']}\n")
-
-
-            filename = f"iotsentinel_security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            logger.info(f"Security report generated: {filename}")
-
-            return (
-                dict(content=output.getvalue(), filename=filename),
-                True,
-                f"Security report generated: {filename}"
+            return ToastManager.info(
+                "Diagnostics Complete",
+                detail_message=result,
+                category="system",
+                duration="long"
             )
         except Exception as e:
-            logger.error(f"Report generation failed: {e}")
-            return None, True, f"Report failed: {str(e)}"
-    return None, False, ""
+            logger.error(f"Diagnostics failed: {e}")
+            return ToastManager.error(
+                "Diagnostics failed",
+                detail_message=str(e),
+                category="system"
+            )
+    return dash.no_update
 
 # === NETWORK MANAGEMENT ACTIONS ===
 
 @app.callback(
-    [Output('quick-block-unknown-toast', 'is_open'),
-     Output('quick-block-unknown-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-block-unknown-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -31991,16 +33102,26 @@ def quick_block_unknown(n):
                 blocked = cursor.rowcount
                 conn.commit()
                 logger.info(f"Blocked {blocked} unknown devices")
-                return True, f"Blocked {blocked} unknown devices successfully!"
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    f"Blocked {blocked} unknown devices successfully!",
+                    category="network",
+                    duration="medium"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="network"
+            )
         except Exception as e:
             logger.error(f"Failed to block devices: {e}")
-            return True, f"Failed to block devices: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to block devices",
+                detail_message=str(e),
+                category="network"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-whitelist-toast', 'is_open'),
-     Output('quick-whitelist-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-whitelist-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32016,16 +33137,26 @@ def quick_whitelist(n):
                 whitelisted = cursor.rowcount
                 conn.commit()
                 logger.info(f"Whitelisted {whitelisted} trusted devices")
-                return True, f"Whitelisted {whitelisted} trusted devices successfully!"
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    f"Whitelisted {whitelisted} trusted devices successfully!",
+                    category="network",
+                    duration="medium"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="network"
+            )
         except Exception as e:
             logger.error(f"Failed to whitelist devices: {e}")
-            return True, f"Failed to whitelist devices: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to whitelist devices",
+                detail_message=str(e),
+                category="network"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-restart-monitor-toast', 'is_open'),
-     Output('quick-restart-monitor-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-restart-monitor-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32036,15 +33167,23 @@ def quick_restart_monitor(n):
             logger.info("Restarting network monitor")
             # In a real implementation, this would restart Zeek
             # For now, we'll just log it
-            return True, "Network monitor restart initiated. Please check logs for status."
+            return ToastManager.info(
+                "Network monitor restart initiated",
+                detail_message="Please check logs for status.",
+                category="network",
+                duration="medium"
+            )
         except Exception as e:
             logger.error(f"Failed to restart monitor: {e}")
-            return True, f"Restart failed: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Restart failed",
+                detail_message=str(e),
+                category="network"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-clear-net-cache-toast', 'is_open'),
-     Output('quick-clear-net-cache-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-clear-net-cache-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32059,19 +33198,29 @@ def quick_clear_net_cache(n):
                 # Clear old connection logs (if you have a connections table)
                 # For now, we'll just return success
                 logger.info("Network cache cleared")
-                return True, "Network cache cleared successfully!"
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    "Network cache cleared successfully!",
+                    category="network",
+                    duration="short"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="network"
+            )
         except Exception as e:
             logger.error(f"Failed to clear network cache: {e}")
-            return True, f"Failed to clear cache: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to clear cache",
+                detail_message=str(e),
+                category="network"
+            )
+    return dash.no_update
 
 # === DATA MANAGEMENT ACTIONS ===
 
 @app.callback(
     [Output('download-export', 'data', allow_duplicate=True),
-     Output('quick-backup-toast', 'is_open'),
-     Output('quick-backup-toast', 'children')],
+     Output('toast-container', 'children', allow_duplicate=True)],
     [Input('quick-backup-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32098,20 +33247,33 @@ def quick_backup(n):
                 # Clean up temp backup
                 backup_path.unlink()
 
+                toast = ToastManager.success(
+                    "Backup created",
+                    detail_message=backup_name,
+                    category="data",
+                    duration="medium"
+                )
                 return (
                     dict(content=backup_data, filename=backup_name, type='application/octet-stream', base64=True),
-                    True,
-                    f"Backup created: {backup_name}"
+                    toast
                 )
-            return None, True, "Database not found"
+            toast = ToastManager.warning(
+                "Database not found",
+                category="data"
+            )
+            return None, toast
         except Exception as e:
             logger.error(f"Backup failed: {e}")
-            return None, True, f"Backup failed: {str(e)}"
-    return None, False, ""
+            toast = ToastManager.error(
+                "Backup failed",
+                detail_message=str(e),
+                category="data"
+            )
+            return None, toast
+    return None, dash.no_update
 
 @app.callback(
-    [Output('quick-clear-logs-toast', 'is_open'),
-     Output('quick-clear-logs-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-clear-logs-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32127,16 +33289,26 @@ def quick_clear_logs(n):
                 deleted = cursor.rowcount
                 conn.commit()
                 logger.info(f"Cleared {deleted} old log entries")
-                return True, f"Cleared {deleted} old log entries (>30 days)!"
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    f"Cleared {deleted} old log entries (>30 days)!",
+                    category="data",
+                    duration="medium"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="data"
+            )
         except Exception as e:
             logger.error(f"Failed to clear logs: {e}")
-            return True, f"Failed to clear logs: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to clear logs",
+                detail_message=str(e),
+                category="data"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-purge-alerts-toast', 'is_open'),
-     Output('quick-purge-alerts-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-purge-alerts-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32153,18 +33325,28 @@ def quick_purge_alerts(n):
                 deleted = cursor.rowcount
                 conn.commit()
                 logger.info(f"Purged {deleted} low-severity alerts")
-                return True, f"Purged {deleted} low-severity alerts successfully!"
-            return True, "Database connection failed"
+                return ToastManager.success(
+                    f"Purged {deleted} low-severity alerts successfully!",
+                    category="data",
+                    duration="medium"
+                )
+            return ToastManager.error(
+                "Database connection failed",
+                category="data"
+            )
         except Exception as e:
             logger.error(f"Failed to purge alerts: {e}")
-            return True, f"Failed to purge alerts: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Failed to purge alerts",
+                detail_message=str(e),
+                category="data"
+            )
+    return dash.no_update
 
 # === SYSTEM ACTIONS ===
 
 @app.callback(
-    [Output('quick-restart-dash-toast', 'is_open'),
-     Output('quick-restart-dash-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-restart-dash-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32175,15 +33357,23 @@ def quick_restart_dash(n):
             logger.warning("Dashboard restart requested")
             # In production, this would trigger a graceful restart
             # For now, just notify
-            return True, "Dashboard restart initiated. Reconnect in 10 seconds..."
+            return ToastManager.warning(
+                "Dashboard restart initiated",
+                detail_message="Reconnect in 10 seconds...",
+                category="system",
+                duration="long"
+            )
         except Exception as e:
             logger.error(f"Failed to restart: {e}")
-            return True, f"Restart failed: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Restart failed",
+                detail_message=str(e),
+                category="system"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-check-updates-toast', 'is_open'),
-     Output('quick-check-updates-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-check-updates-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32196,17 +33386,29 @@ def quick_check_updates(n):
             # For now, simulate check
             import random
             if random.choice([True, False]):
-                return True, "You're running the latest version of IoTSentinel!"
+                return ToastManager.success(
+                    "You're running the latest version of IoTSentinel!",
+                    category="system",
+                    duration="medium"
+                )
             else:
-                return True, "New update available! Check GitHub for latest release."
+                return ToastManager.info(
+                    "New update available!",
+                    detail_message="Check GitHub for latest release.",
+                    category="system",
+                    duration="medium"
+                )
         except Exception as e:
             logger.error(f"Update check failed: {e}")
-            return True, f"Update check failed: {str(e)}"
-    return False, ""
+            return ToastManager.error(
+                "Update check failed",
+                detail_message=str(e),
+                category="system"
+            )
+    return dash.no_update
 
 @app.callback(
-    [Output('quick-view-logs-toast', 'is_open'),
-     Output('quick-view-logs-toast', 'children')],
+    Output('toast-container', 'children', allow_duplicate=True),
     [Input('quick-view-logs-btn', 'n_clicks')],
     prevent_initial_call=True
 )
@@ -32215,18 +33417,65 @@ def quick_view_logs(n):
     if n:
         try:
             logger.info("Accessing system logs")
-            # Get latest log entries
-            log_file = project_root / "dashboard" / "dashboard.log"
-            if log_file.exists():
-                with open(log_file, 'r') as f:
-                    lines = f.readlines()
-                    recent = lines[-5:]  # Last 5 lines
-                return True, f"Recent logs: Check dashboard.log for full details. Latest: {recent[-1].strip() if recent else 'No logs'}"
-            return True, "Log file not found"
+            # Check multiple possible log file locations
+            possible_logs = [
+                project_root / "data" / "logs" / "orchestrator.log",
+                project_root / "data" / "logs" / "zeek_parser.log",
+                project_root / "dashboard" / "dashboard.log",
+                project_root / "app.log",
+            ]
+
+            found_logs = []
+            log_details = []
+
+            logger.info(f"Checking log files in project_root: {project_root}")
+
+            for log_file in possible_logs:
+                logger.info(f"Checking if {log_file} exists: {log_file.exists()}")
+                if log_file.exists():
+                    try:
+                        # Get file size
+                        file_size = log_file.stat().st_size
+                        with open(log_file, 'r') as f:
+                            lines = f.readlines()
+                            line_count = len(lines)
+
+                        # Add file to found list even if empty
+                        if line_count > 0:
+                            found_logs.append(f"{log_file.name} ({line_count} lines)")
+                            logger.info(f"Found {log_file.name} with {line_count} lines")
+                        else:
+                            found_logs.append(f"{log_file.name} (empty)")
+                            logger.info(f"Found {log_file.name} but it's empty")
+                    except Exception as e:
+                        logger.warning(f"Could not read {log_file.name}: {e}")
+                        found_logs.append(f"{log_file.name} (read error)")
+
+            if found_logs:
+                files_list = ", ".join(found_logs)
+                return ToastManager.success(
+                    f"Found {len(found_logs)} log file(s)!",
+                    detail_message=f"Available logs: {files_list}. Location: data/logs/",
+                    category="system",
+                    duration="long"
+                )
+            else:
+                checked_paths = "\n".join([str(p) for p in possible_logs])
+                logger.warning(f"No log files found. Checked: {checked_paths}")
+                return ToastManager.warning(
+                    "No log files found",
+                    detail_message=f"System logs may not be created yet. Run the orchestrator or dashboard for some time to generate logs.",
+                    category="system",
+                    duration="long"
+                )
         except Exception as e:
-            logger.error(f"Failed to read logs: {e}")
-            return True, f"Failed to read logs: {str(e)}"
-    return False, ""
+            logger.error(f"Failed to read logs: {e}", exc_info=True)
+            return ToastManager.error(
+                "Failed to read logs",
+                detail_message=str(e),
+                category="system"
+            )
+    return dash.no_update
 
 @app.callback(
     [Output('quick-settings-modal', 'is_open', allow_duplicate=True),
@@ -36296,9 +37545,30 @@ def activate_emergency_mode(n_clicks, reason, current_state):
             duration=5000
         )
 
+        # Log to audit trail
+        log_emergency_mode(
+            audit_logger,
+            activated=True,
+            reason=reason or "User activated emergency mode",
+            success=True
+        )
+
         return {'active': True, 'log_id': log_id}, toast, ""
 
     except Exception as e:
+        logger.error(f"Failed to activate emergency mode: {e}")
+        log_emergency_mode(
+            audit_logger,
+            activated=True,
+            reason=reason,
+            success=False,
+            error_message=str(e)
+        )
+        toast = ToastManager.error(
+            "Emergency Mode Failed",
+            detail_message=f"Error: {str(e)}"
+        )
+        return no_update, toast, ""
         logger.error(f"Error activating emergency mode: {e}")
         conn.rollback()  # Rollback any partial changes
         toast = ToastManager.error(
@@ -36317,9 +37587,27 @@ def activate_emergency_mode(n_clicks, reason, current_state):
     prevent_initial_call=True
 )
 def deactivate_emergency_mode(n_clicks, current_state):
-    """Deactivate emergency protection mode."""
+    """Deactivate emergency protection mode (Parent/Admin only)."""
     if not n_clicks or not current_user.is_authenticated:
         return no_update, no_update
+
+    # Check if user is a kid (restricted from deactivating emergency mode)
+    try:
+        conn = db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+            (current_user.id,)
+        )
+        kid_check = cursor.fetchone()
+        if kid_check and kid_check[0] == '1':
+            toast = ToastManager.error(
+                "Access Denied",
+                detail_message="Emergency mode can only be deactivated by adults. Please ask a parent or guardian for help."
+            )
+            return no_update, toast
+    except Exception as e:
+        logger.error(f"Error checking user permissions for emergency mode deactivation: {e}")
 
     if not current_state or not current_state.get('active'):
         toast = ToastManager.warning(
@@ -36351,6 +37639,13 @@ def deactivate_emergency_mode(n_clicks, current_state):
 
         logger.info(f"Emergency mode deactivated by {current_user.username}")
 
+        # Log to audit trail
+        log_emergency_mode(
+            audit_logger,
+            activated=False,
+            success=True
+        )
+
         toast = ToastManager.success(
             "Emergency Mode Deactivated",
             detail_message="Emergency protection has been disabled. Devices remain blocked - review them in Device Management to unblock if needed.",
@@ -36361,18 +37656,16 @@ def deactivate_emergency_mode(n_clicks, current_state):
 
     except Exception as e:
         logger.error(f"Error deactivating emergency mode: {e}")
+        log_emergency_mode(
+            audit_logger,
+            activated=False,
+            success=False,
+            error_message=str(e)
+        )
         conn.rollback()
         toast = ToastManager.error(
             "Deactivation Failed",
             detail_message=f"Could not deactivate emergency protection: {str(e)}"
-        )
-        return no_update, toast
-
-    except Exception as e:
-        logger.error(f"Error deactivating emergency mode: {e}")
-        toast = ToastManager.error(
-            "Deactivation Failed",
-            detail_message=f"Could not deactivate emergency mode: {str(e)}"
         )
         return no_update, toast
 
@@ -36415,6 +37708,68 @@ def update_emergency_ui(emergency_state):
     except Exception as e:
         logger.error(f"Error updating emergency UI: {e}")
         return {'display': 'none'}, {'display': 'block'}, "Emergency protection is active."
+
+
+# ============================================================================
+# WEBAUTHN / PASSKEY API ENDPOINTS
+# ============================================================================
+
+@app.server.route('/api/webauthn/generate-authentication-options', methods=['POST'])
+def generate_webauthn_auth_options():
+    """Generate WebAuthn authentication options for passkey login"""
+    try:
+        if not webauthn_handler:
+            return jsonify({'error': 'WebAuthn not configured'}), 500
+
+        # Generate authentication options (no username required - discoverable credentials)
+        options = webauthn_handler.generate_authentication_options()
+
+        return jsonify(options), 200
+
+    except Exception as e:
+        logger.error(f"Error generating WebAuthn auth options: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.server.route('/api/webauthn/verify-authentication', methods=['POST'])
+def verify_webauthn_authentication():
+    """Verify WebAuthn authentication response and log user in"""
+    try:
+        if not webauthn_handler:
+            return jsonify({'success': False, 'error': 'WebAuthn not configured'}), 500
+
+        data = request.get_json()
+        credential_data = data.get('credential')
+        challenge_key = data.get('challenge_key')
+
+        if not credential_data or not challenge_key:
+            return jsonify({'success': False, 'error': 'Missing required data'}), 400
+
+        # Verify authentication
+        user_id = webauthn_handler.verify_authentication(credential_data, challenge_key)
+
+        if user_id:
+            # Get user and log them in
+            user = auth_manager.get_user_by_id(user_id)
+            if user:
+                login_user(user, remember=True)
+
+                # Log audit
+                log_user_action(
+                    audit_logger,
+                    action='passkey_login',
+                    target_username=user.username,
+                    success=True
+                )
+
+                logger.info(f"User '{user.username}' logged in via passkey/biometric")
+                return jsonify({'success': True, 'username': user.username}), 200
+
+        return jsonify({'success': False, 'error': 'Authentication failed'}), 401
+
+    except Exception as e:
+        logger.error(f"Error verifying WebAuthn authentication: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -33,6 +33,8 @@ PyJWT==2.8.0                    # JWT token handling
 cryptography==41.0.7            # Required by WebAuthn
 bcrypt==4.1.2                   # Password hashing (if not already installed)
 Flask-Login==0.6.3              # Session management
+pyotp==2.9.0                    # TOTP/2FA token generation
+qrcode[pil]==8.2                # QR code generation for 2FA
 
 # Utilities
 python-dateutil==2.8.2

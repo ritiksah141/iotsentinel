@@ -1124,6 +1124,59 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_logs_time ON api_integration_logs(integration_id, timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_integration_logs_success ON api_integration_logs(success, timestamp)')
 
+    # Audit Log Table - Track all privileged actions for security
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER,
+            username TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            action_description TEXT,
+            target_resource TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            success INTEGER DEFAULT 1,
+            error_message TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action_type, timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp)')
+
+    # Rate Limiting Table - Prevent brute force and abuse
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS rate_limit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            identifier TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT,
+            success INTEGER DEFAULT 1
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limit ON rate_limit_log(identifier, action_type, timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limit_cleanup ON rate_limit_log(timestamp)')
+
+    # 2FA Secrets Table - Store TOTP secrets for two-factor authentication
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS totp_secrets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            secret TEXT NOT NULL,
+            enabled INTEGER DEFAULT 0,
+            backup_codes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            verified_at TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_totp_user ON totp_secrets(user_id, enabled)')
+
     conn.commit()
     # No need to close - using shared connection from db_manager
 
@@ -1150,6 +1203,9 @@ def init_database():
     print("  - device_energy_estimates (Per-Device Energy)")
     print("  - api_integrations (API Integration Hub)")
     print("  - api_integration_logs (API Usage Tracking)")
+    print("  - audit_log (Security Audit Trail)")
+    print("  - rate_limit_log (Rate Limiting & Abuse Prevention)")
+    print("  - totp_secrets (Two-Factor Authentication)")
     if not admin_exists:
         print("\n✓ Default admin user created:")
         print(f"  Username: {admin_username_to_print}")

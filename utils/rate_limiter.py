@@ -1,15 +1,21 @@
 """
-Rate Limiter for Login Attempts
-Prevents brute force attacks by limiting login attempts per IP/username
+Rate Limiter for Login Attempts and Bulk Operations
+Prevents brute force attacks and abuse by limiting attempts
+Enhanced version with database persistence for distributed rate limiting
 """
 
 import time
+import logging
 from collections import defaultdict
 from typing import Tuple
+from datetime import datetime, timedelta
+from flask import request
+
+logger = logging.getLogger(__name__)
 
 
 class LoginRateLimiter:
-    """Simple rate limiter for login attempts"""
+    """Simple in-memory rate limiter for login attempts (legacy support)"""
 
     def __init__(self, max_attempts: int = 5, lockout_duration: int = 300):
         """
@@ -107,6 +113,134 @@ class LoginRateLimiter:
             Number of failed attempts
         """
         return len(self._failed_attempts.get(identifier, []))
+
+
+# Enhanced Database-Backed Rate Limiter
+class RateLimiter:
+    """Database-backed rate limiting for login attempts and bulk operations."""
+
+    # Rate limit configurations (attempts, window in minutes)
+    LIMITS = {
+        'login': (5, 15),           # 5 attempts per 15 minutes
+        'bulk_operation': (3, 5),   # 3 bulk ops per 5 minutes
+        'device_block': (10, 5),    # 10 device blocks per 5 minutes
+        'api_call': (60, 1),        # 60 API calls per minute
+    }
+
+    def __init__(self, db_manager):
+        """Initialize rate limiter with database connection."""
+        self.db_manager = db_manager
+
+    def check_rate_limit(self, identifier, action_type):
+        """
+        Check if action is within rate limit.
+
+        Args:
+            identifier: User identifier (username, IP, user_id)
+            action_type: Type of action being limited
+
+        Returns:
+            tuple: (allowed: bool, remaining: int, reset_seconds: int)
+        """
+        if action_type not in self.LIMITS:
+            return True, -1, 0
+
+        max_attempts, window_minutes = self.LIMITS[action_type]
+
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+
+            # Get IP address for additional context
+            ip_address = request.remote_addr if request else None
+
+            # Count recent attempts within the time window
+            window_start = datetime.now() - timedelta(minutes=window_minutes)
+
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM rate_limit_log
+                WHERE identifier = ?
+                AND action_type = ?
+                AND timestamp > ?
+            ''', (identifier, action_type, window_start))
+
+            result = cursor.fetchone()
+            attempt_count = result['count'] if result else 0
+
+            # Calculate remaining attempts
+            remaining = max(0, max_attempts - attempt_count)
+
+            # Find oldest attempt to calculate when window resets
+            cursor.execute('''
+                SELECT MIN(timestamp) as oldest
+                FROM rate_limit_log
+                WHERE identifier = ?
+                AND action_type = ?
+                AND timestamp > ?
+            ''', (identifier, action_type, window_start))
+
+            oldest_result = cursor.fetchone()
+            if oldest_result and oldest_result['oldest']:
+                oldest_time = datetime.fromisoformat(oldest_result['oldest'])
+                reset_time = oldest_time + timedelta(minutes=window_minutes)
+                reset_seconds = max(0, int((reset_time - datetime.now()).total_seconds()))
+            else:
+                reset_seconds = 0
+
+            allowed = attempt_count < max_attempts
+
+            return allowed, remaining, reset_seconds
+
+        except Exception as e:
+            logger.error(f"Rate limit check failed: {e}")
+            # Fail open - allow action if rate limiting fails
+            return True, -1, 0
+
+    def record_attempt(self, identifier, action_type, success=True):
+        """Record an attempt for rate limiting."""
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+
+            ip_address = request.remote_addr if request else None
+
+            cursor.execute('''
+                INSERT INTO rate_limit_log (identifier, action_type, ip_address, success)
+                VALUES (?, ?, ?, ?)
+            ''', (identifier, action_type, ip_address, 1 if success else 0))
+
+            conn.commit()
+
+        except Exception as e:
+            logger.error(f"Failed to record rate limit attempt: {e}")
+
+    def is_rate_limited(self, identifier, action_type):
+        """Simple check if action is rate limited."""
+        allowed, _, _ = self.check_rate_limit(identifier, action_type)
+        return not allowed
+
+    def cleanup_old_records(self, hours_to_keep=24):
+        """Remove old rate limit records."""
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute('''
+                DELETE FROM rate_limit_log
+                WHERE timestamp < datetime('now', '-' || ? || ' hours')
+            ''', (hours_to_keep,))
+            deleted_count = cursor.rowcount
+            conn.commit()
+
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} old rate limit records")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup rate limit records: {e}")
+            return 0
+
 
     def clear_all(self):
         """Clear all rate limiting data (for testing/debugging)"""
