@@ -206,7 +206,7 @@ if __name__ == "__main__":
     test_data = {
         "username": "admin",
         "password": "SuperSecret123!",  # pragma: allowlist secret
-        "api_key": "sk_live_51H8vY2eZvKYlo2C0aIiXyZ",  # pragma: allowlist secret
+        "api_key": "FAKE_API_KEY_12345678901234567890",  # pragma: allowlist secret
         "email": "user@example.com",
         "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX",
         "nested": {
@@ -222,6 +222,6 @@ if __name__ == "__main__":
     print("\nOriginal URL:", test_url)
     print("Sanitized URL:", sanitize_url(test_url))
 
-    test_string = "Connecting with api_key=sk_test_abc123xyz and token='bearer_token_example'"
+    test_string = "Connecting with api_key=FAKE_API_KEY_ABC123XYZ and token='bearer_token_example'"
     print("\nOriginal String:", test_string)
     print("Sanitized String:", sanitize_string(test_string))

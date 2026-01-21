@@ -60,7 +60,7 @@ The sanitizer automatically redacts:
 {
     "username": "admin",
     "password": "SuperSecret123!",  # pragma: allowlist secret
-    "api_key": "sk_live_51H8vY2eZvKYlo2C0aIiXyZ",  # pragma: allowlist secret
+    "api_key": "FAKE_API_KEY_12345678901234567890",  # pragma: allowlist secret
     "email": "user@example.com"
 }
 
@@ -68,7 +68,7 @@ The sanitizer automatically redacts:
 {
     "username": "admin",
     "password": "Supe...***REDACTED***", # pragma: allowlist secret
-    "api_key": "sk_l...***REDACTED***", # pragma: allowlist secret
+    "api_key": "FAKE...***REDACTED***", # pragma: allowlist secret
     "email": "user@example.com"
 }
 ```
