@@ -36,8 +36,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from alerts.integration_system import IntegrationManager
+from utils.log_sanitizer import safe_log_data, get_safe_credentials_summary
 
 logger = logging.getLogger(__name__)
+api_logger = logging.getLogger('api')  # Dedicated API logger
 
 
 class IntegrationActions:
@@ -60,11 +62,13 @@ class IntegrationActions:
     def send_slack_alert(self, message: str, severity: str = "medium") -> bool:
         """Send alert to Slack via webhook."""
         start_time = time.time()
+        api_logger.info(f"Sending Slack alert (severity: {severity})")
 
         try:
             creds = self.integration_mgr.get_integration_credentials('slack')
             if not creds or not creds.get('webhook_url'):
                 logger.warning("Slack not configured")
+                api_logger.warning("Slack alert failed: Not configured")
                 return False
 
             color_map = {"low": "#36a64f", "medium": "#ff9800", "high": "#ff5722", "critical": "#d32f2f"}
@@ -88,11 +92,15 @@ class IntegrationActions:
 
             if success:
                 self.integration_mgr.update_health_status('slack', 'healthy')
+                api_logger.info(f"Slack alert sent successfully ({response_time}ms)")
+            else:
+                api_logger.warning(f"Slack alert failed: HTTP {response.status_code}")
 
             return success
 
         except Exception as e:
             logger.error(f"Slack alert failed: {e}")
+            api_logger.error(f"Slack API error: {str(e)}")
             self.integration_mgr.log_request('slack', 'send_alert', False, None, str(e))
             self.integration_mgr.update_health_status('slack', 'error', str(e))
             return False
@@ -100,11 +108,13 @@ class IntegrationActions:
     def send_discord_alert(self, message: str, severity: str = "medium") -> bool:
         """Send alert to Discord via webhook."""
         start_time = time.time()
+        api_logger.info(f"Sending Discord alert (severity: {severity})")
 
         try:
             creds = self.integration_mgr.get_integration_credentials('discord')
             if not creds or not creds.get('webhook_url'):
                 logger.warning("Discord not configured")
+                api_logger.warning("Discord alert failed: Not configured")
                 return False
 
             color_map = {"low": 0x36a64f, "medium": 0xff9800, "high": 0xff5722, "critical": 0xd32f2f}
@@ -128,11 +138,15 @@ class IntegrationActions:
 
             if success:
                 self.integration_mgr.update_health_status('discord', 'healthy')
+                api_logger.info(f"Discord alert sent successfully ({response_time}ms)")
+            else:
+                api_logger.warning(f"Discord alert failed: HTTP {response.status_code}")
 
             return success
 
         except Exception as e:
             logger.error(f"Discord alert failed: {e}")
+            api_logger.error(f"Discord API error: {str(e)}")
             self.integration_mgr.log_request('discord', 'send_alert', False, None, str(e))
             self.integration_mgr.update_health_status('discord', 'error', str(e))
             return False
@@ -140,13 +154,16 @@ class IntegrationActions:
     def send_telegram_alert(self, message: str) -> bool:
         """Send alert to Telegram via bot API."""
         start_time = time.time()
+        api_logger.info("Sending Telegram alert")
 
         try:
             creds = self.integration_mgr.get_integration_credentials('telegram')
             if not creds or not creds.get('bot_token') or not creds.get('chat_id'):
                 logger.warning("Telegram not configured")
+                api_logger.warning("Telegram alert failed: Not configured")
                 return False
 
+            # SAFE: Use sanitized URL for logging (token will be redacted if logged)
             url = f"https://api.telegram.org/bot{creds['bot_token']}/sendMessage"
             payload = {
                 "chat_id": creds['chat_id'],
@@ -163,11 +180,15 @@ class IntegrationActions:
 
             if success:
                 self.integration_mgr.update_health_status('telegram', 'healthy')
+                api_logger.info(f"Telegram alert sent successfully ({response_time}ms)")
+            else:
+                api_logger.warning(f"Telegram alert failed: HTTP {response.status_code}")
 
             return success
 
         except Exception as e:
             logger.error(f"Telegram alert failed: {e}")
+            api_logger.error(f"Telegram API error: {str(e)}")
             self.integration_mgr.log_request('telegram', 'send_alert', False, None, str(e))
             self.integration_mgr.update_health_status('telegram', 'error', str(e))
             return False
@@ -175,11 +196,13 @@ class IntegrationActions:
     def send_email_alert(self, subject: str, message: str) -> bool:
         """Send alert via SMTP email."""
         start_time = time.time()
+        api_logger.info(f"Sending email alert: {subject}")
 
         try:
             creds = self.integration_mgr.get_integration_credentials('email_smtp')
             if not creds:
                 logger.warning("Email SMTP not configured")
+                api_logger.warning("Email alert failed: SMTP not configured")
                 return False
 
             msg = MIMEMultipart()

@@ -13,7 +13,7 @@ from collections import deque, defaultdict
 
 from river import tree, metrics
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ml')  # Use dedicated ML logger
 
 
 class AttackSequenceTracker:

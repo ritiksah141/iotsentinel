@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Union
 from utils.device_classifier import classifier
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('database')  # Use dedicated database logger
 
 
 class DatabaseError(Exception):

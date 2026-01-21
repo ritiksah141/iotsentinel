@@ -25,7 +25,7 @@ from ml.river_engine import RiverMLEngine
 from ml.smart_recommender import SmartRecommender
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ml')  # Use dedicated ML logger
 
 
 class InferenceEngine:

@@ -13,7 +13,7 @@ import json
 from river import time_series, compose, preprocessing
 from river import metrics
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ml')  # Use dedicated ML logger
 
 
 class TrafficForecaster:

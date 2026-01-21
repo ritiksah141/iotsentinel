@@ -17,6 +17,7 @@ from pathlib import Path
 import threading
 
 logger = logging.getLogger(__name__)
+api_logger = logging.getLogger('api')  # Dedicated API logger for external calls
 
 
 # NVD API 2.0 endpoints
@@ -247,9 +248,13 @@ class NVDAPIClient:
 
             if self.api_key:
                 headers['apiKey'] = self.api_key
+                api_logger.debug("NVD API request with API key")
+            else:
+                api_logger.debug("NVD API request without API key (rate limited)")
 
             # Make request
             logger.debug(f"Making NVD API request: {params}")
+            api_logger.info(f"NVD API call: {NVD_API_BASE}")
             response = requests.get(
                 NVD_API_BASE,
                 params=params,
@@ -260,6 +265,8 @@ class NVDAPIClient:
             response.raise_for_status()
             data = response.json()
 
+            api_logger.info(f"NVD API response: {response.status_code}, records: {data.get('totalResults', 0)}")
+
             # Cache response
             if use_cache:
                 self._save_to_cache(cache_key, data)
@@ -268,9 +275,11 @@ class NVDAPIClient:
 
         except requests.RequestException as e:
             logger.error(f"NVD API request failed: {e}")
+            api_logger.error(f"NVD API request failed: HTTP error {str(e)}")
             return None
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse NVD API response: {e}")
+            api_logger.error(f"NVD API response parse error: {str(e)}")
             return None
 
     def fetch_cves_for_vendor(

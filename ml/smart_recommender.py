@@ -20,7 +20,7 @@ from collections import Counter
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database.db_manager import DatabaseManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ml')  # Use dedicated ML logger
 
 
 class SmartRecommender:

@@ -21,7 +21,7 @@ from config.config_manager import config
 from database.db_manager import DatabaseManager
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('hardware')  # Use dedicated hardware logger
 
 # GPIO pins
 LED_PIN = 18  # Red LED (BCM numbering)
@@ -109,6 +109,7 @@ class HardwareMonitor:
         """Configure GPIO pins."""
         if self.is_mock_gpio:
             logger.info("Hardware monitor initialized with mock GPIO (no physical hardware)")
+            logger.info("🔧 HARDWARE: Mock GPIO mode - no physical LED/button control")
             self.gpio_initialized = True
             return
 
@@ -121,8 +122,10 @@ class HardwareMonitor:
                 GPIO.output(LED_PIN, GPIO.LOW)
                 self.gpio_initialized = True
                 logger.info("GPIO pins configured successfully with RPi.GPIO")
+                logger.info(f"🔧 HARDWARE: RPi.GPIO initialized - LED:GPIO{LED_PIN}, Button:GPIO{BUTTON_PIN}")
             except Exception as e:
                 logger.error(f"Failed to configure GPIO with RPi.GPIO: {e}")
+                logger.error(f"🔧 HARDWARE: GPIO initialization failed - {str(e)}")
                 self._fallback_to_mock()
 
         elif self.gpio_library == "gpiod":
@@ -146,13 +149,16 @@ class HardwareMonitor:
 
                 self.gpio_initialized = True
                 logger.info("GPIO pins configured successfully with gpiod (Pi 5)")
+                logger.info(f"🔧 HARDWARE: gpiod initialized (Pi 5) - LED:GPIO{LED_PIN}, Button:GPIO{BUTTON_PIN}")
             except Exception as e:
                 logger.error(f"Failed to configure GPIO with gpiod: {e}")
+                logger.error(f"🔧 HARDWARE: gpiod initialization failed (Pi 5) - {str(e)}")
                 self._fallback_to_mock()
 
     def _fallback_to_mock(self):
         """Fall back to mock GPIO mode."""
         logger.warning("Falling back to mock GPIO mode")
+        logger.warning("🔧 HARDWARE: Switched to mock GPIO - physical controls disabled")
         self.is_mock_gpio = True
         self.gpio_initialized = True
         global GPIO
@@ -177,8 +183,10 @@ class HardwareMonitor:
             with open(self.status_file_path, 'w') as f:
                 json.dump({'status': new_status}, f)
             logger.info(f"Monitoring status set to: {new_status}")
+            logger.info(f"🔧 HARDWARE: Monitoring status changed to {new_status.upper()}")
         except IOError as e:
             logger.error(f"Error writing status file: {e}")
+            logger.error(f"🔧 HARDWARE: Failed to update status file - {str(e)}")
 
     def _set_led(self, state: bool):
         """Set LED state (on/off)."""
@@ -190,8 +198,10 @@ class HardwareMonitor:
                 GPIO.output(LED_PIN, GPIO.HIGH if state else GPIO.LOW)
             elif self.gpio_library == "gpiod":
                 self.led_line.set_value(1 if state else 0)
+            logger.debug(f"🔧 HARDWARE: LED {'ON' if state else 'OFF'} (GPIO{LED_PIN})")
         except Exception as e:
             logger.debug(f"Error setting LED: {e}")
+            logger.error(f"🔧 HARDWARE: LED control error - {str(e)}")
 
     def _read_button(self) -> bool:
         """Read button state (True if pressed)."""
@@ -200,11 +210,16 @@ class HardwareMonitor:
 
         try:
             if self.gpio_library == "RPi.GPIO":
-                return GPIO.input(BUTTON_PIN) == GPIO.LOW
+                result = GPIO.input(BUTTON_PIN) == GPIO.LOW
             elif self.gpio_library == "gpiod":
-                return self.button_line.get_value() == 0  # Active low
+                result = self.button_line.get_value() == 0  # Active low
+
+            if result:  # Only log when button is actually pressed
+                logger.debug(f"🔧 HARDWARE: Button pressed (GPIO{BUTTON_PIN})")
+            return result
         except Exception as e:
             logger.debug(f"Error reading button: {e}")
+            logger.error(f"🔧 HARDWARE: Button read error - {str(e)}")
             return False
 
     def stop(self):
@@ -216,9 +231,11 @@ class HardwareMonitor:
         """Main monitoring loop."""
         if not self.gpio_initialized:
             logger.error("GPIO not initialized. Hardware monitor cannot start.")
+            logger.error("🔧 HARDWARE: Monitor cannot start - GPIO initialization failed")
             return
 
         logger.info("Hardware monitor started.")
+        logger.info("🔧 HARDWARE: Monitor loop started - watching for critical alerts")
         self.running = True
 
         try:
@@ -234,6 +251,8 @@ class HardwareMonitor:
                         a['severity'] == 'critical' and not a['acknowledged']
                         for a in alerts
                     )
+                    if critical_active:
+                        logger.info("🔧 HARDWARE: Critical alert active - LED indicator enabled")
                     self._set_led(critical_active)
                 except Exception as e:
                     logger.debug(f"Error checking alerts: {e}")
