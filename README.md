@@ -195,14 +195,39 @@ The project includes a comprehensive suite of **59 tests** with **84% code cover
 To run all tests:
 
 ```bash
+# Run all tests
 pytest tests/
+
+# Run with different modes
+./scripts/run_tests.sh quick       # Fast tests for development
+./scripts/run_tests.sh critical    # Must-pass tests for deployment
+./scripts/run_tests.sh pi          # Pi integration tests (deployment validation)
+
+# Generate coverage report
+./scripts/run_tests.sh report
 ```
 
-To run tests with a coverage report:
+### 🎯 Pi Deployment Validation (Get to 100%)
+
+After deploying to your Raspberry Pi, validate 100% readiness:
 
 ```bash
-pytest tests/ --cov=. --cov-report=html
+# On the Pi, run automated validation
+cd ~/iotsentinel
+bash scripts/validate_pi_deployment.sh
 ```
+
+This checks:
+
+- ✅ System requirements (RAM, disk, Python)
+- ✅ Zeek installation and logs
+- ✅ Scapy network capabilities
+- ✅ River ML performance (<30s/100 connections)
+- ✅ Database integrity
+- ✅ Service health
+- ✅ Performance targets (CPU <30%, RAM <2GB)
+
+**Expected:** 100% ready if all checks pass!
 
 The HTML report will be generated in the `htmlcov/` directory.
 
