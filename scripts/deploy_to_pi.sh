@@ -389,11 +389,38 @@ ENDSSH
 
 log_success "Health check complete"
 
+# Validation
+log_header "Post-Deployment Validation"
+
+log_info "Running validation checks..."
+ssh ${PI_USER}@${PI_HOST} "bash -s" << 'ENDSSH'
+cd ${PI_PATH}
+source venv/bin/activate
+
+# Run validation script
+if [ -f "scripts/validate_pi_deployment.sh" ]; then
+    bash scripts/validate_pi_deployment.sh
+else
+    echo "⚠️  Validation script not found (skipping)"
+fi
+ENDSSH
+
+VALIDATION_EXIT=$?
+
+echo ""
+
 # Summary
 log_header "Deployment Summary"
 
 echo ""
-log_success "Deployment completed successfully!"
+
+if [ $VALIDATION_EXIT -eq 0 ]; then
+    log_success "✓ Deployment completed successfully - 100% ready!"
+else
+    log_warning "⚠ Deployment completed but validation found issues"
+    log_info "Review validation output above and fix any critical errors"
+fi
+
 echo ""
 log_info "Dashboard URL: http://${PI_HOST}:8050"
 log_info "Default login: admin / admin"
@@ -416,6 +443,7 @@ fi
 echo ""
 log_info "Backup location: ${BACKUP_DIR}/"
 log_info "To rollback: ${CYAN}ssh ${PI_USER}@${PI_HOST} 'cd ${BACKUP_DIR} && tar -xzf iotsentinel_backup_*.tar.gz'${NC}"
+log_info "Re-run validation: ${CYAN}ssh ${PI_USER}@${PI_HOST} 'cd ~/iotsentinel && bash scripts/validate_pi_deployment.sh'${NC}"
 echo ""
 
 log_header "Deployment Complete"

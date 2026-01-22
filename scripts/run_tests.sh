@@ -25,8 +25,8 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Project root directory
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root directory (parent of scripts folder)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo -e "${BLUE}========================================${NC}"
@@ -46,6 +46,7 @@ show_help() {
     echo "  integration - Run integration tests only"
     echo "  dashboard  - Run dashboard feature tests only"
     echo "  api        - Run API integration tests only"
+    echo "  pi         - Run Pi integration tests (deployment validation)"
     echo "  report     - Generate HTML coverage report and open it"
     echo "  help       - Show this help message"
     echo ""
@@ -53,6 +54,7 @@ show_help() {
     echo "  ./run_tests.sh                 # Run all tests"
     echo "  ./run_tests.sh quick           # Development mode"
     echo "  ./run_tests.sh critical        # Pre-deployment check"
+    echo "  ./run_tests.sh pi              # Validate Pi deployment"
     echo "  ./run_tests.sh report          # Generate coverage report"
     echo ""
 }
@@ -149,6 +151,13 @@ run_tests() {
             echo -e "${BLUE}Running API integration tests...${NC}"
             pytest -v -m api \
                 tests/test_dashboard_api_integration.py \
+                --tb=short
+            ;;
+
+        pi)
+            echo -e "${BLUE}Running Pi integration tests...${NC}"
+            echo -e "${YELLOW}Note: These verify Pi deployment readiness${NC}"
+            pytest -v "${PROJECT_ROOT}/tests/test_pi_integration.py" \
                 --tb=short
             ;;
 

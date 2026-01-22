@@ -10,6 +10,9 @@ scikit-learn  # Keep for compatibility with existing code
 # AI Assistant - Hybrid cloud/local LLM
 groq==0.4.1  # Free cloud API (optional, 0MB RAM on Pi)
 
+# Network Analysis - Scapy for ARP scanning (device discovery)
+scapy==2.5.0  # Lightweight packet crafting and network scanning
+
 # Web Dashboard
 dash
 dash-bootstrap-components
@@ -38,3 +41,14 @@ apscheduler
 manuf
 requests
 RPi.GPIO
+
+# IoT Discovery & Vulnerability Management
+zeroconf>=0.112.0         # mDNS/Zeroconf service discovery
+python-nmap>=0.7.1        # nmap integration for network scanning
+fuzzywuzzy>=0.18.0        # Fuzzy string matching for CVE matching
+python-Levenshtein>=0.21.0  # Fast fuzzy matching backend
+
+# Export & Reporting
+reportlab==4.0.7          # PDF generation
+openpyxl==3.1.2           # Excel file generation
+Pillow==10.1.0            # Image processing for PDF charts
