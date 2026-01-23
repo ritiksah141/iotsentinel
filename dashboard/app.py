@@ -7271,7 +7271,7 @@ dashboard_layout = dbc.Container([
                                 dbc.Row([
                                     dbc.Col([
                                         dbc.Label("Filter by Segment:", className="fw-bold"),
-                                        dcc.Dropdown(
+                                        dbc.Select(
                                             id='seg-filter-dropdown',
                                             placeholder="All Segments",
                                             className="mb-3"

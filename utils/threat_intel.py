@@ -36,12 +36,6 @@ class ThreatIntelligence:
             db_manager: DatabaseManager instance (preferred)
             cache_hours: Hours to cache results (default 24)
         """
-        # Try multiple sources for API key
-        self.api_key = self._get_api_key(api_key, db_manager)
-        self.cache_hours = cache_hours
-        self.api_url = "https://api.abuseipdb.com/api/v2/check"
-        self.enabled = bool(self.api_key and self.api_key != "your_api_key_here")
-
         if db_manager is not None:
             self.db_manager = db_manager
             self.db_path = None
@@ -49,6 +43,12 @@ class ThreatIntelligence:
             from database.db_manager import DatabaseManager
             self.db_manager = DatabaseManager(db_path=db_path)
             self.db_path = db_path
+
+        # Try multiple sources for API key
+        self.api_key = self._get_api_key(api_key, self.db_manager)
+        self.cache_hours = cache_hours
+        self.api_url = "https://api.abuseipdb.com/api/v2/check"
+        self.enabled = bool(self.api_key and self.api_key != "your_api_key_here")
 
         if self.enabled:
             self._init_database()

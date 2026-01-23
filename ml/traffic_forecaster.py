@@ -115,12 +115,13 @@ class TrafficForecaster:
                 }
 
                 # Learn from this data point
-                y_pred = self.model.predict_one(features)
-                if y_pred is not None:
+                y_pred_list = self.model.forecast(horizon=1, xs=[features])
+                if y_pred_list:
+                    y_pred = y_pred_list[0]
                     self.mae_metric.update(total_bytes, y_pred)
                     self.rmse_metric.update(total_bytes, y_pred)
 
-                self.model.learn_one(total_bytes, features)
+                self.model.learn_one(y=total_bytes, x=features)
                 training_samples += 1
 
             self.last_update = datetime.now()
@@ -167,7 +168,8 @@ class TrafficForecaster:
                 }
 
                 # Predict bandwidth for this hour
-                predicted_bytes = self.model.predict_one(features)
+                prediction_list = self.model.forecast(horizon=1, xs=[features])
+                predicted_bytes = prediction_list[0] if prediction_list else None
 
                 if predicted_bytes is not None:
                     forecasts.append({
@@ -249,7 +251,8 @@ class TrafficForecaster:
         }
 
         # Get prediction before learning
-        prediction = self.model.predict_one(features)
+        prediction_list = self.model.forecast(horizon=1, xs=[features])
+        prediction = prediction_list[0] if prediction_list else None
 
         # Update metrics if we had a prediction
         if prediction is not None:
@@ -257,7 +260,7 @@ class TrafficForecaster:
             self.rmse_metric.update(bytes_count, prediction)
 
         # Learn from actual data
-        self.model.learn_one(bytes_count, features)
+        self.model.learn_one(y=bytes_count, x=features)
         self.predictions_made += 1
 
         # Check for anomaly
