@@ -57,6 +57,11 @@ from utils.audit_logger import (
     AuditLogger, log_device_action, log_bulk_action,
     log_emergency_mode, log_user_action, log_settings_change
 )
+from utils.rbac_manager import (
+    PermissionManager, can_export_data, can_manage_devices,
+    can_block_devices, can_delete_data, ROLES
+)
+from utils.security_audit_logger import get_audit_logger
 from utils.totp_manager import TOTPManager
 from utils.oauth_handler import GoogleOAuthHandler, is_oauth_configured
 from utils.webauthn_handler import WebAuthnHandler, is_webauthn_available
@@ -270,6 +275,10 @@ db_manager = DatabaseManager(DB_PATH)
 # Initialize Audit Logger and Rate Limiter for security
 audit_logger = AuditLogger(db_manager)
 rate_limiter = RateLimiter(db_manager)
+
+# Initialize Security Audit Logger for RBAC and compliance
+security_audit_logger = get_audit_logger(db_manager)
+logger.info("Security audit logger initialized for RBAC compliance")
 
 # Initialize TOTP Manager for 2FA
 totp_manager = TOTPManager(db_manager, issuer_name="IoTSentinel")
@@ -9561,10 +9570,10 @@ dashboard_layout = dbc.Container([
                                 dbc.Card([
                                     dbc.CardBody([
                                         html.Div([
-                                            html.I(className="fa fa-dollar-sign fa-2x text-success mb-2"),
+                                            html.I(className="fa fa-pound-sign fa-2x text-success mb-2"),
                                             html.H6("Daily Cost", className="text-muted mb-1"),
                                             html.H3(id='today-energy-cost', className="mb-0 text-primary"),
-                                            html.Small("USD", className="text-muted")
+                                            html.Small("GBP", className="text-muted")
                                         ], className="text-center")
                                     ])
                                 ], className="glass-card border-0 shadow-sm hover-lift")
@@ -9577,7 +9586,7 @@ dashboard_layout = dbc.Container([
                                             html.I(className="fa fa-calendar-days fa-2x text-info mb-2"),
                                             html.H6("Monthly Estimate", className="text-muted mb-1"),
                                             html.H3(id='monthly-energy-cost', className="mb-0 text-primary"),
-                                            html.Small("USD/month", className="text-muted")
+                                            html.Small("GBP/month", className="text-muted")
                                         ], className="text-center")
                                     ])
                                 ], className="glass-card border-0 shadow-sm hover-lift")
@@ -9590,7 +9599,7 @@ dashboard_layout = dbc.Container([
                                             html.I(className="fa fa-chart-pie fa-2x text-danger mb-2"),
                                             html.H6("Yearly Estimate", className="text-muted mb-1"),
                                             html.H3(id='yearly-energy-cost', className="mb-0 text-primary"),
-                                            html.Small("USD/year", className="text-muted")
+                                            html.Small("GBP/year", className="text-muted")
                                         ], className="text-center")
                                     ])
                                 ], className="glass-card border-0 shadow-sm hover-lift")
@@ -12047,7 +12056,7 @@ def update_active_devices_list(ws_message):
             ], className="active-device-item clickable-device" + (" border-danger" if is_blocked else ""),
                id={'type': 'device-list-item', 'ip': device_ip},
                n_clicks=0,
-               style={"borderLeft": "4px solid #dc3545" if is_blocked else ""}
+               style=({"borderLeft": "4px solid #dc3545"} if is_blocked else {})
         )
         )
     return html.Div(items, className="fade-in")
@@ -12433,6 +12442,10 @@ def clear_toast_history(n_clicks):
             deleted_count = cursor.rowcount
             conn.commit()
 
+            # Note: Toast history clearing is UI maintenance, not a security event
+            # Regular logger is sufficient for this operation
+            logger.info(f"User {current_user.username} cleared {deleted_count} toast history records")
+
             return (
                 ToastManager.success(
                     f"Cleared {deleted_count} toast history records",
@@ -12444,6 +12457,9 @@ def clear_toast_history(n_clicks):
             )
         except Exception as e:
             logger.error(f"Error clearing toast history: {e}")
+
+            # Log error to regular logger only (not a security concern)
+
             return (
                 ToastManager.error(
                     "Failed to clear toast history",
@@ -12538,7 +12554,7 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
     if button_id == 'block-device-cancel':
         return dash.no_update, False
 
-    # Check if user is authenticated and not a kid
+    # Check if user is authenticated
     if not current_user.is_authenticated:
         toast = ToastManager.error(
             "Access Denied",
@@ -12546,23 +12562,24 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
         )
         return toast, False
 
-    # Check if user is a kid (restricted from blocking devices)
-    try:
-        conn = db_manager.conn
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
-            (current_user.id,)
+    # Check if user has permission to block devices (security_analyst or admin)
+    if not can_block_devices():
+        security_audit_logger.log(
+            event_type='permission_denied',
+            severity='warning',
+            user_id=current_user.id,
+            username=current_user.username,
+            resource_type='device',
+            resource_id=device_ip,
+            details={'attempted_action': 'block' if action == 'block' else 'unblock'},
+            result='failure',
+            failure_reason='Insufficient permissions - block_devices permission required'
         )
-        kid_check = cursor.fetchone()
-        if kid_check and kid_check[0] == '1':
-            toast = ToastManager.error(
-                "Access Denied",
-                detail_message="Blocking/unblocking devices requires adult permission. Please ask a parent or guardian."
-            )
-            return toast, False
-    except Exception as e:
-        logger.error(f"Error checking user permissions: {e}")
+        toast = ToastManager.error(
+            "Access Denied",
+            detail_message="You don't have permission to block/unblock devices. Contact an administrator."
+        )
+        return toast, False
 
     # Confirm button clicked
     if button_id == 'block-device-confirm-btn' and device_ip and action:
@@ -12877,15 +12894,44 @@ def toggle_alert_details(btn_clicks, close_click, is_open):
     [State('current-alert-id', 'data')],
     prevent_initial_call=True
 )
+@login_required
 def acknowledge_alert_callback(n_clicks, alert_id):
-    """Mark alert as reviewed/acknowledged."""
+    """Mark alert as reviewed/acknowledged. Requires acknowledge_alerts permission (operator+)."""
     if not n_clicks or not alert_id:
         return dash.no_update, dash.no_update
+
+    # Check permission
+    if not PermissionManager.has_permission(current_user, 'acknowledge_alerts'):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'acknowledge_alert', 'alert_id': alert_id},
+            severity='medium',
+            result='failure',
+            failure_reason='Requires acknowledge_alerts permission (operator+)'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="You don't have permission to acknowledge alerts. Operator privileges required."
+        )
+        return toast, dash.no_update
 
     try:
         success = db_manager.acknowledge_alert(alert_id)
 
         if success:
+            # Log successful acknowledgment
+            security_audit_logger.log(
+                event_type='alert_acknowledged',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'alert_id': alert_id},
+                severity='low',
+                resource_type='alert',
+                resource_id=str(alert_id),
+                result='success'
+            )
             toast = ToastManager.success(
                 "Alert Reviewed",
                 detail_message=f"Alert #{alert_id} has been marked as reviewed."
@@ -13366,6 +13412,18 @@ def save_email_settings(n_clicks, enabled, recipient_email):
         conn.commit()
 
         logger.info(f"Email settings for user {current_user.id} - Enabled: {enabled}, Recipient: {recipient_email}")
+
+        # Log email settings change to security audit
+        security_audit_logger.log(
+            event_type='settings_changed',
+            severity='info',
+            user_id=current_user.id,
+            username=current_user.username,
+            resource_type='settings',
+            resource_id='email_configuration',
+            details={'email_enabled': enabled, 'recipient': recipient_email},
+            result='success'
+        )
 
         toast = ToastManager.success(
             "Settings Saved",
@@ -15397,6 +15455,18 @@ def display_page(pathname):
     if current_user.is_authenticated:
         # User is logged in
         if pathname == '/logout':
+            # Log logout to security audit
+            from flask import request
+            user_ip = request.remote_addr or 'Unknown'
+            security_audit_logger.log(
+                event_type='logout',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'session_ended': True},
+                severity='info',
+                ip_address=user_ip,
+                result='success'
+            )
             # Only set notification store, do not immediately redirect or clear
             logout_user()
             return login_layout, {"type": "logout_success"}
@@ -15651,6 +15721,17 @@ def handle_login(n_clicks, n_submit, username, password, remember_me, totp_code,
         user_ip = request.remote_addr or 'Unknown'
         user_agent = request.headers.get('User-Agent', 'Unknown')
 
+        # Log successful login to security audit
+        security_audit_logger.log(
+            event_type='login_success',
+            user_id=user.id,
+            username=user.username,
+            details={'method': 'password' + ('+2fa' if totp_enabled else ''), 'remember_me': remember_me},
+            severity='info',
+            ip_address=user_ip,
+            result='success'
+        )
+
         # Query last login from history (before recording current one)
         conn = db_manager.conn
         cursor = conn.cursor()
@@ -15780,6 +15861,19 @@ def handle_login(n_clicks, n_submit, username, password, remember_me, totp_code,
 
         # Login failed - record failed attempt
         is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
+
+        # Log failed login attempt to security audit
+        from flask import request
+        user_ip = request.remote_addr or 'Unknown'
+        security_audit_logger.log(
+            event_type='login_failure',
+            username=username,
+            details={'reason': 'invalid_credentials', 'remaining_attempts': remaining_attempts},
+            severity='medium' if is_now_locked else 'low',
+            ip_address=user_ip,
+            result='failure',
+            failure_reason='Invalid username or password'
+        )
 
         if is_now_locked:
             logger.warning(f"Account '{username}' locked due to too many failed attempts")
@@ -17004,6 +17098,18 @@ def handle_registration(n_clicks, email, username, password, password_confirm, r
     success = auth_manager.create_user(username, password, role or 'viewer', email)
 
     if success:
+        # Log successful user creation to security audit
+        security_audit_logger.log(
+            event_type='user_created',
+            severity='info',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'system',
+            resource_type='user',
+            resource_id=username,
+            details={'created_user': username, 'role': role or 'viewer', 'email': email},
+            result='success'
+        )
+
         # Initialize all user preferences and settings for security and privacy
         try:
             conn = db_manager.conn
@@ -17733,6 +17839,18 @@ def create_new_user(n_clicks, username, email, password, role):
     if success:
         logger.info(f"Admin {current_user.username} created new user: {username} (role: {role})")
 
+        # Log to security audit
+        security_audit_logger.log(
+            event_type='user_created',
+            severity='info',
+            user_id=current_user.id,
+            username=current_user.username,
+            resource_type='user',
+            resource_id=username,
+            details={'created_user': username, 'role': role or 'viewer', 'email': email, 'created_by': current_user.username},
+            result='success'
+        )
+
         # Log to audit trail
         log_user_action(
             audit_logger,
@@ -17846,11 +17964,49 @@ def delete_user_confirmed(confirm_clicks, cancel_clicks, user_id):
 
     # If confirm button clicked, delete user
     if button_id == 'user-delete-confirm' and user_id:
+        # Get user info before deletion for audit logging
+        try:
+            conn = db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, role FROM users WHERE id = ?", (user_id,))
+            deleted_user_info = cursor.fetchone()
+            deleted_username = deleted_user_info[0] if deleted_user_info else f"user_id_{user_id}"
+            deleted_role = deleted_user_info[1] if deleted_user_info else 'unknown'
+        except Exception as e:
+            logger.error(f"Error fetching user info for audit: {e}")
+            deleted_username = f"user_id_{user_id}"
+            deleted_role = 'unknown'
+
         # Hard delete user (permanently remove from database)
         success = auth_manager.delete_user(user_id, current_user.id, hard_delete=True)
 
         if success:
             logger.info(f"Admin {current_user.username} permanently deleted user ID: {user_id}")
+
+            # Log successful deletion to security audit
+            security_audit_logger.log(
+                event_type='user_deleted',
+                severity='warning',
+                user_id=current_user.id,
+                username=current_user.username,
+                resource_type='user',
+                resource_id=str(user_id),
+                details={'deleted_user': deleted_username, 'deleted_role': deleted_role, 'deleted_by': current_user.username},
+                result='success'
+            )
+        else:
+            # Log failed deletion attempt
+            security_audit_logger.log(
+                event_type='user_deleted',
+                severity='error',
+                user_id=current_user.id,
+                username=current_user.username,
+                resource_type='user',
+                resource_id=str(user_id),
+                details={'attempted_user': deleted_username},
+                result='failure',
+                failure_reason='Database operation failed'
+            )
 
             # Refresh user list
             users = auth_manager.get_all_users()
@@ -18957,6 +19113,23 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
         )
         return toast
 
+    # Check delete permission
+    if not can_delete_data(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'bulk_delete_devices', 'device_count': len(selected_ips)},
+            severity='high',
+            result='failure',
+            failure_reason='Insufficient permissions - requires delete_data (admin only)'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="You don't have permission to delete devices. This action requires admin privileges."
+        )
+        return toast
+
     # Record the attempt
     rate_limiter.record_attempt(current_user.username, 'bulk_operation', success=True)
 
@@ -18972,6 +19145,17 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
 
         # Log to audit trail
         log_bulk_action(audit_logger, 'delete', count, success=True)
+
+        # Log to security audit
+        security_audit_logger.log(
+            event_type='bulk_operation',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'operation': 'delete', 'device_count': count, 'device_ips': selected_ips},
+            severity='high',
+            resource_type='devices',
+            result='success'
+        )
 
         toast = ToastManager.warning(
             "Bulk Delete",
@@ -18995,16 +19179,26 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
     Input('bulk-trust-all-btn', 'n_clicks'),
     prevent_initial_call=True
 )
+@login_required
 def bulk_trust_all_unknown(n_clicks):
-    """Trust all unknown/unclassified devices (Admin only)."""
+    """Trust all unknown/unclassified devices. Requires manage_devices permission."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
-    # Admin-only check
-    if not current_user.is_authenticated or not current_user.is_admin():
+    # Check manage devices permission
+    if not can_manage_devices(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'bulk_trust_devices'},
+            severity='medium',
+            result='failure',
+            failure_reason='Insufficient permissions - requires manage_devices'
+        )
         toast = ToastManager.error(
-            "Access Denied",
-            detail_message="Bulk trust operations are restricted to administrators only."
+            "Permission Denied",
+            detail_message="You don't have permission to manage devices."
         )
         return toast
 
@@ -19036,9 +19230,20 @@ def bulk_trust_all_unknown(n_clicks):
         # Log to audit trail
         log_bulk_action(audit_logger, 'trust', count, success=True)
 
+        # Log to security audit
+        security_audit_logger.log(
+            event_type='bulk_operation',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'operation': 'trust_all_unknown', 'device_count': count},
+            severity='medium',
+            resource_type='devices',
+            result='success'
+        )
+
         toast = ToastManager.success(
             "Bulk Trust Complete",
-            detail_message="Bulk Trust Complete"
+            detail_message=f"Marked {count} device(s) as trusted"
         )
         return toast
 
@@ -19058,36 +19263,28 @@ def bulk_trust_all_unknown(n_clicks):
     Input('bulk-block-suspicious-btn', 'n_clicks'),
     prevent_initial_call=True
 )
+@login_required
 def bulk_block_suspicious(n_clicks):
-    """Block all suspicious devices (those with alerts) - Admin/Parent only."""
+    """Block all suspicious devices (those with alerts). Requires block_devices permission."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
-    # Permission check - kids cannot bulk block
-    if not current_user.is_authenticated:
+    # RBAC permission check
+    if not can_block_devices(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'bulk_block_suspicious'},
+            severity='high',
+            result='failure',
+            failure_reason='Requires block_devices permission (security_analyst+)'
+        )
         toast = ToastManager.error(
-            "Access Denied",
-            detail_message="You must be logged in to bulk block devices."
+            "Permission Denied",
+            detail_message="You don't have permission to block devices. Security analyst privileges required."
         )
         return toast
-
-    # Check if user is a kid
-    try:
-        conn = db_manager.conn
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
-            (current_user.id,)
-        )
-        kid_check = cursor.fetchone()
-        if kid_check and kid_check[0] == '1':
-            toast = ToastManager.error(
-                "Access Denied",
-                detail_message="Bulk blocking devices requires adult permission. Please ask a parent or guardian."
-            )
-            return toast
-    except Exception as e:
-        logger.error(f"Error checking user permissions: {e}")
 
     # Check rate limit
     allowed, remaining, reset_sec = rate_limiter.check_rate_limit(
@@ -19121,9 +19318,20 @@ def bulk_block_suspicious(n_clicks):
         # Log to audit trail
         log_bulk_action(audit_logger, 'block_suspicious', count, success=True)
 
-        toast = ToastManager.error(
+        # Log to security audit
+        security_audit_logger.log(
+            event_type='bulk_operation',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'operation': 'block_suspicious', 'device_count': count},
+            severity='high',
+            resource_type='devices',
+            result='success'
+        )
+
+        toast = ToastManager.warning(
             "Bulk Block Complete",
-            detail_message="Bulk Block Complete"
+            detail_message=f"Blocked {count} suspicious device(s) with critical/high alerts"
         )
         return toast
 
@@ -19625,13 +19833,17 @@ def save_device_details(n_clicks, trust_values, trust_ids, kids_values, kids_ids
         if device_ip:
             # Track what changed for specific toast message
             changes = []
+            audit_details = {}
 
             # Update trust status in database
             db_manager.set_device_trust(device_ip, bool(trust_value))
             if trust_value:
                 changes.append("marked as trusted")
+                audit_details['trust_status'] = 'trusted'
 
             # Update kids device status
+            if kids_value:
+                audit_details['kids_device'] = True
             cursor = db_manager.conn.cursor()
             cursor.execute(
                 "UPDATE devices SET is_kids_device = ? WHERE device_ip = ?",
@@ -19654,6 +19866,24 @@ def save_device_details(n_clicks, trust_values, trust_ids, kids_values, kids_ids
                     changes.append("EOL date set")
 
             db_manager.conn.commit()
+
+            # Log device details change to security audit
+            if changes and current_user.is_authenticated:
+                if mfg_date:
+                    audit_details['manufacturing_date'] = mfg_date
+                if eol_date:
+                    audit_details['eol_date'] = eol_date
+
+                security_audit_logger.log(
+                    event_type='settings_changed',
+                    severity='info',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    resource_type='device',
+                    resource_id=device_ip,
+                    details={'changes': changes, **audit_details},
+                    result='success'
+                )
 
             # Create detailed success message
             if changes:
@@ -21642,29 +21872,29 @@ def handle_firewall_modal_actions(save_clicks, cancel_clicks, lockdown_state):
         return False, toast
 
     elif button_id == 'save-firewall-btn':
-        # Permission check - kids cannot change firewall settings
-        if not current_user.is_authenticated:
+        # RBAC permission check - require manage_firewall (security_analyst+)
+        if not PermissionManager.has_permission(current_user, 'manage_firewall'):
+            security_audit_logger.log(
+                event_type='permission_denied',
+                user_id=current_user.id if current_user.is_authenticated else None,
+                username=current_user.username if current_user.is_authenticated else 'anonymous',
+                details={'action': 'modify_firewall', 'lockdown_state': lockdown_state},
+                severity='high',
+                result='failure',
+                failure_reason='Requires manage_firewall permission (security_analyst+)'
+            )
             toast = ToastManager.error(
-                "Access Denied",
-                detail_message="You must be logged in to change firewall settings."
+                "Permission Denied",
+                detail_message="Firewall and lockdown settings require security analyst privileges."
             )
             return False, toast
 
-        # Check if user is a kid
         try:
+            # Save firewall settings
             conn = db_manager.conn
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
-                (current_user.id,)
-            )
-            kid_check = cursor.fetchone()
-            if kid_check and kid_check[0] == '1':
-                toast = ToastManager.error(
-                    "Access Denied",
-                    detail_message="Firewall and lockdown settings can only be changed by adults. Please ask a parent or guardian."
-                )
-                return False, toast
+
+            # Permissions already enforced via RBAC
         except Exception as e:
             logger.error(f"Error checking user permissions: {e}")
 
@@ -21682,6 +21912,16 @@ def handle_firewall_modal_actions(save_clicks, cancel_clicks, lockdown_state):
                     "Lockdown Mode Disabled",
                     detail_message="Network access restrictions have been removed."
                 )
+
+            security_audit_logger.log(
+                event_type='lockdown_activated' if lockdown_state else 'lockdown_deactivated',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'lockdown_enabled': lockdown_state, 'action': 'firewall_settings_changed'},
+                severity='high',
+                resource_type='firewall',
+                result='success'
+            )
             return False, toast
         except Exception as e:
             toast = ToastManager.error(
@@ -24209,10 +24449,27 @@ def toggle_education_modal(open_clicks, close_clicks, is_open):
      State('firmware-notification-settings', 'value')],
     prevent_initial_call=True
 )
+@login_required
 def save_firmware_settings(n_clicks, update_policy, update_schedule, notification_settings):
-    """Save firmware settings and close modal with toast."""
+    """Save firmware settings and close modal with toast. Requires admin role."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    if not current_user.is_admin():
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'action': 'modify_firmware_settings'},
+            severity='high',
+            result='failure',
+            failure_reason='Requires admin role'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="Firmware settings can only be changed by administrators."
+        )
+        return toast, True
 
     try:
         # Save settings to database (would use user preferences table)
@@ -24220,6 +24477,21 @@ def save_firmware_settings(n_clicks, update_policy, update_schedule, notificatio
         if conn:
             # Settings would be saved here
             pass
+
+        security_audit_logger.log(
+            event_type='settings_changed',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={
+                'settings_type': 'firmware',
+                'update_policy': update_policy,
+                'update_schedule': update_schedule,
+                'notification_settings': notification_settings
+            },
+            severity='high',
+            resource_type='firmware_settings',
+            result='success'
+        )
 
         toast = ToastManager.success(
             "Settings Saved",
@@ -25141,10 +25413,28 @@ This is an automated weekly report from IoTSentinel.'''
     State('export-format-select', 'value'),
     prevent_initial_call=True
 )
+@login_required
 def export_devices(n_clicks, export_format):
-    """Export devices list in selected format (CSV, JSON, PDF, Excel)."""
+    """Export devices list in selected format (CSV, JSON, PDF, Excel). Requires export_data permission."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    # Check export permission
+    if not can_export_data(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'export_devices', 'format': export_format},
+            severity='medium',
+            result='failure',
+            failure_reason='Insufficient permissions - requires export_data'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="You don't have permission to export data. Contact your administrator."
+        )
+        return toast, None, True
 
     try:
         # Normalize format (xlsx -> excel)
@@ -25155,6 +25445,16 @@ def export_devices(n_clicks, export_format):
         download_data = export_helper.export_devices(format=export_format)
 
         if download_data:
+            # Log successful export
+            security_audit_logger.log(
+                event_type='data_export',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'resource': 'devices', 'format': export_format},
+                severity='info',
+                resource_type='devices',
+                result='success'
+            )
             toast = ToastManager.success(
                 "Export Complete",
                 detail_message=f"Devices exported as {export_format.upper()}"
@@ -25184,15 +25484,44 @@ def export_devices(n_clicks, export_format):
     State('export-format-security', 'value'),
     prevent_initial_call=True
 )
+@login_required
 def export_security_report(n_clicks, export_format):
-    """Export comprehensive security summary report in selected format."""
+    """Export comprehensive security summary report in selected format. Requires export_data permission."""
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    # Check export permission
+    if not can_export_data(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id if current_user.is_authenticated else None,
+            username=current_user.username if current_user.is_authenticated else 'anonymous',
+            details={'action': 'export_security_report', 'format': export_format},
+            severity='medium',
+            result='failure',
+            failure_reason='Insufficient permissions - requires export_data'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="You don't have permission to export security reports."
+        )
+        return toast, None
 
     try:
         # Normalize format (xlsx -> excel)
         format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
         export_format = format_map.get(export_format or 'csv', 'csv')
+
+        # Log export attempt
+        security_audit_logger.log(
+            event_type='data_export',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'resource': 'security_report', 'format': export_format, 'days': 7},
+            severity='info',
+            resource_type='security_report',
+            result='success'
+        )
 
         # Export alerts data (security reports are based on alerts)
         download_data = export_helper.export_alerts(format=export_format, days=7)
@@ -28476,6 +28805,7 @@ def create_integration_config_ui(integrations, category):
      State({'type': 'config-integration-enable', 'index': ALL}, 'value')],
     prevent_initial_call=True
 )
+@login_required
 def handle_integration_config(config_clicks, save_click, cancel_click, is_open, store_data,
                               field_values, field_ids, enable_values):
     """Handle integration configuration modal."""
@@ -28493,6 +28823,17 @@ def handle_integration_config(config_clicks, save_click, cancel_click, is_open, 
 
     # Save button clicked
     if 'api-config-save-btn' in trigger_id and store_data:
+        if not PermissionManager.has_permission(current_user, 'manage_api'):
+            security_audit_logger.log(
+                event_type='permission_denied',
+                user_id=current_user.id if current_user.is_authenticated else None,
+                username=current_user.username if current_user.is_authenticated else 'anonymous',
+                details={'action': 'configure_integration', 'integration_id': store_data.get('integration_id')},
+                severity='high',
+                result='failure',
+                failure_reason='Requires manage_api permission (admin only)'
+            )
+            return True, dash.no_update, dbc.Alert("Permission denied: admin access required.", color="danger"), store_data
         try:
             integration_id = store_data.get('integration_id')
             mgr = IntegrationManager(db_manager)
@@ -28512,6 +28853,16 @@ def handle_integration_config(config_clicks, save_click, cancel_click, is_open, 
             success = mgr.configure_integration(integration_id, enabled=enabled, **credentials)
 
             if success:
+                security_audit_logger.log(
+                    event_type='settings_changed',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    details={'settings_type': 'api_integration', 'integration_id': integration_id, 'enabled': enabled},
+                    severity='high',
+                    resource_type='integration',
+                    resource_id=str(integration_id),
+                    result='success'
+                )
                 return False, dash.no_update, dash.no_update, None
             else:
                 return True, dash.no_update, dbc.Alert("Failed to save configuration", color="danger"), store_data
@@ -28827,14 +29178,41 @@ def reset_health_status_handler(confirm_clicks):
     State('api-hub-export-format', 'value'),
     prevent_initial_call=True
 )
+@login_required
 def export_config_handler(export_clicks, export_format):
-    """Export integration configuration (credentials excluded for security)."""
+    """Export integration configuration (credentials excluded for security). Requires export_data permission."""
     if not export_clicks:
         return dash.no_update, dash.no_update
+
+    if not can_export_data(current_user):
+        security_audit_logger.log(
+            event_type='permission_denied',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'action': 'export_api_hub_config', 'format': export_format},
+            severity='high',
+            result='failure',
+            failure_reason='Requires export_data permission (admin only)'
+        )
+        toast = ToastManager.error(
+            "Permission Denied",
+            detail_message="You don't have permission to export configuration."
+        )
+        return toast, None
 
     try:
         export_format = export_format or 'json'
         logger.info(f"API Hub export config button clicked (format: {export_format})")
+
+        security_audit_logger.log(
+            event_type='data_export',
+            user_id=current_user.id,
+            username=current_user.username,
+            details={'resource': 'api_hub_config', 'format': export_format},
+            severity='high',
+            resource_type='configuration',
+            result='success'
+        )
 
         # Use export_helper for consistent export pattern (like other export buttons)
         download_data = export_helper.export_integrations(format=export_format)
@@ -33149,9 +33527,26 @@ def quick_diagnostics(n):
     [Input('quick-block-unknown-btn', 'n_clicks')],
     prevent_initial_call=True
 )
+@login_required
 def quick_block_unknown(n):
-    """Block all unknown devices."""
+    """Block all unknown devices. Requires block_devices permission (security_analyst+)."""
     if n:
+        # Check permission
+        if not can_block_devices(current_user):
+            security_audit_logger.log(
+                event_type='permission_denied',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'action': 'quick_block_unknown'},
+                severity='medium',
+                result='failure',
+                failure_reason='Requires block_devices permission'
+            )
+            return ToastManager.error(
+                "Permission Denied",
+                detail_message="You don't have permission to block devices."
+            )
+
         try:
             logger.info("Blocking unknown devices")
             conn = get_db_connection()
@@ -33161,6 +33556,18 @@ def quick_block_unknown(n):
                 blocked = cursor.rowcount
                 conn.commit()
                 logger.info(f"Blocked {blocked} unknown devices")
+
+                # Log to security audit
+                security_audit_logger.log(
+                    event_type='bulk_operation',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    details={'operation': 'quick_block_unknown', 'blocked_count': blocked},
+                    severity='medium',
+                    resource_type='devices',
+                    result='success'
+                )
+
                 return ToastManager.success(
                     f"Blocked {blocked} unknown devices successfully!",
                     category="network",
@@ -33184,9 +33591,26 @@ def quick_block_unknown(n):
     [Input('quick-whitelist-btn', 'n_clicks')],
     prevent_initial_call=True
 )
+@login_required
 def quick_whitelist(n):
-    """Whitelist all trusted devices."""
+    """Whitelist all trusted devices. Requires manage_devices permission (operator+)."""
     if n:
+        # Check permission
+        if not can_manage_devices(current_user):
+            security_audit_logger.log(
+                event_type='permission_denied',
+                user_id=current_user.id,
+                username=current_user.username,
+                details={'action': 'quick_whitelist'},
+                severity='medium',
+                result='failure',
+                failure_reason='Requires manage_devices permission'
+            )
+            return ToastManager.error(
+                "Permission Denied",
+                detail_message="You don't have permission to manage devices."
+            )
+
         try:
             logger.info("Whitelisting trusted devices")
             conn = get_db_connection()
@@ -33196,6 +33620,18 @@ def quick_whitelist(n):
                 whitelisted = cursor.rowcount
                 conn.commit()
                 logger.info(f"Whitelisted {whitelisted} trusted devices")
+
+                # Log to security audit
+                security_audit_logger.log(
+                    event_type='bulk_operation',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    details={'operation': 'quick_whitelist', 'whitelisted_count': whitelisted},
+                    severity='medium',
+                    resource_type='devices',
+                    result='success'
+                )
+
                 return ToastManager.success(
                     f"Whitelisted {whitelisted} trusted devices successfully!",
                     category="network",
@@ -33596,6 +34032,23 @@ def handle_quick_settings(settings_click, close_click, save_click, is_open,
     elif button_id == 'settings-save-btn':
         logger.info("💾 Save Changes button clicked - Saving all settings")
 
+        # Check admin permission for system-wide settings
+        if not current_user.is_authenticated or not current_user.is_admin():
+            security_audit_logger.log(
+                event_type='permission_denied',
+                user_id=current_user.id if current_user.is_authenticated else None,
+                username=current_user.username if current_user.is_authenticated else 'anonymous',
+                details={'action': 'modify_system_settings'},
+                severity='high',
+                result='failure',
+                failure_reason='Requires admin role'
+            )
+            toast = ToastManager.error(
+                "Permission Denied",
+                detail_message="System settings can only be changed by administrators."
+            )
+            return False, dash.no_update, dash.no_update, toast
+
         try:
             # Save discovery settings
             nmap_enabled = 'nmap' in (discovery_features or [])
@@ -33616,6 +34069,18 @@ def handle_quick_settings(settings_click, close_click, save_click, is_open,
 
             if success:
                 logger.info(f"✓ Discovery settings saved: {discovery_settings}")
+
+                # Log to security audit
+                security_audit_logger.log(
+                    event_type='settings_changed',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    details={'settings_type': 'discovery', 'settings': discovery_settings},
+                    severity='high',
+                    resource_type='system_settings',
+                    result='success'
+                )
+
                 toast = ToastManager.success(
                     "💾 Settings Saved",
                     detail_message="All settings have been saved successfully"

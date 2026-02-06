@@ -196,6 +196,49 @@ emergency_mode_log (
     INDEX(is_active, trigger_timestamp DESC)
 )
 
+audit_log (
+    id PRIMARY KEY,
+    timestamp TIMESTAMP,
+    user_id → users,
+    username TEXT NOT NULL,             -- Username for quick reference
+    action_type TEXT NOT NULL,          -- Type of action performed
+    action_description TEXT,            -- Human-readable description
+    target_resource TEXT,               -- Resource affected
+    ip_address TEXT,                    -- Client IP address
+    user_agent TEXT,                    -- Browser/client info
+    success BOOLEAN DEFAULT 1,          -- Action success/failure
+    error_message TEXT,                 -- Error details if failed
+    INDEX(user_id, timestamp DESC),
+    INDEX(action_type, timestamp DESC),
+    INDEX(timestamp DESC)
+)
+
+security_audit_log (
+    id PRIMARY KEY,
+    timestamp TEXT NOT NULL,            -- Event timestamp
+    user_id → users,                    -- User who performed action
+    username TEXT,                      -- Username for quick reference
+    event_type TEXT NOT NULL,           -- Event type (login_success, permission_denied, etc.)
+    event_category TEXT,                -- Event category grouping
+    severity TEXT DEFAULT 'info',       -- Severity: info, warning, error, critical
+    ip_address TEXT,                    -- Client IP address
+    user_agent TEXT,                    -- Browser/client info
+    resource_type TEXT,                 -- Type of resource (device, user, settings, etc.)
+    resource_id TEXT,                   -- Specific resource identifier
+    details TEXT,                       -- JSON with additional details
+    result TEXT,                        -- Result: success, failure
+    failure_reason TEXT,                -- Reason for failure if applicable
+    session_id TEXT,                    -- Session identifier
+    request_id TEXT,                    -- Request tracking ID
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    INDEX(timestamp DESC),
+    INDEX(user_id, timestamp DESC),
+    INDEX(event_type, timestamp DESC),
+    INDEX(severity, timestamp DESC)
+)
+-- NOTE: audit_log is for general user actions (legacy)
+-- NOTE: security_audit_log is for RBAC security events (comprehensive)
+
 -- ====================================================================================
 -- ALERT RULES & DEVICE GROUPS
 -- ====================================================================================
@@ -826,6 +869,10 @@ scheduled_tasks (
 -- NOTES:
 -- - This schema is for documentation only
 -- - Actual tables are created by: config/init_database.py
--- - Total tables: 60 (10 core + 43 IoT security features + 3 toast system + 2 ML management + 2 security audit)
--- - Last updated: 19 January 2026 (Added template_change_audit and emergency_mode_log)
+-- - Total tables: 61 (10 core + 43 IoT security features + 3 toast system + 2 ML management + 3 security audit)
+-- - Audit Tables:
+--   * audit_log: Legacy general action logging
+--   * security_audit_log: RBAC security events (comprehensive)
+--   * template_change_audit: Dashboard template changes
+-- - Last updated: 6 February 2026 (Added security_audit_log for RBAC compliance)
 -- ====================================================================================
