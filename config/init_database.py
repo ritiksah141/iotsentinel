@@ -1146,6 +1146,36 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action_type, timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp)')
 
+    # Security Audit Log Table - Comprehensive security event logging for RBAC and compliance
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS security_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id INTEGER,
+            username TEXT,
+            event_type TEXT NOT NULL,
+            event_category TEXT,
+            severity TEXT DEFAULT 'info',
+            ip_address TEXT,
+            user_agent TEXT,
+            resource_type TEXT,
+            resource_id TEXT,
+            details TEXT,
+            result TEXT,
+            failure_reason TEXT,
+            session_id TEXT,
+            request_id TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    ''')
+
+    # Create indexes for faster queries on security audit log
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_audit_timestamp ON security_audit_log(timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_audit_user ON security_audit_log(user_id, timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_audit_event ON security_audit_log(event_type, timestamp DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_security_audit_severity ON security_audit_log(severity, timestamp DESC)')
+
     # Rate Limiting Table - Prevent brute force and abuse
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS rate_limit_log (
@@ -1204,6 +1234,7 @@ def init_database():
     print("  - api_integrations (API Integration Hub)")
     print("  - api_integration_logs (API Usage Tracking)")
     print("  - audit_log (Security Audit Trail)")
+    print("  - security_audit_log (RBAC Security Audit & Compliance)")
     print("  - rate_limit_log (Rate Limiting & Abuse Prevention)")
     print("  - totp_secrets (Two-Factor Authentication)")
     if not admin_exists:

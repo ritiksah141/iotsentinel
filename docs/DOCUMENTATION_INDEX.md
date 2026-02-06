@@ -71,6 +71,34 @@ Located in: `/docs/`
 - Authentication
 - Rate limiting
 
+### RBAC_SECURITY_GUIDE.md
+
+**Purpose**: Complete Role-Based Access Control (RBAC) and Security Audit System
+**Audience**: Developers, security administrators, compliance officers
+**Content**:
+
+- 5 hierarchical roles (Admin, Security Analyst, Operator, Viewer, Kid)
+- 20+ granular permissions
+- 25 protected operations with security audit logging
+- Permission matrix and role inheritance
+- Security event types (25 types) and audit logging
+- Database schema (security_audit_log table)
+- Implementation examples and developer guide
+- Monitoring queries and troubleshooting
+- Production deployment checklist
+- Compliance-ready (SOC 2, GDPR, HIPAA)
+
+### SECURITY_ENHANCEMENTS.md
+
+**Purpose**: Overview of security features and implementations
+**Audience**: Security administrators, developers
+**Content**:
+
+- RBAC system overview
+- Security audit logging
+- Authentication and authorization
+- Security best practices
+
 ### SYSTEM_CONFIGURATION_MANUAL.md
 
 **Purpose**: Configuration reference
