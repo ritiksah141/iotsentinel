@@ -2462,7 +2462,7 @@ login_layout = dbc.Container([
                     dbc.Tabs([
                         # Login Tab
                         dbc.Tab([
-                            html.Div([
+                            html.Form([
                                 # Username Input with Floating Label
                                 html.Div([
                                     html.I(className="fa fa-user input-icon"),
@@ -2668,7 +2668,7 @@ login_layout = dbc.Container([
 
                         # Register Tab
                         dbc.Tab([
-                            html.Div([
+                            html.Form([
                                 dbc.Alert(id="register-alert", is_open=False, duration=4000, className="mt-3"),
 
                                 # Email Input with Floating Label
@@ -5829,8 +5829,8 @@ dashboard_layout = dbc.Container([
                                     dbc.Col([
                                         dbc.Button([
                                             html.I(className="fa fa-sync-alt me-2"),
-                                            "Refresh"
-                                        ], id='load-devices-btn', color="primary", className="w-100")
+                                            "Refresh Devices"
+                                        ], id='load-devices-btn', color="primary", className="w-100 refresh-devices-btn")
                                     ], md=3)
                                 ], className="mb-3"),
 
@@ -6050,16 +6050,16 @@ dashboard_layout = dbc.Container([
             ], id="device-mgmt-tabs", active_tab="devices-list-tab")
         ]),
         dbc.ModalFooter([
-            html.Div(id='device-mgmt-timestamp-display', className="me-auto"),
+            html.Div(id='device-mgmt-timestamp-display', className="me-auto text-muted small"),
             dbc.Button([
                 html.I(className="fa fa-sync-alt me-2"),
-                "Refresh"
-            ], id="refresh-device-mgmt-btn", color="info", outline=True, size="sm", className="me-2"),
+                "Refresh All"
+            ], id="refresh-device-mgmt-btn", color="info", outline=True, size="sm", className="me-2 modal-refresh-btn"),
             dbc.Button([
                 html.I(className="fa fa-times me-2"),
                 "Close"
-            ], id='close-device-modal-btn', color="secondary", size="sm")
-        ]),
+            ], id='close-device-modal-btn', color="secondary", size="sm", className="modal-close-btn")
+        ], className="border-top pt-3"),
         dcc.Store(id='device-mgmt-timestamp-store')
     ], id="device-mgmt-modal", size="xl", is_open=False, scrollable=True),
 
@@ -14982,7 +14982,7 @@ app.clientside_callback(
                         icon.className = 'fa fa-check';
                         setTimeout(function() {
                             icon.className = 'fa fa-copy';
-                        }, 2000);
+                        }, 1500);
                     });
                 }
             }
@@ -15000,12 +15000,12 @@ app.clientside_callback(
     """
     function(children) {
         if (children && children.length > 0) {
-            setTimeout(function() {
+            requestAnimationFrame(function() {
                 const chatHistory = document.getElementById('chat-history');
                 if (chatHistory) {
                     chatHistory.scrollTop = chatHistory.scrollHeight;
                 }
-            }, 100);
+            });
         }
         return window.dash_clientside.no_update;
     }
@@ -18784,10 +18784,25 @@ def load_device_management_table(is_open, active_tab, load_clicks, refresh_click
     return html.Div([
         dbc.Row([
             dbc.Col([
-                html.H6(f"Total Devices: {total_devices} | Showing {start_idx + 1}-{min(end_idx, total_devices)}",
-                       className="mb-0")
-            ], width=6),
-        ], className="mb-3"),
+                html.Div([
+                    dbc.Button([
+                        dbc.Checkbox(
+                            id='select-all-devices-checkbox',
+                            label="",
+                            className="d-inline me-2",
+                            value=False,
+                            style={'margin': '0', 'verticalAlign': 'middle', 'pointerEvents': 'none'}
+                        ),
+                        html.Span([
+                            html.I(className="fa fa-check-double me-2"),
+                            "Select All"
+                        ])
+                    ], id='select-all-btn-wrapper', color="primary", size="sm", outline=True, className="select-all-btn"),
+                    html.H6(f"Total Devices: {total_devices} | Showing {start_idx + 1}-{min(end_idx, total_devices)}",
+                           className="mb-0 d-inline text-muted ms-3")
+                ], className="d-flex align-items-center justify-content-between")
+            ], width=12),
+        ], className="mb-3 pb-2 border-bottom"),
         html.Div(rows, id='device-rows-container', **{'data-virtual-scroll': 'true', 'data-item-height': '100'}),
         pagination
     ]), page, toast
@@ -19046,8 +19061,8 @@ def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_v
      Input('bulk-delete-cancel', 'n_clicks'),
      Input('bulk-delete-confirm', 'n_clicks')],
     [State('bulk-delete-modal', 'is_open'),
-     State({'type': 'device-checkbox', 'index': ALL}, 'value'),
-     State({'type': 'device-checkbox', 'index': ALL}, 'id')],
+     State({'type': 'device-checkbox', 'ip': ALL}, 'value'),
+     State({'type': 'device-checkbox', 'ip': ALL}, 'id')],
     prevent_initial_call=True
 )
 def toggle_bulk_delete_modal(delete_clicks, cancel_clicks, confirm_clicks, is_open, checkbox_values, checkbox_ids):
@@ -19075,8 +19090,8 @@ def toggle_bulk_delete_modal(delete_clicks, cancel_clicks, confirm_clicks, is_op
 @app.callback(
     Output('toast-container', 'children', allow_duplicate=True),
     Input('bulk-delete-confirm', 'n_clicks'),
-    [State({'type': 'device-checkbox', 'index': ALL}, 'value'),
-     State({'type': 'device-checkbox', 'index': ALL}, 'id')],
+    [State({'type': 'device-checkbox', 'ip': ALL}, 'value'),
+     State({'type': 'device-checkbox', 'ip': ALL}, 'id')],
     prevent_initial_call=True
 )
 def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
@@ -19094,7 +19109,7 @@ def bulk_delete_confirmed(confirm_clicks, checkbox_values, checkbox_ids):
 
     # Get selected device IPs
     selected_ips = [
-        checkbox_ids[i]['index']
+        checkbox_ids[i]['ip']
         for i, checked in enumerate(checkbox_values)
         if checked
     ]
@@ -19352,7 +19367,8 @@ def bulk_block_suspicious(n_clicks):
      Output('selected-count-display', 'children'),
      Output('selected-devices-store', 'data')],
     [Input({'type': 'device-checkbox', 'ip': ALL}, 'value')],
-    [State({'type': 'device-checkbox', 'ip': ALL}, 'id')]
+    [State({'type': 'device-checkbox', 'ip': ALL}, 'id')],
+    prevent_initial_call=True
 )
 def toggle_bulk_buttons(checkbox_values, checkbox_ids):
     """Enable/disable bulk action buttons based on selections, update count, and sync store"""
@@ -19370,10 +19386,26 @@ def toggle_bulk_buttons(checkbox_values, checkbox_ids):
     return not has_selection, not has_selection, not has_selection, str(selected_count), selected_ips
 
 
+# Toggle select-all checkbox when button is clicked anywhere
+app.clientside_callback(
+    """
+    function(n_clicks, current_value) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+        return !current_value;
+    }
+    """,
+    Output('select-all-devices-checkbox', 'value'),
+    Input('select-all-btn-wrapper', 'n_clicks'),
+    State('select-all-devices-checkbox', 'value'),
+    prevent_initial_call=True
+)
+
 
 @app.callback(
-    Output({'type': 'device-checkbox', 'ip': ALL}, 'checked'),
-    Input('select-all-devices-checkbox', 'checked'),
+    Output({'type': 'device-checkbox', 'ip': ALL}, 'value'),
+    Input('select-all-devices-checkbox', 'value'),
     prevent_initial_call=True
 )
 def select_all_devices(select_all):
@@ -19381,11 +19413,12 @@ def select_all_devices(select_all):
     if select_all is None:
         return dash.no_update
 
-    # Get all device checkbox IDs
-    all_checkbox_ids = callback_context.outputs_list[0]['id']
+    # Get the number of outputs from callback context
+    # In pattern-matching callbacks, outputs_list contains all matched outputs
+    num_checkboxes = len(callback_context.outputs_list)
 
     # Return a list of True or False values for each checkbox
-    return [select_all] * len(all_checkbox_ids)
+    return [select_all] * num_checkboxes
 
 
 @app.callback(
@@ -35575,7 +35608,7 @@ app.clientside_callback(
         for (let btnId of possibleButtonIds) {
             const btn = document.getElementById(btnId);
             if (btn) {
-                setTimeout(() => btn.click(), 100);
+                requestAnimationFrame(() => btn.click());
                 return [false, '']; // Close spotlight and clear input
             }
         }
@@ -35687,17 +35720,23 @@ app.clientside_callback(
             // Show/hide item with smooth transition
             if (shouldShow) {
                 item.classList.remove('hidden-by-filter');
-                item.style.opacity = '1';
                 item.style.display = '';
+                requestAnimationFrame(() => {
+                    item.style.opacity = '1';
+                });
             } else {
-                item.classList.add('hidden-by-filter');
                 item.style.opacity = '0';
-                // Use setTimeout to allow opacity transition before hiding
-                setTimeout(() => {
+                item.classList.add('hidden-by-filter');
+                // Use transitionend event instead of setTimeout
+                const hideAfterTransition = () => {
                     if (item.classList.contains('hidden-by-filter')) {
                         item.style.display = 'none';
                     }
-                }, 300);
+                    item.removeEventListener('transitionend', hideAfterTransition);
+                };
+                item.addEventListener('transitionend', hideAfterTransition);
+                // Fallback in case transition doesn't fire
+                setTimeout(() => hideAfterTransition(), 350);
             }
         });
 
@@ -37814,17 +37853,22 @@ app.clientside_callback(
             } else if (Array.isArray(config.visible)) {
                 // Security Admin or Home User: show only specified features
                 if (config.visible.includes(buttonId)) {
-                    item.style.display = '';
-                    item.style.opacity = '1';
                     item.classList.remove('template-hidden');
+                    item.style.display = '';
+                    requestAnimationFrame(() => {
+                        item.style.opacity = '1';
+                    });
                 } else {
                     item.style.opacity = '0';
                     item.classList.add('template-hidden');
-                    setTimeout(() => {
+                    const hideTemplate = () => {
                         if (item.classList.contains('template-hidden')) {
                             item.style.display = 'none';
                         }
-                    }, 300);
+                        item.removeEventListener('transitionend', hideTemplate);
+                    };
+                    item.addEventListener('transitionend', hideTemplate);
+                    setTimeout(() => hideTemplate(), 350);
                 }
             }
         });
