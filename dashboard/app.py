@@ -196,20 +196,15 @@ logger.info("Active Logs: iotsentinel.log, audit.log, ml.log, alerts.log,")
 logger.info("             hardware.log, database.log, error.log, api.log")
 logger.info("="*70)
 
+
 # Import atexit for cleanup handlers
 import atexit
 
 # Initialize app
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME, '/assets/custom.css', '/assets/skeleton.css'],
-    external_scripts=[
-        # Performance optimizations (tested and verified)
-        '/assets/debounce.js',  # Debounce search inputs (500ms delay)
-        '/assets/virtual-scroll.js',  # Virtual scrolling for long lists
-        '/assets/static-cache.js',  # Cache static assets in memory
-        '/assets/spotlight-search.js'  # Spotlight universal search with keyboard shortcuts
-    ],
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],  # Load critical styles first
+    external_scripts=[],  # Scripts will be loaded via custom strategy
     title="IoTSentinel - Network Security Monitor",
     suppress_callback_exceptions=True,
     # Performance optimizations
@@ -217,44 +212,8 @@ app = dash.Dash(
     update_title=None,  # Disable title updates for performance
 )
 
-# Add inline critical CSS for instant first paint
-app.index_string = '''
-<!DOCTYPE html>
-<html>
-    <head>
-        {%metas%}
-        <title>{%title%}</title>
-        <style>
-        /* Critical CSS for instant render - prevents FOUC */
-        .no-animations,.no-animations *,.no-animations *::before,.no-animations *::after{animation:0s!important;transition:0s!important}
-        :root{--radius-md:16px;--blur-medium:60px;--glass-bg-solid:rgba(255,255,255,0.55);--transition-fast:0.3s}
-        body.dark-mode{--glass-bg-solid:rgba(30,41,59,0.55)}
-        *{-webkit-font-smoothing:antialiased}
-        body{margin:0;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
-        body.dark-mode{background:#0f172a}
-        .glass-card,.modal-content,.btn,.card{transform:translateZ(0);backface-visibility:hidden}
-        .skeleton{background:linear-gradient(110deg,rgba(200,210,220,0.4) 8%,rgba(220,230,240,0.6) 18%,rgba(200,210,220,0.4) 33%);background-size:200% 100%;animation:shimmer 2s linear infinite;border-radius:8px}
-        body.dark-mode .skeleton{background:linear-gradient(110deg,rgba(51,65,85,0.4) 8%,rgba(71,85,105,0.6) 18%,rgba(51,65,85,0.4) 33%)}
-        @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-        @keyframes pulse-danger{0%,100%{box-shadow:0 0 0 0 rgba(220,53,69,0.7)}50%{box-shadow:0 0 0 10px rgba(220,53,69,0)}}
-        .pulse-danger{animation:pulse-danger 2s infinite}
-        </style>
-        {%css%}
-    </head>
-    <body class="no-animations">
-        {%app_entry%}
-        <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
-        </footer>
-        <script>
-        /* Remove no-animations class after load for smooth transitions */
-        window.addEventListener('load',function(){setTimeout(function(){document.body.classList.remove('no-animations')},100)});
-        </script>
-    </body>
-</html>
-'''
+# Keep default index_string for better compatibility
+# app.index_string remains default
 
 socketio = SocketIO(app.server, cors_allowed_origins="*")
 socketio = SocketIO(
@@ -11505,6 +11464,7 @@ def update_security_score_dashboard(n_intervals, refresh_clicks):
             else:
                 toast = ToastManager.error(
                     f"Security Score: {grade} ({overall_score:.0f}/100)",
+                    header="Danger",
                     detail_message=f"⚠️ Critical security issues detected!\n\n"
                                   f"• Device Health: {device_health.get('score', 0):.0f}/100\n"
                                   f"• Vulnerabilities: {vulnerabilities.get('score', 0):.0f}/100\n"
@@ -12670,18 +12630,12 @@ def toggle_device_block(confirm_clicks, cancel_clicks, device_ip, action):
     [Input('ws', 'message'), Input('refresh-interval', 'n_intervals')]
 )
 def store_alerts_data(ws_message, n_intervals):
-    print(f"\n[STORE CALLBACK] ws_message is None: {ws_message is None}, interval: {n_intervals}")
-
     # Try websocket first
     if ws_message is not None:
         recent_alerts = ws_message.get('recent_alerts', [])
-        print(f"[STORE CALLBACK - WEBSOCKET] Storing {len(recent_alerts)} alerts")
-        if recent_alerts:
-            print(f"[STORE CALLBACK - WEBSOCKET] First alert: {recent_alerts[0].get('alert_type', 'unknown')}")
         return recent_alerts
 
     # Fallback: Fetch from database directly (for Mac or websocket failures)
-    print(f"[STORE CALLBACK - FALLBACK] Fetching alerts from database...")
     try:
         cursor = db_manager.conn.cursor()
         cursor.execute("""
@@ -12719,13 +12673,9 @@ def store_alerts_data(ws_message, n_intervals):
                 'acknowledged_at': row[9]
             })
 
-        print(f"[STORE CALLBACK - FALLBACK] Fetched {len(recent_alerts)} alerts from database")
-        if recent_alerts:
-            print(f"[STORE CALLBACK - FALLBACK] Acknowledged alerts: {sum(1 for a in recent_alerts if a.get('acknowledged') == 1)}")
         return recent_alerts
 
     except Exception as e:
-        print(f"[STORE CALLBACK - FALLBACK] Error fetching alerts: {e}")
         return []
 
 # Display alerts with filtering
@@ -12735,9 +12685,6 @@ def store_alerts_data(ws_message, n_intervals):
     prevent_initial_call=False
 )
 def update_alerts_compact(recent_alerts_raw, filter_severity, show_reviewed):
-    # DEBUG: Always log when callback is triggered
-    print(f"\n[CALLBACK TRIGGERED] alerts_count={len(recent_alerts_raw) if recent_alerts_raw else 0}, filter={filter_severity}, show_reviewed={show_reviewed}")
-
     # Handle empty or missing alerts
     if not recent_alerts_raw:
         return dbc.Alert([
@@ -12752,36 +12699,16 @@ def update_alerts_compact(recent_alerts_raw, filter_severity, show_reviewed):
 
     df = pd.DataFrame(recent_alerts_raw)
 
-    # DEBUG: Show what we're working with
-    print(f"\n{'='*60}")
-    print(f"[ALERT FILTERING DEBUG]")
-    print(f"{'='*60}")
-    print(f"show_reviewed raw value: {show_reviewed}")
-    print(f"show_reviewed type: {type(show_reviewed)}")
-    print(f"Total alerts before filtering: {len(df)}")
-    if not df.empty:
-        print(f"Acknowledged column values: {df['acknowledged'].value_counts().to_dict()}")
-
     # Filter out acknowledged alerts unless user wants to see them
     if not df.empty:
         # show_reviewed is a list: [] when unchecked, [1] when checked
         show_acknowledged = show_reviewed and len(show_reviewed) > 0
-        print(f"show_acknowledged (computed): {show_acknowledged}")
 
         if not show_acknowledged:
-            print(f"Filtering OUT acknowledged alerts (keeping only acknowledged=0)")
             df = df[df['acknowledged'] == 0]
-        else:
-            print(f"Showing ALL alerts (including acknowledged)")
-
-        print(f"Alerts after acknowledged filtering: {len(df)}")
 
     if filter_severity and filter_severity != 'all' and not df.empty:
-        print(f"Applying severity filter: {filter_severity}")
         df = df[df['severity'] == filter_severity]
-        print(f"Alerts after severity filtering: {len(df)}")
-
-    print(f"{'='*60}\n")
 
     if len(df) == 0:
         return dbc.Alert([
@@ -21541,8 +21468,9 @@ def main():
 
     # Try running with SocketIO, fall back if needed
     try:
+        # Note: use_reloader=False prevents double initialization in debug mode
         socketio.run(app.server, host=host, port=port, debug=debug,
-                    allow_unsafe_werkzeug=True, log_output=False)
+                    allow_unsafe_werkzeug=True, log_output=False, use_reloader=False)
     except Exception as e:
         logger.error(f"SocketIO failed to start: {e}")
         logger.info("Falling back to standard Dash server (WebSockets disabled)...")
@@ -21552,7 +21480,8 @@ def main():
         werkzeug_log = log.getLogger('werkzeug')
         werkzeug_log.setLevel(log.ERROR)
 
-        app.run(host=host, port=port, debug=debug)
+        # Note: use_reloader=False prevents double initialization in debug mode
+        app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 # Modal toggle callbacks for feature cards
 @app.callback(
@@ -34385,7 +34314,7 @@ def autosave_alert_settings(alert_values, settings_data, voice_data):
     old_critical = settings_data['notifications'].get('critical_only', False)
 
     if old_voice == voice_enabled and old_browser == browser_enabled and old_critical == critical_only:
-        logger.info("Alert settings unchanged, skipping")
+        # logger.info("Alert settings unchanged, skipping")
         return dash.no_update, dash.no_update, dash.no_update
 
     # Update both stores
@@ -34435,7 +34364,7 @@ def autosave_debug_options(debug_values, settings_data):
     # Check if value actually changed
     old_value = settings_data['advanced'].get('debug', [])
     if set(old_value) == set(debug_values):
-        logger.info(f"Debug value unchanged: {debug_values}")
+        # logger.info(f"Debug value unchanged: {debug_values}")
         return dash.no_update, dash.no_update
 
     settings_data['advanced']['debug'] = debug_values
@@ -34794,7 +34723,7 @@ def autosave_notification_sound(sound_value, settings_data):
     # Check if value changed
     old_value = settings_data['notifications'].get('sound', 'default')
     if old_value == sound_value:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return dash.no_update, dash.no_update
 
     # Save to store
@@ -34834,7 +34763,7 @@ def autosave_alert_duration(duration_value, settings_data):
     # Check if value changed
     old_value = settings_data['notifications'].get('duration', 5000)
     if old_value == duration_int:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return dash.no_update, dash.no_update
 
     # Save to store
@@ -34868,7 +34797,7 @@ def autosave_notification_position(position_value, settings_data):
     # Check if value changed
     old_value = settings_data['notifications'].get('position', 'top-right')
     if old_value == position_value:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return dash.no_update, dash.no_update
 
     # Save to store
@@ -34908,7 +34837,7 @@ def autosave_network_scan_interval(interval_value, settings_data):
     # Check if value changed
     old_value = settings_data['network'].get('scan_interval', 300)
     if old_value == interval_int:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return dash.no_update, dash.no_update
 
     # Save to store
@@ -34945,7 +34874,7 @@ def autosave_connection_timeout(timeout_value, settings_data):
     # Check if value changed
     old_value = settings_data['network'].get('timeout', 10)
     if old_value == timeout_int:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return dash.no_update, dash.no_update
 
     # Save to store
@@ -37704,7 +37633,7 @@ def load_user_template_on_page_load(pathname):
 
         result = cursor.fetchone()
         if result and result[0]:
-            logger.info(f"Loading template from DB for {current_user.username}: {result[0]}")
+            # logger.info(f"Loading template from DB for {current_user.username}: {result[0]}")
             return result[0]
 
         # No saved preference - return custom as default
@@ -37731,7 +37660,7 @@ def save_dashboard_template(template, current_template):
 
     # Only show toast if template actually changed (not on initial sync)
     if template == current_template:
-        logger.info("No change detected, skipping auto-save")
+        # logger.info("No change detected, skipping auto-save")
         return no_update, no_update
 
     # Check if this is triggered by modal opening (not a user action)
@@ -38340,10 +38269,6 @@ def verify_webauthn_authentication():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-if __name__ == '__main__':
-    main()
-
-
 # ============================================================================
 # CROSS-CHART FILTERING CALLBACKS
 # ============================================================================
@@ -38396,8 +38321,6 @@ def filter_by_device_from_heatmap(click_data):
 )
 def show_filter_notification(severity_filter, device_filter):
     """Show toast notification when cross-chart filters are applied."""
-    from alerts.alert_manager import ToastManager
-
     if severity_filter:
         return ToastManager.info(
             "Cross-Chart Filter Active",
@@ -38670,3 +38593,11 @@ def create_device_hierarchy_sunburst(is_open, device_filter):
         fig = go.Figure()
         fig.update_layout(title=f"Error loading device hierarchy: {str(e)}")
         return fig
+
+
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
+
+if __name__ == '__main__':
+    main()

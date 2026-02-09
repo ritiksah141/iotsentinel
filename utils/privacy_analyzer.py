@@ -176,7 +176,7 @@ class PrivacyAnalyzer:
                 }
             }
 
-            logger.info(f"Privacy analysis complete for {device_ip}: {privacy_risk['level']} risk")
+            # logger.info(f"Privacy analysis complete for {device_ip}: {privacy_risk['level']} risk")
 
             return result
 
@@ -408,7 +408,7 @@ class PrivacyAnalyzer:
             devices = cursor.fetchall()
 
             summaries = []
-            logger.info(f"Found {len(devices)} devices for privacy analysis")
+            # logger.info(f"Found {len(devices)} devices for privacy analysis")
             for device_row in devices:
                 device_ip = device_row[0]
                 logger.debug(f"Analyzing privacy for device: {device_ip}")
@@ -432,7 +432,7 @@ class PrivacyAnalyzer:
                 else:
                     logger.warning(f"Skipping device {device_ip} due to error: {analysis.get('error')}")
 
-            logger.info(f"Privacy analysis complete: {len(summaries)} devices analyzed")
+            # logger.info(f"Privacy analysis complete: {len(summaries)} devices analyzed")
 
             # Sort by risk score (highest first)
             summaries.sort(key=lambda x: x['privacy_risk_score'], reverse=True)

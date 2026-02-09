@@ -100,7 +100,7 @@ class NetworkSecurityScorer:
                 'calculated_at': datetime.now().isoformat()
             }
 
-            logger.info(f"Network security score calculated: {overall_score:.1f}/100 ({grade})")
+            # logger.info(f"Network security score calculated: {overall_score:.1f}/100 ({grade})")
 
             return result
 
