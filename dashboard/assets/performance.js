@@ -9,102 +9,102 @@ let isHighRefresh = false;
 
 // Improved refresh rate detection - START IMMEDIATELY for faster optimization
 const startMeasurement = function () {
-    let frameCount = 0;
-    let lastTimestamp = null;
-    let frameTimes = [];
-    let consecutiveFrames = 0;
+  let frameCount = 0;
+  let lastTimestamp = null;
+  let frameTimes = [];
+  let consecutiveFrames = 0;
 
-    function measureRefreshRate(timestamp) {
-      if (lastTimestamp !== null) {
-        const delta = timestamp - lastTimestamp;
+  function measureRefreshRate(timestamp) {
+    if (lastTimestamp !== null) {
+      const delta = timestamp - lastTimestamp;
 
-        // Only record stable frame times (8-20ms for 60-120Hz)
-        if (delta > 8 && delta < 35) {
-          frameTimes.push(delta);
-          consecutiveFrames++;
-          frameCount++;
-        } else {
-          // Reset if we hit an unstable frame (page still loading)
-          consecutiveFrames = 0;
-        }
-      }
-
-      lastTimestamp = timestamp;
-
-      // Need 30 frames with 20 consecutive stable for faster measurement
-      if (frameCount < 30 || consecutiveFrames < 20) {
-        requestAnimationFrame(measureRefreshRate);
+      // Only record stable frame times (8-20ms for 60-120Hz)
+      if (delta > 8 && delta < 35) {
+        frameTimes.push(delta);
+        consecutiveFrames++;
+        frameCount++;
       } else {
-        // Sort and remove outliers (top and bottom 10%)
-        frameTimes.sort((a, b) => a - b);
-        const trimCount = Math.floor(frameTimes.length * 0.1);
-        const trimmedTimes = frameTimes.slice(
-          trimCount,
-          frameTimes.length - trimCount
-        );
-
-        // Calculate average frame time from trimmed data
-        const avgFrameTime =
-          trimmedTimes.reduce((a, b) => a + b, 0) / trimmedTimes.length;
-        const detectedFPS = Math.round(1000 / avgFrameTime);
-
-        // Map to common refresh rates
-        if (detectedFPS >= 100) {
-          refreshRate = 120;
-          isHighRefresh = true;
-        } else if (detectedFPS >= 80) {
-          refreshRate = 90;
-          isHighRefresh = true;
-        } else {
-          refreshRate = 60; // Standard refresh rate
-          isHighRefresh = false;
-        }
-
-        // Check if this is a likely false reading due to throttling
-        const likelyThrottled = detectedFPS < 45 && avgFrameTime > 25;
-
-        if (likelyThrottled) {
-          console.warn(
-            "⚠️ Browser appears throttled (detected " + detectedFPS + " FPS)."
-          );
-          console.log(
-            "💡 Tip: Make sure the tab is active and not in power saving mode."
-          );
-          console.log(
-            "🎯 Assuming 60Hz minimum. Run window.setRefreshRate(120) if you have a high-refresh display."
-          );
-          // Assume at least 60Hz for modern Macs
-          refreshRate = 60;
-          isHighRefresh = false;
-        }
-
-        console.log(
-          "🚀 Detected refresh rate:",
-          refreshRate + "Hz",
-          "(measured:",
-          detectedFPS + " FPS,",
-          "avg frame time:",
-          avgFrameTime.toFixed(2) + "ms)"
-        );
-        console.log(
-          "⚡ Performance mode:",
-          isHighRefresh ? "HIGH REFRESH (120+ FPS)" : "STANDARD (60 FPS)"
-        );
-
-        // Apply optimizations
-        if (isHighRefresh) {
-          document.documentElement.classList.add("high-refresh");
-        }
+        // Reset if we hit an unstable frame (page still loading)
+        consecutiveFrames = 0;
       }
     }
 
-    requestAnimationFrame(measureRefreshRate);
+    lastTimestamp = timestamp;
+
+    // Need 30 frames with 20 consecutive stable for faster measurement
+    if (frameCount < 30 || consecutiveFrames < 20) {
+      requestAnimationFrame(measureRefreshRate);
+    } else {
+      // Sort and remove outliers (top and bottom 10%)
+      frameTimes.sort((a, b) => a - b);
+      const trimCount = Math.floor(frameTimes.length * 0.1);
+      const trimmedTimes = frameTimes.slice(
+        trimCount,
+        frameTimes.length - trimCount,
+      );
+
+      // Calculate average frame time from trimmed data
+      const avgFrameTime =
+        trimmedTimes.reduce((a, b) => a + b, 0) / trimmedTimes.length;
+      const detectedFPS = Math.round(1000 / avgFrameTime);
+
+      // Map to common refresh rates
+      if (detectedFPS >= 100) {
+        refreshRate = 120;
+        isHighRefresh = true;
+      } else if (detectedFPS >= 80) {
+        refreshRate = 90;
+        isHighRefresh = true;
+      } else {
+        refreshRate = 60; // Standard refresh rate
+        isHighRefresh = false;
+      }
+
+      // Check if this is a likely false reading due to throttling
+      const likelyThrottled = detectedFPS < 45 && avgFrameTime > 25;
+
+      if (likelyThrottled) {
+        console.warn(
+          "⚠️ Browser appears throttled (detected " + detectedFPS + " FPS).",
+        );
+        console.log(
+          "💡 Tip: Make sure the tab is active and not in power saving mode.",
+        );
+        console.log(
+          "🎯 Assuming 60Hz minimum. Run window.setRefreshRate(120) if you have a high-refresh display.",
+        );
+        // Assume at least 60Hz for modern Macs
+        refreshRate = 60;
+        isHighRefresh = false;
+      }
+
+      console.log(
+        "🚀 Detected refresh rate:",
+        refreshRate + "Hz",
+        "(measured:",
+        detectedFPS + " FPS,",
+        "avg frame time:",
+        avgFrameTime.toFixed(2) + "ms)",
+      );
+      console.log(
+        "⚡ Performance mode:",
+        isHighRefresh ? "HIGH REFRESH (120+ FPS)" : "STANDARD (60 FPS)",
+      );
+
+      // Apply optimizations
+      if (isHighRefresh) {
+        document.documentElement.classList.add("high-refresh");
+      }
+    }
+  }
+
+  requestAnimationFrame(measureRefreshRate);
 };
 
 // Consolidate ALL load event listeners for better performance
 window.addEventListener("load", function () {
   // Start refresh rate detection immediately (not after 3 seconds)
-  setTimeout(startMeasurement, 100);  // Start after 100ms for faster detection
+  setTimeout(startMeasurement, 100); // Start after 100ms for faster detection
 
   // Remove no-animations class after initial load
   setTimeout(function () {
@@ -123,20 +123,93 @@ window.addEventListener("load", function () {
       const networkPercent = ((networkTime / pageLoadTime) * 100).toFixed(1);
       const renderPercent = ((renderTime / pageLoadTime) * 100).toFixed(1);
 
-      console.log("╔═══════════════════════════════════════════════╗");
-      console.log("║      📊 PERFORMANCE BREAKDOWN                ║");
-      console.log("╠═══════════════════════════════════════════════╣");
-      console.log("║ 📡 Network Time:  " + networkTime + "ms (" + networkPercent + "%)".padEnd(31) + "║");
-      console.log("║ 🎨 Render Time:   " + renderTime + "ms (" + renderPercent + "%)".padEnd(31) + "║");
-      console.log("║ ⏱️  Total Load:    " + pageLoadTime + "ms (100%)".padEnd(31) + "║");
-      console.log("╚═══════════════════════════════════════════════╝");
+      // Visual performance breakdown with color coding
+      console.log("");
+      console.log(
+        "%c╔════════════════════════════════════════════╗",
+        "color: #f22d0a; font-weight: bold",
+      );
+      console.log(
+        "%c║           📊 PERFORMANCE BREAKDOWN         ║",
+        "color: #f22d0a; font-weight: bold",
+      );
+      console.log(
+        "%c╠════════════════════════════════════════════╣",
+        "color: #f22d0a; font-weight: bold",
+      );
+
+      // Network time with color (green if <300ms, yellow if <500ms, red if >500ms)
+      const networkColor =
+        networkTime < 300
+          ? "#10b981"
+          : networkTime < 500
+            ? "#f59e0b"
+            : "#ef4444";
+      console.log(
+        "%c║ 📡 Network Time:%c  " +
+          networkTime +
+          "ms %c(" +
+          networkPercent +
+          "%)".padEnd(24) +
+          "%c║",
+        "color: #f18963",
+        "color: " + networkColor + "; font-weight: bold",
+        "color: #94a3b8",
+        "color: #f18963",
+      );
+
+      // Render time with color
+      const renderColor =
+        renderTime < 300 ? "#10b981" : renderTime < 500 ? "#f59e0b" : "#ef4444";
+      console.log(
+        "%c║ 🎨 Render Time:%c   " +
+          renderTime +
+          "ms %c(" +
+          renderPercent +
+          "%)".padEnd(24) +
+          "%c║",
+        "color: #f18963",
+        "color: " + renderColor + "; font-weight: bold",
+        "color: #94a3b8",
+        "color: #f18963",
+      );
+
+      // Total load time with color
+      const totalColor =
+        pageLoadTime < 500
+          ? "#10b981"
+          : pageLoadTime < 1000
+            ? "#f59e0b"
+            : "#ef4444";
+      console.log(
+        "%c║ ⏱️ Total Load:%c    " +
+          pageLoadTime +
+          "ms %c(100%)".padEnd(24) +
+          "%c║",
+        "color: #f18963",
+        "color: " + totalColor + "; font-weight: bold",
+        "color: #94a3b8",
+        "color: #f18963",
+      );
+
+      console.log(
+        "%c╠════════════════════════════════════════════╣",
+        "color: #f22d0a; font-weight: bold",
+      );
+      console.log("");
 
       // Recommendations
       if (networkTime > 300) {
-        console.warn("⚠️  Network is slow (>" + networkTime + "ms) - Check connection");
+        console.warn(
+          "⚠️  Network is slow (>" + networkTime + "ms) - Check connection",
+        );
       }
       if (renderTime > 300) {
-        console.warn("⚠️  Rendering is slow (>" + renderTime + "ms) - Check DOM complexity");
+        console.warn(
+          "⚠️  Rendering is slow (>" +
+            renderTime +
+            "ms) - Check DOM complexity",
+        );
       }
       if (pageLoadTime < 500) {
         console.log("✅ Excellent performance! Page loaded in under 500ms");
@@ -148,7 +221,7 @@ window.addEventListener("load", function () {
         render: renderTime,
         total: pageLoadTime,
         networkPercent: parseFloat(networkPercent),
-        renderPercent: parseFloat(renderPercent)
+        renderPercent: parseFloat(renderPercent),
       };
     }, 0);
   }
@@ -169,7 +242,7 @@ window.setRefreshRate = function (rate) {
     console.log("✅ Refresh rate manually set to " + rate + "Hz");
     console.log(
       "⚡ Performance mode: " +
-        (isHighRefresh ? "HIGH REFRESH (120+ FPS)" : "STANDARD (60 FPS)")
+        (isHighRefresh ? "HIGH REFRESH (120+ FPS)" : "STANDARD (60 FPS)"),
     );
     return "Refresh rate set to " + rate + "Hz";
   } else {
@@ -182,7 +255,7 @@ window.setRefreshRate = function (rate) {
 window.showFPS = function () {
   console.log("📊 Current refresh rate setting: " + refreshRate + "Hz");
   console.log(
-    "⚡ High refresh mode: " + (isHighRefresh ? "ENABLED" : "DISABLED")
+    "⚡ High refresh mode: " + (isHighRefresh ? "ENABLED" : "DISABLED"),
   );
 
   // Measure current FPS
@@ -244,7 +317,7 @@ document.addEventListener(
   function () {
     // Scroll handler
   },
-  passiveIfSupported
+  passiveIfSupported,
 );
 
 document.addEventListener(
@@ -252,7 +325,7 @@ document.addEventListener(
   function () {
     // Touch handler
   },
-  passiveIfSupported
+  passiveIfSupported,
 );
 
 document.addEventListener(
@@ -260,7 +333,7 @@ document.addEventListener(
   function () {
     // Touch move handler
   },
-  passiveIfSupported
+  passiveIfSupported,
 );
 
 // Lazy load images when they come into view
@@ -302,7 +375,7 @@ window.addEventListener(
   "resize",
   debounce(function () {
     // Handle resize
-  }, 250)
+  }, 250),
 );
 
 // Request idle callback for non-critical tasks
@@ -330,7 +403,7 @@ preconnectLinks.forEach(function (url) {
 // Force hardware acceleration on interactive elements
 document.addEventListener("DOMContentLoaded", function () {
   const interactiveElements = document.querySelectorAll(
-    "button, a, .card, .dropdown-item"
+    "button, a, .card, .dropdown-item",
   );
   interactiveElements.forEach(function (el) {
     el.style.transform = "translateZ(0)";
@@ -353,14 +426,13 @@ if ("PerformanceObserver" in window) {
   // Start monitoring 2 seconds after load (reduced from 5s for faster feedback)
   setTimeout(() => {
     try {
-      // Observe long tasks (only log truly problematic ones >200ms)
       const perfObserver = new PerformanceObserver(function (list) {
         for (const entry of list.getEntries()) {
-          if (entry.duration > 200) {
+          if (entry.duration > 500) {
             console.warn(
               "Long task detected:",
               entry.duration.toFixed(2),
-              "ms"
+              "ms",
             );
           }
         }
