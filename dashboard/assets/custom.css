@@ -8145,3 +8145,90 @@ body.dark-mode .category-tab-btn:not(.active):hover {
     flex-wrap: wrap;
   }
 }
+
+/* ============================================================================
+ * MAIN DASHBOARD TABS - Tabbed Navigation Styling
+ * ============================================================================ */
+
+.dashboard-main-tabs {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-main-tabs .tab-content {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.dashboard-main-tabs > div:first-child {
+  /* Tab header container */
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  margin-bottom: 1rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.dashboard-tab {
+  padding: 0.75rem 1.5rem !important;
+  border: none !important;
+  border-radius: var(--radius-sm, 12px) var(--radius-sm, 12px) 0 0 !important;
+  background: transparent !important;
+  color: var(--text-secondary, #a0aec0) !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+  letter-spacing: -0.3px;
+  transition: all 0.3s ease !important;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+
+.dashboard-tab:hover {
+  color: var(--text-primary, #e2e8f0) !important;
+  background: rgba(102, 126, 234, 0.08) !important;
+}
+
+.dashboard-tab--selected {
+  color: var(--accent-color, #667eea) !important;
+  background: rgba(102, 126, 234, 0.12) !important;
+  border-bottom: 3px solid var(--accent-color, #667eea) !important;
+}
+
+.dashboard-tab--selected::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 3px 3px 0 0;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .dashboard-tab {
+  color: var(--text-secondary, #6b7280) !important;
+}
+
+[data-theme="light"] .dashboard-tab:hover {
+  color: var(--text-primary, #1f2937) !important;
+}
+
+[data-theme="light"] .dashboard-tab--selected {
+  color: var(--accent-color, #667eea) !important;
+}
+
+/* Mobile responsiveness for tabs */
+@media (max-width: 768px) {
+  .dashboard-tab {
+    padding: 0.5rem 1rem !important;
+    font-size: 0.85rem !important;
+  }
+
+  .dashboard-main-tabs > div:first-child {
+    gap: 0.125rem;
+  }
+}
