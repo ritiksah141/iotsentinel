@@ -34,6 +34,7 @@ from dashboard.shared import (
     security_audit_logger,
     can_export_data,
     SEVERITY_COLORS,
+    SEVERITY_BADGE_COLORS,
     RISK_COLORS,
     ChartFactory,
     get_db_connection,
@@ -659,12 +660,7 @@ def register(app):
 
             table_rows = []
             for v in violations:
-                severity_color = {
-                    'critical': 'danger',
-                    'high': 'warning',
-                    'medium': 'info',
-                    'low': 'secondary'
-                }.get(v['severity'], 'secondary')
+                severity_color = SEVERITY_BADGE_COLORS.get(v['severity'], 'secondary')
 
                 table_rows.append(html.Tr([
                     html.Td(html.Small(v['timestamp'][:16], className="text-muted")),
@@ -1368,13 +1364,6 @@ def register(app):
         # Build recommendation cards
         recommendation_cards = []
         for rec in recommendations:
-            severity_colors = {
-                'critical': 'danger',
-                'high': 'warning',
-                'medium': 'info',
-                'low': 'success'
-            }
-
             severity_icons = {
                 'critical': 'fa-skull-crossbones',
                 'high': 'fa-exclamation-triangle',
@@ -1382,7 +1371,7 @@ def register(app):
                 'low': 'fa-check-circle'
             }
 
-            color = severity_colors.get(rec['severity'], 'secondary')
+            color = SEVERITY_BADGE_COLORS.get(rec['severity'], 'secondary')
             icon = severity_icons.get(rec['severity'], 'fa-info')
 
             action_items = [
@@ -1853,8 +1842,7 @@ def register(app):
                 cve_id, title, severity, cvss_score, vendors, models, exploit_avail, patch_avail, pub_date = cve
 
                 # Severity badge
-                severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'success'}
-                severity_badge = dbc.Badge(severity.upper() if severity else 'UNKNOWN', color=severity_colors.get(severity, 'secondary'), className="me-2")
+                severity_badge = dbc.Badge(severity.upper() if severity else 'UNKNOWN', color=SEVERITY_BADGE_COLORS.get(severity, 'secondary'), className="me-2")
 
                 # CVSS badge
                 cvss_badge = dbc.Badge(f"CVSS {cvss_score:.1f}" if cvss_score else "N/A", color="dark", className="me-2")
@@ -2093,8 +2081,7 @@ def register(app):
                 cve_id, title, severity, cvss_score, workaround, patch_available, affected_devices = vuln
 
                 # Severity styling
-                severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'success'}
-                severity_badge = dbc.Badge(severity.upper() if severity else 'UNKNOWN', color=severity_colors.get(severity, 'secondary'), className="me-2")
+                severity_badge = dbc.Badge(severity.upper() if severity else 'UNKNOWN', color=SEVERITY_BADGE_COLORS.get(severity, 'secondary'), className="me-2")
 
                 # Priority badge
                 priority_badge = dbc.Badge(f"Priority #{idx}", color="dark", className="me-2")

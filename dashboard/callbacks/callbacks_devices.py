@@ -57,6 +57,7 @@ from dashboard.shared import (
     create_device_icon,
     create_baseline_comparison_chart,
     create_timestamp_display,
+    format_bytes,
     ToastManager,
     ChartFactory,
     PermissionManager,
@@ -1850,16 +1851,6 @@ def register(app):
             total = max(inbound + outbound, 1)
             inbound_pct = int((inbound / total) * 100)
             outbound_pct = int((outbound / total) * 100)
-
-            # Format bytes
-            def format_bytes(b):
-                if b >= 1073741824:
-                    return f"{b / 1073741824:.1f} GB"
-                elif b >= 1048576:
-                    return f"{b / 1048576:.1f} MB"
-                elif b >= 1024:
-                    return f"{b / 1024:.1f} KB"
-                return f"{b} B"
 
             # Get top destinations
             cursor.execute('''

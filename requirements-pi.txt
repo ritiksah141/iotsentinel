@@ -16,8 +16,10 @@ scapy==2.5.0  # Lightweight packet crafting and network scanning
 # Web Dashboard
 dash
 dash-bootstrap-components
+dash-cytoscape
 plotly
 Flask-SocketIO
+eventlet
 dash-extensions
 Flask-Compress  # Gzip compression for better performance
 

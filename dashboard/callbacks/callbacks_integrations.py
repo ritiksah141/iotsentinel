@@ -18,8 +18,9 @@ from dashboard.shared import (
     security_audit_logger,
     get_db_connection,
     ToastManager,
+    PermissionManager,
+    can_export_data,
 )
-from utils.rbac_manager import PermissionManager, can_export_data
 
 logger = logging.getLogger(__name__)
 

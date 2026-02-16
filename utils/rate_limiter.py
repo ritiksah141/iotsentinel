@@ -243,6 +243,15 @@ class RateLimiter:
 
 
     def clear_all(self):
-        """Clear all rate limiting data (for testing/debugging)"""
-        self._failed_attempts.clear()
-        self._lockouts.clear()
+        """Clear all rate limiting data (for testing/debugging)."""
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM rate_limit_log')
+            deleted = cursor.rowcount
+            conn.commit()
+            logger.info(f"Cleared {deleted} rate limit records")
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to clear rate limit records: {e}")
+            return 0

@@ -94,6 +94,14 @@ from utils.toast_manager import ToastManager, TOAST_POSITION_STYLE, TOAST_DURATI
 # Import chart factory for centralized chart generation
 from utils.chart_factory import ChartFactory, SEVERITY_COLORS, RISK_COLORS
 
+# Bootstrap badge-color mapping (use in dbc.Badge color= everywhere)
+SEVERITY_BADGE_COLORS = {
+    'critical': 'danger',
+    'high': 'warning',
+    'medium': 'info',
+    'low': 'secondary',
+}
+
 # Import export helper for universal export functionality (CSV, JSON, PDF, Excel)
 from utils.export_helpers import DashExportHelper
 
