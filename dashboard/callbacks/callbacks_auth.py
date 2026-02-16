@@ -32,9 +32,9 @@ from dashboard.shared import (
     config,
     ToastManager,
     DASHBOARD_TEMPLATES,
+    log_user_action,
+    is_webauthn_available,
 )
-from utils.audit_logger import log_user_action
-from utils.webauthn_handler import is_webauthn_available
 
 logger = logging.getLogger(__name__)
 

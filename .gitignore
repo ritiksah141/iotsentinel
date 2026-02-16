@@ -47,6 +47,7 @@ data/diagrams/
 # Secrets and Credentials
 .env
 !.env.template
+!.env.example
 config/config.json
 *.key
 *.pem

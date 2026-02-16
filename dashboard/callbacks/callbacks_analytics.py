@@ -32,6 +32,7 @@ from dashboard.shared import (
     trend_analyzer,
     ChartFactory,
     SEVERITY_COLORS,
+    SEVERITY_BADGE_COLORS,
     get_db_connection,
     create_timestamp_display,
     ToastManager,
@@ -2117,11 +2118,10 @@ def register(app):
 
             # Build recommendation cards
             rec_cards = []
-            severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
 
             for rec in sorted(recommendations, key=lambda x: x['priority']):
                 priority_badge = dbc.Badge(f"Priority #{rec['priority']}", color="dark", className="me-2")
-                severity_badge = dbc.Badge(rec['severity'].upper(), color=severity_colors[rec['severity']], className="me-2")
+                severity_badge = dbc.Badge(rec['severity'].upper(), color=SEVERITY_BADGE_COLORS.get(rec['severity'], 'secondary'), className="me-2")
 
                 action_items = [html.Li(action) for action in rec['actions']]
 
@@ -2650,14 +2650,6 @@ def register(app):
         # Build recommendation cards
         recommendation_cards = []
         for rec in recommendations:
-            severity_colors = {
-                'critical': 'danger',
-                'high': 'warning',
-                'medium': 'info',
-                'low': 'success',
-                'info': 'primary'
-            }
-
             severity_icons = {
                 'critical': 'fa-skull-crossbones',
                 'high': 'fa-exclamation-triangle',
@@ -2666,7 +2658,7 @@ def register(app):
                 'info': 'fa-lightbulb'
             }
 
-            color = severity_colors.get(rec['severity'], 'secondary')
+            color = SEVERITY_BADGE_COLORS.get(rec['severity'], 'secondary')
             icon = severity_icons.get(rec['severity'], 'fa-info')
 
             action_items = [
