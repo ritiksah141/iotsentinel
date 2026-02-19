@@ -7630,6 +7630,137 @@ body.dark-mode .spotlight-filter-badge.badge-light {
   }
 }
 /* ============================================================================
+ * SPOTLIGHT SEARCH - EMERGENCY MODE INDICATOR
+ * ============================================================================ */
+
+@keyframes spotlight-emergency-pulse {
+  0% {
+    box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.9);
+  }
+  50% {
+    box-shadow: inset 0 0 0 8px rgba(239, 68, 68, 0.3);
+  }
+  100% {
+    box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.9);
+  }
+}
+
+body.spotlight-emergency-active {
+  animation: spotlight-emergency-pulse 0.4s ease-in-out 4;
+  outline: 4px solid rgba(239, 68, 68, 0.85) !important;
+  outline-offset: -4px;
+}
+
+body.spotlight-emergency-active::before {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 8px 20px;
+  border-radius: 50px;
+  z-index: 99999;
+  pointer-events: none;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+body.spotlight-emergency-active[data-emergency-action="lockdown"]::before {
+  content: "\uD83D\uDD12  LOCKDOWN INITIATED";
+  background: rgba(239, 68, 68, 0.95);
+}
+
+body.spotlight-emergency-active[data-emergency-action="export"]::before {
+  content: "\uD83D\uDCE4  EMERGENCY EXPORT";
+  background: rgba(245, 158, 11, 0.95);
+}
+
+body.spotlight-emergency-active[data-emergency-action="threat"]::before {
+  content: "\uD83D\uDEE1\uFE0F  THREAT RESPONSE";
+  background: rgba(99, 102, 241, 0.95);
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - CROSS-DOMAIN RESULTS (Devices + Alerts)
+ * ============================================================================ */
+
+.spotlight-cross-domain-section {
+  margin-bottom: 0.5rem;
+}
+
+.spotlight-cross-domain-header {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding-bottom: 4px;
+}
+
+.spotlight-cross-domain-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  transition: background 0.15s ease;
+  cursor: default;
+}
+
+.spotlight-cross-domain-item:hover {
+  background: rgba(var(--accent-rgb, 99, 102, 241), 0.06);
+}
+
+body.dark-mode .spotlight-cross-domain-item:hover {
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.spotlight-cross-domain-badge {
+  font-size: 0.68rem !important;
+  padding: 2px 7px !important;
+  border-radius: 4px !important;
+  font-weight: 600 !important;
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - PREDICTIVE SUGGESTIONS
+ * ============================================================================ */
+
+.spotlight-predictive-section {
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--glass-border-light);
+}
+
+.spotlight-predictive-section:last-of-type {
+  border-bottom: none;
+}
+
+.spotlight-predictive-label {
+  font-size: 0.76rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.spotlight-predictive-features .spotlight-result-card {
+  border-left: 3px solid var(--accent-color, #667eea);
+}
+
+body.dark-mode .spotlight-predictive-features .spotlight-result-card {
+  border-left: 3px solid var(--dark-accent, #60a5fa);
+}
+
+/* ============================================================================
+ * SPOTLIGHT SEARCH - CONTEXT ALERT BANNER
+ * ============================================================================ */
+
+.spotlight-context-alert {
+  border-radius: 8px !important;
+  font-size: 0.85rem;
+  animation: spotlight-fade-in 0.3s ease-out;
+}
+
+/* ============================================================================
  * ENHANCED MASONRY LAYOUT - CATEGORY TABS & VIEW TOGGLE
  * ============================================================================ */
 

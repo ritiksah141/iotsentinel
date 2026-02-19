@@ -9592,7 +9592,24 @@ dashboard_layout = dbc.Container([
     dcc.Store(id='spotlight-modal-trigger', data={}),
 
     # Store for category filter
-    dcc.Store(id='spotlight-category-filter', data=None)
+    dcc.Store(id='spotlight-category-filter', data=None),
+
+    # Store for context-aware boost data (active alerts, CPU → search rank boosts)
+    dcc.Store(id='spotlight-context-data', data={'active_alerts': 0, 'cpu_pct': 0.0, 'boosts': {}}),
+
+    # Store for cross-domain search results (live devices + alerts from DB)
+    dcc.Store(id='spotlight-cross-domain-results', data={'devices': [], 'alerts': [], 'query': ''}),
+
+    # Debounce intermediary — only written to after 300ms of no typing (prevents per-keystroke DB queries)
+    dcc.Store(id='spotlight-cross-domain-debounced', data=''),
+
+    # Hidden buttons for emergency keyboard shortcuts (JS clicks on Cmd+Shift+L / E / T)
+    html.Button(id='spotlight-emergency-lockdown-btn', n_clicks=0,
+                title="Emergency Lockdown (Cmd+Shift+L)", style={'display': 'none'}),
+    html.Button(id='spotlight-emergency-export-btn', n_clicks=0,
+                title="Emergency Export (Cmd+Shift+E)", style={'display': 'none'}),
+    html.Button(id='spotlight-emergency-threat-btn', n_clicks=0,
+                title="Threat Response (Cmd+Shift+T)", style={'display': 'none'}),
 
 ], fluid=True, className="dashboard-container p-3")
 

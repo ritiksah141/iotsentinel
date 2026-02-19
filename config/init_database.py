@@ -117,6 +117,13 @@ def init_database():
         )
     ''')
 
+    # Indexes for alerts (needed for spotlight cross-domain search + context boost query)
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity, acknowledged)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_device ON alerts(device_ip)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_devices_name ON devices(device_name)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)')
+
     # ML predictions
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ml_predictions (
