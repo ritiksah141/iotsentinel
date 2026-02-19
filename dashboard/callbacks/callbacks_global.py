@@ -14,6 +14,7 @@ import sys
 import time
 import shutil
 import random
+import psutil
 from datetime import datetime
 from pathlib import Path
 
@@ -96,12 +97,12 @@ def create_spotlight_result_item(feature, index, is_selected=False, is_top_hit=F
                     dbc.Col([
                         dbc.Button(
                             html.I(className="fa fa-arrow-right"),
-                        id={"type": "spotlight-go-to-btn", "index": index, "modal_id": feature['id']},
-                        color="primary",
-                        size="sm",
-                        outline=True,
-                        className="spotlight-action-button",
-                        title="Open"  # Tooltip
+                            id={"type": "spotlight-go-to-btn", "index": index, "modal_id": feature['id']},
+                            color="primary",
+                            size="sm",
+                            outline=True,
+                            className="spotlight-action-button",
+                            title="Open"  # Tooltip
                         )
                     ], width=2, className="d-flex align-items-center justify-content-end")
                 ])
@@ -3218,20 +3219,23 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             return no_update, ""
         return no_update, no_update
 
-    # Clientside: Fuzzy search filtering
+    # Clientside: Fuzzy search with NLP boosts + context-aware boosts + predictive suggestions
     app.clientside_callback(
         """
-        function(searchQuery, catalog, categoryFilter) {
+        function(searchQuery, catalog, categoryFilter, contextData) {
             if (!catalog || catalog.length === 0) {
-                return {results: [], totalCount: 0, hasMore: false, query: "", categories: {}, topHit: null, recentSearches: [], searchTime: "0.00", categoryFilter: null};
+                return {results: [], totalCount: 0, hasMore: false, query: "", categories: {}, topHit: null, recentSearches: [], searchTime: "0.00", categoryFilter: null, predictiveSuggestions: [], contextData: null};
             }
 
+            var contextBoosts = (contextData && contextData.boosts) ? contextData.boosts : null;
             if (window.spotlightSearch) {
-                const searchData = window.spotlightSearch.searchFeatures(searchQuery || "", catalog, 50, categoryFilter);
+                var searchData = window.spotlightSearch.searchFeatures(searchQuery || "", catalog, 50, categoryFilter, contextBoosts);
                 searchData.recentSearches = window.spotlightSearch.getRecentSearches();
+                searchData.predictiveSuggestions = window.spotlightSearch.getPredictiveSuggestions ? window.spotlightSearch.getPredictiveSuggestions(catalog) : [];
+                searchData.contextData = contextData;
                 return searchData;
             } else {
-                const results = catalog.slice(0, 10);
+                var results = catalog.slice(0, 10);
                 return {
                     results: results,
                     totalCount: results.length,
@@ -3241,7 +3245,9 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                     topHit: results[0] || null,
                     recentSearches: [],
                     searchTime: "0.00",
-                    categoryFilter: null
+                    categoryFilter: null,
+                    predictiveSuggestions: [],
+                    contextData: null
                 };
             }
         }
@@ -3249,17 +3255,19 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         Output('spotlight-filtered-results', 'data'),
         [Input('spotlight-search-input', 'value'),
          Input('spotlight-catalog-store', 'data'),
-         Input('spotlight-category-filter', 'data')],
+         Input('spotlight-category-filter', 'data'),
+         Input('spotlight-context-data', 'data')],
         prevent_initial_call=False
     )
 
-    # Server-side: Render spotlight results
+    # Server-side: Render spotlight results (with cross-domain data + predictive suggestions)
     @app.callback(
         Output('spotlight-results-container', 'children'),
-        Input('spotlight-filtered-results', 'data'),
+        [Input('spotlight-filtered-results', 'data'),
+         Input('spotlight-cross-domain-results', 'data')],
         prevent_initial_call=False
     )
-    def render_spotlight_results(search_data):
+    def render_spotlight_results(search_data, cross_domain_data):
         """Render the filtered search results with category grouping and metadata"""
 
         if isinstance(search_data, dict):
@@ -3279,9 +3287,42 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             top_hit_id = filtered_results[0].get('id') if filtered_results else None
             recent_searches = []
 
+        # Extract enhanced fields from search data
+        predictive_suggestions = search_data.get('predictiveSuggestions', []) if isinstance(search_data, dict) else []
+        context_data = search_data.get('contextData', {}) if isinstance(search_data, dict) else {}
+        active_alerts = int((context_data or {}).get('active_alerts', 0))
+
         # Empty state
         if not query or query.strip() == "":
             empty_state_items = []
+
+            # Context-aware alert banner
+            if active_alerts > 0:
+                empty_state_items.append(
+                    dbc.Alert([
+                        html.I(className="fa fa-triangle-exclamation me-2"),
+                        html.Strong(f"{active_alerts} active alert{'s' if active_alerts != 1 else ''}"),
+                        " detected — try searching 'threat' or 'lockdown' to respond"
+                    ], color="danger", className="spotlight-context-alert py-2 mb-3",
+                    style={"fontSize": "0.85rem", "borderRadius": "8px"})
+                )
+
+            # Predictive suggestions (time-of-day + frequent features)
+            if predictive_suggestions:
+                for si, suggestion in enumerate(predictive_suggestions[:2]):
+                    suggestion_features = suggestion.get('features', [])
+                    if suggestion_features:
+                        empty_state_items.append(
+                            html.Div([
+                                html.Small(suggestion.get('label', ''),
+                                          className="text-muted d-block mb-2 fw-semibold spotlight-predictive-label"),
+                                html.Div([
+                                    create_spotlight_result_item(feat, f"pred_{si}_{fi}", False, False)
+                                    for fi, feat in enumerate(suggestion_features[:3])
+                                ], className="spotlight-predictive-features")
+                            ], className="mb-3 spotlight-predictive-section")
+                        )
+
             if recent_searches:
                 empty_state_items.append(
                     html.Div([
@@ -3349,6 +3390,47 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
 
         result_items = [result_header]
 
+        # Cross-domain: live devices + alerts from the database
+        if cross_domain_data and query:
+            cd_devices = cross_domain_data.get('devices', [])
+            cd_alerts = cross_domain_data.get('alerts', [])
+            if cd_devices:
+                result_items.append(html.Div([
+                    html.H6([
+                        html.I(className="fa fa-microchip me-2 text-primary"),
+                        f"Devices ({len(cd_devices)})"
+                    ], className="spotlight-cross-domain-header mb-2 mt-2"),
+                    html.Div([
+                        html.Div([
+                            html.I(className="fa fa-server me-2 text-muted"),
+                            html.Span(d.get('device_name') or d['device_ip'], className="fw-semibold"),
+                            html.Span(f" — {d['device_ip']}", className="text-muted small ms-2"),
+                            dbc.Badge("Trusted", color="success", className="ms-2 spotlight-cross-domain-badge") if d.get('is_trusted') else
+                            dbc.Badge("Blocked", color="danger", className="ms-2 spotlight-cross-domain-badge") if d.get('is_blocked') else
+                            dbc.Badge("Unknown", color="secondary", className="ms-2 spotlight-cross-domain-badge"),
+                        ], className="spotlight-cross-domain-item py-1 px-3")
+                        for d in cd_devices
+                    ])
+                ], className="spotlight-cross-domain-section mb-3 pb-2 border-bottom"))
+            if cd_alerts:
+                sev_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'primary', 'low': 'info'}
+                result_items.append(html.Div([
+                    html.H6([
+                        html.I(className="fa fa-triangle-exclamation me-2 text-danger"),
+                        f"Alerts ({len(cd_alerts)})"
+                    ], className="spotlight-cross-domain-header mb-2"),
+                    html.Div([
+                        html.Div([
+                            dbc.Badge(a.get('severity', 'unknown').upper(),
+                                     color=sev_colors.get(a.get('severity', ''), 'secondary'),
+                                     className="me-2 spotlight-cross-domain-badge"),
+                            html.Span((a.get('explanation') or 'Alert')[:75], className="small"),
+                            html.Span(f" — {a.get('device_ip', '')}", className="text-muted small ms-1"),
+                        ], className="spotlight-cross-domain-item py-1 px-3")
+                        for a in cd_alerts
+                    ])
+                ], className="spotlight-cross-domain-section mb-3 pb-2 border-bottom"))
+
         if categories and len(categories) > 1:
             sorted_categories = sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
             for category_name, category_features in sorted_categories:
@@ -3405,6 +3487,147 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             return {"modal_id": button_id['modal_id'], "timestamp": time.time()}
         return no_update
 
+    # Spotlight: Open modals directly (server-side) - with RBAC security
+    @app.callback(
+        [Output('analytics-modal', 'is_open', allow_duplicate=True),
+         Output('risk-heatmap-modal', 'is_open', allow_duplicate=True),
+         Output('device-mgmt-modal', 'is_open', allow_duplicate=True),
+         Output('user-modal', 'is_open', allow_duplicate=True),
+         Output('firewall-modal', 'is_open', allow_duplicate=True),
+         Output('threat-modal', 'is_open', allow_duplicate=True),
+         Output('vuln-scanner-modal', 'is_open', allow_duplicate=True),
+         Output('privacy-modal', 'is_open', allow_duplicate=True),
+         Output('compliance-modal', 'is_open', allow_duplicate=True),
+         Output('system-modal', 'is_open', allow_duplicate=True),
+         Output('email-modal', 'is_open', allow_duplicate=True),
+         Output('preferences-modal', 'is_open', allow_duplicate=True),
+         Output('quick-settings-modal', 'is_open', allow_duplicate=True),
+         Output('profile-edit-modal', 'is_open', allow_duplicate=True),
+         Output('smarthome-modal', 'is_open', allow_duplicate=True),
+         Output('segmentation-modal', 'is_open', allow_duplicate=True),
+         Output('firmware-modal', 'is_open', allow_duplicate=True),
+         Output('protocol-modal', 'is_open', allow_duplicate=True),
+         Output('threat-map-modal', 'is_open', allow_duplicate=True),
+         Output('attack-surface-modal', 'is_open', allow_duplicate=True),
+         Output('forensic-timeline-modal', 'is_open', allow_duplicate=True),
+         Output('auto-response-modal', 'is_open', allow_duplicate=True),
+         Output('alert-details-modal', 'is_open', allow_duplicate=True),
+         Output('toast-history-modal', 'is_open', allow_duplicate=True),
+         Output('toast-detail-modal', 'is_open', allow_duplicate=True),
+         Output('performance-modal', 'is_open', allow_duplicate=True),
+         Output('benchmark-modal', 'is_open', allow_duplicate=True),
+         Output('education-modal', 'is_open', allow_duplicate=True),
+         Output('api-hub-modal', 'is_open', allow_duplicate=True),
+         Output('quick-actions-modal', 'is_open', allow_duplicate=True),
+         Output('customize-layout-modal', 'is_open', allow_duplicate=True),
+         Output('chat-modal', 'is_open', allow_duplicate=True),
+         Output('onboarding-modal', 'is_open', allow_duplicate=True),
+         Output('lockdown-modal', 'is_open', allow_duplicate=True),
+         Output('spotlight-search-modal', 'is_open', allow_duplicate=True),
+         Output('toast-container', 'children', allow_duplicate=True)],
+        Input('spotlight-modal-trigger', 'data'),
+        prevent_initial_call=True
+    )
+    def spotlight_open_modal_server_side(trigger_data):
+        """Open target modal directly from spotlight - uses existing RBAC security"""
+        if not trigger_data or not trigger_data.get('modal_id'):
+            return [no_update] * 36
+
+        modal_id = trigger_data['modal_id']
+
+        # Security: Check authentication using existing RBAC
+        if not current_user.is_authenticated:
+            toast = ToastManager.create_toast(
+                "Access Denied",
+                "Please log in to access features",
+                "warning"
+            )
+            return [no_update] * 35 + [False, toast]
+
+        # Use existing RBAC functions for permission checks
+        admin_only_modals = ['user-modal', 'firewall-modal', 'vuln-scanner-modal',
+                            'compliance-modal', 'email-modal', 'lockdown-modal']
+
+        # Check if admin-only modal and user is not admin
+        if modal_id in admin_only_modals and current_user.role != 'admin':
+            toast = ToastManager.create_toast(
+                "Access Denied",
+                "This feature requires administrator privileges",
+                "warning"
+            )
+            return [no_update] * 35 + [False, toast]
+
+        # Additional check for device management using existing RBAC
+        if modal_id == 'device-mgmt-modal' and not can_manage_devices(current_user):
+            toast = ToastManager.create_toast(
+                "Access Denied",
+                "You don't have permission to manage devices",
+                "warning"
+            )
+            return [no_update] * 35 + [False, toast]
+
+        # Map ALL modal IDs to output positions
+        modal_map = {
+            'analytics-modal': 0,
+            'risk-heatmap-modal': 1,
+            'device-mgmt-modal': 2,
+            'user-modal': 3,
+            'firewall-modal': 4,
+            'threat-modal': 5,
+            'vuln-scanner-modal': 6,
+            'privacy-modal': 7,
+            'compliance-modal': 8,
+            'system-modal': 9,
+            'email-modal': 10,
+            'preferences-modal': 11,
+            'quick-settings-modal': 12,
+            'profile-edit-modal': 13,
+            'smarthome-modal': 14,
+            'segmentation-modal': 15,
+            'firmware-modal': 16,
+            'protocol-modal': 17,
+            'threat-map-modal': 18,
+            'attack-surface-modal': 19,
+            'forensic-timeline-modal': 20,
+            'auto-response-modal': 21,
+            'alert-details-modal': 22,
+            'toast-history-modal': 23,
+            'toast-detail-modal': 24,
+            'performance-modal': 25,
+            'benchmark-modal': 26,
+            'education-modal': 27,
+            'api-hub-modal': 28,
+            'quick-actions-modal': 29,
+            'customize-layout-modal': 30,
+            'chat-modal': 31,
+            'onboarding-modal': 32,
+            'lockdown-modal': 33
+        }
+
+        # All outputs default to no_update
+        outputs = [no_update] * 36
+
+        # Open the requested modal if it's in our map
+        if modal_id in modal_map:
+            outputs[modal_map[modal_id]] = True  # Open target modal
+            outputs[34] = False  # Close spotlight modal
+
+            # Log access using existing audit system
+            try:
+                audit_logger.log_action(
+                    action_type='spotlight_access',
+                    action_description=f'User opened {modal_id} via spotlight search',
+                    target_resource=modal_id,
+                    success=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log spotlight access: {e}")
+        else:
+            # If modal not in map, still close spotlight
+            outputs[34] = False
+
+        return outputs
+
     # Clientside: Clear recent searches
     app.clientside_callback(
         """
@@ -3427,44 +3650,191 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         prevent_initial_call=True
     )
 
-    # Clientside: Open target modals from spotlight
+    # Clientside: Log modal open + record feature access for search analytics
     app.clientside_callback(
         """
-        function(modalData, isOpen) {
+        function(modalData) {
             if (!modalData || !modalData.modal_id) {
-                return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+                return window.dash_clientside.no_update;
             }
 
             const modalId = modalData.modal_id;
+            console.log('[Spotlight] Server-side callback will open modal:', modalId);
 
-            const possibleButtonIds = [
-                modalId.replace('-modal', '-card-btn'),
-                modalId.replace('-modal', '-btn'),
-                modalId.replace('-modal', '-button'),
-                'open-' + modalId
-            ];
-
-            for (let btnId of possibleButtonIds) {
-                const btn = document.getElementById(btnId);
-                if (btn) {
-                    requestAnimationFrame(() => btn.click());
-                    return [false, ''];
-                }
+            // Record feature access for analytics (localStorage)
+            if (window.spotlightSearch && window.spotlightSearch.recordFeatureAccess) {
+                window.spotlightSearch.recordFeatureAccess(modalId);
             }
 
-            const modalElement = document.getElementById(modalId);
-            if (modalElement) {
-                const event = new CustomEvent('openModal', { detail: { modalId: modalId }});
-                document.dispatchEvent(event);
-            }
-
-            return [false, ''];
+            return window.dash_clientside.no_update;
         }
         """,
-        [Output('spotlight-search-modal', 'is_open', allow_duplicate=True),
-         Output('spotlight-search-input', 'value', allow_duplicate=True)],
+        Output('spotlight-search-input', 'value', allow_duplicate=True),
         Input('spotlight-modal-trigger', 'data'),
-        State('spotlight-search-modal', 'is_open'),
+        prevent_initial_call=True
+    )
+
+    # ================================================================
+    # SPOTLIGHT SEARCH - CONTEXT-AWARE BOOST
+    # ================================================================
+
+    @app.callback(
+        Output('spotlight-context-data', 'data'),
+        Input('spotlight-search-modal', 'is_open'),
+        prevent_initial_call=True
+    )
+    def fetch_spotlight_context(is_open):
+        """Fetch system state (alerts, CPU) when spotlight opens for context-aware search boosting"""
+        if not is_open:
+            return no_update
+        try:
+            cursor = db_manager.conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM alerts
+                WHERE timestamp > datetime('now', '-24 hours')
+                AND severity IN ('high', 'critical')
+                AND acknowledged = 0
+            """)
+            row = cursor.fetchone()
+            active_alert_count = int(row[0]) if row else 0
+
+            cpu_pct = psutil.cpu_percent(interval=None)
+
+            boosts = {}
+            if active_alert_count > 0:
+                boosts['threat-modal'] = active_alert_count * 10
+                boosts['risk-heatmap-modal'] = active_alert_count * 8
+                boosts['firewall-modal'] = active_alert_count * 5
+                boosts['analytics-modal'] = active_alert_count * 3
+                boosts['auto-response-modal'] = active_alert_count * 2
+                boosts['lockdown-modal'] = active_alert_count * 2
+            if cpu_pct > 80:
+                boosts['performance-modal'] = boosts.get('performance-modal', 0) + 30
+                boosts['system-modal'] = boosts.get('system-modal', 0) + 20
+                boosts['benchmark-modal'] = boosts.get('benchmark-modal', 0) + 10
+
+            return {
+                'active_alerts': active_alert_count,
+                'cpu_pct': round(float(cpu_pct), 1),
+                'boosts': boosts,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.warning(f"Spotlight context fetch failed: {e}")
+            return {'active_alerts': 0, 'cpu_pct': 0.0, 'boosts': {}, 'timestamp': datetime.now().isoformat()}
+
+    # ================================================================
+    # SPOTLIGHT SEARCH - CROSS-DOMAIN SEARCH (Devices + Alerts)
+    # ================================================================
+
+    # Clientside: debounce the spotlight input before triggering the DB search
+    # (keeps fuzzy JS search instant while preventing a DB round-trip on every keystroke)
+    app.clientside_callback(
+        """
+        function(inputValue) {
+            // Use a module-level timer to debounce writes to the store
+            if (!window._spotlightCDDebounceTimer) {
+                window._spotlightCDDebounceTimer = null;
+            }
+            clearTimeout(window._spotlightCDDebounceTimer);
+
+            var ns = window.dash_clientside.no_update;
+            // Return immediately for very short queries — no DB call needed
+            if (!inputValue || inputValue.trim().length < 2) {
+                return '';
+            }
+
+            // Return a Promise that resolves after 300ms of no typing
+            return new Promise(function(resolve) {
+                window._spotlightCDDebounceTimer = setTimeout(function() {
+                    resolve(inputValue || '');
+                }, 300);
+            });
+        }
+        """,
+        Output('spotlight-cross-domain-debounced', 'data'),
+        Input('spotlight-search-input', 'value'),
+        prevent_initial_call=True
+    )
+
+    @app.callback(
+        Output('spotlight-cross-domain-results', 'data'),
+        Input('spotlight-cross-domain-debounced', 'data'),
+        prevent_initial_call=True
+    )
+    def cross_domain_search(query):
+        """Search live devices and alerts from the database alongside feature results.
+        Triggered only after 300ms debounce (not on every keystroke).
+        Uses indexed columns — no LOWER() wrappers so indexes are not bypassed.
+        SQLite LIKE is case-insensitive for ASCII by default.
+        """
+        if not query or len(query.strip()) < 2:
+            return {'devices': [], 'alerts': [], 'query': ''}
+        if not current_user.is_authenticated:
+            return {'devices': [], 'alerts': [], 'query': ''}
+
+        q = query.strip()
+        results = {'devices': [], 'alerts': [], 'query': q.lower()}
+        try:
+            cursor = db_manager.conn.cursor()
+            like_q = f'%{q}%'
+            # No LOWER() wrapper — SQLite LIKE is already case-insensitive for ASCII.
+            # This allows SQLite to use the idx_devices_name and idx_devices_last_seen indexes.
+            cursor.execute("""
+                SELECT device_ip, device_name, device_type, mac_address, is_trusted, is_blocked
+                FROM devices
+                WHERE device_ip LIKE ?
+                   OR COALESCE(device_name, '') LIKE ?
+                   OR COALESCE(device_type, '') LIKE ?
+                   OR COALESCE(mac_address, '') LIKE ?
+                ORDER BY last_seen DESC
+                LIMIT 5
+            """, (like_q, like_q, like_q, like_q))
+            results['devices'] = [dict(row) for row in cursor.fetchall()]
+
+            # Uses idx_alerts_timestamp and idx_alerts_device indexes.
+            cursor.execute("""
+                SELECT id, timestamp, device_ip, severity, explanation
+                FROM alerts
+                WHERE COALESCE(explanation, '') LIKE ?
+                   OR device_ip LIKE ?
+                   OR severity LIKE ?
+                ORDER BY timestamp DESC
+                LIMIT 5
+            """, (like_q, like_q, like_q))
+            results['alerts'] = [dict(row) for row in cursor.fetchall()]
+
+        except Exception as e:
+            logger.warning(f"Spotlight cross-domain search error: {e}")
+        return results
+
+    # Clientside: Emergency shortcut hidden buttons → spotlight-modal-trigger
+    app.clientside_callback(
+        """
+        function(n_lockdown, n_export, n_threat) {
+            var ctx = window.dash_clientside.callback_context;
+            if (!ctx || !ctx.triggered || ctx.triggered.length === 0) {
+                return window.dash_clientside.no_update;
+            }
+            var triggerId = ctx.triggered[0].prop_id;
+            var modalId = null;
+            if (triggerId.includes('spotlight-emergency-lockdown-btn')) {
+                modalId = 'lockdown-modal';
+            } else if (triggerId.includes('spotlight-emergency-export-btn')) {
+                modalId = 'quick-actions-modal';
+            } else if (triggerId.includes('spotlight-emergency-threat-btn')) {
+                modalId = 'threat-modal';
+            }
+            if (modalId) {
+                return { modal_id: modalId, timestamp: Date.now() / 1000 };
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('spotlight-modal-trigger', 'data', allow_duplicate=True),
+        [Input('spotlight-emergency-lockdown-btn', 'n_clicks'),
+         Input('spotlight-emergency-export-btn', 'n_clicks'),
+         Input('spotlight-emergency-threat-btn', 'n_clicks')],
         prevent_initial_call=True
     )
 
