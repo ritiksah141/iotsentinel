@@ -122,6 +122,66 @@ def register(app):
     """Register all global / cross-cutting callbacks on *app*."""
 
     # ================================================================
+    # SIDEBAR NAVIGATION
+    # ================================================================
+
+    _SIDEBAR_TAB_MAP = {
+        "sidebar-btn-overview":     "tab-overview",
+        "sidebar-btn-alerts":       "tab-alerts",
+        "sidebar-btn-devices":      "tab-devices",
+        "sidebar-btn-analytics":    "tab-analytics",
+        "sidebar-btn-integrations": "tab-integrations",
+        "sidebar-btn-compliance":   "tab-compliance",
+        "sidebar-btn-admin":        "tab-admin",
+    }
+    _SIDEBAR_BTN_IDS = list(_SIDEBAR_TAB_MAP.keys())
+
+    @app.callback(
+        Output("main-dashboard-tabs", "value"),
+        [Input(btn_id, "n_clicks") for btn_id in _SIDEBAR_BTN_IDS],
+        prevent_initial_call=True,
+    )
+    def sidebar_switch_tab(*_):
+        triggered = callback_context.triggered
+        if not triggered:
+            return dash.no_update
+        btn_id = triggered[0]["prop_id"].split(".")[0]
+        return _SIDEBAR_TAB_MAP.get(btn_id, dash.no_update)
+
+    @app.callback(
+        [Output(btn_id, "className") for btn_id in _SIDEBAR_BTN_IDS],
+        Input("main-dashboard-tabs", "value"),
+    )
+    def sidebar_set_active(active_tab):
+        return [
+            "sidebar-nav-item sidebar-nav-active"
+            if _SIDEBAR_TAB_MAP[btn_id] == active_tab
+            else "sidebar-nav-item"
+            for btn_id in _SIDEBAR_BTN_IDS
+        ]
+
+    # Forcibly hide dcc.Tabs header bar after every render — belt-and-suspenders
+    # backup in case the CSS !important doesn't survive React's inline style.
+    app.clientside_callback(
+        """
+        function(value) {
+            var tabs = document.getElementById('main-dashboard-tabs');
+            if (tabs && tabs.firstElementChild) {
+                var header = tabs.firstElementChild;
+                header.style.setProperty('display', 'none', 'important');
+                header.style.setProperty('height', '0', 'important');
+                header.style.setProperty('overflow', 'hidden', 'important');
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("main-dashboard-tabs", "style"),
+        Input("main-dashboard-tabs", "value"),
+        prevent_initial_call=False,
+    )
+
+
+    # ================================================================
     # NOTIFICATION BADGE & DRAWER
     # ================================================================
 

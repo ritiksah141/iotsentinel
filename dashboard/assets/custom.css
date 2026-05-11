@@ -4734,6 +4734,12 @@ body.dark-mode .badge {
   color: #ffffff;
 }
 
+/* Bootstrap's .text-dark uses !important which survives the rule above.
+   Override it so badges stay readable on dark backgrounds in dark mode. */
+body.dark-mode .badge.text-dark {
+  color: #f1f5f9 !important;
+}
+
 /* List group items */
 body.dark-mode .list-group-item {
   background-color: rgba(255, 255, 255, 0.05);
@@ -5441,91 +5447,45 @@ button.dropdown-toggle {
  * MASONRY GRID LAYOUT FOR DASHBOARD FEATURES
  * ============================================================================ */
 
-.masonry-grid {
-  column-count: 4;
-  column-gap: 1.25rem;
-  width: 100%;
-  padding: 0.5rem;
-}
-
-.masonry-item {
-  break-inside: avoid;
-  page-break-inside: avoid;
-  margin-bottom: 1.25rem;
-  display: inline-block;
-  width: 100%;
-}
-
-/* Responsive columns */
-@media (max-width: 1400px) {
-  .masonry-grid {
-    column-count: 3;
-  }
-}
-
-@media (max-width: 992px) {
-  .masonry-grid {
-    column-count: 2;
-  }
-}
-
-@media (max-width: 576px) {
-  .masonry-grid {
-    column-count: 1;
-  }
-}
-
-/* Enhanced card styles for Pinterest-style masonry */
-.masonry-item .glass-card {
+/* Feature card grid — Bootstrap row/col, uniform cards */
+.feature-cards .glass-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 16px !important;
   overflow: hidden;
 }
 
-.masonry-item .glass-card:hover {
+.feature-cards .glass-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18) !important;
 }
 
-/* Variable card heights with rich content */
-.masonry-item.xl-card {
-  min-height: 280px;
-}
-
-.masonry-item.xl-card .card-body {
-  padding: 2.5rem 2rem !important;
-}
-
-.masonry-item.large {
-  min-height: 220px;
-}
-
-.masonry-item.large .card-body {
+/* Uniform card body: same padding, content centred vertically */
+.feature-cards .card-body {
+  flex: 1;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
   padding: 2rem 1.5rem !important;
+  text-align: center;
 }
 
-.masonry-item.medium {
-  min-height: 180px;
+/* Uniform icon size */
+.feature-cards .fa {
+  font-size: 2.75rem !important;
+  margin-bottom: 0.75rem !important;
 }
 
-.masonry-item.medium .card-body {
-  padding: 1.5rem !important;
-}
-
-.masonry-item.small {
-  min-height: 140px;
-}
-
-.masonry-item.small .card-body {
-  padding: 1.25rem !important;
-}
-
-.masonry-item.compact {
-  min-height: 110px;
-}
-
-.masonry-item.compact .card-body {
-  padding: 1rem !important;
+/* Uniform title size — h4/h5/h6 all treated equally */
+.feature-cards .card-body h4,
+.feature-cards .card-body h5,
+.feature-cards .card-body h6 {
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  margin-bottom: 0.4rem !important;
 }
 
 /* Color-coded card backgrounds - Pinterest style */
@@ -8294,7 +8254,7 @@ body.dark-mode .category-tab-btn:not(.active):hover {
 }
 
 /* ============================================================================
- * MAIN DASHBOARD TABS - Tabbed Navigation Styling
+ * MAIN DASHBOARD TABS — header row hidden; sidebar owns navigation
  * ============================================================================ */
 
 .dashboard-main-tabs {
@@ -8307,75 +8267,144 @@ body.dark-mode .category-tab-btn:not(.active):hover {
   background: transparent;
 }
 
+/* Tab header row — fully hidden; sidebar owns all navigation.
+   Multiple selectors + height:0 as fallback in case React's inline
+   display:flex somehow survives the !important cascade. */
+#main-dashboard-tabs > div:first-child,
 .dashboard-main-tabs > div:first-child {
-  /* Tab header container */
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 0;
-  border-bottom: 2px solid var(--border-color, rgba(255, 255, 255, 0.1));
-  margin-bottom: 1rem;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.dashboard-tab {
-  padding: 0.75rem 1.5rem !important;
+  display: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
   border: none !important;
-  border-radius: var(--radius-sm, 12px) var(--radius-sm, 12px) 0 0 !important;
-  background: transparent !important;
-  color: var(--text-secondary, #a0aec0) !important;
-  font-weight: 600 !important;
-  font-size: 0.95rem !important;
-  letter-spacing: -0.3px;
-  transition: all 0.3s ease !important;
-  white-space: nowrap;
-  cursor: pointer;
+  pointer-events: none !important;
+}
+
+/* Belt-and-suspenders: hide individual tab buttons too */
+.dashboard-main-tabs .tab.dashboard-tab,
+.dashboard-main-tabs .tab.dashboard-tab--selected {
+  display: none !important;
+}
+
+/* ============================================================================
+ * FLOATING SIDEBAR NAVIGATION
+ * Vertically centred pill — icon-only — hover tooltip — matches glass-card
+ * ============================================================================ */
+
+:root {
+  --sidebar-w: 56px;
+  --sidebar-item: 42px;
+  --sidebar-transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---- Pill shell ---- */
+.sidebar-nav {
+  position: fixed;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--sidebar-w);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+
+  /* Same glass-card tokens as the header bar */
+  background: var(--bg-glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--glass-border-light) inset;
+}
+
+/* ---- Nav item (icon button) ---- */
+.sidebar-nav-item {
   position: relative;
+  width: var(--sidebar-item);
+  height: var(--sidebar-item);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+  font-size: 1rem;
+  transition:
+    background var(--sidebar-transition),
+    color var(--sidebar-transition),
+    transform var(--sidebar-transition);
+  flex-shrink: 0;
 }
 
-.dashboard-tab:hover {
-  color: var(--text-primary, #e2e8f0) !important;
-  background: rgba(102, 126, 234, 0.08) !important;
+.sidebar-nav-item:hover {
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--text-primary);
+  transform: scale(1.08);
 }
 
-.dashboard-tab--selected {
-  color: var(--accent-color, #667eea) !important;
-  background: rgba(102, 126, 234, 0.12) !important;
-  border-bottom: 3px solid var(--accent-color, #667eea) !important;
+.sidebar-nav-item.sidebar-nav-active {
+  background: color-mix(in srgb, var(--accent-color) 16%, transparent);
+  color: var(--accent-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 28%, transparent) inset;
 }
 
-.dashboard-tab--selected::after {
-  content: "";
+.sidebar-nav-item.sidebar-nav-active i {
+  filter: drop-shadow(0 0 5px var(--accent-glow));
+}
+
+/* ---- Hover tooltip (right side, glass-card style) ---- */
+.sidebar-nav-item::after {
+  content: attr(data-label);
   position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  border-radius: 3px 3px 0 0;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  background: var(--bg-glass);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border-medium);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.65rem;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity var(--sidebar-transition),
+    transform var(--sidebar-transition);
+  z-index: 1060;
 }
 
-/* Light theme overrides */
-[data-theme="light"] .dashboard-tab {
-  color: var(--text-secondary, #6b7280) !important;
+.sidebar-nav-item:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
 }
 
-[data-theme="light"] .dashboard-tab:hover {
-  color: var(--text-primary, #1f2937) !important;
+/* ---- Content shift to clear the floating pill ---- */
+.dashboard-container {
+  padding-left: calc(1rem + var(--sidebar-w) + 1rem) !important;
+  padding-right: 1rem !important;
 }
 
-[data-theme="light"] .dashboard-tab--selected {
-  color: var(--accent-color, #667eea) !important;
-}
-
-/* Mobile responsiveness for tabs */
+/* ---- Mobile: hide pill, full-width content ---- */
 @media (max-width: 768px) {
-  .dashboard-tab {
-    padding: 0.5rem 1rem !important;
-    font-size: 0.85rem !important;
+  .sidebar-nav {
+    display: none;
   }
 
-  .dashboard-main-tabs > div:first-child {
-    gap: 0.125rem;
+  .dashboard-container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
   }
 }
