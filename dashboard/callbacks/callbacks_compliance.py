@@ -165,6 +165,117 @@ def register(app):
     def toggle_education_modal(open_clicks, close_clicks, is_open):
         return not is_open
 
+    @app.callback(
+        Output('threat-scenarios-section', 'children'),
+        Input('refresh-interval', 'n_intervals')
+    )
+    def update_threat_scenarios(n):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT scenario_name, category, severity, description
+                FROM threat_scenarios
+                ORDER BY severity DESC, created_at DESC
+                LIMIT 5
+            ''')
+            scenarios = cursor.fetchall()
+
+            if not scenarios:
+                return dbc.Alert([
+                    html.I(className="fa fa-book me-2"),
+                    "Educational threat scenarios will appear here. Run migration with --populate to load examples."
+                ], color="info")
+
+            severity_icons = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🟢'}
+            severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
+
+            cards = []
+            for s in scenarios:
+                icon = severity_icons.get(s['severity'], '⚪')
+                cards.append(dbc.Card([
+                    dbc.CardHeader([
+                        html.Span(icon + " ", style={"fontSize": "1.2rem"}),
+                        html.Strong(s['scenario_name']),
+                        dbc.Badge(s['severity'].upper(),
+                                  color=severity_colors.get(s['severity'], 'secondary'),
+                                  className="ms-2")
+                    ]),
+                    dbc.CardBody([
+                        html.P(s['description'], className="small mb-2"),
+                        dbc.Badge(f"📂 {s['category']}", color="secondary")
+                    ])
+                ], className="mb-2 cyber-card"))
+
+            return html.Div(cards, className="mt-3")
+        except Exception as e:
+            logger.error(f"Error loading threat scenarios: {e}")
+            return dbc.Alert("Educational content library active", color="info")
+
+    @app.callback(
+        Output('security-tips-section', 'children'),
+        Input('refresh-interval', 'n_intervals')
+    )
+    def update_security_tips(n):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT tip_category, device_type, tip_title, tip_content,
+                       importance, difficulty, time_required
+                FROM security_tips
+                ORDER BY
+                    CASE importance
+                        WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3 WHEN 'low' THEN 4
+                    END,
+                    CASE difficulty
+                        WHEN 'easy' THEN 1 WHEN 'moderate' THEN 2 WHEN 'advanced' THEN 3
+                    END
+                LIMIT 10
+            ''')
+            tips = cursor.fetchall()
+
+            if not tips:
+                return dbc.Alert([
+                    html.I(className="fa fa-lightbulb me-2"),
+                    "Security tips will appear here."
+                ], color="info")
+
+            importance_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
+            difficulty_icons = {'easy': '✅', 'moderate': '⚙️', 'advanced': '🔧'}
+
+            cards = []
+            for tip in tips:
+                d_icon = difficulty_icons.get(tip['difficulty'], '⚙️')
+                cards.append(dbc.Card([
+                    dbc.CardHeader([
+                        html.Strong(tip['tip_title'], className="me-2"),
+                        dbc.Badge(tip['importance'].upper(),
+                                  color=importance_colors.get(tip['importance'], 'secondary'),
+                                  className="me-2"),
+                        dbc.Badge(f"{d_icon} {tip['difficulty']}", color="secondary")
+                    ]),
+                    dbc.CardBody([
+                        html.P(tip['tip_content'], className="small mb-2"),
+                        html.Div([
+                            dbc.Badge(f"🎯 {tip['device_type']}", color="primary", className="me-2"),
+                            dbc.Badge(f"⏱️ {tip['time_required']}", color="secondary")
+                        ])
+                    ])
+                ], className="mb-2 cyber-card"))
+
+            return html.Div([
+                dbc.Alert([
+                    html.I(className="fa fa-shield-alt me-2"),
+                    f"Showing {len(tips)} actionable security recommendations"
+                ], color="success", className="mb-3"),
+                html.Div(cards)
+            ], className="mt-3")
+        except Exception as e:
+            logger.error(f"Error loading security tips: {e}")
+            return dbc.Alert("Security tips library active", color="info")
+
     # =========================================================================
     # EXPORT SECURITY REPORT CALLBACK (RBAC)
     # =========================================================================

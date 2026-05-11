@@ -785,6 +785,38 @@ def create_spotlight_result_item(feature, index, is_selected=False, is_top_hit=F
     )
 
 dashboard_layout = dbc.Container([
+
+    # =========================================================================
+    # FLOATING SIDEBAR NAVIGATION
+    # position: fixed — outside the document flow; content shifts via CSS
+    # =========================================================================
+    html.Nav([
+        html.Button(html.I(className="fa fa-home"),
+            id="sidebar-btn-overview", className="sidebar-nav-item sidebar-nav-active",
+            type="button", **{"data-label": "Dashboard"}),
+        html.Button(html.I(className="fa fa-triangle-exclamation"),
+            id="sidebar-btn-alerts", className="sidebar-nav-item",
+            type="button", **{"data-label": "Alerts & Threats"}),
+        html.Button(html.I(className="fa fa-mobile-screen"),
+            id="sidebar-btn-devices", className="sidebar-nav-item",
+            type="button", **{"data-label": "Devices & IoT"}),
+        html.Button(html.I(className="fa fa-chart-pie"),
+            id="sidebar-btn-analytics", className="sidebar-nav-item",
+            type="button", **{"data-label": "Analytics"}),
+        html.Button(html.I(className="fa fa-plug"),
+            id="sidebar-btn-integrations", className="sidebar-nav-item",
+            type="button", **{"data-label": "Integrations"}),
+        html.Button(html.I(className="fa fa-shield-alt"),
+            id="sidebar-btn-compliance", className="sidebar-nav-item",
+            type="button", **{"data-label": "Compliance"}),
+        html.Button(html.I(className="fa fa-gear"),
+            id="sidebar-btn-admin", className="sidebar-nav-item",
+            type="button", **{"data-label": "Settings"}),
+    ], id="sidebar-nav", className="sidebar-nav"),
+
+    # =========================================================================
+    # MAIN CONTENT — shifts right via .dashboard-container CSS padding-left
+    # =========================================================================
     # Modern Header with Glass Effect
     dbc.Card([
         dbc.CardBody([
@@ -1526,7 +1558,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="threat-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Security"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Security"}),
 
         # Geographic Threat Map (MEDIUM)
         html.Div([
@@ -1541,7 +1573,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="threat-map-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Security"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Security"}),
 
         # Device Risk Heat Map
         html.Div([
@@ -1556,7 +1588,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="risk-heatmap-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Security"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Security"}),
 
         # Forensic Timeline
         html.Div([
@@ -1571,7 +1603,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="forensic-timeline-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Security"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Security"}),
 
         # Automated Response
         html.Div([
@@ -1586,8 +1618,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="auto-response-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Security"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Security"}),
+    ], className="row g-4 feature-cards")
     ], id="alerts-features-section"),
     ]),  # End of Tab 2: Alerts & Threats
 
@@ -1613,7 +1645,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-4")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="device-mgmt-card-btn", n_clicks=0)
-        ], className="masonry-item large", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # IoT Protocol Analysis (MEDIUM)
         html.Div([
@@ -1628,7 +1660,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="protocol-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # Smart Home Context (MEDIUM)
         html.Div([
@@ -1643,7 +1675,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="smarthome-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # Privacy Monitoring (COMPACT)
         html.Div([
@@ -1658,7 +1690,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="privacy-card-btn", n_clicks=0)
-        ], className="masonry-item compact", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # Network Segmentation
         html.Div([
@@ -1673,7 +1705,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="segmentation-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # Firmware Management (LARGE)
         html.Div([
@@ -1688,7 +1720,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-4")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="firmware-card-btn", n_clicks=0)
-        ], className="masonry-item large", **{"data-category": "Management"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
 
         # Security Education
         html.Div([
@@ -1703,8 +1735,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="education-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Management"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Management"}),
+    ], className="row g-4 feature-cards")
     ], id="devices-features-section"),
     ]),  # End of Tab 3: Devices & IoT
 
@@ -1730,7 +1762,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-4")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="analytics-card-btn", n_clicks=0)
-        ], className="masonry-item xl-card", **{"data-category": "Analytics"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Analytics"}),
 
         # Timeline Visualization
         html.Div([
@@ -1745,7 +1777,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="timeline-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Analytics"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Analytics"}),
 
         # Comparison & Benchmarking
         html.Div([
@@ -1760,7 +1792,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="benchmark-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Analytics"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Analytics"}),
 
         # Network Performance Analytics
         html.Div([
@@ -1775,8 +1807,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="performance-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Analytics"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6", **{"data-category": "Analytics"}),
+    ], className="row g-4 feature-cards")
     ], id="analytics-features-section"),
     ]),  # End of Tab 4: Analytics & Reports
 
@@ -1798,7 +1830,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="api-hub-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Integrations"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Integrations"}),
 
         # Email Notifications (COMPACT)
         html.Div([
@@ -1813,8 +1845,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="email-card-btn", n_clicks=0)
-        ], className="masonry-item compact", **{"data-category": "Integrations"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6", **{"data-category": "Integrations"}),
+    ], className="row g-4 feature-cards")
     ], id="integrations-features-section"),
     ]),  # End of Tab 5: Integrations & API
 
@@ -1836,7 +1868,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="compliance-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Compliance"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Compliance"}),
 
         # Vulnerability Scanner
         html.Div([
@@ -1851,7 +1883,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="vuln-scanner-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Compliance"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Compliance"}),
 
         # Attack Surface Analyzer
         html.Div([
@@ -1866,7 +1898,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="attack-surface-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Compliance"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Compliance"}),
 
         # Firewall Control (COMPACT)
         html.Div([
@@ -1885,7 +1917,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="firewall-card-btn", n_clicks=0)
-        ], className="masonry-item compact", **{"data-category": "Compliance"}),
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Compliance"}),
 
         # Green Security Dashboard
         html.Div([
@@ -1900,8 +1932,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="sustainability-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Compliance"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6 col-md-4", **{"data-category": "Compliance"}),
+    ], className="row g-4 feature-cards")
     ], id="compliance-features-section"),
     ]),  # End of Tab 6: Compliance & Security
 
@@ -1927,7 +1959,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="user-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Admin"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Admin"}),
 
         # System & ML Models Card Tile (MEDIUM)
         html.Div([
@@ -1946,7 +1978,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
             ], id="system-card-btn", n_clicks=0)
-        ], className="masonry-item medium", **{"data-category": "Admin"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Admin"}),
 
         # Dashboard Preferences
         html.Div([
@@ -1961,7 +1993,7 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="preferences-card-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Admin"}),
+        ], className="col-12 col-sm-6", **{"data-category": "Admin"}),
 
         # Quick Settings
         html.Div([
@@ -1976,8 +2008,8 @@ dashboard_layout = dbc.Container([
                     ], className="p-3")
                 ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
             ], id="quick-settings-btn", n_clicks=0)
-        ], className="masonry-item small", **{"data-category": "Admin"}),
-    ], className="masonry-grid")
+        ], className="col-12 col-sm-6", **{"data-category": "Admin"}),
+    ], className="row g-4 feature-cards")
     ], id="admin-features-section"),
     ]),  # End of Tab 7: Administration
 
