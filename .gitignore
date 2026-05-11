@@ -76,3 +76,8 @@ htmlcov/
 # Deployment
 .deploy.env
 deploy_*.log
+
+# AI tooling — local context files (managed by SecondBrain)
+CLAUDE.md
+AGENTS.md
+GEMINI.md
