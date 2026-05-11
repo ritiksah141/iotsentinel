@@ -256,7 +256,7 @@ login_layout = dbc.Container([
                     dbc.Tabs([
                         # Login Tab
                         dbc.Tab([
-                            html.Form([
+                            html.Div([
                                 # Username Input with Floating Label
                                 html.Div([
                                     html.I(className="fa fa-user input-icon"),
@@ -284,10 +284,11 @@ login_layout = dbc.Container([
                                         style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     ),
                                     html.Label("Password", htmlFor="login-password"),
-                                    dbc.Button(
+                                    html.Button(
                                         html.I(id="login-password-toggle", className="fa fa-eye"),
                                         id="login-password-toggle-btn",
-                                        className="password-toggle-btn"
+                                        className="password-toggle-btn",
+                                        type="button"
                                     )
                                 ], className="floating-input-group"),
 
@@ -462,7 +463,7 @@ login_layout = dbc.Container([
 
                         # Register Tab
                         dbc.Tab([
-                            html.Form([
+                            html.Div([
                                 dbc.Alert(id="register-alert", is_open=False, duration=4000, className="mt-3"),
 
                                 # Email Input with Floating Label
@@ -507,10 +508,11 @@ login_layout = dbc.Container([
                                         style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     ),
                                     html.Label("Password", htmlFor="register-password"),
-                                    dbc.Button(
+                                    html.Button(
                                         html.I(id="register-password-toggle", className="fa fa-eye"),
                                         id="register-password-toggle-btn",
-                                        className="password-toggle-btn"
+                                        className="password-toggle-btn",
+                                        type="button"
                                     )
                                 ], className="floating-input-group"),
 
@@ -553,10 +555,11 @@ login_layout = dbc.Container([
                                         style={"border": "1px solid var(--border-color)", "paddingRight": "3rem"}
                                     )
                                     ,html.Label("Confirm Password", htmlFor="register-password-confirm"),
-                                    dbc.Button(
+                                    html.Button(
                                         html.I(id="register-password-confirm-toggle", className="fa fa-eye"),
                                         id="register-password-confirm-toggle-btn",
-                                        className="password-toggle-btn"
+                                        className="password-toggle-btn",
+                                        type="button"
                                     )
                                 ], className="floating-input-group mb-0"),
                                 html.Div(id="password-match-feedback", className="validation-feedback mb-3"),

@@ -4,7 +4,7 @@
 
 [![Architecture](https://img.shields.io/badge/Architecture-Zeek--based-blue)]()
 [![ML](<https://img.shields.io/badge/ML-River%20ML%20(Incremental)-green>)]()
-[![Tests](https://img.shields.io/badge/Tests-59%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-194%20passed-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/Coverage-84%25-brightgreen)]()
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-red)]()
 
@@ -21,7 +21,7 @@ The project's unique value proposition is **educational transparency**: it doesn
 - ✅ **Educational Dashboard**: A user-friendly web interface that explains _why_ an alert was triggered, showing the contributing factors.
 - ✅ **Privacy-First**: All data processing and analysis happens on-device. No data is sent to the cloud.
 - ✅ **Low Power**: Optimized for a Raspberry Pi 5, consuming significantly less power than a traditional desktop-based solution.
-- ✅ **Comprehensive Testing**: Includes 59 unit and integration tests, achieving 84% code coverage.
+- ✅ **Comprehensive Testing**: Includes 194 unit and integration tests, achieving 84% code coverage.
 
 ### 🤖 IoT-Specific Features
 
@@ -190,7 +190,7 @@ Once the models are trained, you can start the monitoring components. It's recom
 
 ### Testing
 
-The project includes a comprehensive suite of **59 tests** with **84% code coverage**.
+The project includes a comprehensive suite of **194 tests** with **84% code coverage**.
 
 To run all tests:
 
