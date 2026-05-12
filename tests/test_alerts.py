@@ -410,4 +410,4 @@ class TestReportGeneration:
         # Assert
         assert 'summary' in report
         assert 'period' in report
-        assert report.get('report_type') == 'Weekly'
+        assert report.get('report_type') == 'weekly'

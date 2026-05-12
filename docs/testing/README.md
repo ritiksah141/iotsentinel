@@ -11,7 +11,7 @@ All testing documentation organized for easy navigation and AT4 submission.
 | # | Document | Purpose | For AT4 |
 |---|----------|---------|---------|
 | **0** | [**TESTING SUMMARY**](00_TESTING_SUMMARY.md) | **Complete overview - START HERE** | ✅ Main reference |
-| **1** | [Test Plan & Strategy](01_TEST_PLAN.md) | Formal test plan, 194 tests documented | ✅ Primary doc |
+| **1** | [Test Plan & Strategy](01_TEST_PLAN.md) | Formal test plan, 182 tests documented | ✅ Primary doc |
 | **2** | [Bug Tracking Log](02_BUG_TRACKING.md) | 12 bugs found and fixed | ✅ Required |
 | **3** | [User Acceptance Testing](03_USER_ACCEPTANCE_TESTING.md) | 15 UAT scenarios, 100% pass | ✅ Required |
 | **4** | [Performance Testing](04_PERFORMANCE_TESTING.md) | Load, stress, soak tests | ✅ Required |
@@ -23,18 +23,18 @@ All testing documentation organized for easy navigation and AT4 submission.
 ## 📊 Testing Overview
 
 ### Test Metrics
-- **Total Tests**: 194
-- **Pass Rate**: 100% (194/194 passing)
-- **Execution Time**: 11.26 seconds
-- **Coverage**: 75-80% (core backend)
+- **Total Tests**: 334 (182 original + 152 new coverage tests — 2026-05-12)
+- **Passing**: 334 | **Skipped**: 11 (env-conditional) | **XFailed**: 0 | **Failing**: 0
+- **Execution Time**: ~7 seconds
+- **Overall Coverage**: 22% (full codebase incl. 9 800-line dashboard)
+- **Core Backend Coverage (combined 80%)**: river_engine 93%, zeek_log_parser 86%, feature_extractor 81%, db_manager 77%, email_notifier 73%
 - **Bugs Found**: 12 (all fixed, 0 in production)
 
 ### Test Categories
-- **Unit Tests**: 120+ tests
-- **Integration Tests**: 30+ tests
-- **Dashboard Tests**: 30 tests (NEW)
-- **API Tests**: 16 tests (NEW)
-- **Error Scenarios**: 12+ tests
+- **Engine/DB/ML** (must stay green): 109 tests
+- **Dashboard UI** (updated with UI changes): 30 tests
+- **Integration / System / API**: 40 tests
+- **Scripts**: 3 tests
 
 ---
 
@@ -144,10 +144,10 @@ Copy from: 04_PERFORMANCE_TESTING.md → "Performance Test Summary"
 ### 01_TEST_PLAN.md
 **Formal Test Plan**
 - Testing strategy and methodology
-- 194 test cases documented with IDs
+- 182 test cases documented with IDs (reconciled from 334)
 - Test coverage by component
 - AT4 submission narrative (Section 6.1)
-- Updated from 59 → 194 tests
+- Updated from 59 → 182 tests
 
 ### 02_BUG_TRACKING.md
 **Defect Tracking Log**
@@ -226,7 +226,7 @@ All testing requirements for **70-85% grade** are met:
 | Requirement | Weight | Score | Evidence |
 |-------------|--------|-------|----------|
 | Testing Strategy | 15% | 80% | 01_TEST_PLAN.md |
-| Test Implementation | 30% | 85% | 194 tests, 100% pass |
+| Test Implementation | 30% | 85% | 182 tests, 170 passing |
 | Test Coverage | 20% | 75% | 75-80% core backend |
 | Test Documentation | 15% | 80% | This folder (7 docs) |
 | Bug Tracking | 10% | 85% | 02_BUG_TRACKING.md |

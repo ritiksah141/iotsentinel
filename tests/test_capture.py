@@ -105,9 +105,9 @@ def test_handle_corrupt_log_entry(zeek_parser, temp_log_dir):
     """TC-CAP-003: Test that the parser handles corrupt log entries gracefully."""
     log_path = temp_log_dir / 'conn.log'
     with open(log_path, 'w') as f:
-        f.write('{"ts": 1672531203.0, "id.orig_h": "192.168.1.13"}\n')
+        f.write('{"ts": 1672531203.0, "id.orig_h": "192.168.1.13", "id.resp_h": "8.8.8.8", "id.resp_p": 443, "proto": "tcp"}\n')
         f.write('this is not valid json\n')
-        f.write('{"ts": 1672531204.0, "id.orig_h": "192.168.1.14"}\n')
+        f.write('{"ts": 1672531204.0, "id.orig_h": "192.168.1.14", "id.resp_h": "1.1.1.1", "id.resp_p": 80, "proto": "tcp"}\n')
 
     records = zeek_parser.parse_conn_log(log_path)
     assert records == 2
@@ -178,7 +178,7 @@ def test_parse_once(zeek_parser, temp_log_dir):
     """TC-CAP-009: Test the parse_once functionality."""
     current_dir = temp_log_dir / 'current'
     current_dir.mkdir()
-    write_log_file(current_dir, 'conn.log', [{"id.orig_h": "1.1.1.1"}])
+    write_log_file(current_dir, 'conn.log', [{"id.orig_h": "1.1.1.1", "id.resp_h": "8.8.8.8", "id.resp_p": 53, "proto": "udp"}])
 
     zeek_parser.parse_once()
     assert zeek_parser.stats['conn_records'] == 1
@@ -255,9 +255,9 @@ def test_handle_corrupt_log_entry(zeek_parser, temp_log_dir):
     """TC-CAP-003: Test that the parser handles corrupt log entries gracefully."""
     log_path = temp_log_dir / 'conn.log'
     with open(log_path, 'w') as f:
-        f.write('{"ts": 1672531203.0, "id.orig_h": "192.168.1.13"}\n')
+        f.write('{"ts": 1672531203.0, "id.orig_h": "192.168.1.13", "id.resp_h": "8.8.8.8", "id.resp_p": 443, "proto": "tcp"}\n')
         f.write('this is not valid json\n')
-        f.write('{"ts": 1672531204.0, "id.orig_h": "192.168.1.14"}\n')
+        f.write('{"ts": 1672531204.0, "id.orig_h": "192.168.1.14", "id.resp_h": "1.1.1.1", "id.resp_p": 80, "proto": "tcp"}\n')
 
     records = zeek_parser.parse_conn_log(log_path)
     assert records == 2
@@ -328,7 +328,7 @@ def test_parse_once(zeek_parser, temp_log_dir):
     """TC-CAP-009: Test the parse_once functionality."""
     current_dir = temp_log_dir / 'current'
     current_dir.mkdir()
-    write_log_file(current_dir, 'conn.log', [{"id.orig_h": "1.1.1.1"}])
+    write_log_file(current_dir, 'conn.log', [{"id.orig_h": "1.1.1.1", "id.resp_h": "8.8.8.8", "id.resp_p": 53, "proto": "udp"}])
 
     zeek_parser.parse_once()
     assert zeek_parser.stats['conn_records'] == 1
