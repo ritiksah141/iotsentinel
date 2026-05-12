@@ -47,7 +47,8 @@ def create_test_schema(db_manager: DatabaseManager):
             id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             device_ip TEXT NOT NULL, severity TEXT CHECK(severity IN ('low', 'medium', 'high', 'critical')),
             anomaly_score REAL, explanation TEXT, top_features TEXT, acknowledged INTEGER DEFAULT 0,
-            acknowledged_at TIMESTAMP, FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
+            acknowledged_at TIMESTAMP, plain_explanation TEXT,
+            FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
         )
         ''',
         '''

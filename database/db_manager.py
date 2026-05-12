@@ -384,7 +384,8 @@ class DatabaseManager:
             logger.error(f"Error storing prediction for connection {connection_id}: {e}")
 
     def create_alert(self, device_ip: str, severity: str, anomaly_score: float,
-                     explanation: str, top_features: str) -> Optional[int]:
+                     explanation: str, top_features: str,
+                     plain_explanation: Optional[str] = None) -> Optional[int]:
         """
         Create security alert.
 
@@ -392,8 +393,9 @@ class DatabaseManager:
             device_ip: Device that triggered alert
             severity: Alert severity (low/medium/high/critical)
             anomaly_score: Anomaly score that triggered alert
-            explanation: Plain English explanation
+            explanation: Technical explanation (kept for security_admin view)
             top_features: JSON string of top contributing features
+            plain_explanation: Non-technical one-sentence summary (home_user view)
 
         Returns:
             Alert ID if successful, None otherwise
@@ -402,9 +404,9 @@ class DatabaseManager:
             cursor = self.conn.cursor()
             cursor.execute("""
                 INSERT INTO alerts
-                (device_ip, severity, anomaly_score, explanation, top_features)
-                VALUES (?, ?, ?, ?, ?)
-            """, (device_ip, severity, anomaly_score, explanation, top_features))
+                (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation))
 
             self.conn.commit()
             logger.info(f"Created {severity} alert for {device_ip}")
@@ -1182,7 +1184,7 @@ class DatabaseManager:
         Returns:
             True if migrations successful or not needed, False on error
         """
-        CURRENT_SCHEMA_VERSION = 1  # Increment when you add migrations
+        CURRENT_SCHEMA_VERSION = 2  # Increment when you add migrations
 
         try:
             current_version = self.get_schema_version()
@@ -1197,31 +1199,30 @@ class DatabaseManager:
 
             logger.info(f"Migrating schema from v{current_version} to v{CURRENT_SCHEMA_VERSION}")
 
-            # Apply migrations in order
-            # Example: if current_version < 1:
-            #     self._migrate_to_v1()
-            # if current_version < 2:
-            #     self._migrate_to_v2()
+            if current_version < 1:
+                self.set_schema_version(1)
+                current_version = 1
 
-            # Future migration example:
-            # def _migrate_to_v2(self):
-            #     """Add firewall_status column to devices table."""
-            #     with self.transaction():
-            #         self.conn.execute("""
-            #             ALTER TABLE devices
-            #             ADD COLUMN firewall_status TEXT DEFAULT 'unknown'
-            #         """)
-            #         self.set_schema_version(2)
-
-            # Set to current version if no migrations needed
-            if current_version == 0:
-                self.set_schema_version(CURRENT_SCHEMA_VERSION)
+            # v1 → v2: plain_explanation column for home-user plain-English alert cards
+            if current_version < 2:
+                self._migrate_to_v2()
+                current_version = 2
 
             return True
 
         except Exception as e:
             logger.error(f"Schema migration failed: {e}")
             return False
+
+    def _migrate_to_v2(self):
+        """Add plain_explanation column to alerts table."""
+        try:
+            self.conn.execute("ALTER TABLE alerts ADD COLUMN plain_explanation TEXT")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists — idempotent
+        self.set_schema_version(2)
+        logger.info("Migration v2 complete: alerts.plain_explanation added")
 
     def cleanup_old_backups(self, backup_dir: str = 'data/backups', keep_days: int = 7) -> int:
         """

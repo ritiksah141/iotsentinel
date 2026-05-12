@@ -92,7 +92,8 @@ def register(app):
                     a.explanation,
                     a.top_features,
                     a.acknowledged,
-                    a.acknowledged_at
+                    a.acknowledged_at,
+                    a.plain_explanation
                 FROM alerts a
                 LEFT JOIN devices d ON a.device_ip = d.device_ip
                 WHERE a.timestamp >= datetime('now', '-24 hours')
@@ -113,7 +114,8 @@ def register(app):
                     'explanation': row[6],
                     'top_features': row[7],
                     'acknowledged': row[8] or 0,
-                    'acknowledged_at': row[9]
+                    'acknowledged_at': row[9],
+                    'plain_explanation': row[10],
                 })
 
             return recent_alerts
@@ -184,12 +186,24 @@ def register(app):
 
             # Safely get MITRE tactic
             explanation = alert.get('explanation', 'Unknown')
+            plain_explanation = alert.get('plain_explanation')
             mitre_info = MITRE_ATTACK_MAPPING.get(explanation, {})
             tactic = mitre_info.get('tactic', 'Unknown').split('(')[0].strip()
 
             # Check if alert is acknowledged/reviewed
             is_reviewed = alert.get('acknowledged', 0) == 1
 
+            # Always show plain English on the card — technical detail stays in the modal.
+            # Priority: LLM-generated plain_explanation > MITRE user_explanation > truncated technical string
+            if plain_explanation:
+                display_text = plain_explanation
+            elif mitre_info.get('user_explanation'):
+                display_text = mitre_info['user_explanation']
+            else:
+                display_text = (explanation[:80] + "…" if explanation and len(explanation) > 80
+                                else explanation or "No description available")
+
+            alert_id = int(alert.get('id', 0))
             alert_items.append(
                 dbc.Card([
                     dbc.CardBody([
@@ -203,15 +217,105 @@ def register(app):
                             html.Small(time_str, className="text-cyber")
                         ], className="d-flex justify-content-between mb-2"),
                         html.Strong(device_name, className="d-block mb-1"),
-                        html.P(explanation[:80] + "..." if explanation and len(explanation) > 80 else (explanation or "No description available"),
-                               className="alert-text-compact mb-2"),
-                        dbc.Button([html.I(className="fa fa-info-circle me-1"), "Details"],
-                                  id={'type': 'alert-detail-btn', 'index': int(alert.get('id', 0))},
-                                  size="sm", color=config_data['color'], outline=True, className="w-100 cyber-button")
+                        html.P(display_text, className="alert-text-compact mb-2",
+                               id={'type': 'alert-plain-text', 'index': alert_id}),
+                        dbc.Row([
+                            dbc.Col(
+                                dbc.Button([html.I(className="fa fa-info-circle me-1"), "Details"],
+                                           id={'type': 'alert-detail-btn', 'index': alert_id},
+                                           size="sm", color=config_data['color'], outline=True,
+                                           className="w-100 cyber-button"),
+                                width=8
+                            ),
+                            dbc.Col(
+                                dbc.Button([html.I(className="fa fa-wand-magic-sparkles me-1"), "Explain"],
+                                           id={'type': 'explain-btn', 'index': alert_id},
+                                           size="sm", color="secondary", outline=True,
+                                           className="w-100 cyber-button",
+                                           title="Get a plain-English AI explanation of this alert"),
+                                width=4
+                            ),
+                        ], className="g-1")
                     ], className="p-2")
                 ], className=f"alert-card-compact mb-2 border-{config_data['color']}")
             )
         return html.Div(alert_items, className="fade-in")
+
+    # "Explain in plain English" — calls HybridAIAssistant, persists result to DB
+    @app.callback(
+        [Output('toast-container', 'children', allow_duplicate=True),
+         Output('alerts-data-store', 'data', allow_duplicate=True)],
+        Input({'type': 'explain-btn', 'index': ALL}, 'n_clicks'),
+        State('alerts-data-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def explain_alert_in_plain_english(n_clicks_list, current_alerts):
+        if not any(n for n in (n_clicks_list or []) if n):
+            raise dash.exceptions.PreventUpdate
+
+        triggered = callback_context.triggered_id
+        if not triggered or not isinstance(triggered, dict):
+            raise dash.exceptions.PreventUpdate
+
+        alert_id = triggered.get('index')
+        if alert_id is None:
+            raise dash.exceptions.PreventUpdate
+
+        # Find the alert in the current store
+        alert_row = next((a for a in (current_alerts or []) if a.get('id') == alert_id), None)
+        if not alert_row:
+            raise dash.exceptions.PreventUpdate
+
+        try:
+            tech_explanation = alert_row.get('explanation', '')
+            device_ip = alert_row.get('device_ip', 'A device')
+            device_name = alert_row.get('device_name') or device_ip
+            severity = alert_row.get('severity', 'medium')
+
+            prompt = (
+                f"Explain this network security alert in one plain sentence that a non-technical "
+                f"home user can understand. No jargon. Be specific about what the device is doing "
+                f"and why it might be a concern.\n\n"
+                f"Device: {device_name} ({device_ip})\n"
+                f"Severity: {severity}\n"
+                f"Technical details: {tech_explanation}"
+            )
+            ai_text, source = ai_assistant.get_response(prompt=prompt, max_tokens=120, temperature=0.4)
+
+            # Persist to DB
+            cursor = db_manager.conn.cursor()
+            cursor.execute(
+                "UPDATE alerts SET plain_explanation = ? WHERE id = ?",
+                (ai_text, alert_id)
+            )
+            db_manager.conn.commit()
+
+            # Update the in-memory store so the card re-renders immediately
+            updated_alerts = [
+                {**a, 'plain_explanation': ai_text} if a.get('id') == alert_id else a
+                for a in (current_alerts or [])
+            ]
+
+            source_label = {'groq': 'Groq AI', 'ollama': 'Local AI', 'rules': 'Smart Template'}.get(source, source)
+            toast = ToastManager.create_toast(
+                message="Explanation updated",
+                toast_type="success",
+                header="Plain English",
+                detail_message=f"Explanation generated via {source_label}.",
+                duration=3000,
+            )
+            return toast, updated_alerts
+
+        except Exception as e:
+            logger.error(f"Plain-English explain failed for alert {alert_id}: {e}")
+            toast = ToastManager.create_toast(
+                message="Could not generate explanation",
+                toast_type="warning",
+                header="AI Unavailable",
+                detail_message="Try again, or check AI settings in the dashboard.",
+                duration=4000,
+            )
+            return toast, no_update
 
     # Alert details modal
     @app.callback(

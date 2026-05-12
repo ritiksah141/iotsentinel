@@ -113,6 +113,7 @@ def init_database():
             top_features TEXT,
             acknowledged INTEGER DEFAULT 0,
             acknowledged_at TIMESTAMP,
+            plain_explanation TEXT,
             FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
         )
     ''')
