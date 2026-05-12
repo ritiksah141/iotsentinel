@@ -5,7 +5,8 @@
     "environment": "production",
     "architecture": "zeek-based",
     "status_file_path": "config/monitoring_status.json",
-    "health_check_interval_seconds": 600
+    "health_check_interval_seconds": 600,
+    "is_configured": false
   },
   "network": {
     "interface": "wlan0",
