@@ -82,6 +82,38 @@ class ConfigManager:
             print(f"Error updating config: {e}")
             return False
 
+    def write_env(self, keys: dict, env_path: Path = None) -> bool:
+        """Upsert key=value pairs in the .env file without clobbering existing lines."""
+        target = env_path or (Path(__file__).parent.parent / '.env')
+        try:
+            existing_lines = []
+            if target.exists():
+                with open(target, 'r') as f:
+                    existing_lines = f.readlines()
+
+            key_to_line = {}
+            for i, line in enumerate(existing_lines):
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#') and '=' in stripped:
+                    k = stripped.split('=', 1)[0].strip()
+                    key_to_line[k] = i
+
+            for k, v in keys.items():
+                new_line = f"{k}={v}\n"
+                if k in key_to_line:
+                    existing_lines[key_to_line[k]] = new_line
+                else:
+                    existing_lines.append(new_line)
+
+            with open(target, 'w') as f:
+                f.writelines(existing_lines)
+
+            load_dotenv(target, override=True)
+            return True
+        except Exception as e:
+            print(f"Error writing .env: {e}")
+            return False
+
     def update_section(self, section: str, settings: dict) -> bool:
         """
         Update multiple configuration values in a section.

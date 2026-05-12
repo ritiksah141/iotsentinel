@@ -298,6 +298,13 @@ def register(app, login_layout, dashboard_layout):
     )
     def display_page(pathname):
         """Route to login or dashboard based on authentication"""
+        # Gate: if no .env exists yet, show first-run setup wizard
+        from pathlib import Path
+        from dashboard.layouts import setup_wizard_layout
+        env_path = Path(__file__).parent.parent.parent / '.env'
+        if not env_path.exists():
+            return setup_wizard_layout, dash.no_update
+
         # Check if user is authenticated
         if current_user.is_authenticated:
             # User is logged in
