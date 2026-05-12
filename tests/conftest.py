@@ -57,6 +57,41 @@ def create_test_schema(db_manager: DatabaseManager):
             model_type TEXT, model_version TEXT,
             FOREIGN KEY (connection_id) REFERENCES connections(id)
         )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS model_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            model_type TEXT,
+            precision REAL,
+            recall REAL,
+            f1_score REAL
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS malicious_ips (
+            ip TEXT PRIMARY KEY,
+            source TEXT
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS device_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT
+        )
+        ''',
+        '''
+        CREATE TABLE IF NOT EXISTS device_group_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_ip TEXT NOT NULL,
+            group_id INTEGER NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            added_by INTEGER,
+            FOREIGN KEY (device_ip) REFERENCES devices(device_ip) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE CASCADE,
+            UNIQUE(device_ip, group_id)
+        )
         '''
     ]
 
@@ -77,3 +112,8 @@ def db():
     create_test_schema(db_manager)
     yield db_manager
     db_manager.close()
+    # Remove the singleton entry so the next test gets a fresh in-memory DB.
+    # Without this, DatabaseManager.__init__ skips reconnection (_initialized=True)
+    # and subsequent tests see a closed connection.
+    normalized = str(Path(':memory:').resolve())
+    DatabaseManager._instances.pop(normalized, None)

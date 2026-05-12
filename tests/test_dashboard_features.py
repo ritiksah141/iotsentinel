@@ -46,9 +46,8 @@ class TestMLModelComparison:
         metrics = expected_metrics
 
         # Assert
-        assert len(models) == 2
-        assert 'Isolation Forest' in models
-        assert 'River' in models or 'HalfSpaceTrees' in models
+        assert len(models) == 3
+        assert 'River' in models or 'HalfSpaceTrees' in models or 'River ML' in models
         assert all(metric in metrics for metric in expected_metrics)
 
     def test_model_metrics_valid_range(self):

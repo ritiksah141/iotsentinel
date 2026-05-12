@@ -151,12 +151,12 @@ class RiverMLEngine:
 
         # 1. Global traffic anomaly detection
         global_score = self.traffic_detector.score_one(features)
-        self.traffic_detector = self.traffic_detector.learn_one(features)
+        self.traffic_detector.learn_one(features)  # River 0.21 returns None; mutates in place
 
         # 2. Per-device anomaly detection
         device_id = connection.get('device_ip', 'unknown')
         device_score = self.device_detectors[device_id].score_one(features)
-        self.device_detectors[device_id] = self.device_detectors[device_id].learn_one(features)
+        self.device_detectors[device_id].learn_one(features)
 
         # Update device count
         self.stats["devices_monitored"] = len(self.device_detectors)

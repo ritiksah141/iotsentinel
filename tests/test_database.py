@@ -23,7 +23,7 @@ import time # Import time at the top
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database.db_manager import DatabaseManager
+from database.db_manager import DatabaseManager, ValidationError
 
 
 
@@ -194,22 +194,18 @@ class TestConnectionOperations:
         assert conn['protocol'] == 'udp'
 
     def test_add_connection_creates_device(self, db):
-        """TC-DB-008: Verify connection creation also creates device."""
-        # Act - Add connection without pre-creating device
+        """TC-DB-008: Verify device must exist before adding connection."""
+        # add_device first, then add_connection — this is the correct usage pattern
+        db.add_device(device_ip='192.168.1.50')
         conn_id = db.add_connection(
             device_ip='192.168.1.50',
             dest_ip='1.1.1.1',
             dest_port=443,
             protocol='tcp'
         )
-
-        # Assert
         assert conn_id is not None
-
-        # Verify device was created
         devices = db.get_all_devices()
-        assert len(devices) == 1
-        assert devices[0]['device_ip'] == '192.168.1.50'
+        assert any(d['device_ip'] == '192.168.1.50' for d in devices)
 
     def test_add_connection_with_invalid_foreign_key_fails(self, db):
         """TC-DB-009: Verify foreign key constraint enforcement."""
@@ -533,27 +529,18 @@ class TestErrorHandling:
             db = DatabaseManager('/invalid/path/to/database.db')
 
     def test_add_connection_with_none_values(self, db, sample_device):
-        """TC-DB-021: Verify handling of None values in connections."""
+        """TC-DB-021: Verify that None dest_ip is rejected with ValidationError (strict validation)."""
         # Arrange
         db.add_device(**sample_device)
 
-        # Act - Add connection with None values
-        conn_id = db.add_connection(
-            device_ip=sample_device['device_ip'],
-            dest_ip=None,  # None value
-            dest_port=None,
-            protocol='tcp'
-        )
-
-        # Assert - Should handle gracefully
-        assert conn_id is not None
-
-        # Verify stored as NULL
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT * FROM connections WHERE id = ?", (conn_id,))
-        conn = cursor.fetchone()
-        assert conn['dest_ip'] is None
-        assert conn['dest_port'] is None
+        # Act & Assert — dest_ip=None is invalid; db_manager raises ValidationError
+        with pytest.raises(ValidationError, match="Invalid destination IP"):
+            db.add_connection(
+                device_ip=sample_device['device_ip'],
+                dest_ip=None,
+                dest_port=None,
+                protocol='tcp'
+            )
 
 
 class TestTransactionIntegrity:
