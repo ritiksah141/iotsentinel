@@ -3276,3 +3276,62 @@ def register(app):
             return [admin_option] + base_options
 
         return base_options
+
+    # ========================================================================
+    # ADVANCED-VIEW HEADER TOGGLE ↔ DASHBOARD TEMPLATE STORE
+    # ========================================================================
+
+    # Toggle ON (True) → advanced view; Toggle OFF (False) → home_user view
+    @app.callback(
+        [Output('dashboard-template-store', 'data', allow_duplicate=True),
+         Output('toast-container', 'children', allow_duplicate=True)],
+        Input('advanced-view-toggle', 'value'),
+        State('dashboard-template-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def apply_view_toggle(is_advanced, current_template):
+        """Translate the Simple/Advanced header switch into a template store update."""
+        if not current_user.is_authenticated:
+            return no_update, no_update
+
+        target_template = (
+            ('security_admin' if current_user.is_admin() else 'developer')
+            if is_advanced else 'home_user'
+        )
+
+        if target_template == current_template:
+            return no_update, no_update
+
+        # Persist to DB
+        try:
+            conn = db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                VALUES (?, 'dashboard_template', ?)
+                ON CONFLICT(user_id, preference_key) DO UPDATE SET
+                    preference_value = excluded.preference_value,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (current_user.id, target_template))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist view toggle: {e}")
+
+        label = "Advanced" if is_advanced else "Simple"
+        toast = ToastManager.create_toast(
+            message=f"Switched to {label} view",
+            toast_type="info",
+            header="View Mode",
+            duration=2500,
+        )
+        return target_template, toast
+
+    # Keep toggle in sync when template changes via profile modal or on page load
+    @app.callback(
+        Output('advanced-view-toggle', 'value'),
+        Input('dashboard-template-store', 'data'),
+        prevent_initial_call=False,
+    )
+    def sync_toggle_from_template(template):
+        """Reflect the current template in the header toggle (home_user=OFF, else=ON)."""
+        return template != 'home_user'

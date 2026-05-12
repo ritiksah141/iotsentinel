@@ -856,6 +856,14 @@ dashboard_layout = dbc.Container([
                         dbc.Button(html.I(className="fa fa-moon fa-lg", id="dark-mode-icon"), color="link", id="dark-mode-toggle", className="text-white px-3 ms-1", title="Toggle Dark Mode"),
                         dbc.Button(html.I(className="fa fa-th fa-lg"), color="link", id="customize-layout-button", className="text-white px-3 ms-1", title="Customize Layout"),
                         dbc.Button(html.I(className="fa fa-bolt fa-lg"), color="link", id="quick-actions-button", className="text-white px-3 ms-1", title="Quick Actions"),
+                        # View-mode toggle: Simple (home_user) ↔ Advanced (developer/security_admin)
+                        html.Div([
+                            html.I(className="fa fa-home fa-sm text-white-50 me-1"),
+                            dbc.Switch(id='advanced-view-toggle', value=False, className="my-0 mx-1",
+                                       style={"transform": "scale(0.85)", "cursor": "pointer"}),
+                            html.I(className="fa fa-shield-halved fa-sm text-white-50"),
+                        ], className="d-flex align-items-center ms-2 me-1",
+                           title="Simple View ↔ Advanced View"),
                         dbc.DropdownMenu([
                             dbc.DropdownMenuItem(
                                 html.Div([
@@ -942,6 +950,13 @@ dashboard_layout = dbc.Container([
         "Quick Actions - Access 17 powerful tools to manage your dashboard, security, network, data, and system. "
         "Instantly refresh data, scan network, export reports, block devices, backup data, and more!",
         target="quick-actions-button",
+        placement="bottom"
+    ),
+    dbc.Tooltip(
+        "View Mode — 🏠 Simple (home icon): shows Device Status, Privacy Score, and key alerts only. "
+        "🛡️ Advanced (shield icon): reveals Threat Intelligence, Firewall, Analytics, and all expert tools. "
+        "Your preference is saved automatically.",
+        target="advanced-view-toggle",
         placement="bottom"
     ),
 
