@@ -83,8 +83,39 @@ class InferenceEngine:
         """Get River ML engine statistics for monitoring."""
         return self.river_engine.get_stats()
 
+    # Plain-English label → MITRE user_explanation fallback map.
+    # Keys match _map_to_mitre() return prefixes for the most common tactics.
+    _PLAIN_TACTIC_MAP = {
+        "Exfiltration": "This device is sending much more data than usual — it could be uploading your information without your knowledge.",
+        "Lateral Movement": "This device is trying to connect to others on your network using channels it doesn't normally use.",
+        "Discovery": "This device is scanning your network to find other devices, like someone checking every door on your street.",
+        "Command and Control": "This device connected to an address associated with hackers. This needs immediate attention.",
+        "Defense Evasion": "This device is using unusual communication methods that could be hiding malicious activity.",
+        "Initial Access": "This device is rapidly trying to connect to many places — it may be infected and trying to spread.",
+        "Execution": "This device is active at unusual times or running unexpected processes.",
+    }
+
+    def _generate_plain_explanation(self, connection: dict, mitre_tactic: str) -> str:
+        """One plain-English sentence for home-user alert cards, using MITRE tactic labels."""
+        device_ip = connection.get('device_ip', 'A device')
+        dest_port = connection.get('dest_port')
+        bytes_sent = connection.get('bytes_sent', 0) or 0
+
+        # Match the tactic prefix to a plain sentence
+        for key, sentence in InferenceEngine._PLAIN_TACTIC_MAP.items():
+            if key.lower() in mitre_tactic.lower():
+                return f"{device_ip}: {sentence}"
+
+        # Fallback using connection specifics
+        if bytes_sent > 10_000_000:
+            return f"{device_ip} is sending unusually large amounts of data — this may indicate a security issue."
+        if dest_port:
+            return f"{device_ip} is making unusual network connections that don't match its normal behaviour."
+        return f"{device_ip} showed unusual network behaviour that may need your attention."
+
     def _create_alert(self, device_ip: str, severity: str, anomaly_score: float,
-                      explanation: str, top_features: str = None) -> int:
+                      explanation: str, top_features: str = None,
+                      connection: dict = None) -> int:
         """
         Create an alert using the alerting system if available, otherwise direct to DB.
 
@@ -92,29 +123,35 @@ class InferenceEngine:
             device_ip: Device IP address
             severity: Alert severity level
             anomaly_score: ML anomaly score
-            explanation: Human-readable explanation
+            explanation: Technical explanation (kept for security_admin view)
             top_features: JSON string of top contributing features
+            connection: Raw connection dict used to generate plain_explanation
 
         Returns:
             Alert ID if created successfully
         """
+        # Build plain-English version from the MITRE tactic embedded in explanation
+        plain_explanation = None
+        if connection is not None:
+            plain_explanation = self._generate_plain_explanation(connection, explanation)
+
         if self.alerting:
-            # Use the full alerting system (with notifications)
             return self.alerting.create_alert(
                 device_ip=device_ip,
                 severity=severity,
                 anomaly_score=anomaly_score,
                 explanation=explanation,
-                top_features=top_features
+                top_features=top_features,
+                plain_explanation=plain_explanation,
             )
         else:
-            # Fallback to direct database insert (no notifications)
             return self.db.create_alert(
                 device_ip=device_ip,
                 severity=severity,
                 anomaly_score=anomaly_score,
                 explanation=explanation,
-                top_features=top_features
+                top_features=top_features,
+                plain_explanation=plain_explanation,
             )
 
     def process_connections(self, batch_size: int = 100):
@@ -151,7 +188,8 @@ class InferenceEngine:
                     severity='critical',
                     anomaly_score=1.0,
                     explanation=explanation,
-                    top_features=json.dumps({'malicious_ip': dest_ip, 'threat_intel': 'blocklist'})
+                    top_features=json.dumps({'malicious_ip': dest_ip, 'threat_intel': 'blocklist'}),
+                    connection=conn,
                 )
 
                 # Store prediction
@@ -222,7 +260,8 @@ class InferenceEngine:
                     severity=severity,
                     anomaly_score=float(anomaly_score),
                     explanation=explanation,
-                    top_features=json.dumps(top_features)
+                    top_features=json.dumps(top_features),
+                    connection=conn,
                 )
 
                 anomaly_count += 1

@@ -50,10 +50,11 @@ alerts (
     device_ip → devices,
     severity,                       -- low/medium/high/critical
     anomaly_score,
-    explanation,
+    explanation,                    -- technical string (shown in detail modal)
     top_features,                   -- JSON
     acknowledged BOOLEAN,
-    acknowledged_at TIMESTAMP
+    acknowledged_at TIMESTAMP,
+    plain_explanation TEXT          -- one plain-English sentence (shown on compact card)
 )
 
 ml_predictions (

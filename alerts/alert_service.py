@@ -41,6 +41,7 @@ class Alert:
     timestamp: Optional[datetime] = None
     alert_id: Optional[int] = None
     device_name: Optional[str] = None
+    plain_explanation: Optional[str] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -204,7 +205,8 @@ class AlertService:
         anomaly_score: float,
         explanation: str,
         top_features: Optional[str] = None,
-        send_notification: bool = True
+        send_notification: bool = True,
+        plain_explanation: Optional[str] = None,
     ) -> Optional[int]:
         """
         Create a new alert and optionally send notifications.
@@ -230,7 +232,8 @@ class AlertService:
             anomaly_score=anomaly_score,
             explanation=explanation,
             top_features=top_features,
-            device_name=device_name
+            device_name=device_name,
+            plain_explanation=plain_explanation,
         )
 
         # Check rate limits
@@ -242,7 +245,8 @@ class AlertService:
             severity=severity,
             anomaly_score=anomaly_score,
             explanation=explanation,
-            top_features=top_features
+            top_features=top_features,
+            plain_explanation=plain_explanation,
         )
         alert.alert_id = alert_id
 
