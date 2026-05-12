@@ -12,10 +12,8 @@ Covers:
 Run: pytest tests/test_setup_wizard.py -v
 """
 
-import os
 import sys
 import pytest
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -44,7 +42,7 @@ def tmp_config(tmp_path):
 class TestWriteEnv:
 
     def test_creates_env_file_when_absent(self, tmp_config):
-        cfg, env_file, tmp_path = tmp_config
+        cfg, env_file, _ = tmp_config
         assert not env_file.exists()
 
         result = cfg.write_env({"FLASK_SECRET_KEY": "testkey123"}, env_path=env_file)
@@ -129,7 +127,6 @@ class TestSetupWizardLayout:
     def test_required_component_ids_present(self):
         """Wizard must contain the IDs that callbacks.setup binds to."""
         from dashboard.layouts.setup_wizard import setup_wizard_layout
-        import json
 
         layout_str = str(setup_wizard_layout)
 
@@ -192,12 +189,6 @@ class TestSetupGate:
 class TestSaveConfig:
 
     def test_save_config_writes_email_keys(self, tmp_path):
-        cfg_file = tmp_path / "default_config.json"
-        cfg_file.write_text(
-            '{"system": {"is_configured": false}, "network": {"local_networks": [], "interface": ""}, "email": {}}'
-        )
-        env_file = tmp_path / ".env"
-
         with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
@@ -215,7 +206,7 @@ class TestSaveConfig:
         assert call_kwargs["EMAIL_SMTP_USER"] == "user@gmail.com"
         assert call_kwargs["EMAIL_SMTP_PASSWORD"] == "apppassword"  # pragma: allowlist secret
 
-    def test_save_config_writes_groq_key(self, tmp_path):
+    def test_save_config_writes_groq_key(self):
         with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
@@ -267,7 +258,7 @@ class TestValidationHelpers:
 
     def test_validate_groq_empty_key_fails(self):
         from dashboard.callbacks.callbacks_setup import _validate_groq
-        ok, msg = _validate_groq("")
+        ok, _ = _validate_groq("")
         assert not ok
 
     def test_validate_groq_valid_key_200(self):
@@ -284,12 +275,12 @@ class TestValidationHelpers:
         mock_resp = MagicMock()
         mock_resp.status_code = 401
         with patch("requests.get", return_value=mock_resp):
-            ok, msg = _validate_groq("gsk_" + "a" * 40)
+            ok, _ = _validate_groq("gsk_" + "a" * 40)
         assert not ok
 
     def test_validate_abuseipdb_empty_key_fails(self):
         from dashboard.callbacks.callbacks_setup import _validate_abuseipdb
-        ok, msg = _validate_abuseipdb("")
+        ok, _ = _validate_abuseipdb("")
         assert not ok
 
     def test_validate_abuseipdb_valid_key_200(self):
@@ -297,7 +288,7 @@ class TestValidationHelpers:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         with patch("requests.get", return_value=mock_resp):
-            ok, msg = _validate_abuseipdb("v" * 40)
+            ok, _ = _validate_abuseipdb("v" * 40)
         assert ok
 
     def test_validate_abuseipdb_connection_error(self):
