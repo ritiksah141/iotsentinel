@@ -672,6 +672,7 @@ def webauthn_login_verify():
 
 
 from dashboard.layouts.login import login_layout
+from dashboard.components.feature_padlock import padlock_overlay
 
 
 # ============================================================================
@@ -1834,32 +1835,40 @@ dashboard_layout = dbc.Container([
     html.Div([
         # API Integration Hub
         html.Div([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-code fa-2x mb-2", style={"color": "#8b5cf6"}),
-                            html.H6("API Hub", className="fw-bold mb-1"),
-                            html.P("Threat intel APIs", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
-                        ], className="text-center")
-                    ], className="p-3")
-                ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
-            ], id="api-hub-card-btn", n_clicks=0)
+            padlock_overlay(
+                html.Div([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="fa fa-code fa-2x mb-2", style={"color": "#8b5cf6"}),
+                                html.H6("API Hub", className="fw-bold mb-1"),
+                                html.P("Threat intel APIs", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            ], className="text-center")
+                        ], className="p-3")
+                    ], className="glass-card border-0 shadow hover-lift", style={"cursor": "pointer"})
+                ], id="api-hub-card-btn", n_clicks=0),
+                "api-hub",
+                "Cross-check suspicious IPs against global databases that track hackers and malware. Add a free API key to enable.",
+            )
         ], className="col-12 col-sm-6", **{"data-category": "Integrations"}),
 
         # Email Notifications (COMPACT)
         html.Div([
-            html.Div([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-envelope fa-2x mb-2", style={"color": "#06b6d4"}),
-                            html.H6("Email Notifications", className="fw-bold mb-1"),
-                            html.P("SMTP settings & alerts", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
-                        ], className="text-center")
-                    ], className="p-3")
-                ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
-            ], id="email-card-btn", n_clicks=0)
+            padlock_overlay(
+                html.Div([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="fa fa-envelope fa-2x mb-2", style={"color": "#06b6d4"}),
+                                html.H6("Email Notifications", className="fw-bold mb-1"),
+                                html.P("SMTP settings & alerts", className="small text-muted mb-0", style={"fontSize": "0.75rem"})
+                            ], className="text-center")
+                        ], className="p-3")
+                    ], className="glass-card border-0 shadow-lg hover-lift", style={"cursor": "pointer"})
+                ], id="email-card-btn", n_clicks=0),
+                "email",
+                "Get instant email alerts when your devices behave suspiciously. Needs SMTP configuration.",
+            )
         ], className="col-12 col-sm-6", **{"data-category": "Integrations"}),
     ], className="row g-4 feature-cards")
     ], id="integrations-features-section"),
@@ -2990,6 +2999,37 @@ dashboard_layout = dbc.Container([
             ], id='close-email-modal-btn', color="secondary", outline=True)
         ])
     ], id="email-modal", size="xl", is_open=False, scrollable=True),
+
+    # Phase 3: Lightweight unlock modal for threat-intel API key entry
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle([
+            html.I(className="fa fa-unlock-alt me-2 text-success"),
+            "Unlock Threat Intelligence",
+        ])),
+        dbc.ModalBody([
+            html.P(
+                "Cross-check suspicious device IPs against global databases that track "
+                "hackers and malware. A free AbuseIPDB account takes 2 minutes to set up.",
+                className="text-muted mb-3",
+            ),
+            dbc.Label("AbuseIPDB API Key", html_for="unlock-api-key-input"),
+            dbc.Input(
+                id="unlock-api-key-input",
+                type="password",
+                placeholder="Paste your API key here…",
+                className="mb-1",
+            ),
+            html.Small(
+                "Get your free key at abuseipdb.com → Account → API",
+                className="text-muted d-block mb-3",
+            ),
+            html.Div(id="unlock-api-key-feedback", className="text-danger small"),
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Save & Unlock", id="unlock-save-btn", color="success", className="me-2"),
+            dbc.Button("Cancel", id="unlock-cancel-btn", color="secondary", outline=True),
+        ]),
+    ], id="unlock-padlock-modal", is_open=False, centered=True),
 
     # Firewall Control Modal
     dbc.Modal([
@@ -8956,6 +8996,8 @@ app.layout = html.Div([
     dcc.Store(id='totp-setup-data', storage_type='memory'),
     # Dashboard template store - global to prevent callback errors
     dcc.Store(id='dashboard-template-store', storage_type='session'),
+    # Phase 3: padlock refresh trigger — bumped by save_api_key to re-evaluate lock states
+    dcc.Store(id='padlock-refresh-trigger', data=0),
     # Store for biometric credential to remove
     dcc.Store(id='biometric-remove-credential-id', storage_type='memory'),
 
