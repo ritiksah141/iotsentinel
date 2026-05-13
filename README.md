@@ -4,7 +4,7 @@
 
 [![Architecture](https://img.shields.io/badge/Architecture-Zeek--based-blue)]()
 [![ML](<https://img.shields.io/badge/ML-River%20ML%20(Incremental)-green>)]()
-[![Tests](https://img.shields.io/badge/Tests-334%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-403%20passed-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/Coverage-84%25-brightgreen)]()
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-red)]()
 
@@ -111,86 +111,69 @@ The system follows a modular, pipeline-based architecture:
 
 ## 🚀 Getting Started
 
-### Installation
-
-1.  **Clone the repository**:
-
-    ```bash
-    git clone https://github.com/your_username/iotsentinel.git
-    cd iotsentinel
-    ```
-
-2.  **Create a Python virtual environment**:
-
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-
-3.  **Install dependencies**:
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-    _Note: For development on a non-Pi machine (like a Mac), you may need to adjust dependencies (e.g., `tensorflow` vs `tensorflow-macos`)._
-
-4.  **Initialize the database**:
-    ```bash
-    python3 config/init_database.py
-    ```
-
-### Usage
-
-The system operates in three main phases: data collection, model training, and monitoring.
-
-**1. Baseline Data Collection (7 Days)**
-
-To learn what "normal" traffic looks like on your network, run the baseline collector. This should be done on the Raspberry Pi connected to your home network.
+### Step 1 — Download
 
 ```bash
-python3 scripts/baseline_collector.py start
+git clone https://github.com/your_username/iotsentinel.git
+cd iotsentinel
 ```
 
-This process runs for 7 days. You can check its status at any time with:
+### Step 2 — Install & launch
+
+**macOS / Linux**
+```bash
+bash install.sh
+```
+
+**Windows**
+```
+install.bat
+```
+
+Your browser opens automatically to **`http://localhost:8050/setup`** where a 3-screen wizard guides you through creating an admin account and (optionally) adding API keys for email alerts and threat intelligence. All API keys are optional — the dashboard works without them.
+
+<details>
+<summary>Manual install (developers / Raspberry Pi)</summary>
 
 ```bash
-python3 scripts/baseline_collector.py status
+# 1. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Initialise database
+python3 config/init_database.py
+
+# 4. Start the dashboard
+python3 dashboard/app.py
 ```
 
-**2. Model Training**
-
-After the 7-day collection period is complete, train the machine learning models:
-
+For Raspberry Pi deployment (with Zeek network capture):
 ```bash
-# River ML learns incrementally - no training phase needed!
-# The model learns automatically from the first network connection
-# Simply run the orchestrator and dashboard
+bash scripts/setup_pi.sh
 ```
 
-This will create the model files in `data/models/`.
+For automated Pi deployment from a laptop:
+```bash
+bash scripts/deploy_to_pi.sh
+```
 
-**3. Running the Application**
+River ML learns incrementally — no training phase needed. The model adapts from the first network connection automatically.
 
-Once the models are trained, you can start the monitoring components. It's recommended to run these as background services.
-
-- **Start the Log Parser**:
-  ```bash
-  python3 capture/zeek_log_parser.py --watch &
-  ```
-- **Start the ML Inference Engine**:
-  ```bash
-  python3 ml/inference_engine.py --continuous &
-  ```
-- **Start the Web Dashboard**:
-  ```bash
-  python3 dashboard/app.py
-  ```
-  You can then access the dashboard at `http://<your-pi-ip>:8050`.
+To start full network monitoring on the Pi:
+```bash
+python3 capture/zeek_log_parser.py --watch &
+python3 ml/inference_engine.py --continuous &
+python3 dashboard/app.py
+```
+Access the dashboard at `http://<your-pi-ip>:8050`.
+</details>
 
 ### Testing
 
-The project includes a comprehensive suite of **334 tests** with **80% core-module coverage** (river engine 93%, parser 86%, feature extractor 81%, DB manager 77%, alerts 73%).
+The project includes a comprehensive suite of **403 tests** with **80% core-module coverage** (river engine 93%, parser 86%, feature extractor 81%, DB manager 77%, alerts 73%).
 
 To run all tests:
 
