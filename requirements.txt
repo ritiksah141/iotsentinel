@@ -1,7 +1,9 @@
 # Core Dependencies
-numpy==1.24.3
-pandas==2.0.3
-scikit-learn==1.3.0
+# Pins carry cp311 + cp312 wheels (3.12 support: numpy>=1.26, pandas>=2.1, scikit-learn>=1.3.2).
+# numpy stays <2 so scikit-learn 1.3.x and River 0.21 keep their ABI.
+numpy==1.26.4
+pandas==2.3.2
+scikit-learn==1.3.2
 
 # Machine Learning - River for incremental learning (Pi-optimized)
 river==0.21.0  # Lightweight ML for anomaly detection

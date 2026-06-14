@@ -49,6 +49,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### CI fix - scientific stack modernised for Python 3.12 (2026-06-14)
+
+- **Fixed the Tests workflow on Python 3.12.** `numpy==1.24.3` has no 3.12 wheel, so CI tried to build it from source and failed (`BackendUnavailable: Cannot import 'setuptools.build_meta'`). Bumped the core stack to versions that ship cp311 + cp312 manylinux wheels: `numpy==1.26.4`, `pandas==2.3.2`, `scikit-learn==1.3.2`. numpy stays `<2` so scikit-learn 1.3.x and River 0.21 keep their ABI. Full suite (997 passed / 9 skipped) re-verified on the new pins.
+- Pinned the same trio in `requirements-pi.txt` (was unpinned) so a fresh Pi install cannot pull numpy 2.x and break the ML layer.
+- Dependabot tuned to reduce PR churn: pip and github-actions both switched to a monthly schedule, and the github-actions ecosystem is now grouped into a single PR instead of one per action.
+
 ### Installable app, image wiring, wizard privacy/security, CI hardening (2026-06-13)
 
 #### Added - Progressive Web App (install like a native app)
