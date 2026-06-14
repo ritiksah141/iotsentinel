@@ -1,10 +1,11 @@
 version: 2
 updates:
-  # Python dependencies (desktop + Pi requirement sets live at the repo root)
+  # Python dependencies (desktop + Pi requirement sets live at the repo root).
+  # Monthly to keep PR churn low; everything lands in one grouped PR.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     open-pull-requests-limit: 5
     labels:
@@ -14,12 +15,18 @@ updates:
         patterns:
           - "*"
 
-  # GitHub Actions used by the CI / image-build workflows
+  # GitHub Actions used by the CI / image-build workflows.
+  # Grouped so all action bumps arrive as a single PR, not one per action.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
+    open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
