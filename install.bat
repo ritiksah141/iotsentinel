@@ -6,7 +6,7 @@ REM What it does:
 REM   1. Checks Python 3.9+
 REM   2. Creates a virtual environment (venv\)
 REM   3. Installs Python dependencies
-REM   4. Initialises the database (admin/admin — change in the wizard)
+REM   4. Initialises the database schema (no default admin — you create one on first launch)
 REM   5. Opens your browser to http://localhost:8050/setup
 REM   6. Starts the dashboard
 
@@ -82,7 +82,7 @@ echo.
 REM ---------------------------------------------------------------------------
 REM 4. Initialise database
 REM ---------------------------------------------------------------------------
-echo Initialising database...
+echo Initialising database schema (no default admin created)...
 python config\init_database.py < nul
 if errorlevel 1 (
     echo [ERROR] Database initialisation failed.
@@ -93,10 +93,25 @@ echo [OK] Database ready
 echo.
 
 REM ---------------------------------------------------------------------------
-REM 5. Open browser after a short delay
+REM 5. Open the dashboard after a short delay
 REM ---------------------------------------------------------------------------
-REM Start a background process that waits 5 seconds then opens the browser
-start "" /b cmd /c "timeout /t 5 /nobreak >nul & start http://localhost:8050/setup"
+REM Prefer Chrome/Edge in --app mode (chromeless, native-feeling window). Fall
+REM back to the default browser if neither is installed.
+set "APP_URL=http://localhost:8050/setup"
+set "CHROME_EXE="
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "CHROME_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "CHROME_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+set "EDGE_EXE="
+if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "EDGE_EXE=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "EDGE_EXE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+
+if defined CHROME_EXE (
+    start "" /b cmd /c "timeout /t 5 /nobreak >nul & ^"%CHROME_EXE%^" --app=%APP_URL%"
+) else if defined EDGE_EXE (
+    start "" /b cmd /c "timeout /t 5 /nobreak >nul & ^"%EDGE_EXE%^" --app=%APP_URL%"
+) else (
+    start "" /b cmd /c "timeout /t 5 /nobreak >nul & start %APP_URL%"
+)
 
 REM ---------------------------------------------------------------------------
 REM 6. Start dashboard

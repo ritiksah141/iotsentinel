@@ -10,6 +10,7 @@
   },
   "network": {
     "interface": "wlan0",
+    "monitor_interface": null,
     "local_networks": [
       "192.168.1.0/24"
     ],
@@ -36,22 +37,57 @@
     "anomaly_threshold": 0.7,
     "device_anomaly_threshold": 0.7,
     "auto_save_interval": 100,
+    "cold_start_damping": true,
+    "learning_min_connections": 100,
+    "learning_period_days": 2,
     "note": "River-based incremental learning - no training needed!"
   },
   "ai_assistant": {
     "enabled": true,
     "groq_api_key": "",
     "groq_enabled": true,
+    "groq_model": "llama-3.1-8b-instant",
+    "openai_api_key": "",
+    "openai_enabled": true,
+    "openai_model": "gpt-4o-mini",
+    "anthropic_api_key": "",
+    "anthropic_enabled": true,
+    "anthropic_model": "claude-haiku-4-5",
+    "gemini_api_key": "",
+    "gemini_enabled": true,
+    "gemini_model": "gemini-2.5-flash",
     "ollama_enabled": true,
     "ollama_url": "http://localhost:11434/api/generate",
-    "ollama_model": "phi3.5:mini",
+    "ollama_model": "gemma2:2b",
     "ollama_timeout": 15,
     "fallback_to_rules": true,
-    "note": "Groq API key loaded from GROQ_API_KEY environment variable"
+    "cache_ttl_seconds": 600,
+    "cache_max_entries": 100,
+    "daily_cap_household": 1400,
+    "daily_cap_business": 1400,
+    "note": "API keys loaded from GROQ_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY environment variables"
   },
   "database": {
     "path": "data/database/iotsentinel.db",
-    "retention_days": 30
+    "retention_days": 30,
+    "vacuum_threshold_mb": 100,
+    "retention": {
+      "connections":           30,
+      "ml_predictions":        30,
+      "alerts":                90,
+      "audit_log":            180,
+      "security_audit_log":   180,
+      "agent_actions":        180,
+      "rate_limit_log":         7,
+      "api_integration_logs":  30,
+      "toast_history":         30,
+      "discovery_events":      30,
+      "security_score_history": 90,
+      "sustainability_metrics": 90,
+      "device_energy_estimates": 90,
+      "model_performance":     90,
+      "model_drift_history":   90
+    }
   },
   "dashboard": {
     "host": "0.0.0.0",
@@ -92,11 +128,31 @@
     "recipient_email": "",
     "note": "Email settings are loaded from environment variables (.env file)"
   },
+  "notifications": {
+    "ntfy_enabled":          "false",
+    "ntfy_server":           "https://ntfy.sh",
+    "ntfy_topic":            "",
+    "telegram_enabled":      "false",
+    "telegram_bot_token":    "",
+    "telegram_chat_id":      "",
+    "discord_enabled":       "false",
+    "discord_webhook_url":   "",
+    "webhook_enabled":       "false",
+    "webhook_url":           "",
+    "note": "Values loaded from NOTIFICATIONS_* environment variables (.env file)"
+  },
   "firewall": {
     "enabled": "false",
     "router_ip": "192.168.1.1",
     "router_user": "root",
     "router_private_key_path": "~/.ssh/id_rsa"
+  },
+  "agent": {
+    "auto_block": {
+      "enabled": true,
+      "confidence_threshold": 85
+    },
+    "note": "auto_block.enabled=true means the agent enforces firewall blocks autonomously on critical alerts. Set to false to revert to human-approval mode."
   },
   "threat_intelligence": {
     "enabled": "true",
@@ -125,6 +181,13 @@
     "nmap_enabled": false,
     "upnp_active_enabled": false,
     "mdns_active_enabled": false,
-    "active_scan_interval": 3600
+    "active_scan_interval": 3600,
+    "name_resolution": {
+      "reverse_dns": true,
+      "netbios": true,
+      "manufacturer_fallback": true,
+      "dns_timeout": 1.0,
+      "cache_ttl_seconds": 3600
+    }
   }
 }

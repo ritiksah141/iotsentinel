@@ -11,10 +11,7 @@ import dash_bootstrap_components as dbc
 from dash import html
 import uuid
 import json
-import sqlite3
 import logging
-from datetime import datetime
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 from collections import deque
 import threading
@@ -22,14 +19,8 @@ import threading
 logger = logging.getLogger(__name__)
 
 # Toast Configuration Constants
-TOAST_POSITION_STYLE = {
-    "position": "fixed",
-    "top": 20,
-    "left": "50%",
-    "transform": "translateX(-50%)",
-    "width": 380,  # Slightly wider for better visibility
-    "zIndex": 999999  # Highest z-index - appears above everything including modals
-}
+# TOAST_POSITION_STYLE removed — positioning handled entirely in CSS via
+# #toast-container and .enhanced-toast-notification selectors.
 
 TOAST_DURATIONS = {
     "short": 3000,    # 3 seconds minimum
@@ -38,24 +29,26 @@ TOAST_DURATIONS = {
     "persistent": 0   # No auto-dismiss
 }
 
+# Severity icons — FA class names (no emoji literals)
 TOAST_ICONS = {
-    "success": "✅",
-    "error": "❌",
-    "danger": "❌",
-    "warning": "⚠️",
-    "info": "ℹ️"
+    "success": "fa-solid fa-circle-check",
+    "error":   "fa-solid fa-circle-xmark",
+    "danger":  "fa-solid fa-circle-xmark",
+    "warning": "fa-solid fa-triangle-exclamation",
+    "info":    "fa-solid fa-circle-info",
 }
 
-# Category definitions (synced with database)
+# Category definitions — colors are defined in CSS (.toast-badge-<category>).
+# Hex values removed from Python; icon names used for class-based rendering.
 TOAST_CATEGORIES = {
-    "general": {"name": "General", "icon": "fa-info-circle", "color": "#0dcaf0", "priority": 0},
-    "security": {"name": "Security", "icon": "fa-shield-alt", "color": "#dc3545", "priority": 10},
-    "network": {"name": "Network", "icon": "fa-network-wired", "color": "#17a2b8", "priority": 8},
-    "device": {"name": "Device", "icon": "fa-microchip", "color": "#6c757d", "priority": 7},
-    "user": {"name": "User", "icon": "fa-user", "color": "#6f42c1", "priority": 6},
-    "system": {"name": "System", "icon": "fa-cog", "color": "#fd7e14", "priority": 5},
-    "export": {"name": "Export", "icon": "fa-file-export", "color": "#20c997", "priority": 3},
-    "scan": {"name": "Scan", "icon": "fa-radar", "color": "#ffc107", "priority": 4},
+    "general":  {"name": "General",  "icon": "fa-solid fa-bell",         "priority": 0},
+    "security": {"name": "Security", "icon": "fa-solid fa-shield-halved", "priority": 10},
+    "network":  {"name": "Network",  "icon": "fa-solid fa-network-wired", "priority": 8},
+    "device":   {"name": "Device",   "icon": "fa-solid fa-microchip",     "priority": 7},
+    "user":     {"name": "User",     "icon": "fa-solid fa-user",          "priority": 6},
+    "system":   {"name": "System",   "icon": "fa-solid fa-gear",          "priority": 5},
+    "export":   {"name": "Export",   "icon": "fa-solid fa-file-export",   "priority": 3},
+    "scan":     {"name": "Scan",     "icon": "fa-solid fa-magnifying-glass", "priority": 4},
 }
 
 # Store for toast details (for detail modal)
@@ -284,10 +277,14 @@ class ToastManager:
         # Determine color (no icon - using category badges instead)
         color = toast_type
 
-        # Auto-generate header with emoji if not custom
+        # Auto-generate header with FA icon if not custom
+        _header_text = header  # preserve plain string before wrapping in component
         if custom_header is None and header:
-            emoji = TOAST_ICONS.get(toast_type, "")
-            header = f"{emoji} {header}"
+            icon_cls = TOAST_ICONS.get(toast_type, "fa-solid fa-circle-info")
+            header = html.Span([
+                html.I(className=f"{icon_cls} me-2 toast-severity-icon"),
+                header
+            ])
         elif custom_header:
             header = custom_header
 
@@ -334,7 +331,7 @@ class ToastManager:
         if show_detail_button and detail_message:
             # Store detail message for modal retrieval
             toast_details_store[toast_id] = {
-                "header": header,
+                "header": _header_text if isinstance(_header_text, str) else str(toast_type).title(),
                 "message": message,
                 "detail": detail_message,
                 "type": toast_type,
@@ -359,19 +356,17 @@ class ToastManager:
         else:
             toast_body = html.Div(body_components)
 
-        # Add category badge to header for ALL toasts (category labels replace colored icons)
+        # Add category badge — colour comes from CSS (.toast-badge-{category}), no hex
         if category in TOAST_CATEGORIES:
             cat_info = TOAST_CATEGORIES[category]
             category_badge = html.Span(
                 [
-                    html.I(className=f"fas {cat_info['icon']} me-1"),
+                    html.I(className=f"{cat_info['icon']} me-1"),
                     cat_info['name']
                 ],
-                className="badge me-2",
-                style={"backgroundColor": cat_info['color'], "fontSize": "0.7em"}
+                className=f"badge toast-badge-{category} me-2"
             )
-
-            if isinstance(header, str):
+            if isinstance(header, (str, html.Span)):
                 header = html.Div([category_badge, header])
 
         # Save to history if enabled
@@ -389,7 +384,7 @@ class ToastManager:
                 metadata=metadata
             )
 
-        # Create toast with enhanced attributes (no icon - using category badges instead)
+        # Create toast — position/width handled by CSS .enhanced-toast-notification
         toast = dbc.Toast(
             toast_body,
             id={"type": "enhanced-toast", "toast_id": toast_id, "category": category},
@@ -398,7 +393,6 @@ class ToastManager:
             duration=duration_ms,
             is_open=True,
             dismissable=dismissable,
-            style=TOAST_POSITION_STYLE,
             className=f"enhanced-toast-notification toast-category-{category}" +
                       (" toast-persistent" if persistent else "")
         )
@@ -649,7 +643,6 @@ def create_toast_history_panel():
 __all__ = [
     'ToastManager',
     'ToastHistoryManager',
-    'TOAST_POSITION_STYLE',
     'TOAST_DURATIONS',
     'TOAST_ICONS',
     'TOAST_CATEGORIES',

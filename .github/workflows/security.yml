@@ -1,0 +1,45 @@
+name: Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 6 * * 1'   # weekly Monday 06:00 UTC — catch newly-disclosed CVEs
+
+jobs:
+  bandit:
+    name: bandit (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install bandit
+        run: pip install bandit
+      # Gate on high-severity, high-confidence findings (config in pyproject.toml).
+      # Lower-severity items are printed for review but do not fail the build.
+      - name: Run bandit (gating)
+        run: bandit -r . -c pyproject.toml --severity-level high --confidence-level high -q
+      - name: Run bandit (full report, advisory)
+        run: bandit -r . -c pyproject.toml -ll -q
+        continue-on-error: true
+
+  pip-audit:
+    name: pip-audit (dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        run: pip install pip-audit
+      # Advisory: report known-vulnerable dependencies without blocking merges.
+      - name: Audit requirements
+        run: pip-audit -r requirements.txt --desc
+        continue-on-error: true

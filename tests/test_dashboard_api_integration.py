@@ -68,18 +68,6 @@ class TestAPIIntegrationHub:
         else:
             pytest.skip("VirusTotal API key not configured in .env")
 
-    def test_shodan_configured(self):
-        """TC-API-004: Verify Shodan detects configured API key from .env."""
-        # Act - Read from actual .env file
-        key = os.getenv('SHODAN_API_KEY')
-
-        # Assert
-        if key:
-            assert key is not None
-            assert len(key) > 0
-        else:
-            pytest.skip("Shodan API key not configured in .env")
-
     def test_otx_configured(self):
         """TC-API-005: Verify AlienVault OTX detects configured API key from .env."""
         # Act - Read from actual .env file
@@ -181,14 +169,13 @@ class TestAPIIntegrationHub:
         env_vars = {
             'THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY',
             'VIRUSTOTAL_API_KEY',
-            'SHODAN_API_KEY',
             'OTX_API_KEY',
             'GREYNOISE_API_KEY',
             'IPINFO_API_KEY'
         }
 
         # Assert
-        assert len(env_vars) == 6  # All unique
+        assert len(env_vars) == 5  # All unique
 
 
 @pytest.mark.api

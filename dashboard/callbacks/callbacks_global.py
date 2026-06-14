@@ -8,15 +8,14 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 """
 
 import json
-import logging
 import subprocess
 import sys
 import time
 import shutil
-import random
 import psutil
 from datetime import datetime
-from pathlib import Path
+
+from utils.alert_explainer import source_label as _source_label, source_badge_class as _source_badge_class
 
 import dash
 import dash_bootstrap_components as dbc
@@ -44,13 +43,17 @@ from dashboard.shared import (
     get_db_connection,
     get_device_details,
     get_latest_alerts_content,
-    ONBOARDING_STEPS,
+    get_devices_with_status,
+    get_latest_alerts,
+    get_bandwidth_stats,
+
     DASHBOARD_TEMPLATES,
     can_block_devices,
     can_manage_devices,
     log_device_action,
     log_emergency_mode,
     log_user_action,
+    firewall_enforcer,
 )
 
 
@@ -59,60 +62,74 @@ from dashboard.shared import (
 # ---------------------------------------------------------------------------
 
 def create_spotlight_result_item(feature, index, is_selected=False, is_top_hit=False):
-    """Create a single search result item for spotlight search with enhanced metadata"""
+    """Create a compact macOS-style result row for spotlight search."""
+    icon = feature.get('icon', 'fa-circle')
+    name = feature.get('name', 'Unknown')
+    description = feature.get('description', '')
+    category = feature.get('category', '')
+    fid = feature.get('id', '')
+
+    _ICON_COLORS = {
+        'Security': '#ef4444', 'Analytics': '#3b82f6', 'IoT': '#10b981',
+        'System': '#8b5cf6', 'Intelligence': '#f59e0b', 'Performance': '#06b6d4',
+        'Education': '#ec4899', 'Actions': '#f97316', 'Notifications': '#6366f1',
+        'Emergency': '#dc2626', 'Developer': '#84cc16', 'Customization': '#a78bfa',
+        'Assistance': '#22d3ee', 'Help': '#fb923c',
+    }
+    color = _ICON_COLORS.get(category, '#6366f1')
+    feature_data = json.dumps({
+        'id': fid, 'name': name, 'description': description,
+        'category': category, 'icon': icon, 'color': color,
+        'keywords': feature.get('keywords', [])
+    })
+
+    row_cls = "sl-result-row"
+    if is_top_hit:
+        row_cls += " sl-top-hit"
+    if is_selected:
+        row_cls += " sl-selected"
+
+    desc_text = (description[:72] + '…') if len(description) > 72 else description
+
     return html.Div([
-        dbc.Card([
-            dbc.CardBody([
-                dbc.Row([
-                    # Icon (larger for top hit)
-                    dbc.Col([
-                        html.Div([
-                            html.I(className=f"fa {feature['icon']} {'fa-3x' if is_top_hit else 'fa-2x'}",
-                                  style={"color": "var(--accent-color)"})
-                        ], className="spotlight-result-icon")
-                    ], width=2, className="d-flex align-items-center justify-content-center"),
-
-                    # Content
-                    dbc.Col([
-                        html.Div([
-                            # Top Hit Badge + Name
-                            html.Div([
-                                dbc.Badge("Top Hit", color="success", className="me-2 spotlight-top-hit-badge",
-                                         style={"display": "inline-block"}) if is_top_hit else None,
-                                html.H6(feature['name'],
-                                       className="d-inline-block mb-1 fw-bold",
-                                       style={"fontSize": "1.1rem" if is_top_hit else "1rem"})
-                            ], className="mb-1"),
-                            html.P(feature['description'],
-                                  className="mb-1 text-muted small",
-                                  style={"fontSize": "0.9rem" if is_top_hit else "0.85rem"}),
-                            dbc.Badge(feature['category'],
-                                     color="info",
-                                     className="me-2 spotlight-category-badge",
-                                     pill=True)
-                        ])
-                    ], width=8),
-
-                    # Action Button
-                    dbc.Col([
-                        dbc.Button(
-                            html.I(className="fa fa-arrow-right"),
-                            id={"type": "spotlight-go-to-btn", "index": index, "modal_id": feature['id']},
-                            color="primary",
-                            size="sm",
-                            outline=True,
-                            className="spotlight-action-button",
-                            title="Open"  # Tooltip
-                        )
-                    ], width=2, className="d-flex align-items-center justify-content-end")
-                ])
-            ], className="p-3")
-        ], className=f"spotlight-result-card {'spotlight-top-hit-card' if is_top_hit else ''} {'spotlight-result-selected' if is_selected else ''} mb-2")
+        html.Div([
+            html.Div(
+                html.I(className=f"fa {icon}"),
+                className="sl-icon-box",
+                style={"background": f"{color}22", "color": color}
+            ),
+            html.Div([
+                html.Div([
+                    html.Span(name, className="sl-row-name"),
+                    dbc.Badge("Top", color="warning", pill=True,
+                              className="ms-2 sl-top-badge") if is_top_hit else None,
+                ], className="d-flex align-items-center gap-1"),
+                html.Div(desc_text, className="sl-row-desc"),
+            ], className="sl-row-text"),
+            html.Div([
+                html.Span(category, className="sl-row-cat"),
+                html.I(className="fa fa-chevron-right sl-row-arrow"),
+            ], className="sl-row-right"),
+        ], className="sl-row-inner"),
+        dbc.Button(
+            "",
+            id={'type': 'spotlight-go-to-btn', 'index': str(index), 'modal_id': fid},
+            n_clicks=0,
+            style={"display": "none"}
+        ),
     ],
-    id={"type": "spotlight-result-item", "index": index},
-    className="spotlight-result-wrapper"
+    id={"type": "spotlight-result-item", "index": str(index)},
+    className=row_cls,
+    **{"data-feature": feature_data}
     )
 
+
+# Modals that require admin role — used by both the spotlight RBAC check and
+# the card-button bounce-back callback.  Keep as single source of truth.
+ADMIN_ONLY_MODALS = [
+    'email-modal', 'user-modal', 'firewall-modal',
+    'vuln-scanner-modal', 'compliance-modal', 'lockdown-modal',
+]
 
 # ============================================================================
 # register(app) — all ~83 global / cross-cutting callbacks
@@ -126,19 +143,33 @@ def register(app):
     # ================================================================
 
     _SIDEBAR_TAB_MAP = {
-        "sidebar-btn-overview":     "tab-overview",
-        "sidebar-btn-alerts":       "tab-alerts",
-        "sidebar-btn-devices":      "tab-devices",
-        "sidebar-btn-analytics":    "tab-analytics",
-        "sidebar-btn-integrations": "tab-integrations",
-        "sidebar-btn-compliance":   "tab-compliance",
-        "sidebar-btn-admin":        "tab-admin",
+        "sidebar-btn-overview":   "tab-overview",
+        "sidebar-btn-alerts":     "tab-alerts",
+        "sidebar-btn-devices":    "tab-devices",
+        "sidebar-btn-analytics":  "tab-analytics",
+        "sidebar-btn-compliance": "tab-compliance",
+        "sidebar-btn-admin":      "tab-admin",
     }
     _SIDEBAR_BTN_IDS = list(_SIDEBAR_TAB_MAP.keys())
 
+    # ---- Mobile tab bar maps ----
+    _TABBAR_TAB_MAP = {
+        "tabbar-btn-overview":   "tab-overview",
+        "tabbar-btn-alerts":     "tab-alerts",
+        "tabbar-btn-devices":    "tab-devices",
+        "tabbar-btn-analytics":  "tab-analytics",
+        "tabbar-btn-compliance": "tab-compliance",
+        "tabbar-btn-admin":      "tab-admin",
+    }
+    _TABBAR_PRIMARY_IDS = ["tabbar-btn-overview", "tabbar-btn-alerts",
+                           "tabbar-btn-devices", "tabbar-btn-analytics"]
+    _TABBAR_MORE_IDS    = ["tabbar-btn-compliance", "tabbar-btn-admin"]
+    _ALL_NAV_BTN_IDS    = _SIDEBAR_BTN_IDS + list(_TABBAR_TAB_MAP.keys())
+    _ALL_TAB_MAP        = {**_SIDEBAR_TAB_MAP, **_TABBAR_TAB_MAP}
+
     @app.callback(
         Output("main-dashboard-tabs", "value"),
-        [Input(btn_id, "n_clicks") for btn_id in _SIDEBAR_BTN_IDS],
+        [Input(btn_id, "n_clicks") for btn_id in _ALL_NAV_BTN_IDS],
         prevent_initial_call=True,
     )
     def sidebar_switch_tab(*_):
@@ -146,7 +177,7 @@ def register(app):
         if not triggered:
             return dash.no_update
         btn_id = triggered[0]["prop_id"].split(".")[0]
-        return _SIDEBAR_TAB_MAP.get(btn_id, dash.no_update)
+        return _ALL_TAB_MAP.get(btn_id, dash.no_update)
 
     @app.callback(
         [Output(btn_id, "className") for btn_id in _SIDEBAR_BTN_IDS],
@@ -159,6 +190,83 @@ def register(app):
             else "sidebar-nav-item"
             for btn_id in _SIDEBAR_BTN_IDS
         ]
+
+    # ---- Tab bar: primary buttons active state ----
+    @app.callback(
+        [Output(btn_id, "className") for btn_id in _TABBAR_PRIMARY_IDS],
+        Input("main-dashboard-tabs", "value"),
+    )
+    def tabbar_set_primary_active(active_tab):
+        return [
+            "tabbar-item tabbar-active"
+            if _TABBAR_TAB_MAP[btn_id] == active_tab
+            else "tabbar-item"
+            for btn_id in _TABBAR_PRIMARY_IDS
+        ]
+
+    # ---- Tab bar: More button highlights when a More-sheet tab is active ----
+    _TABBAR_MORE_TABS = {_TABBAR_TAB_MAP[b] for b in _TABBAR_MORE_IDS}
+
+    @app.callback(
+        Output("tabbar-btn-more", "className"),
+        Input("main-dashboard-tabs", "value"),
+    )
+    def tabbar_more_btn_active(active_tab):
+        return "tabbar-item tabbar-active" if active_tab in _TABBAR_MORE_TABS else "tabbar-item"
+
+    # ---- Tab bar: More-sheet item active states ----
+    @app.callback(
+        [Output(btn_id, "className") for btn_id in _TABBAR_MORE_IDS],
+        Input("main-dashboard-tabs", "value"),
+    )
+    def tabbar_set_more_active(active_tab):
+        return [
+            "tabbar-more-item tabbar-active"
+            if _TABBAR_TAB_MAP[btn_id] == active_tab
+            else "tabbar-more-item"
+            for btn_id in _TABBAR_MORE_IDS
+        ]
+
+    # ---- Tab bar: More sheet open/close (clientside) ----
+    app.clientside_callback(
+        """
+        function(nMore, nBackdrop) {
+            var sheet    = document.getElementById('tabbar-more-sheet');
+            var backdrop = document.getElementById('tabbar-more-backdrop');
+            if (!sheet || !backdrop) return window.dash_clientside.no_update;
+            var ctx = window.dash_clientside.callback_context;
+            var triggeredId = ctx.triggered[0].prop_id.split('.')[0];
+            if (triggeredId === 'tabbar-btn-more') {
+                sheet.classList.toggle('open');
+                backdrop.classList.toggle('open');
+            } else {
+                sheet.classList.remove('open');
+                backdrop.classList.remove('open');
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("tabbar-more-backdrop", "data-open"),
+        [Input("tabbar-btn-more", "n_clicks"),
+         Input("tabbar-more-backdrop", "n_clicks")],
+        prevent_initial_call=True,
+    )
+
+    # Close More sheet whenever navigation changes (a More-sheet item was tapped)
+    app.clientside_callback(
+        """
+        function(value) {
+            var sheet    = document.getElementById('tabbar-more-sheet');
+            var backdrop = document.getElementById('tabbar-more-backdrop');
+            if (sheet)    sheet.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('open');
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("tabbar-more-sheet", "data-tab"),
+        Input("main-dashboard-tabs", "value"),
+        prevent_initial_call=True,
+    )
 
     # Forcibly hide dcc.Tabs header bar after every render — belt-and-suspenders
     # backup in case the CSS !important doesn't survive React's inline style.
@@ -205,7 +313,7 @@ def register(app):
     @app.callback(
         [Output("notification-drawer", "is_open"),
          Output("notification-drawer-body", "children", allow_duplicate=True)],
-        [Input("notification-bell-button", "n_clicks")],
+        Input("notification-bell-button", "n_clicks"),
         [State("notification-drawer", "is_open")],
         prevent_initial_call=True,
     )
@@ -287,12 +395,11 @@ def register(app):
          Output('toast-detail-modal-summary', 'children'),
          Output('toast-detail-modal-content', 'children')],
         [Input({'type': 'toast-detail-btn', 'toast_id': ALL}, 'n_clicks'),
-         Input({'type': 'toast-history-detail-btn', 'toast_id': ALL}, 'n_clicks'),
-         Input('toast-detail-modal-close', 'n_clicks')],
+         Input({'type': 'toast-history-detail-btn', 'toast_id': ALL}, 'n_clicks')],
         [State('toast-detail-modal', 'is_open')],
         prevent_initial_call=True
     )
-    def handle_toast_detail_modal(detail_clicks, history_detail_clicks, close_clicks, is_open):
+    def handle_toast_detail_modal(detail_clicks, history_detail_clicks, is_open):
         """Handle opening and closing of toast detail modal"""
         ctx = callback_context
         if not ctx.triggered:
@@ -305,9 +412,6 @@ def register(app):
         if trigger_value is None:
             raise dash.exceptions.PreventUpdate
 
-        # Close button clicked
-        if 'toast-detail-modal-close' in trigger_id:
-            return False, "", "", ""
 
         # Detail button clicked from regular toast
         if 'toast-detail-btn' in trigger_id:
@@ -645,7 +749,7 @@ def register(app):
 
             current_blocked = bool(device.get('is_blocked', False))
             new_blocked_status = not current_blocked
-            device_name = device.get('device_name') or device.get('custom_name') or device_ip
+            device_name = device.get('custom_name') or device.get('device_name') or device_ip
 
             if new_blocked_status:
                 return (
@@ -743,38 +847,24 @@ def register(app):
             action_text = "blocked" if new_blocked_status else "unblocked"
             toast_type = "warning" if new_blocked_status else "success"
 
-            # Try to apply firewall rules if MAC address is available
             device = get_device_details(device_ip)
             mac_address = device.get('mac_address') if device else None
 
-            firewall_applied = False
-            if mac_address and config.get('firewall', 'enabled', default=False):
-                try:
-                    firewall_script = project_root / 'scripts' / 'firewall_manager.py'
+            # Apply via FirewallEnforcer (replaces direct firewall_manager subprocess call)
+            enforcer_ok = False
+            try:
+                if new_blocked_status:
+                    enforcer_ok = firewall_enforcer.block_device(device_ip, mac_address)
+                else:
+                    enforcer_ok = firewall_enforcer.unblock_device(device_ip, mac_address)
+            except Exception as _fe:
+                logger.error(f"FirewallEnforcer error for {device_ip}: {_fe}")
 
-                    if new_blocked_status:
-                        command = [sys.executable, str(firewall_script), '--block', mac_address]
-                    else:
-                        command = [sys.executable, str(firewall_script), '--unblock', mac_address]
-
-                    result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=10)
-                    logger.info(f"Device {device_ip} ({mac_address}) {action_text}: {result.stdout}")
-                    firewall_applied = True
-
-                except subprocess.CalledProcessError as e:
-                    error_msg = e.stderr if e.stderr else str(e)
-                    logger.error(f"Failed to apply firewall rules for {device_ip}: {error_msg}")
-
-                except subprocess.TimeoutExpired:
-                    logger.error(f"Timeout while applying firewall rules for {device_ip}")
-
-            # Return success message
-            if firewall_applied:
-                message = f"Device {device_ip} ({mac_address}) successfully {action_text}"
-            elif mac_address:
-                message = f"Device {device_ip} {action_text} in database (firewall disabled)"
+            backend = getattr(firewall_enforcer, 'backend_name', 'noop')
+            if enforcer_ok:
+                message = f"Device {device_ip} {action_text} ({backend})"
             else:
-                message = f"Device {device_ip} {action_text} in database (MAC unknown, firewall not applied)"
+                message = f"Device {device_ip} {action_text} in database (enforcer: {backend} - may need root)"
 
             # Log the action to audit trail
             log_device_action(
@@ -794,79 +884,78 @@ def register(app):
         raise dash.exceptions.PreventUpdate
 
     # ================================================================
-    # ONBOARDING
+    # TOUR (driver.js interactive tour — replaces prose modal)
     # ================================================================
 
-    @app.callback(
+    # A) First-run auto-launch + restart button
+    app.clientside_callback(
+        """
+        function(pathname, restart_clicks, store_data) {
+            var ctx = window.dash_clientside.callback_context;
+            if (!ctx.triggered || ctx.triggered.length === 0) {
+                return window.dash_clientside.no_update;
+            }
+            var triggerId = ctx.triggered[0].prop_id;
+            function tryStart(attempts) {
+                if (window.startIotTour) {
+                    window.startIotTour();
+                } else if (attempts > 0) {
+                    setTimeout(function() { tryStart(attempts - 1); }, 250);
+                }
+            }
+            if (triggerId.indexOf('url') !== -1) {
+                // First page load — launch for new users only
+                if (!store_data || !store_data.completed) {
+                    setTimeout(function() { tryStart(12); }, 1500);
+                }
+            } else if (triggerId.indexOf('restart-tour-button') !== -1) {
+                tryStart(8);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('onboarding-step-store', 'data'),
+        Input('url', 'pathname'),
+        Input('restart-tour-button', 'n_clicks'),
+        State('onboarding-store', 'data'),
+        prevent_initial_call=False,
+    )
+
+    # B) Spotlight "Interactive Tour" click — intercepts the ghost modal's is_open=True
+    app.clientside_callback(
+        """
+        function(is_open) {
+            if (is_open) {
+                function tryStart(attempts) {
+                    if (window.startIotTour) {
+                        window.startIotTour();
+                    } else if (attempts > 0) {
+                        setTimeout(function() { tryStart(attempts - 1); }, 250);
+                    }
+                }
+                setTimeout(function() { tryStart(8); }, 80);
+                return false;  // Close the ghost modal immediately
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
         Output('onboarding-modal', 'is_open', allow_duplicate=True),
-        [Input('url', 'pathname'),
-         Input('restart-tour-button', 'n_clicks')],
-        [State('onboarding-store', 'data')],
-        prevent_initial_call='initial_duplicate'
+        Input('onboarding-modal', 'is_open'),
+        prevent_initial_call=True,
     )
-    def launch_onboarding_modal(_, restart_clicks, onboarding_data):
-        """Launch onboarding on first visit or when restart button is clicked"""
-        ctx = callback_context
-        if not ctx.triggered:
-            if onboarding_data is None:
-                return True
-            return False
 
-        trigger_id = ctx.triggered[0]['prop_id']
-
-        if 'restart-tour-button' in trigger_id:
-            return True
-
-        if onboarding_data is None:
-            return True
-
-        return False
-
-    @app.callback(
-        [Output('onboarding-title', 'children'),
-         Output('onboarding-body', 'children'),
-         Output('onboarding-prev', 'disabled'),
-         Output('onboarding-next', 'children')],
-        Input('onboarding-step-store', 'data')
+    # C) Tour completion — persist to localStorage via onboarding-store
+    app.clientside_callback(
+        """
+        function(n_clicks) {
+            if (!n_clicks) return window.dash_clientside.no_update;
+            return {completed: true, timestamp: new Date().toISOString()};
+        }
+        """,
+        Output('onboarding-store', 'data'),
+        Input('tour-complete-sentinel', 'n_clicks'),
+        prevent_initial_call=True,
     )
-    def update_onboarding_content(step):
-        """Update the content of the onboarding modal"""
-        if step < 0:
-            step = 0
-        if step >= len(ONBOARDING_STEPS):
-            step = len(ONBOARDING_STEPS) - 1
-
-        content = ONBOARDING_STEPS[step]
-        prev_disabled = (step == 0)
-        next_text = "Finish" if step == len(ONBOARDING_STEPS) - 1 else "Next"
-
-        return content['title'], content['body'], prev_disabled, next_text
-
-    @app.callback(
-        [Output('onboarding-step-store', 'data'),
-         Output('onboarding-modal', 'is_open', allow_duplicate=True),
-         Output('onboarding-store', 'data')],
-        [Input('onboarding-next', 'n_clicks'),
-         Input('onboarding-prev', 'n_clicks')],
-        [State('onboarding-step-store', 'data')],
-        prevent_initial_call=True
-    )
-    def update_onboarding_step(next_clicks, prev_clicks, step):
-        """Handle navigation in the onboarding modal"""
-        ctx = callback_context
-        if not ctx.triggered:
-            return 0, dash.no_update, dash.no_update
-
-        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if button_id == 'onboarding-next':
-            if step == len(ONBOARDING_STEPS) - 1:
-                return 0, False, {'completed': True, 'timestamp': datetime.now().isoformat()}
-            return step + 1, dash.no_update, dash.no_update
-        elif button_id == 'onboarding-prev':
-            return max(0, step - 1), dash.no_update, dash.no_update
-
-        return 0, dash.no_update, dash.no_update
 
     # ================================================================
     # LOCKDOWN MODE
@@ -875,7 +964,8 @@ def register(app):
     @app.callback(
         [Output('lockdown-modal', 'is_open'),
          Output('lockdown-trusted-count', 'children'),
-         Output('lockdown-blocked-count', 'children')],
+         Output('lockdown-blocked-count', 'children'),
+         Output('lockdown-admin-device-status', 'children')],
         [Input('lockdown-switch', 'value'),
          Input('lockdown-cancel', 'n_clicks'),
          Input('lockdown-confirm', 'n_clicks')],
@@ -887,7 +977,7 @@ def register(app):
         """Show confirmation modal when lockdown is toggled"""
         ctx = callback_context
         if not ctx.triggered:
-            return False, "0", "0"
+            return False, "0", "0", no_update
 
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -895,15 +985,41 @@ def register(app):
             devices = ws_message.get('all_devices_with_status', []) if ws_message else []
             trusted_count = sum(1 for d in devices if d.get('is_trusted', False))
             blocked_count = len(devices) - trusted_count
-            return True, str(trusted_count), str(blocked_count)
+
+            # Check if admin's current device is known and will be protected
+            admin_ip = request.remote_addr if request else None
+            if admin_ip:
+                try:
+                    row = db_manager.conn.execute(
+                        "SELECT mac_address, device_name FROM devices WHERE device_ip = ?", (admin_ip,)
+                    ).fetchone()
+                    if row and row[0]:
+                        label = row[1] or admin_ip
+                        status_badge = dbc.Alert([
+                            html.I(className="fa fa-laptop me-2 text-success"),
+                            html.Strong("Your device is protected. "),
+                            html.Span(f"{label} ({admin_ip}) will not be blocked.", className="small"),
+                        ], color="success", className="mb-0 py-2")
+                    else:
+                        status_badge = dbc.Alert([
+                            html.I(className="fa fa-exclamation-triangle me-2"),
+                            html.Strong("Warning: "),
+                            html.Span(f"Your device ({admin_ip}) was not found in the device list and may be blocked. Trust your device first.", className="small"),
+                        ], color="warning", className="mb-0 py-2")
+                except Exception:
+                    status_badge = no_update
+            else:
+                status_badge = no_update
+
+            return True, str(trusted_count), str(blocked_count), status_badge
 
         if trigger_id == 'lockdown-cancel':
-            return False, "0", "0"
+            return False, "0", "0", no_update
 
         if trigger_id == 'lockdown-confirm':
-            return False, "0", "0"
+            return False, "0", "0", no_update
 
-        return False, "0", "0"
+        return False, "0", "0", no_update
 
     @app.callback(
         [Output('lockdown-switch', 'value'),
@@ -915,6 +1031,8 @@ def register(app):
     )
     def handle_lockdown_confirmation(cancel_clicks, confirm_clicks, current_value):
         """Handle the actual lockdown mode toggle by calling the firewall script."""
+        if not current_user.is_authenticated or not current_user.is_admin():
+            raise dash.exceptions.PreventUpdate
         ctx = callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
@@ -956,6 +1074,19 @@ def register(app):
 
             trusted_devices = db_manager.get_trusted_devices()
             trusted_macs = [d['mac_address'] for d in trusted_devices if d.get('mac_address')]
+
+            # Always exempt the admin's current device so they never lose dashboard access
+            admin_ip = request.remote_addr if request else None
+            if admin_ip:
+                try:
+                    row = db_manager.conn.execute(
+                        "SELECT mac_address FROM devices WHERE device_ip = ?", (admin_ip,)
+                    ).fetchone()
+                    if row and row[0] and row[0] not in trusted_macs:
+                        trusted_macs.append(row[0])
+                        logger.info("Auto-exempted admin device %s (MAC %s) from lockdown.", admin_ip, row[0])
+                except Exception as exc:
+                    logger.warning("Could not look up admin device MAC for lockdown exemption: %s", exc)
 
             if not trusted_macs:
                 logger.warning("No trusted MAC addresses found. Lockdown will block all devices.")
@@ -1166,8 +1297,8 @@ def register(app):
             except (FileNotFoundError, json.JSONDecodeError):
                 status = 'running'
             if status == 'paused':
-                return [html.I(className="fa fa-play me-2"), "Resume Monitoring"], "success"
-            return [html.I(className="fa fa-pause me-2"), "Pause Monitoring"], "warning"
+                return html.I(className="fa fa-play", id="pause-icon"), "success"
+            return html.I(className="fa fa-pause", id="pause-icon"), "link"
 
         try:
             with open(status_file, 'r', encoding='utf-8') as f:
@@ -1184,352 +1315,388 @@ def register(app):
             logger.error(f"Error writing status file: {e}")
 
         if new_status == 'paused':
-            return [html.I(className="fa fa-play me-2"), "Resume Monitoring"], "success"
-        return [html.I(className="fa fa-pause me-2"), "Pause Monitoring"], "warning"
+            return html.I(className="fa fa-play", id="pause-icon"), "success"
+        return html.I(className="fa fa-pause", id="pause-icon"), "link"
 
     # ================================================================
     # CHAT / AI ASSISTANT
     # ================================================================
 
+    def _quota_badge_text(user_id: str, tier: str) -> str:
+        """Return the remaining-messages badge text for the chat modal footer."""
+        try:
+            action_type = f'ai_chat_{tier}'
+            _, remaining, _ = rate_limiter.check_rate_limit(str(user_id), action_type)
+            cap = rate_limiter.LIMITS.get(action_type, (0, 0))[0]
+            if remaining <= 0:
+                return "On-device AI active - daily limit reached"
+            return f"{remaining} / {cap} AI messages left today"
+        except Exception:
+            return ""
+
+    def _build_chat_welcome() -> list:
+        """Render the empty-state greeting + plain-English starter chips."""
+        chips = [
+            "Is my network safe?",
+            "What's connected right now?",
+            "Did any device contact a flagged IP today?",
+            "Show me high-risk devices",
+            "Explain my latest alert",
+            "How do I block a device?",
+        ]
+        # Surface degraded cloud AI subtly: amber when some providers are
+        # failing, red when all are (templates/local only). Tooltip carries
+        # the most recent provider error for admins.
+        status_text = ai_assistant.get_status_message()
+        status_class = "chat-welcome-status"
+        status_title = None
+        try:
+            level = ai_assistant.get_status_level()
+            if level in ("degraded", "local-only"):
+                health = ai_assistant.get_health()
+                errors = [
+                    f"{name}: {state['last_error']}"
+                    for name, state in health["providers"].items()
+                    if state.get("configured") and state.get("last_error")
+                ]
+                status_title = "; ".join(errors)[:300] or None
+                if level == "local-only":
+                    ollama_ok = health["providers"].get("ollama", {}).get("configured")
+                    status_text = ("Cloud AI unreachable, using local AI"
+                                   if ollama_ok else
+                                   "Cloud AI unreachable, using local templates")
+                    status_class += " text-danger"
+                else:
+                    status_text = "Some cloud AI providers unreachable"
+                    status_class += " text-warning"
+        except Exception:
+            pass
+        return [
+            html.Div([
+                html.Div([
+                    html.I(className="fa fa-robot chat-welcome-icon"),
+                    html.P("How can I help with your network today?",
+                           className="chat-welcome-heading"),
+                    html.P(status_text, className=status_class, title=status_title),
+                ], className="chat-welcome-body"),
+                html.Div([
+                    dbc.Button(
+                        chip,
+                        id={'type': 'chat-chip', 'prompt': chip},
+                        className="chat-chip",
+                        n_clicks=0,
+                    )
+                    for chip in chips
+                ], className="chat-chips-row"),
+            ], className="chat-welcome")
+        ]
+
+    def _build_chat_history_ui(history: list) -> list:
+        """Render the last 20 conversation turns as Dash components."""
+        chat_messages = []
+        for idx, msg in enumerate(history[-20:]):
+            msg_time = msg.get('timestamp', '')
+            time_str = ""
+            try:
+                time_str = datetime.fromisoformat(msg_time).strftime("%I:%M %p") if msg_time else ""
+            except Exception:
+                pass
+
+            if msg['role'] == 'user':
+                chat_messages.append(
+                    dbc.Card(
+                        dbc.CardBody([
+                            html.Div([
+                                html.Div([
+                                    html.I(className="fa fa-user-circle me-2 u-text-chat-icon"),
+                                    html.Strong("You", className="u-text-chat")
+                                ], className="d-flex align-items-center"),
+                                html.Small(time_str, className="text-muted u-text-chat-sm")
+                            ], className="d-flex justify-content-between align-items-center mb-2"),
+                            html.P(msg['content'], className="mb-0 u-text-chat")
+                        ], className="chat-bubble"),
+                        color="primary", outline=True, className="mb-3 chat-bubble--user"
+                    )
+                )
+            else:
+                _src = msg.get('source', '')
+                _sl = _source_label(_src)
+                _src_badge = (
+                    dbc.Badge(
+                        _sl, className=f"ms-2 {_source_badge_class(_src)}"
+                    ) if _sl else html.Span()
+                )
+                chat_messages.append(
+                    dbc.Card(
+                        dbc.CardBody([
+                            html.Div([
+                                html.Div([
+                                    html.I(className="fa fa-robot me-2 u-text-chat-icon"),
+                                    html.Strong("IoTSentinel AI", className="u-text-chat"),
+                                    _src_badge,
+                                ], className="d-flex align-items-center"),
+                                html.Div([
+                                    html.Small(time_str, className="text-muted me-2 u-text-chat-sm"),
+                                    dcc.Clipboard(
+                                        content=msg['content'],
+                                        title="Copy response",
+                                        className="chat-copy-btn",
+                                    )
+                                ], className="d-flex align-items-center")
+                            ], className="d-flex justify-content-between align-items-center mb-2"),
+                            dcc.Markdown(msg['content'], className="mb-0 u-text-chat")
+                        ], className="chat-bubble"),
+                        color="info", outline=True, className="mb-3 chat-bubble--ai"
+                    )
+                )
+        return chat_messages
+
     @app.callback(
         [Output("chat-modal", "is_open"),
          Output('chat-history-store', 'data', allow_duplicate=True),
-         Output('chat-history', 'children', allow_duplicate=True)],
+         Output('chat-history', 'children', allow_duplicate=True),
+         Output('chat-quota-badge', 'children', allow_duplicate=True)],
         Input("open-chat-button", "n_clicks"),
         [State("chat-modal", "is_open"),
          State('chat-history-store', 'data')],
         prevent_initial_call=True,
     )
     def toggle_chat_modal(n, is_open, chat_data):
-        if n:
-            new_state = not is_open
+        if not n:
+            return is_open, dash.no_update, dash.no_update, dash.no_update
 
-            if chat_data is None:
-                chat_data = {'history': []}
+        new_state = not is_open
+        if chat_data is None:
+            chat_data = {'history': []}
 
-            if new_state and len(chat_data.get('history', [])) == 0:
-                ai_status = ai_assistant.get_status_message()
-                welcome_msg = {
-                    'role': 'assistant',
-                    'content': f"""👋 **Welcome to IoTSentinel AI Assistant!**
+        tier = config.get('system', 'deployment_tier', 'household')
+        uid = getattr(current_user, 'id', 'anonymous') if current_user.is_authenticated else 'anonymous'
+        badge = _quota_badge_text(uid, tier)
 
-{ai_status}
+        history = chat_data.get('history', [])
+        # Treat a session with only the old assistant-only welcome as empty
+        no_real_convo = len(history) == 0 or (
+            len(history) == 1 and history[0].get('role') == 'assistant'
+        )
+        if new_state and no_real_convo:
+            chat_data['history'] = []
+            return new_state, chat_data, _build_chat_welcome(), badge
 
-I can help you with:
-- 🔍 Network security analysis
-- 🛡️ Threat investigation
-- 📊 IoT device insights
-- ⚙️ Configuration guidance
-- 🚨 Alert troubleshooting
+        if new_state:
+            return new_state, chat_data, _build_chat_history_ui(history), badge
 
-*Ask me anything about your network security!*""",
-                    'timestamp': datetime.now().isoformat()
-                }
-
-                chat_data['history'] = [welcome_msg]
-
-                welcome_display = dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.Div([
-                                html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
-                                html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
-                            ], className="d-flex align-items-center"),
-                            html.Small(
-                                datetime.now().strftime("%I:%M %p"),
-                                className="text-muted",
-                                style={'fontSize': '11px'}
-                            )
-                        ], className="d-flex justify-content-between align-items-center mb-2"),
-                        dcc.Markdown(welcome_msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
-                    ], style={'padding': '12px 15px'})
-                ], color="info", outline=True, className="mb-3", style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'})
-
-                return new_state, chat_data, [welcome_display]
-
-            elif new_state and len(chat_data.get('history', [])) > 0:
-                chat_messages = []
-                for idx, msg in enumerate(chat_data['history'][-20:]):
-                    msg_time = msg.get('timestamp')
-                    time_str = ""
-                    if msg_time:
-                        try:
-                            dt = datetime.fromisoformat(msg_time)
-                            time_str = dt.strftime("%I:%M %p")
-                        except:
-                            time_str = ""
-
-                    if msg['role'] == 'user':
-                        chat_messages.append(
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.Div([
-                                        html.Div([
-                                            html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
-                                            html.Strong("You", style={'fontSize': '14px'})
-                                        ], className="d-flex align-items-center"),
-                                        html.Small(time_str, className="text-muted", style={'fontSize': '11px'})
-                                    ], className="d-flex justify-content-between align-items-center mb-2"),
-                                    html.P(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
-                                ], style={'padding': '12px 15px'}),
-                                color="primary",
-                                outline=True,
-                                className="mb-3",
-                                style={'borderRadius': '12px', 'borderWidth': '2px'}
-                            )
-                        )
-                    else:
-                        chat_messages.append(
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.Div([
-                                        html.Div([
-                                            html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
-                                            html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
-                                        ], className="d-flex align-items-center"),
-                                        html.Div([
-                                            html.Small(time_str, className="text-muted me-2", style={'fontSize': '11px'}),
-                                            dbc.Button(
-                                                html.I(className="fa fa-copy"),
-                                                id={'type': 'copy-message', 'index': idx},
-                                                color="link",
-                                                size="sm",
-                                                className="p-0",
-                                                style={'fontSize': '12px'},
-                                                title="Copy response"
-                                            )
-                                        ], className="d-flex align-items-center")
-                                    ], className="d-flex justify-content-between align-items-center mb-2"),
-                                    dcc.Markdown(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
-                                ], style={'padding': '12px 15px'}),
-                                color="info",
-                                outline=True,
-                                className="mb-3",
-                                style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'}
-                            )
-                        )
-
-                return new_state, chat_data, chat_messages
-
-            return new_state, chat_data, dash.no_update
-        return is_open, dash.no_update, dash.no_update
+        return new_state, chat_data, dash.no_update, dash.no_update
 
     # Clear chat history
     @app.callback(
         [Output('chat-history-store', 'data', allow_duplicate=True),
-         Output('chat-history', 'children', allow_duplicate=True)],
+         Output('chat-history', 'children', allow_duplicate=True),
+         Output('chat-quota-badge', 'children', allow_duplicate=True)],
         Input('clear-chat-button', 'n_clicks'),
         prevent_initial_call=True
     )
     def clear_chat_history(n_clicks):
-        if n_clicks:
-            ai_status = ai_assistant.get_status_message()
-            welcome_msg = {
-                'role': 'assistant',
-                'content': f"""👋 **Welcome to IoTSentinel AI Assistant!**
-
-{ai_status}
-
-I can help you with:
-- 🔍 Network security analysis
-- 🛡️ Threat investigation
-- 📊 IoT device insights
-- ⚙️ Configuration guidance
-- 🚨 Alert troubleshooting
-
-*Ask me anything about your network security!*""",
-                'timestamp': datetime.now().isoformat()
-            }
-
-            welcome_display = dbc.Card([
-                dbc.CardBody([
-                    html.Div([
-                        html.I(className="fa fa-robot me-2"),
-                        html.Strong("IoTSentinel AI"),
-                        html.Small(
-                            datetime.now().strftime("%I:%M %p"),
-                            className="text-muted ms-auto"
-                        )
-                    ], className="d-flex align-items-center mb-2"),
-                    dcc.Markdown(welcome_msg['content'], className="mb-0")
-                ])
-            ], color="info", outline=True, className="mb-3")
-
-            return {'history': [welcome_msg]}, [welcome_display]
-        raise dash.exceptions.PreventUpdate
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        tier = config.get('system', 'deployment_tier', 'household')
+        uid = getattr(current_user, 'id', 'anonymous') if current_user.is_authenticated else 'anonymous'
+        return {'history': []}, _build_chat_welcome(), _quota_badge_text(uid, tier)
 
     @app.callback(
         [Output('chat-history', 'children', allow_duplicate=True),
          Output('chat-input', 'value'),
-         Output('chat-history-store', 'data', allow_duplicate=True)],
+         Output('chat-history-store', 'data', allow_duplicate=True),
+         Output('chat-quota-badge', 'children', allow_duplicate=True)],
         [Input('chat-send-button', 'n_clicks'),
-         Input('chat-input', 'n_submit')],
+         Input('chat-input', 'n_submit'),
+         Input({'type': 'chat-chip', 'prompt': ALL}, 'n_clicks')],
         [State('chat-input', 'value'),
          State('chat-history-store', 'data'),
          State('ws', 'message')],
         prevent_initial_call=True
     )
-    def handle_chat_message(send_clicks, input_submit, message, chat_data, ws_message):
-        """AI Chat Assistant with HybridAI (Groq → Ollama → Rules) + NL to SQL"""
+    def handle_chat_message(send_clicks, input_submit, chip_clicks, message, chat_data, ws_message):
+        """Multi-turn AI chat: OpenAI → Groq → Ollama → rules, with tier-based daily cap."""
+        # Determine if a starter chip was clicked; use its prompt text as the message
+        ctx = callback_context
+        if ctx.triggered:
+            triggered_id = ctx.triggered[0]['prop_id']
+            if 'chat-chip' in triggered_id:
+                try:
+                    id_dict = json.loads(triggered_id.split('.')[0])
+                    chip_text = id_dict.get('prompt', '')
+                    if chip_text and any(chip_clicks):
+                        message = chip_text
+                except Exception:
+                    pass
+
         if not message or not message.strip():
             raise dash.exceptions.PreventUpdate
 
         history = chat_data.get('history', []) if chat_data else []
-
         history.append({
             'role': 'user',
             'content': message,
             'timestamp': datetime.now().isoformat()
         })
 
-        # Check for /query command (Natural Language to SQL)
-        if message.strip().startswith('/query'):
-            try:
-                nl_query = message.strip()[6:].strip()
-
-                if not nl_query:
-                    ai_response = "❓ Please provide a question after `/query`. Example: `/query show me high-risk devices`"
-                else:
-                    result = nl_to_sql.execute_query(nl_query)
-
-                    if result['status'] == 'success':
-                        ai_response = nl_to_sql.format_results_as_text(result)
-                    else:
-                        ai_response = nl_to_sql.format_results_as_text(result)
-
-                history.append({
-                    'role': 'assistant',
-                    'content': ai_response,
-                    'timestamp': datetime.now().isoformat(),
-                    'source': 'database'
-                })
-
-                chat_messages = []
-                for idx, msg in enumerate(history[-20:]):
-                    msg_time = msg.get('timestamp')
-                    time_str = ""
-                    if msg_time:
-                        try:
-                            dt = datetime.fromisoformat(msg_time)
-                            time_str = dt.strftime("%I:%M %p")
-                        except:
-                            time_str = ""
-
-                    if msg['role'] == 'user':
-                        chat_messages.append(
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.Div([
-                                        html.Div([
-                                            html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
-                                            html.Strong("You"),
-                                            html.Span(time_str, className="text-muted small ms-2") if time_str else None
-                                        ], className="d-flex align-items-center mb-2"),
-                                        html.Div(msg['content'], style={'whiteSpace': 'pre-wrap'}),
-                                        html.Button([
-                                            html.I(id={'type': 'copy-icon', 'index': idx}, className="fa fa-copy")
-                                        ], id={'type': 'copy-btn', 'index': idx},
-                                           className="btn btn-sm btn-link text-muted float-end",
-                                           style={'padding': '0', 'marginTop': '-30px'})
-                                    ], style={'position': 'relative'})
-                                ], className="p-3"),
-                                className="mb-3",
-                                style={
-                                    'backgroundColor': 'rgba(255,255,255,0.95)',
-                                    'border': '2px solid #007bff',
-                                    'borderRadius': '12px',
-                                    'boxShadow': '0 2px 8px rgba(0,123,255,0.1)'
-                                }
-                            )
-                        )
-                    else:
-                        chat_messages.append(
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.Div([
-                                        html.Div([
-                                            html.I(className="fa fa-robot me-2", style={'fontSize': '18px', 'color': '#17a2b8'}),
-                                            html.Strong("IoTSentinel AI", style={'color': '#17a2b8'}),
-                                            html.Span(time_str, className="text-muted small ms-2") if time_str else None
-                                        ], className="d-flex align-items-center mb-2"),
-                                        dcc.Markdown(msg['content'], style={'whiteSpace': 'pre-wrap'}),
-                                        html.Button([
-                                            html.I(id={'type': 'copy-icon', 'index': f"ai-{idx}"}, className="fa fa-copy")
-                                        ], id={'type': 'copy-btn', 'index': f"ai-{idx}"},
-                                           className="btn btn-sm btn-link text-muted float-end",
-                                           style={'padding': '0', 'marginTop': '-30px'})
-                                    ], style={'position': 'relative'})
-                                ], className="p-3"),
-                                className="mb-3",
-                                style={
-                                    'backgroundColor': 'rgba(23,162,184,0.05)',
-                                    'border': '2px solid #17a2b8',
-                                    'borderRadius': '12px',
-                                    'boxShadow': '0 2px 8px rgba(23,162,184,0.1)'
-                                }
-                            )
-                        )
-
-                return {'history': history}, chat_messages, ""
-
-            except Exception as e:
-                logger.error(f"Error in NL to SQL: {e}")
-                ai_response = f"❌ Database query error: {str(e)}"
-                history.append({
-                    'role': 'assistant',
-                    'content': ai_response,
-                    'timestamp': datetime.now().isoformat(),
-                    'source': 'error'
-                })
-
-        # Get network context (for normal AI chat)
-        device_count = ws_message.get('device_count', 0) if ws_message else 0
-        alert_count = ws_message.get('alert_count', 0) if ws_message else 0
-        recent_alerts = ws_message.get('recent_alerts', [])[:3] if ws_message else []
-
-        context = f"""You are IoTSentinel AI Assistant, a helpful and concise network security expert.
-
-Current Network Status:
-- Active Devices: {device_count}
-- Active Alerts: {alert_count}"""
-
-        if recent_alerts:
-            context += "\nRecent Alerts:\n"
-            for alert in recent_alerts:
-                context += f"- {alert.get('severity', 'unknown').upper()}: {alert.get('explanation', 'Unknown')} on {alert.get('device_name') or alert.get('device_ip', 'Unknown')}\n"
-
-        context += """
-
-IoTSentinel System Information:
-- ML Engine: River (incremental learning) with HalfSpaceTrees for anomaly detection
-- Database: SQLite at data/database/iotsentinel.db
-- Components: Inference Engine, Smart Recommender, HybridAI Assistant, Traffic Forecaster, Attack Sequence Tracker
-
-Key Features:
-1. Baseline Collection: Automatic baseline learning from normal network traffic (24-48 hours)
-2. Anomaly Detection: Real-time analysis using River HalfSpaceTrees
-3. Smart Recommendations: AI-powered security recommendations for each alert
-4. Traffic Forecasting: 24-hour bandwidth predictions using River SNARIMAX
-5. Attack Sequence Tracking: Pattern-based attack prediction
-6. Natural Language Queries: Use `/query <question>` to ask database questions
-7. Lockdown Mode: Blocks all untrusted devices
-8. AI Assistant (you): 3-tier fallback: Groq Cloud → Ollama Local → Rule-based
-
-Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max unless explaining complex topics)."""
-
-        ai_response, source = ai_assistant.get_response(
-            prompt=message,
-            context=context
+        # --- Data-lookup detection: /query prefix OR natural phrasing ---
+        # NOTE: pattern 1 deliberately excludes "connect" — it's too broad and catches
+        # conversational questions like "What's connected right now?". "connect" as a
+        # connection verb is handled by pattern 2 which requires device context too.
+        _DATA_PATTERNS = [
+            r'\b(show|list|find|get|display|what|which|how many)\b.*(device|alert|traffic|bandwidth|port|ip|risk|threat)',
+            r'\b(did|has|have|does)\b.*(device|camera|tv|phone|router).*(talk|contact|connect|send|upload)',
+            r'\b(top|highest|most|least)\b.*(traffic|bandwidth|alert|risk)',
+            r'\b(last|past|recent)\b.*(hour|day|week|alert|connect)',
+        ]
+        import re as _re
+        msg_lower = message.strip().lower()
+        is_data_query = message.strip().startswith('/query') or any(
+            _re.search(p, msg_lower) for p in _DATA_PATTERNS
         )
 
-        source_badge = {
-            'groq': '🚀 *[Groq Cloud]*',
-            'ollama': '🏠 *[Ollama Local]*',
-            'rules': '📋 *[Rules]*'
-        }.get(source.lower(), '')
+        if is_data_query:
+            try:
+                nl_query = message.strip()[6:].strip() if message.strip().startswith('/query') else message.strip()
+                if nl_query:
+                    # Apply the same per-user daily cap used for AI chat to the NL
+                    # data-query path — previously this path returned before the cap check.
+                    _tier = config.get('system', 'deployment_tier', 'household')
+                    _uid = str(getattr(current_user, 'id', 'anonymous')) if current_user.is_authenticated else 'anonymous'
+                    _action_type = f'ai_chat_{_tier}'
+                    _cap_ok, _, _ = rate_limiter.check_rate_limit(_uid, _action_type)
+                    if not _cap_ok:
+                        _cap = rate_limiter.LIMITS.get(_action_type, (0, 0))[0]
+                        _limit_msg = (
+                            f"Daily limit of {_cap} AI messages reached. "
+                            "On-device AI only until midnight."
+                        )
+                        history.append({
+                            'role': 'assistant',
+                            'content': _limit_msg,
+                            'timestamp': datetime.now().isoformat(),
+                            'source': 'rules',
+                        })
+                        return _build_chat_history_ui(history), "", {'history': history}, _quota_badge_text(_uid, _tier)
 
-        if source_badge:
-            ai_response = f"{source_badge}\n\n{ai_response}"
+                    result = nl_to_sql.execute_query(nl_query)
+                    if result.get('status') == 'success':
+                        plain_answer = nl_to_sql.answer_in_plain_english(nl_query, result)
+                        table_text = nl_to_sql.format_results_as_text(result)
+                        ai_response = f"{plain_answer}\n\n{table_text}" if plain_answer else table_text
+                        history.append({
+                            'role': 'assistant',
+                            'content': ai_response,
+                            'timestamp': datetime.now().isoformat(),
+                            'source': 'database',
+                        })
+                        tier = config.get('system', 'deployment_tier', 'household')
+                        uid = getattr(current_user, 'id', 'anonymous') if current_user.is_authenticated else 'anonymous'
+                        return _build_chat_history_ui(history), "", {'history': history}, _quota_badge_text(uid, tier)
+                    # status != 'success': NL→SQL couldn't parse it — fall through to AI chat
+            except Exception as e:
+                logger.error(f"NL-to-SQL error: {e}")
+                # fall through to AI chat on any error
+
+        # --- Tier / user identity ---
+        tier = config.get('system', 'deployment_tier', 'household')
+        uid = str(getattr(current_user, 'id', 'anonymous')) if current_user.is_authenticated else 'anonymous'
+        action_type = f'ai_chat_{tier}'
+
+        # --- Daily cloud cap check ---
+        cap_allowed, cap_remaining, _ = rate_limiter.check_rate_limit(uid, action_type)
+        prefer_local = not cap_allowed
+        cap_notice = ""
+        if not cap_allowed:
+            cap = rate_limiter.LIMITS.get(action_type, (0, 0))[0]
+            cap_notice = (
+                f"\n\n---\n*Daily limit of {cap} messages reached. "
+                "Now using on-device AI (Ollama → rules).*"
+            )
+
+        # --- Build rich live context from DB ---
+        try:
+            devices = get_devices_with_status()
+            active_devices = [d for d in devices if d.get('status') != 'offline'][:10]
+            alert_devices = [d for d in devices if d.get('status') == 'alert']
+        except Exception:
+            active_devices, alert_devices = [], []
+
+        try:
+            recent_alerts = get_latest_alerts(limit=8)
+        except Exception:
+            recent_alerts = []
+
+        try:
+            bw = get_bandwidth_stats()
+        except Exception:
+            bw = {}
+
+        device_lines = "\n".join(
+            f"  - {d.get('device_name') or d.get('device_ip','?')} "
+            f"[{d.get('category','unknown')}] status={d.get('status','?')}"
+            for d in active_devices
+        ) or "  (none)"
+
+        alert_lines = "\n".join(
+            f"  - {a.get('severity','?').upper()}: {a.get('plain_explanation') or a.get('explanation','?')} "
+            f"({a.get('device_name') or a.get('device_ip','?')})"
+            for a in recent_alerts[:5]
+        ) or "  (none)"
+
+        context = (
+            "You are the IoTSentinel AI Assistant, a concise, knowledgeable home network "
+            "security expert embedded in the IoTSentinel dashboard.\n\n"
+            "SCOPE: Answer any question related to IoTSentinel, home networking, IoT devices, "
+            "cybersecurity, privacy, network protocols, or security best-practices, including "
+            "general educational questions on these topics (e.g. 'what is a firewall?', "
+            "'how does WPA2 work?'). "
+            "Only decline if the request is clearly personal, unrelated to technology/security "
+            "(e.g. recipes, creative writing, relationship advice, coding homework), "
+            "or has nothing to do with networks, devices, or security. "
+            "When declining, do so in one polite sentence and redirect to security topics.\n\n"
+            f"CURRENT NETWORK STATE (live, as of {datetime.now().strftime('%H:%M')}):\n"
+            f"Active devices ({len(active_devices)}):\n{device_lines}\n"
+            f"Devices with active alerts: {len(alert_devices)}\n"
+            f"Recent open alerts ({len(recent_alerts)}):\n{alert_lines}\n"
+            f"Bandwidth (last hour): {bw.get('summary','unavailable')}\n\n"
+            "CAPABILITIES: River ML anomaly detection, attack-sequence prediction, "
+            "traffic forecasting, device trust management, threat-intelligence lookup, "
+            "plain-English alert explanations.\n\n"
+            "STYLE: Write plain English. No em dashes, no markdown asterisks, no bullet points "
+            "unless the user explicitly asks for a list. Keep answers concise (2-4 sentences) "
+            "unless the user asks for detail."
+        )
+
+        # --- Build conversation history for multi-turn ---
+        # Skip the first welcome message (role=assistant, no user turn yet)
+        llm_history = [
+            {'role': t['role'], 'content': t['content']}
+            for t in history[:-1]  # exclude the turn we just appended
+            if t['role'] in ('user', 'assistant') and t.get('content')
+        ][-16:]  # last 8 user+assistant pairs
+
+        # --- Get AI response ---
+        ai_response, source = ai_assistant.get_response(
+            prompt=message,
+            context=context,
+            history=llm_history,
+            max_tokens=400,
+            prefer_local=prefer_local,
+        )
+
+        # Strip em/en dashes and stray bold markers the model may output despite instructions
+        ai_response = ai_response.replace('—', '-').replace('–', '-').replace('**', '')
+
+        if cap_notice:
+            ai_response += cap_notice
+
+        # --- Record usage (all sources count toward daily cap) ---
+        try:
+            rate_limiter.record_attempt(uid, action_type, success=True)
+        except Exception:
+            pass
 
         history.append({
             'role': 'assistant',
@@ -1538,109 +1705,13 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             'source': source
         })
 
-        chat_messages = []
-        for idx, msg in enumerate(history[-20:]):
-            msg_time = msg.get('timestamp')
-            time_str = ""
-            if msg_time:
-                try:
-                    dt = datetime.fromisoformat(msg_time)
-                    time_str = dt.strftime("%I:%M %p")
-                except:
-                    time_str = ""
-
-            if msg['role'] == 'user':
-                chat_messages.append(
-                    dbc.Card(
-                        dbc.CardBody([
-                            html.Div([
-                                html.Div([
-                                    html.I(className="fa fa-user-circle me-2", style={'fontSize': '18px'}),
-                                    html.Strong("You", style={'fontSize': '14px'})
-                                ], className="d-flex align-items-center"),
-                                html.Small(time_str, className="text-muted", style={'fontSize': '11px'})
-                            ], className="d-flex justify-content-between align-items-center mb-2"),
-                            html.P(msg['content'], className="mb-0", style={'fontSize': '14px', 'lineHeight': '1.6'})
-                        ], style={'padding': '12px 15px'}),
-                        color="primary",
-                        outline=True,
-                        className="mb-3",
-                        style={'borderRadius': '12px', 'borderWidth': '2px'}
-                    )
-                )
-            else:
-                msg_content = msg['content']
-                msg_source = msg.get('source', 'rules')
-
-                chat_messages.append(
-                    dbc.Card(
-                        dbc.CardBody([
-                            html.Div([
-                                html.Div([
-                                    html.I(className="fa fa-robot me-2", style={'fontSize': '18px'}),
-                                    html.Strong("IoTSentinel AI", style={'fontSize': '14px'})
-                                ], className="d-flex align-items-center"),
-                                html.Div([
-                                    html.Small(time_str, className="text-muted me-2", style={'fontSize': '11px'}),
-                                    dbc.Button(
-                                        html.I(className="fa fa-copy"),
-                                        id={'type': 'copy-message', 'index': idx},
-                                        color="link",
-                                        size="sm",
-                                        className="p-0",
-                                        style={'fontSize': '12px'},
-                                        title="Copy response"
-                                    )
-                                ], className="d-flex align-items-center")
-                            ], className="d-flex justify-content-between align-items-center mb-2"),
-                            dcc.Markdown(
-                                msg_content,
-                                className="mb-0",
-                                style={'fontSize': '14px', 'lineHeight': '1.6'}
-                            )
-                        ], style={'padding': '12px 15px'}),
-                        color="info",
-                        outline=True,
-                        className="mb-3",
-                        style={'borderRadius': '12px', 'borderWidth': '2px', 'backgroundColor': 'rgba(23, 162, 184, 0.05)'}
-                    )
-                )
-
-        return chat_messages, "", {'history': history}
+        quota_badge = _quota_badge_text(uid, tier)
+        return _build_chat_history_ui(history), "", {'history': history}, quota_badge
 
     # ================================================================
     # CLIENTSIDE: copy message, auto-scroll, theme, keyboard shortcuts,
     #             chat enter, widget visibility, auto-pause
     # ================================================================
-
-    # Copy message to clipboard
-    app.clientside_callback(
-        """
-        function(n_clicks) {
-            if (n_clicks) {
-                const button = document.querySelector('[id*="copy-message"]');
-                if (button) {
-                    const card = button.closest('.card-body');
-                    const markdown = card.querySelector('[class*="markdown"]');
-                    if (markdown) {
-                        const text = markdown.innerText;
-                        navigator.clipboard.writeText(text).then(function() {
-                            const icon = button.querySelector('i');
-                            icon.className = 'fa fa-check';
-                            setTimeout(function() {
-                                icon.className = 'fa fa-copy';
-                            }, 1500);
-                        });
-                    }
-                }
-            }
-            return window.dash_clientside.no_update;
-        }
-        """,
-        Output({'type': 'copy-message', 'index': ALL}, 'n_clicks', allow_duplicate=True),
-        Input({'type': 'copy-message', 'index': ALL}, 'n_clicks'),
-        prevent_initial_call=True
-    )
 
     # Auto-scroll chat to bottom after new messages
     app.clientside_callback(
@@ -1662,11 +1733,12 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         prevent_initial_call=True
     )
 
-    # Theme applicator
+    # Theme applicator — also writes resolved theme to resolved-theme-store so
+    # server-side chart callbacks can detect dark mode even in Auto mode.
     app.clientside_callback(
         """
         function(theme_data) {
-            if (!theme_data) return window.dash_clientside.no_update;
+            if (!theme_data) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
 
             let theme = theme_data.theme;
 
@@ -1685,11 +1757,16 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 localStorage.setItem('iotsentinel-theme', 'light');
             }
 
+            // Keep the PWA status-bar / address-bar colour in step with the theme.
+            var tc = document.getElementById('iot-theme-color');
+            if (tc) tc.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f0f4f8');
+
             console.log('Theme applied:', theme);
-            return window.dash_clientside.no_update;
+            return [window.dash_clientside.no_update, {'theme': theme}];
         }
         """,
-        Output('keyboard-shortcut-store', 'data', allow_duplicate=True),
+        [Output('keyboard-shortcut-store', 'data', allow_duplicate=True),
+         Output('resolved-theme-store', 'data', allow_duplicate=True)],
         Input('theme-store', 'data'),
         prevent_initial_call='initial_duplicate'
     )
@@ -1701,97 +1778,6 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
     )
     def update_theme_store(theme):
         return {'theme': theme}
-
-    # Keyboard Shortcuts
-    app.clientside_callback(
-        """
-        function(_) {
-            document.addEventListener('keydown', function(event) {
-                if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
-                    return;
-                }
-
-                if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
-                    return;
-                }
-
-                let action = null;
-
-                if (event.key === 'n' || event.key === 'N') {
-                    action = 'toggle-notifications';
-                } else if (event.key === 'd' || event.key === 'D') {
-                    action = 'scroll-to-devices';
-                } else if (event.key === 'a' || event.key === 'A') {
-                    action = 'scroll-to-alerts';
-                } else if (event.key === 'p' || event.key === 'P') {
-                    action = 'open-preferences';
-                } else if (event.key === '?' || event.key === 'h' || event.key === 'H') {
-                    action = 'open-help';
-                } else if (event.key === 'c' || event.key === 'C') {
-                    action = 'open-chat';
-                } else if (event.key === 's' || event.key === 'S') {
-                    action = 'open-system';
-                } else if (event.key === 'f' || event.key === 'F') {
-                    action = 'open-firewall';
-                } else if (event.key === 'u' || event.key === 'U') {
-                    action = 'open-users';
-                } else if (event.key === 't' || event.key === 'T') {
-                    action = 'open-timeline';
-                } else if (event.key === 'Escape') {
-                    action = 'close-modals';
-                }
-
-                if (action) {
-                    event.preventDefault();
-
-                    if (action === 'toggle-notifications') {
-                        const notifBtn = document.getElementById('notification-bell-button');
-                        if (notifBtn) notifBtn.click();
-                    } else if (action === 'scroll-to-devices') {
-                        const devicesEl = document.getElementById('devices-status-compact');
-                        if (devicesEl) devicesEl.scrollIntoView({behavior: 'smooth', block: 'center'});
-                    } else if (action === 'scroll-to-alerts') {
-                        const alertsEl = document.getElementById('alerts-container-compact');
-                        if (alertsEl) alertsEl.scrollIntoView({behavior: 'smooth', block: 'center'});
-                    } else if (action === 'open-preferences') {
-                        const prefBtn = document.getElementById('preferences-card-btn');
-                        if (prefBtn) prefBtn.click();
-                    } else if (action === 'open-help') {
-                        const tourBtn = document.getElementById('restart-tour-button');
-                        if (tourBtn) tourBtn.click();
-                    } else if (action === 'open-chat') {
-                        const chatBtn = document.getElementById('open-chat-button');
-                        if (chatBtn) chatBtn.click();
-                    } else if (action === 'open-system') {
-                        const sysBtn = document.getElementById('system-card-btn');
-                        if (sysBtn) sysBtn.click();
-                    } else if (action === 'open-firewall') {
-                        const fwBtn = document.getElementById('firewall-card-btn');
-                        if (fwBtn) fwBtn.click();
-                    } else if (action === 'open-users') {
-                        const userBtn = document.getElementById('user-card-btn');
-                        if (userBtn) userBtn.click();
-                    } else if (action === 'open-timeline') {
-                        const timelineBtn = document.getElementById('timeline-card-btn');
-                        if (timelineBtn) timelineBtn.click();
-                    } else if (action === 'close-modals') {
-                        const backdrop = document.querySelector('.modal-backdrop');
-                        if (backdrop) {
-                            const modals = document.querySelectorAll('.modal.show');
-                            modals.forEach(modal => {
-                                const closeBtn = modal.querySelector('[aria-label="Close"]');
-                                if (closeBtn) closeBtn.click();
-                            });
-                        }
-                    }
-                }
-            });
-            return window.dash_clientside.no_update;
-        }
-        """,
-        Output('keyboard-shortcut-store', 'id'),
-        Input('url', 'pathname')
-    )
 
     # Chat Enter key
     app.clientside_callback(
@@ -1917,12 +1903,11 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
 
     @app.callback(
         Output('quick-actions-modal', 'is_open'),
-        [Input('quick-actions-button', 'n_clicks'),
-         Input('close-quick-actions-modal', 'n_clicks')],
+        [Input('quick-actions-button', 'n_clicks')],
         [State('quick-actions-modal', 'is_open')],
         prevent_initial_call=True
     )
-    def toggle_quick_actions_modal(open_clicks, close_clicks, is_open):
+    def toggle_quick_actions_modal(open_clicks, is_open):
         """Toggle Quick Actions modal."""
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1932,10 +1917,134 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
 
         if button_id == 'quick-actions-button':
             return True
-        elif button_id == 'close-quick-actions-modal':
-            return False
 
         return is_open
+
+    @app.callback(
+        Output('quick-actions-content', 'children'),
+        [Input('quick-actions-modal', 'is_open'),
+         Input('user-role-store', 'data')],
+        prevent_initial_call=False
+    )
+    def populate_quick_actions_content(is_open, user_data):
+        """Populate Quick Actions modal with role-aware action buttons."""
+        if not is_open and is_open is not None:
+            return []
+
+        user_role = user_data.get('role', 'viewer') if user_data else 'viewer'
+        is_admin = user_role == 'admin'
+
+        is_kid = False
+        if current_user.is_authenticated:
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
+                    (current_user.id,)
+                )
+                result = cursor.fetchone()
+                is_kid = result and result['preference_value'] == '1'
+            except Exception as e:
+                logger.error(f"Error checking family role: {e}")
+
+        content = []
+
+        # --- Dashboard ---
+        refresh_section = [
+            html.H6([html.I(className="fa fa-gauge me-2 text-primary"), "Dashboard"], className="fw-bold mb-2"),
+            dbc.Row([
+                dbc.Col(dbc.Button([html.I(className="fa fa-sync-alt me-2"), "Refresh"], id="quick-refresh-btn", color="primary", size="sm", className="w-100"), width=12, className="mb-2"),
+            ], className="mb-2"),
+        ]
+        if not is_kid:
+            refresh_section.extend([
+                html.Label("Export Security Report:", className="fw-bold mb-1 small text-muted"),
+                dbc.Row([
+                    dbc.Col([
+                        html.Label("Format:", className="fw-bold mb-1 small"),
+                        dbc.Select(id='export-format-quick', options=[
+                            {'label': 'CSV', 'value': 'csv'},
+                            {'label': 'JSON', 'value': 'json'},
+                            {'label': 'PDF', 'value': 'pdf'},
+                            {'label': 'Excel', 'value': 'xlsx'},
+                        ], value='csv', size="sm", className="mb-2"),
+                    ], xs=12, sm=6),
+                    dbc.Col([
+                        html.Label("Download:", className="fw-bold mb-1 small"),
+                        dbc.Button([html.I(className="fa fa-download me-2"), "Export"], id="quick-export-btn", color="success", size="sm", className="w-100"),
+                    ], xs=12, sm=6),
+                ], className="mb-3"),
+            ])
+        refresh_section.append(html.Hr())
+        content.extend(refresh_section)
+
+        # --- Security & Monitoring ---
+        if is_kid:
+            security_buttons = [dbc.Col(dbc.Button([html.I(className="fa fa-stethoscope me-2"), "Run Diagnostics"], id="quick-diagnostics-btn", color="primary", size="sm", className="w-100"), width=12, className="mb-2")]
+        else:
+            security_buttons = [
+                dbc.Col(dbc.Button([html.I(className="fa fa-magnifying-glass me-2"), "Network Scan"], id="quick-scan-btn", color="info", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                dbc.Col(dbc.Button([html.I(className="fa fa-stethoscope me-2"), "Run Diagnostics"], id="quick-diagnostics-btn", color="primary", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+            ]
+            if is_admin:
+                security_buttons.extend([
+                    dbc.Col(dbc.Button([html.I(className="fa fa-trash me-2"), "Clear Threat Cache"], id="quick-clear-cache-btn", color="warning", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                    dbc.Col(dbc.Button([html.I(className="fa fa-cloud-arrow-down me-2"), "Update Threat DB"], id="quick-update-db-btn", color="info", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                ])
+        content.extend([
+            html.H6([html.I(className="fa fa-shield-halved me-2 text-danger"), "Security & Monitoring"], className="fw-bold mb-2"),
+            dbc.Row(security_buttons, className="mb-3"),
+            html.Hr(),
+        ])
+
+        # --- Network Management (admin only) ---
+        if is_admin and not is_kid:
+            content.extend([
+                html.H6([html.I(className="fa fa-network-wired me-2 text-info"), "Network Management", html.Span(" (Admin)", className="ms-2 small text-muted")], className="fw-bold mb-2"),
+                dbc.Row([
+                    dbc.Col(dbc.Button([html.I(className="fa fa-ban me-2"), "Block Unknown"], id="quick-block-unknown-btn", color="danger", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                    dbc.Col(dbc.Button([html.I(className="fa fa-circle-check me-2"), "Whitelist Trusted"], id="quick-whitelist-btn", color="success", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                    dbc.Col(dbc.Button([html.I(className="fa fa-rotate me-2"), "Restart Monitor"], id="quick-restart-monitor-btn", color="warning", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                    dbc.Col(dbc.Button([html.I(className="fa fa-eraser me-2"), "Clear Net Cache"], id="quick-clear-net-cache-btn", color="secondary", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                ], className="mb-3"),
+                html.Hr(),
+            ])
+
+        # --- Data Management ---
+        if not is_kid:
+            data_buttons = [
+                dbc.Col(dbc.Button([html.I(className="fa fa-floppy-disk me-2"), "Backup Data"], id="quick-backup-btn", color="primary", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                dbc.Col(dbc.Button([html.I(className="fa fa-clock me-2"), "Clear Old Logs"], id="quick-clear-logs-btn", color="warning", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+            ]
+            if is_admin:
+                data_buttons.append(dbc.Col(dbc.Button([html.I(className="fa fa-bell-slash me-2"), "Purge Alerts"], id="quick-purge-alerts-btn", color="danger", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"))
+            content.extend([
+                html.H6([html.I(className="fa fa-database me-2 text-success"), "Data Management"], className="fw-bold mb-2"),
+                dbc.Row(data_buttons, className="mb-3"),
+                html.Hr(),
+            ])
+
+        # --- System ---
+        if is_kid:
+            system_buttons = [dbc.Col(dbc.Button([html.I(className="fa fa-file-lines me-2"), "View Logs"], id="quick-view-logs-btn", color="secondary", size="sm", className="w-100"), width=12, className="mb-2")]
+        else:
+            system_buttons = [
+                dbc.Col(dbc.Button([html.I(className="fa fa-arrow-up-from-bracket me-2"), "Check Updates"], id="quick-check-updates-btn", color="info", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+                dbc.Col(dbc.Button([html.I(className="fa fa-file-lines me-2"), "View Logs"], id="quick-view-logs-btn", color="secondary", size="sm", className="w-100"), xs=12, sm=6, className="mb-2"),
+            ]
+        content.extend([
+            html.H6([html.I(className="fa fa-gear me-2 text-secondary"), "System"], className="fw-bold mb-2"),
+            dbc.Row(system_buttons, className="mb-2"),
+        ])
+
+        # Role footer note
+        if is_kid:
+            content.append(html.Div([html.Hr(), html.Small([html.I(className="fa fa-child me-2 text-info"), "Child account - limited access. Contact parent for full access."], className="text-muted d-block text-center fw-bold")]))
+        elif not is_admin:
+            content.append(html.Div([html.Hr(), html.Small([html.I(className="fa fa-circle-info me-2"), "Some actions are restricted to administrators."], className="text-muted d-block text-center")]))
+
+        return content
 
     @app.callback(
         [Output('refresh-interval', 'n_intervals', allow_duplicate=True),
@@ -2009,52 +2118,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 format_map = {'xlsx': 'excel', 'csv': 'csv', 'json': 'json', 'pdf': 'pdf'}
                 export_format = format_map.get(export_format or 'csv', 'csv')
 
-                if export_format in ('csv', 'excel', 'json'):
-                    download_data = export_helper.export_alerts(format=export_format, days=30)
-                else:
-                    import io
-                    output = io.StringIO()
-
-                    output.write("=" * 60 + "\n")
-                    output.write("      IoTSentinel Security Report (Comprehensive)\n")
-                    output.write("=" * 60 + "\n")
-                    output.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-                    cursor = conn.cursor()
-                    cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE timestamp > datetime("now", "-24 hours")')
-                    alerts_24h = cursor.fetchone()['count']
-                    cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE timestamp > datetime("now", "-7 days")')
-                    alerts_7d = cursor.fetchone()['count']
-                    cursor.execute('SELECT COUNT(*) as count FROM devices')
-                    total_devices = cursor.fetchone()['count']
-                    cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 1')
-                    trusted_devices = cursor.fetchone()['count']
-                    cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_blocked = 1')
-                    blocked_devices = cursor.fetchone()['count']
-
-                    output.write("SUMMARY\n")
-                    output.write("-" * 60 + "\n")
-                    output.write(f"Total Devices: {total_devices}\n")
-                    output.write(f"Trusted Devices: {trusted_devices}\n")
-                    output.write(f"Blocked Devices: {blocked_devices}\n")
-                    output.write(f"Alerts (24h): {alerts_24h}\n")
-                    output.write(f"Alerts (7d): {alerts_7d}\n\n")
-
-                    cursor.execute('''
-                        SELECT timestamp, severity, device_ip, explanation
-                        FROM alerts
-                        ORDER BY timestamp DESC
-                        LIMIT 100
-                    ''')
-                    alerts = cursor.fetchall()
-
-                    output.write("RECENT ALERTS (Last 100)\n")
-                    output.write("-" * 60 + "\n")
-                    for alert in alerts:
-                        output.write(f"[{alert['timestamp']}] {alert['severity'].upper()}: {alert['device_ip']} - {alert['explanation']}\n")
-
-                    filename = f"iotsentinel_security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                    download_data = dict(content=output.getvalue(), filename=filename)
+                download_data = export_helper.export_alerts(format=export_format, days=30)
 
                 if download_data:
                     toast = ToastManager.success(
@@ -2372,36 +2436,39 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
 
     @app.callback(
         Output('toast-container', 'children', allow_duplicate=True),
-        [Input('quick-restart-dash-btn', 'n_clicks')],
-        prevent_initial_call=True
-    )
-    def quick_restart_dash(n):
-        if n:
-            try:
-                logger.warning("Dashboard restart requested")
-                return ToastManager.warning("Dashboard restart initiated", detail_message="Reconnect in 10 seconds...", category="system", duration="long")
-            except Exception as e:
-                logger.error(f"Failed to restart: {e}")
-                return ToastManager.error("Restart failed", detail_message=str(e), category="system")
-        return dash.no_update
-
-    @app.callback(
-        Output('toast-container', 'children', allow_duplicate=True),
         [Input('quick-check-updates-btn', 'n_clicks')],
         prevent_initial_call=True
     )
     def quick_check_updates(n):
-        if n:
-            try:
-                logger.info("Checking for updates")
-                if random.choice([True, False]):
-                    return ToastManager.success("You're running the latest version of IoTSentinel!", category="system", duration="medium")
-                else:
-                    return ToastManager.info("New update available!", detail_message="Check GitHub for latest release.", category="system", duration="medium")
-            except Exception as e:
-                logger.error(f"Update check failed: {e}")
-                return ToastManager.error("Update check failed", detail_message=str(e), category="system")
-        return dash.no_update
+        """Check for a newer IoTSentinel release on GitHub."""
+        if not n:
+            return dash.no_update
+        try:
+            import urllib.request, json as _json
+            from alerts import __version__ as _local_ver
+            url = "https://api.github.com/repos/ritiksah141/iotsentinel/releases/latest"
+            req = urllib.request.Request(url, headers={"User-Agent": "IoTSentinel-update-check"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read())
+            latest = data.get("tag_name", "").lstrip("v")
+            if latest and latest != _local_ver:
+                return ToastManager.info(
+                    f"Update available: v{latest}",
+                    detail_message=f"You're on v{_local_ver}. Visit GitHub to download the latest release.",
+                    category="system", duration="long"
+                )
+            else:
+                return ToastManager.success(
+                    f"You're up to date (v{_local_ver})",
+                    category="system", duration="medium"
+                )
+        except Exception as e:
+            logger.warning(f"Update check failed: {e}")
+            return ToastManager.info(
+                "Update check unavailable",
+                detail_message="Could not reach GitHub. Check your internet connection or visit github.com/ritiksah141/iotsentinel manually.",
+                category="system", duration="medium"
+            )
 
     @app.callback(
         Output('toast-container', 'children', allow_duplicate=True),
@@ -2455,7 +2522,6 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
          Output('refresh-interval', 'interval', allow_duplicate=True),
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('quick-settings-btn', 'n_clicks'),
-         Input('settings-close-btn', 'n_clicks'),
          Input('settings-save-btn', 'n_clicks')],
         [State('quick-settings-modal', 'is_open'),
          State('alert-settings', 'value'),
@@ -2479,7 +2545,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
          State('scan-interval-setting', 'value')],
         prevent_initial_call=True
     )
-    def handle_quick_settings(settings_click, close_click, save_click, is_open,
+    def handle_quick_settings(settings_click, save_click, is_open,
                              _alert_settings, _refresh_interval_value,
                              _auto_settings, _default_view, _notif_sound, _alert_duration, _notif_position,
                              _network_interface, _network_options, _network_scan, _connection_timeout,
@@ -2490,7 +2556,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         if not ctx.triggered:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        if not settings_click and not close_click and not save_click:
+        if not settings_click and not save_click:
             raise dash.exceptions.PreventUpdate
 
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -2498,8 +2564,6 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         if button_id == 'quick-settings-btn':
             return True, dash.no_update, dash.no_update, dash.no_update
 
-        elif button_id == 'settings-close-btn':
-            return False, dash.no_update, dash.no_update, dash.no_update
 
         elif button_id == 'settings-save-btn':
             logger.info("💾 Save Changes button clicked - Saving all settings")
@@ -2629,7 +2693,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 'advanced': {'debug': [], 'performance': 'balanced'}
             }
             default_voice = {'enabled': False}
-            toast = ToastManager.warning("🗑️ Cache Cleared", detail_message="🗑️ Cache Cleared")
+            toast = ToastManager.info("Cache Cleared", detail_message="Settings cache has been cleared and reset to defaults.")
             return default_settings, default_voice, False, toast
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -2654,7 +2718,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 'advanced': {'debug': [], 'performance': 'balanced'}
             }
             default_voice = {'enabled': False}
-            toast = ToastManager.error("🔄 Settings Reset", detail_message="🔄 Settings Reset")
+            toast = ToastManager.info("Settings Reset", detail_message="All settings have been restored to their defaults.")
             return default_settings, default_voice, False, toast
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -3136,9 +3200,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
 
     @app.callback(
         [Output('widget-preferences', 'data'),
-         Output('customize-layout-modal', 'is_open', allow_duplicate=True),
-         Output('widget-prefs-toast', 'is_open'),
-         Output('widget-prefs-toast', 'children')],
+         Output('customize-layout-modal', 'is_open', allow_duplicate=True)],
         [Input('save-widget-prefs', 'n_clicks')],
         [State('widget-toggles', 'value')],
         prevent_initial_call=True
@@ -3150,10 +3212,8 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 'features': 'features' in selected_widgets,
                 'rightPanel': 'rightPanel' in selected_widgets
             }
-            enabled_count = sum(prefs.values())
-            message = f"Layout preferences saved! {enabled_count}/3 sections enabled and applied."
-            return prefs, False, True, message
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return prefs, False
+        return dash.no_update, dash.no_update
 
     @app.callback(
         Output('customize-layout-modal', 'is_open', allow_duplicate=True),
@@ -3328,8 +3388,77 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         prevent_initial_call=False
     )
     def render_spotlight_results(search_data, cross_domain_data):
-        """Render the filtered search results with category grouping and metadata"""
+        """Render compact macOS-style search results with category grouping."""
 
+        # ── helpers ──────────────────────────────────────────────────────
+        _SEV_COLORS = {
+            'critical': '#dc2626', 'high': '#f97316',
+            'medium': '#3b82f6', 'low': '#10b981',
+        }
+
+        def _device_row(d, idx):
+            ip = d.get('device_ip', '')
+            name = d.get('device_name') or d.get('hostname') or ip
+            is_blocked = d.get('is_blocked')
+            is_trusted = d.get('is_trusted')
+            color = '#ef4444' if is_blocked else ('#10b981' if is_trusted else '#94a3b8')
+            label = 'Blocked' if is_blocked else ('Trusted' if is_trusted else 'Unknown')
+            mac = d.get('mac_address', '')
+            return html.Div([
+                html.Div(
+                    html.I(className="fa fa-microchip"),
+                    className="sl-icon-box",
+                    style={"background": f"{color}22", "color": color}
+                ),
+                html.Div([
+                    html.Span(name, className="sl-row-name"),
+                    html.Span(f" {ip}", className="sl-row-desc ms-1"),
+                    html.Div(mac, className="sl-row-desc"),
+                ], className="sl-row-text"),
+                html.Div([
+                    html.Span(label, className="sl-row-cat"),
+                    html.I(className="fa fa-chevron-right sl-row-arrow"),
+                ], className="sl-row-right d-flex align-items-center"),
+                dbc.Button("", id={'type': 'spotlight-go-to-btn', 'index': f"dev_{idx}", 'modal_id': 'device-mgmt-modal'},
+                           n_clicks=0, style={"display": "none"}),
+            ], className="sl-result-row sl-device-row",
+               **{"data-feature": json.dumps({
+                   'id': 'device-mgmt-modal', 'name': name,
+                   'description': f'IP: {ip}  MAC: {mac}  Status: {label}',
+                   'category': 'Device', 'icon': 'fa-microchip',
+                   'color': color, 'keywords': []
+               })})
+
+        def _alert_row(a, idx):
+            sev = (a.get('severity') or 'unknown').lower()
+            color = _SEV_COLORS.get(sev, '#94a3b8')
+            msg = (a.get('explanation') or a.get('description') or 'Alert')[:72]
+            ip = a.get('device_ip', '')
+            return html.Div([
+                html.Div(
+                    html.I(className="fa fa-triangle-exclamation"),
+                    className="sl-icon-box",
+                    style={"background": f"{color}22", "color": color}
+                ),
+                html.Div([
+                    html.Span(sev.upper(), className="sl-row-name"),
+                    html.Div(msg, className="sl-row-desc"),
+                ], className="sl-row-text"),
+                html.Div([
+                    html.Span(ip, className="sl-row-cat"),
+                    html.I(className="fa fa-chevron-right sl-row-arrow"),
+                ], className="sl-row-right"),
+                dbc.Button("", id={'type': 'spotlight-go-to-btn', 'index': f"alert_{idx}", 'modal_id': 'alert-details-modal'},
+                           n_clicks=0, style={"display": "none"}),
+            ], className="sl-result-row sl-alert-row",
+               **{"data-feature": json.dumps({
+                   'id': 'alert-details-modal', 'name': f'{sev.upper()} Alert',
+                   'description': f'{msg}  IP: {ip}',
+                   'category': 'Alerts', 'icon': 'fa-triangle-exclamation',
+                   'color': color, 'keywords': []
+               })})
+
+        # ── parse search_data ─────────────────────────────────────────────
         if isinstance(search_data, dict):
             filtered_results = search_data.get('results', [])
             total_count = search_data.get('totalCount', 0)
@@ -3338,6 +3467,10 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             categories = search_data.get('categories', {})
             top_hit_id = search_data.get('topHit', {}).get('id') if search_data.get('topHit') else None
             recent_searches = search_data.get('recentSearches', [])
+            predictive_suggestions = search_data.get('predictiveSuggestions', [])
+            context_data = search_data.get('contextData', {}) or {}
+            search_time = search_data.get('searchTime', '0.00')
+            category_filter = search_data.get('categoryFilter')
         else:
             filtered_results = search_data if search_data else []
             total_count = len(filtered_results)
@@ -3346,170 +3479,159 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             categories = {}
             top_hit_id = filtered_results[0].get('id') if filtered_results else None
             recent_searches = []
+            predictive_suggestions = []
+            context_data = {}
+            search_time = '0.00'
+            category_filter = None
 
-        # Extract enhanced fields from search data
-        predictive_suggestions = search_data.get('predictiveSuggestions', []) if isinstance(search_data, dict) else []
-        context_data = search_data.get('contextData', {}) if isinstance(search_data, dict) else {}
-        active_alerts = int((context_data or {}).get('active_alerts', 0))
+        active_alerts = int(context_data.get('active_alerts', 0))
 
-        # Empty state
+        # ── EMPTY STATE (no query) ────────────────────────────────────────
         if not query or query.strip() == "":
-            empty_state_items = []
+            sections = []
 
             # Context-aware alert banner
             if active_alerts > 0:
-                empty_state_items.append(
+                sections.append(
                     dbc.Alert([
                         html.I(className="fa fa-triangle-exclamation me-2"),
                         html.Strong(f"{active_alerts} active alert{'s' if active_alerts != 1 else ''}"),
-                        " detected — try searching 'threat' or 'lockdown' to respond"
-                    ], color="danger", className="spotlight-context-alert py-2 mb-3",
-                    style={"fontSize": "0.85rem", "borderRadius": "8px"})
+                        " detected - try searching 'threat' or 'lockdown' to respond"
+                    ], color="danger", className="spotlight-context-alert toast-history-item py-2 mb-3")
                 )
 
-            # Predictive suggestions (time-of-day + frequent features)
+            # Predictive suggestions
             if predictive_suggestions:
                 for si, suggestion in enumerate(predictive_suggestions[:2]):
-                    suggestion_features = suggestion.get('features', [])
-                    if suggestion_features:
-                        empty_state_items.append(
+                    feats = suggestion.get('features', [])
+                    if feats:
+                        sections.append(html.Div([
+                            html.Div(suggestion.get('label', ''), className="sl-section-header"),
                             html.Div([
-                                html.Small(suggestion.get('label', ''),
-                                          className="text-muted d-block mb-2 fw-semibold spotlight-predictive-label"),
-                                html.Div([
-                                    create_spotlight_result_item(feat, f"pred_{si}_{fi}", False, False)
-                                    for fi, feat in enumerate(suggestion_features[:3])
-                                ], className="spotlight-predictive-features")
-                            ], className="mb-3 spotlight-predictive-section")
-                        )
+                                create_spotlight_result_item(feat, f"pred_{si}_{fi}", False, False)
+                                for fi, feat in enumerate(feats[:3])
+                            ], className="sl-section"),
+                        ]))
 
+            # Recent searches
             if recent_searches:
-                empty_state_items.append(
+                sections.append(html.Div([
                     html.Div([
-                        html.Div([
-                            html.H6([html.I(className="fa fa-history me-2 text-muted"), "Recent Searches"], className="mb-0"),
-                            dbc.Button([html.I(className="fa fa-times-circle me-1"), "Clear All"],
-                                       id="spotlight-clear-recent-searches", color="link", size="sm",
-                                       className="text-danger p-0", style={"fontSize": "0.85rem"})
-                        ], className="d-flex justify-content-between align-items-center mb-3 mt-2"),
-                        html.Div([
-                            dbc.Badge([html.I(className="fa fa-search me-2"), search],
-                                       color="light", className="me-2 mb-2 p-2 spotlight-recent-search-badge",
-                                       style={"fontSize": "0.9rem", "cursor": "pointer"})
-                            for search in recent_searches
-                        ])
-                    ], className="mb-4")
-                )
-            if filtered_results:
-                empty_state_items.append(html.Div([html.H6([html.I(className="fa fa-star me-2 text-warning"), "Featured"], className="mb-3")]))
-                for idx, feature in enumerate(filtered_results):
-                    empty_state_items.append(create_spotlight_result_item(feature, idx, False, False))
-            if empty_state_items:
-                return html.Div(empty_state_items)
-            else:
-                return html.Div([
-                    html.I(className="fa fa-search fa-3x text-muted mb-3"),
-                    html.P("Start typing to search features...", className="text-muted")
-                ], className="text-center p-5")
+                        html.Span([html.I(className="fa fa-history me-2"), "Recent Searches"],
+                                  className="sl-section-header"),
+                        html.Button("Clear",
+                                    id="spotlight-clear-recent-searches",
+                                    className="sl-clear-btn"),
+                    ], className="d-flex align-items-center justify-content-between sl-section-row"),
+                    html.Div([
+                        dbc.Badge([html.I(className="fa fa-search me-2"), s],
+                                  color="light", className="me-2 mb-2 p-2 spotlight-recent-search-badge spotlight-item")
+                        for s in recent_searches
+                    ], className="sl-recent-badges"),
+                ], className="mb-3"))
 
-        # No results
-        if not filtered_results or len(filtered_results) == 0:
+            # Top features from analytics
+            if filtered_results:
+                sections.append(html.Div([
+                    html.Div([html.I(className="fa fa-star me-1 text-warning"), " Featured"],
+                             className="sl-section-header"),
+                    html.Div([
+                        create_spotlight_result_item(feat, idx, False, False)
+                        for idx, feat in enumerate(filtered_results[:8])
+                    ], className="sl-section"),
+                ]))
+
+            if sections:
+                return html.Div(sections, className="sl-results-scroll")
+            return html.Div([
+                html.I(className="fa fa-search fa-3x text-muted mb-3"),
+                html.P("Start typing to search features...", className="text-muted")
+            ], className="text-center p-5")
+
+        # ── NO RESULTS ────────────────────────────────────────────────────
+        if not filtered_results:
             return html.Div([
                 html.I(className="fa fa-search fa-3x text-muted mb-3"),
                 html.P(f"No results found for '{query}'", className="text-muted"),
                 html.P("Try a different search term", className="text-muted small")
             ], className="text-center p-5")
 
-        search_time = search_data.get('searchTime', '0.00') if isinstance(search_data, dict) else '0.00'
-        category_filter = search_data.get('categoryFilter') if isinstance(search_data, dict) else None
-
+        # ── RESULT HEADER (count + filter badges) ─────────────────────────
         result_header = html.Div([
             html.Div([
-                html.Span(f"{total_count} result{'s' if total_count != 1 else ''}", className="spotlight-result-count text-muted small fw-bold"),
-                html.Span(f" • Showing top {len(filtered_results)}", className="text-muted small") if has_more else None,
-                html.Span(f" • {search_time}ms", className="text-muted small ms-2", title="Search performance time"),
-            ], className="mb-2 d-flex align-items-center justify-content-between"),
+                html.Span(
+                    f"{total_count} result{'s' if total_count != 1 else ''}",
+                    className="spotlight-result-count text-muted small fw-bold"
+                ),
+                html.Span(f" • top {len(filtered_results)}", className="text-muted small") if has_more else None,
+                html.Span(f" • {search_time}ms", className="text-muted small ms-2"),
+            ], className="mb-1 d-flex align-items-center"),
             html.Div(
                 [
                     html.Span("Filter: ", className="text-muted small me-2"),
                     dbc.Badge("All", id="spotlight-filter-all",
                              color="primary" if not category_filter else "light",
-                             className="me-2 spotlight-filter-badge",
-                             style={"cursor": "pointer", "fontSize": "0.75rem"}),
+                             className="me-2 spotlight-filter-badge spotlight-item--sm"),
                 ] + [
-                    dbc.Badge(f"{cat} ({len(features)})",
-                             id={"type": "spotlight-filter-badge", "category": cat},
-                             color="primary" if category_filter == cat else "light",
-                             className="me-2 spotlight-filter-badge",
-                             style={"cursor": "pointer", "fontSize": "0.75rem"})
-                    for cat, features in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
+                    dbc.Badge(
+                        f"{cat} ({len(feats)})",
+                        id={"type": "spotlight-filter-badge", "category": cat},
+                        color="primary" if category_filter == cat else "light",
+                        className="me-2 spotlight-filter-badge spotlight-item--sm"
+                    )
+                    for cat, feats in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
                 ] if categories else [],
-                className="mb-3 pb-2 border-bottom"
-            ) if query else None
-        ])
+                className="mb-2 pb-1 border-bottom"
+            ) if query else None,
+        ], className="px-3 pt-2")
 
-        result_items = [result_header]
+        sections = [result_header]
 
-        # Cross-domain: live devices + alerts from the database
+        # ── CROSS-DOMAIN: devices ─────────────────────────────────────────
         if cross_domain_data and query:
             cd_devices = cross_domain_data.get('devices', [])
             cd_alerts = cross_domain_data.get('alerts', [])
             if cd_devices:
-                result_items.append(html.Div([
-                    html.H6([
-                        html.I(className="fa fa-microchip me-2 text-primary"),
-                        f"Devices ({len(cd_devices)})"
-                    ], className="spotlight-cross-domain-header mb-2 mt-2"),
-                    html.Div([
-                        html.Div([
-                            html.I(className="fa fa-server me-2 text-muted"),
-                            html.Span(d.get('device_name') or d['device_ip'], className="fw-semibold"),
-                            html.Span(f" — {d['device_ip']}", className="text-muted small ms-2"),
-                            dbc.Badge("Trusted", color="success", className="ms-2 spotlight-cross-domain-badge") if d.get('is_trusted') else
-                            dbc.Badge("Blocked", color="danger", className="ms-2 spotlight-cross-domain-badge") if d.get('is_blocked') else
-                            dbc.Badge("Unknown", color="secondary", className="ms-2 spotlight-cross-domain-badge"),
-                        ], className="spotlight-cross-domain-item py-1 px-3")
-                        for d in cd_devices
-                    ])
-                ], className="spotlight-cross-domain-section mb-3 pb-2 border-bottom"))
+                sections.append(html.Div([
+                    html.Div(
+                        [html.I(className="fa fa-microchip me-1"), f" Devices ({len(cd_devices)})"],
+                        className="sl-section-header"
+                    ),
+                    html.Div([_device_row(d, i) for i, d in enumerate(cd_devices)],
+                             className="sl-section"),
+                ]))
             if cd_alerts:
-                sev_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'primary', 'low': 'info'}
-                result_items.append(html.Div([
-                    html.H6([
-                        html.I(className="fa fa-triangle-exclamation me-2 text-danger"),
-                        f"Alerts ({len(cd_alerts)})"
-                    ], className="spotlight-cross-domain-header mb-2"),
-                    html.Div([
-                        html.Div([
-                            dbc.Badge(a.get('severity', 'unknown').upper(),
-                                     color=sev_colors.get(a.get('severity', ''), 'secondary'),
-                                     className="me-2 spotlight-cross-domain-badge"),
-                            html.Span((a.get('explanation') or 'Alert')[:75], className="small"),
-                            html.Span(f" — {a.get('device_ip', '')}", className="text-muted small ms-1"),
-                        ], className="spotlight-cross-domain-item py-1 px-3")
-                        for a in cd_alerts
-                    ])
-                ], className="spotlight-cross-domain-section mb-3 pb-2 border-bottom"))
+                sections.append(html.Div([
+                    html.Div(
+                        [html.I(className="fa fa-triangle-exclamation me-1 text-danger"),
+                         f" Alerts ({len(cd_alerts)})"],
+                        className="sl-section-header"
+                    ),
+                    html.Div([_alert_row(a, i) for i, a in enumerate(cd_alerts)], className="sl-section"),
+                ]))
 
+        # ── FEATURE RESULTS ───────────────────────────────────────────────
         if categories and len(categories) > 1:
-            sorted_categories = sorted(categories.items(), key=lambda x: len(x[1]), reverse=True)
-            for category_name, category_features in sorted_categories:
-                result_items.append(
-                    html.Div([html.H6([
-                        html.I(className="fa fa-folder me-2 text-info"),
-                        category_name,
-                        html.Span(f" ({len(category_features)})", className="text-muted small ms-2")
-                    ], className="mb-2 mt-3 spotlight-category-header")])
-                )
-                for idx, feature in enumerate(category_features):
-                    is_top_hit = feature.get('id') == top_hit_id
-                    result_items.append(create_spotlight_result_item(feature, idx, False, is_top_hit))
+            for cat_name, cat_feats in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True):
+                sections.append(html.Div([
+                    html.Div(
+                        [html.I(className="fa fa-folder me-1"),
+                         f" {cat_name} ({len(cat_feats)})"],
+                        className="sl-section-header"
+                    ),
+                    html.Div([
+                        create_spotlight_result_item(feat, i, False, feat.get('id') == top_hit_id)
+                        for i, feat in enumerate(cat_feats)
+                    ], className="sl-section"),
+                ]))
         else:
-            for idx, feature in enumerate(filtered_results):
-                is_top_hit = feature.get('id') == top_hit_id
-                result_items.append(create_spotlight_result_item(feature, idx, False, is_top_hit))
+            feature_rows = [
+                create_spotlight_result_item(feat, i, False, feat.get('id') == top_hit_id)
+                for i, feat in enumerate(filtered_results)
+            ]
+            sections.append(html.Div(feature_rows, className="sl-section"))
 
-        return html.Div(result_items)
+        return html.Div(sections, className="sl-results-scroll")
 
     # Spotlight: Category filter badge clicks
     @app.callback(
@@ -3583,6 +3705,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
          Output('chat-modal', 'is_open', allow_duplicate=True),
          Output('onboarding-modal', 'is_open', allow_duplicate=True),
          Output('lockdown-modal', 'is_open', allow_duplicate=True),
+         Output('agent-modal', 'is_open', allow_duplicate=True),
          Output('spotlight-search-modal', 'is_open', allow_duplicate=True),
          Output('toast-container', 'children', allow_duplicate=True)],
         Input('spotlight-modal-trigger', 'data'),
@@ -3591,7 +3714,7 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
     def spotlight_open_modal_server_side(trigger_data):
         """Open target modal directly from spotlight - uses existing RBAC security"""
         if not trigger_data or not trigger_data.get('modal_id'):
-            return [no_update] * 36
+            return [no_update] * 37
 
         modal_id = trigger_data['modal_id']
 
@@ -3602,20 +3725,17 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 "Please log in to access features",
                 "warning"
             )
-            return [no_update] * 35 + [False, toast]
+            return [no_update] * 35 + [False, False, toast]
 
         # Use existing RBAC functions for permission checks
-        admin_only_modals = ['user-modal', 'firewall-modal', 'vuln-scanner-modal',
-                            'compliance-modal', 'email-modal', 'lockdown-modal']
-
         # Check if admin-only modal and user is not admin
-        if modal_id in admin_only_modals and current_user.role != 'admin':
+        if modal_id in ADMIN_ONLY_MODALS and current_user.role != 'admin':
             toast = ToastManager.create_toast(
                 "Access Denied",
                 "This feature requires administrator privileges",
                 "warning"
             )
-            return [no_update] * 35 + [False, toast]
+            return [no_update] * 35 + [False, False, toast]
 
         # Additional check for device management using existing RBAC
         if modal_id == 'device-mgmt-modal' and not can_manage_devices(current_user):
@@ -3624,9 +3744,9 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
                 "You don't have permission to manage devices",
                 "warning"
             )
-            return [no_update] * 35 + [False, toast]
+            return [no_update] * 35 + [False, False, toast]
 
-        # Map ALL modal IDs to output positions
+        # Map ALL modal IDs to output positions (must match Output list order above)
         modal_map = {
             'analytics-modal': 0,
             'risk-heatmap-modal': 1,
@@ -3661,30 +3781,29 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             'customize-layout-modal': 30,
             'chat-modal': 31,
             'onboarding-modal': 32,
-            'lockdown-modal': 33
+            'lockdown-modal': 33,
+            'agent-modal': 34,
+            # spotlight-search-modal = 35, toast-container = 36
         }
 
-        # All outputs default to no_update
-        outputs = [no_update] * 36
+        # All outputs default to no_update (37 total: 35 modals + spotlight + toast)
+        outputs = [no_update] * 37
 
         # Open the requested modal if it's in our map
         if modal_id in modal_map:
             outputs[modal_map[modal_id]] = True  # Open target modal
-            outputs[34] = False  # Close spotlight modal
+            outputs[35] = False  # Close spotlight modal
 
-            # Log access using existing audit system
             try:
                 audit_logger.log_action(
-                    action_type='spotlight_access',
-                    action_description=f'User opened {modal_id} via spotlight search',
+                    action_type=f'spotlight_open',
+                    action_description=f'Opened {modal_id} via spotlight search',
                     target_resource=modal_id,
-                    success=True
                 )
             except Exception as e:
                 logger.warning(f"Failed to log spotlight access: {e}")
         else:
-            # If modal not in map, still close spotlight
-            outputs[34] = False
+            outputs[35] = False  # Still close spotlight for unknown modals
 
         return outputs
 
@@ -3868,33 +3987,16 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             logger.warning(f"Spotlight cross-domain search error: {e}")
         return results
 
-    # Clientside: Emergency shortcut hidden buttons → spotlight-modal-trigger
+    # Cmd+Shift+L hidden button → open lockdown modal
     app.clientside_callback(
         """
-        function(n_lockdown, n_export, n_threat) {
-            var ctx = window.dash_clientside.callback_context;
-            if (!ctx || !ctx.triggered || ctx.triggered.length === 0) {
-                return window.dash_clientside.no_update;
-            }
-            var triggerId = ctx.triggered[0].prop_id;
-            var modalId = null;
-            if (triggerId.includes('spotlight-emergency-lockdown-btn')) {
-                modalId = 'lockdown-modal';
-            } else if (triggerId.includes('spotlight-emergency-export-btn')) {
-                modalId = 'quick-actions-modal';
-            } else if (triggerId.includes('spotlight-emergency-threat-btn')) {
-                modalId = 'threat-modal';
-            }
-            if (modalId) {
-                return { modal_id: modalId, timestamp: Date.now() / 1000 };
-            }
-            return window.dash_clientside.no_update;
+        function(n) {
+            if (!n) return window.dash_clientside.no_update;
+            return { modal_id: 'lockdown-modal', timestamp: Date.now() / 1000 };
         }
         """,
         Output('spotlight-modal-trigger', 'data', allow_duplicate=True),
-        [Input('spotlight-emergency-lockdown-btn', 'n_clicks'),
-         Input('spotlight-emergency-export-btn', 'n_clicks'),
-         Input('spotlight-emergency-threat-btn', 'n_clicks')],
+        Input('spotlight-emergency-lockdown-btn', 'n_clicks'),
         prevent_initial_call=True
     )
 
@@ -3909,7 +4011,9 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             const container = document.getElementById('emergency-button-container');
             if (!container) return window.dash_clientside.no_update;
 
-            if (template === 'home_user') {
+            const aliases = {home_user: 'simple', security_admin: 'advanced', developer: 'advanced'};
+            const canonical = aliases[template] || template;
+            if (canonical === 'advanced') {
                 container.style.display = 'block';
                 const alert = container.querySelector('.alert');
                 if (alert) alert.style.display = 'block';
@@ -3940,6 +4044,8 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
             return no_update
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if button_id == 'emergency-activate-btn':
+            if not current_user.is_authenticated or not current_user.is_admin():
+                return False
             return True
         elif button_id in ['emergency-cancel-btn', 'emergency-confirm-btn']:
             return False
@@ -3956,22 +4062,12 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         prevent_initial_call=True
     )
     def activate_emergency_mode(n_clicks, reason, current_state):
-        if not n_clicks or not current_user.is_authenticated:
+        if not n_clicks or not current_user.is_authenticated or not current_user.is_admin():
             return no_update, no_update, no_update
 
         try:
             conn = db_manager.conn
             cursor = conn.cursor()
-
-            # Check if user is a kid
-            cursor.execute(
-                "SELECT preference_value FROM user_preferences WHERE user_id = ? AND preference_key = 'is_kid'",
-                (current_user.id,)
-            )
-            kid_check = cursor.fetchone()
-            if kid_check and kid_check[0] == '1':
-                toast = ToastManager.error("Access Denied", detail_message="Emergency mode can only be activated by adults.")
-                return no_update, toast, ""
 
             if current_state and current_state.get('active'):
                 toast = ToastManager.warning("Emergency Mode Already Active", detail_message="Emergency protection is already enabled.")
@@ -4133,3 +4229,104 @@ Keep responses helpful, accurate, and actionable. Be concise (2-4 sentences max 
         except Exception as e:
             logger.error(f"Error updating emergency UI: {e}")
             return {'display': 'none'}, {'display': 'block'}, "Emergency protection is active."
+
+    # -------------------------------------------------------------------------
+    # Home-user layout: show/hide dimension tiles, history chart, email row
+    # -------------------------------------------------------------------------
+    @app.callback(
+        Output('score-dims-col', 'style'),
+        Output('security-score-history-row', 'style'),
+        Output('home-email-row', 'style'),
+        Input('dashboard-template-store', 'data'),
+    )
+    def update_home_user_layout(template_data):
+        from dashboard.shared import TEMPLATE_ALIASES
+        raw = template_data if isinstance(template_data, str) else 'advanced'
+        template = TEMPLATE_ALIASES.get(raw, raw)
+        if template == 'simple':
+            # Keep score dims visible, hide history chart (too technical), show email row
+            return {}, {'display': 'none'}, {'display': 'block'}
+        return {}, {}, {'display': 'none'}
+
+    # -------------------------------------------------------------------------
+    # Notification nav button — opens the full notification modal (all channels).
+    # -------------------------------------------------------------------------
+    @app.callback(
+        Output('email-modal', 'is_open', allow_duplicate=True),
+        Input('email-alert-nav-toggle', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def open_notification_modal_from_nav(n_clicks):
+        if not n_clicks:
+            return no_update
+        return True
+
+    # ---- Keep icon green when email alerts are enabled ----
+    @app.callback(
+        Output('email-alert-nav-icon', 'className'),
+        Input('email-enable-switch', 'value'),
+        prevent_initial_call=False,
+    )
+    def sync_notification_nav_icon(value):
+        return "fa fa-paper-plane email-icon-on" if value else "fa fa-paper-plane"
+
+    @app.callback(
+        Output('email-enable-switch', 'value', allow_duplicate=True),
+        Input('home-email-switch', 'value'),
+        prevent_initial_call=True,
+    )
+    def sync_home_email_to_modal(home_value):
+        if current_user.is_authenticated:
+            try:
+                cursor = db_manager.conn.cursor()
+                cursor.execute(
+                    """INSERT INTO user_preferences (user_id, preference_key, preference_value)
+                       VALUES (?, 'email_enabled', ?)
+                       ON CONFLICT(user_id, preference_key)
+                       DO UPDATE SET preference_value = excluded.preference_value,
+                                     updated_at = CURRENT_TIMESTAMP""",
+                    (current_user.id, str(home_value))
+                )
+                db_manager.conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to persist email toggle: {e}")
+        return home_value
+
+    @app.callback(
+        Output('home-email-switch', 'value'),
+        Input('email-enable-switch', 'value'),
+        prevent_initial_call=True,
+    )
+    def sync_modal_email_to_home(modal_value):
+        return modal_value
+
+    # ------------------------------------------------------------------
+    # RBAC enforcement for admin-only modals opened via card buttons.
+    # The clientside card-button callback bypasses server-side checks, so
+    # this callback immediately closes any admin-only modal that a non-admin
+    # managed to open.  Returns (is_open=False, toast) for the offending
+    # modal; no_update for everything else.
+    # ------------------------------------------------------------------
+    @app.callback(
+        [Output(m, 'is_open', allow_duplicate=True) for m in ADMIN_ONLY_MODALS] +
+        [Output('toast-container', 'children', allow_duplicate=True)],
+        [Input(m, 'is_open') for m in ADMIN_ONLY_MODALS],
+        prevent_initial_call=True,
+    )
+    def enforce_admin_modal_rbac(*states):
+        n = len(ADMIN_ONLY_MODALS)
+        if not current_user.is_authenticated or not current_user.is_admin():
+            triggered = callback_context.triggered
+            if not triggered:
+                return [no_update] * n + [no_update]
+            prop = triggered[0]['prop_id']          # e.g. "email-modal.is_open"
+            modal_id = prop.split('.')[0]
+            if triggered[0]['value'] is True and modal_id in ADMIN_ONLY_MODALS:
+                closes = [False if m == modal_id else no_update for m in ADMIN_ONLY_MODALS]
+                toast = ToastManager.create_toast(
+                    "Access Denied",
+                    "Administrator privileges required.",
+                    "warning",
+                )
+                return closes + [toast]
+        return [no_update] * n + [no_update]

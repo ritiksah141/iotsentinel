@@ -196,6 +196,62 @@ class ThreatIntelligence:
         except sqlite3.Error as e:
             logger.error(f"Error caching reputation for {ip_address}: {e}")
 
+    def _query_greynoise_community(self, ip_address: str) -> Optional[Dict[str, Any]]:
+        """
+        Query GreyNoise Community API — no API key required.
+
+        Returns a simplified reputation dict compatible with get_ip_reputation()
+        output, or None on failure.  GreyNoise classifies IPs scanning the
+        internet (noise=True) and known-trusted infrastructure (riot=True).
+        """
+        try:
+            resp = requests.get(
+                f"https://api.greynoise.io/v3/community/{ip_address}",
+                headers={'Accept': 'application/json'},
+                timeout=5,
+            )
+            if resp.status_code == 404:
+                # IP not in GreyNoise data — treat as unknown, not malicious
+                return {'reputation_level': 'unknown', 'abuse_confidence_score': 0,
+                        'source': 'greynoise', 'greynoise_classification': 'unknown'}
+            if resp.status_code != 200:
+                return None
+
+            data = resp.json()
+            classification = data.get('classification', 'unknown')
+            noise = data.get('noise', False)
+            riot = data.get('riot', False)
+
+            if riot:
+                # Known benign infrastructure (Google, AWS, CDNs)
+                level = 'safe'
+                score = 0
+            elif classification == 'malicious':
+                level = 'malicious'
+                score = 85  # GreyNoise confirmed-malicious → treat as high confidence
+            elif noise and classification != 'benign':
+                level = 'suspicious'
+                score = 30
+            else:
+                level = 'safe' if classification == 'benign' else 'unknown'
+                score = 0
+
+            return {
+                'reputation_level': level,
+                'abuse_confidence_score': score,
+                'source': 'greynoise',
+                'greynoise_classification': classification,
+                'greynoise_noise': noise,
+                'greynoise_riot': riot,
+                'greynoise_link': data.get('link', ''),
+            }
+        except requests.exceptions.Timeout:
+            logger.debug("[threat_intel] GreyNoise timeout for %s", ip_address)
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.debug("[threat_intel] GreyNoise error for %s: %s", ip_address, e)
+            return None
+
     def _query_abuseipdb(self, ip_address: str) -> Optional[Dict[str, Any]]:
         """
         Query AbuseIPDB API for IP reputation.
@@ -270,12 +326,24 @@ class ThreatIntelligence:
                 'recommendation': str
             }
         """
-        if not self.enabled:
-            return self._create_disabled_response(ip_address)
-
         # Check if IP is private (RFC 1918)
         if self._is_private_ip(ip_address):
             return self._create_private_ip_response(ip_address)
+
+        # GreyNoise Community fallback — available without any API key
+        if not self.enabled:
+            gn = self._query_greynoise_community(ip_address)
+            if gn:
+                result = self._create_disabled_response(ip_address)
+                result['reputation_level'] = gn.get('reputation_level', 'unknown')
+                result['abuse_confidence_score'] = gn.get('abuse_confidence_score', 0)
+                result['recommendation'] = (
+                    f"[GreyNoise Community] {gn.get('greynoise_classification', 'unknown')} "
+                    f"— configure AbuseIPDB for full scoring"
+                )
+                result['source'] = 'greynoise'
+                return result
+            return self._create_disabled_response(ip_address)
 
         # Check cache first
         cached = self._get_cached_reputation(ip_address)
@@ -283,32 +351,40 @@ class ThreatIntelligence:
             logger.debug(f"Using cached reputation for {ip_address}")
             return self._format_response(cached, is_cached=True)
 
-        # Query API
+        # Primary: AbuseIPDB
         logger.info(f"Querying AbuseIPDB for {ip_address}")
         api_data = self._query_abuseipdb(ip_address)
 
         if api_data:
-            # Determine reputation level
             score = api_data.get('abuseConfidenceScore', 0)
             reputation_level = self._calculate_reputation_level(score)
             api_data['reputation_level'] = reputation_level
+
+            # Enrich with GreyNoise: if AbuseIPDB score is low but GreyNoise flags as
+            # malicious, upgrade the classification (catches internet-scanners AbuseIPDB misses)
+            if score < 25:
+                gn = self._query_greynoise_community(ip_address)
+                if gn and gn.get('reputation_level') == 'malicious':
+                    api_data['reputation_level'] = 'suspicious'
+                    api_data['abuseConfidenceScore'] = max(score, gn.get('abuse_confidence_score', 30))
+                    logger.info(
+                        "[threat_intel] GreyNoise flagged %s as malicious (AbuseIPDB score=%d) — upgraded to suspicious",
+                        ip_address, score,
+                    )
 
             # Parse categories
             categories = api_data.get('reports', [])
             category_list = []
             if categories:
-                for report in categories[:5]:  # Top 5 most recent
+                for report in categories[:5]:
                     cats = report.get('categories', [])
                     category_list.extend(cats)
             api_data['categories'] = ','.join(map(str, set(category_list)))
 
-            # Cache the result
             self._cache_reputation(ip_address, api_data)
-
             return self._format_response(api_data, is_cached=False)
 
         else:
-            # API failed, return unknown status
             return self._create_unknown_response(ip_address)
 
     def _calculate_reputation_level(self, score: int) -> str:

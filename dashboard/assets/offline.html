@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IoTSentinel — Offline</title>
+  <link rel="icon" href="/assets/icon-192.png">
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #0f172a;
+      color: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      padding: 1.5rem;
+    }
+    .card { max-width: 24rem; }
+    img { width: 96px; height: 96px; margin-bottom: 1.25rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+    p { color: #94a3b8; line-height: 1.5; margin: 0 0 1.5rem; }
+    button {
+      background: #2563eb; color: #fff; border: 0; border-radius: .6rem;
+      padding: .7rem 1.4rem; font-size: 1rem; cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/assets/icon-192.png" alt="IoTSentinel">
+    <h1>You're offline</h1>
+    <p>IoTSentinel can't reach your sensor right now. Check that you're on the same
+       network as your Pi, or connected over your remote-access link, then try again.</p>
+    <button onclick="location.reload()">Retry</button>
+  </div>
+</body>
+</html>

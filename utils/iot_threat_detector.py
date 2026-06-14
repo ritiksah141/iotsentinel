@@ -13,9 +13,8 @@ Uses signature-based and behavior-based detection methods.
 
 import json
 import logging
-import re
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import (Dict, List, Optional)
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)

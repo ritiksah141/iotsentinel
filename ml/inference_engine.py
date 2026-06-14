@@ -10,8 +10,6 @@ Updated to use RiverMLEngine (incremental learning) and production-ready Alertin
 
 import sys
 import time
-import numpy as np
-import pandas as pd
 from pathlib import Path
 import logging
 import json
@@ -63,6 +61,16 @@ class InferenceEngine:
             'low': 0.50
         })
 
+        # Cold-start handling: new devices score against the global baseline
+        # and produce false positives until enough traffic has been learned.
+        # During the learning window ML-driven severities are damped one level
+        # and the alert text says the device is still being learned.
+        self.cold_start_damping = bool(ml_config.get('cold_start_damping', True))
+        self.learning_min_connections = int(ml_config.get('learning_min_connections', 100))
+        self.learning_period_days = int(ml_config.get('learning_period_days', 2))
+        self._learning_cache = {}          # device_ip -> (is_learning, checked_at)
+        self._LEARNING_CACHE_TTL = 600
+
         logger.info("✓ InferenceEngine initialized with RiverMLEngine (incremental learning)")
         logger.info(f"✓ Anomaly threshold: {self.anomaly_threshold}")
 
@@ -83,39 +91,281 @@ class InferenceEngine:
         """Get River ML engine statistics for monitoring."""
         return self.river_engine.get_stats()
 
-    # Plain-English label → MITRE user_explanation fallback map.
-    # Keys match _map_to_mitre() return prefixes for the most common tactics.
+    # MITRE tactic → plain-English fallback (used only when baseline data unavailable)
     _PLAIN_TACTIC_MAP = {
-        "Exfiltration": "This device is sending much more data than usual — it could be uploading your information without your knowledge.",
-        "Lateral Movement": "This device is trying to connect to others on your network using channels it doesn't normally use.",
-        "Discovery": "This device is scanning your network to find other devices, like someone checking every door on your street.",
-        "Command and Control": "This device connected to an address associated with hackers. This needs immediate attention.",
-        "Defense Evasion": "This device is using unusual communication methods that could be hiding malicious activity.",
-        "Initial Access": "This device is rapidly trying to connect to many places — it may be infected and trying to spread.",
-        "Execution": "This device is active at unusual times or running unexpected processes.",
+        "Exfiltration": "is sending much more data than usual. It could be uploading your information without your knowledge.",
+        "Lateral Movement": "is trying to connect to other devices on your network using channels it does not normally use.",
+        "Discovery": "is scanning your network to find other devices, like someone checking every door on your street.",
+        "Command and Control": "connected to an address associated with known hackers. This needs immediate attention.",
+        "Defense Evasion": "is using unusual communication methods that could be hiding malicious activity.",
+        "Initial Access": "is rapidly trying to connect to many places. It may be infected and trying to spread.",
+        "Execution": "is active at unusual times or running unexpected processes.",
     }
 
+    def _device_label(self, device_ip: str) -> str:
+        """Return friendly device name for plain-English output, falling back to IP."""
+        try:
+            cur = self.db.conn.cursor()
+            cur.execute(
+                "SELECT device_name FROM devices WHERE device_ip = ? LIMIT 1",
+                (device_ip,)
+            )
+            row = cur.fetchone()
+            return (row[0] if row and row[0] else None) or device_ip
+        except Exception:
+            return device_ip
+
+    _LEARNING_NOTE = ("IoTSentinel is still learning this device's normal behaviour, "
+                      "so this may be routine activity.")
+
+    _SEVERITY_DAMP = {'critical': 'high', 'high': 'medium', 'medium': 'low', 'low': 'low'}
+
+    def _is_learning_period(self, device_ip: str) -> bool:
+        """True while a device is too new for its ML scores to be trusted.
+
+        A device is "learning" when it has fewer than learning_min_connections
+        recorded connections OR was first seen less than learning_period_days
+        ago. Results are cached for 10 minutes per device.
+        """
+        if not device_ip:
+            return False
+        now = time.time()
+        cached = self._learning_cache.get(device_ip)
+        if cached and now - cached[1] < self._LEARNING_CACHE_TTL:
+            return cached[0]
+
+        learning = False
+        try:
+            cur = self.db.conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM connections WHERE device_ip = ?", (device_ip,))
+            row = cur.fetchone()
+            conn_count = int(row[0] or 0) if row else 0
+            if conn_count < self.learning_min_connections:
+                learning = True
+            else:
+                cur.execute(
+                    "SELECT first_seen >= datetime('now', ?) FROM devices WHERE device_ip = ?",
+                    (f'-{self.learning_period_days} days', device_ip)
+                )
+                row = cur.fetchone()
+                learning = bool(row[0]) if row and row[0] is not None else False
+        except Exception:
+            learning = False
+
+        self._learning_cache[device_ip] = (learning, now)
+        return learning
+
+    def _baseline_stats(self, device_ip: str) -> dict:
+        """Learned per-metric baselines: {metric_name: (baseline_value, std_deviation)}."""
+        try:
+            cur = self.db.conn.cursor()
+            cur.execute(
+                """SELECT metric_name, baseline_value, std_deviation
+                   FROM device_behavior_baselines
+                   WHERE device_ip = ? AND std_deviation > 0""",
+                (device_ip,)
+            )
+            return {row[0]: (float(row[1]), float(row[2])) for row in cur.fetchall()}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _sigma_sentence(current: float, baseline_value: float, std_deviation: float) -> str:
+        """' That is more than N times outside its normal range.' when >= 2 sigma."""
+        if std_deviation <= 0:
+            return ''
+        sigma = abs(current - baseline_value) / std_deviation
+        if sigma >= 2:
+            return f" That is more than {int(sigma)} times outside its normal range."
+        return ''
+
+    def _baseline_diff_sentence(self, connection: dict) -> str:
+        """Build a specific, personal plain-English sentence using real baseline data.
+
+        Queries the connections table for this device's recent history vs its 7-day
+        baseline. Returns a specific sentence if a meaningful signal is found, or an
+        empty string to fall through to the MITRE tactic template.
+        """
+        device_ip = connection.get('device_ip', '')
+        dest_ip = connection.get('dest_ip')
+        bytes_sent = int(connection.get('bytes_sent', 0) or 0)
+
+        if not device_ip:
+            return ''
+
+        try:
+            cur = self.db.conn.cursor()
+            label = self._device_label(device_ip)
+
+            # Unique destinations this device contacted today
+            cur.execute(
+                """SELECT COUNT(DISTINCT dest_ip) FROM connections
+                   WHERE device_ip = ? AND timestamp >= datetime('now', '-24 hours')""",
+                (device_ip,)
+            )
+            today_dests = int(cur.fetchone()[0] or 0)
+
+            # Daily average unique destinations over the 3 days before today (baseline).
+            # 3-day window so specific UVP sentences fire on a fresh / demo Pi after
+            # just a few days of traffic — previously this required 8 days.
+            cur.execute(
+                """SELECT COALESCE(AVG(daily_count), 0) FROM (
+                       SELECT date(timestamp) AS day, COUNT(DISTINCT dest_ip) AS daily_count
+                       FROM connections
+                       WHERE device_ip = ?
+                         AND timestamp >= datetime('now', '-3 days')
+                         AND timestamp < datetime('now', '-1 day')
+                       GROUP BY date(timestamp)
+                   )""",
+                (device_ip,)
+            )
+            baseline_dests = float(cur.fetchone()[0] or 0)
+
+            # Whether this specific destination has ever been seen before for this device
+            new_dest = False
+            if dest_ip:
+                cur.execute(
+                    """SELECT COUNT(*) FROM connections
+                       WHERE device_ip = ? AND dest_ip = ?
+                         AND timestamp < datetime('now', '-1 hour')
+                       LIMIT 1""",
+                    (device_ip, dest_ip)
+                )
+                new_dest = cur.fetchone()[0] == 0
+
+            # Bytes sent in the last 24 h
+            cur.execute(
+                """SELECT COALESCE(SUM(bytes_sent), 0) FROM connections
+                   WHERE device_ip = ? AND timestamp >= datetime('now', '-24 hours')""",
+                (device_ip,)
+            )
+            today_bytes = int(cur.fetchone()[0] or 0)
+
+            # Daily average bytes over the same 3-day baseline window
+            cur.execute(
+                """SELECT COALESCE(AVG(daily_bytes), 0) FROM (
+                       SELECT date(timestamp) AS day, SUM(bytes_sent) AS daily_bytes
+                       FROM connections
+                       WHERE device_ip = ?
+                         AND timestamp >= datetime('now', '-3 days')
+                         AND timestamp < datetime('now', '-1 day')
+                       GROUP BY date(timestamp)
+                   )""",
+                (device_ip,)
+            )
+            baseline_bytes = float(cur.fetchone()[0] or 0)
+
+            # --- Signal priority: most specific / alarming first ---
+
+            # Signal 1: large destination-count spike + new destination
+            # Threshold 4 (was 5) so it fires with a smaller but real baseline.
+            if (today_dests >= 4 and baseline_dests >= 1
+                    and today_dests > baseline_dests * 3 and new_dest and dest_ip):
+                ratio = round(today_dests / max(baseline_dests, 1), 1)
+                return (
+                    f"{label} contacted {today_dests} different destinations today "
+                    f"(normally about {int(baseline_dests)}) and reached {dest_ip} "
+                    f"for the first time. That is {ratio}x its usual pattern."
+                )
+
+            # Signal 2: significant destination spike with enough baseline context
+            if today_dests >= 5 and baseline_dests >= 2 and today_dests > baseline_dests * 2:
+                ratio = round(today_dests / max(baseline_dests, 1), 1)
+                # Qualify with the learned per-hour std deviation where one
+                # exists (same-unit comparison: last hour vs hourly baseline).
+                sigma_note = ''
+                stats = self._baseline_stats(device_ip)
+                if 'unique_destinations_per_hour' in stats:
+                    cur.execute(
+                        """SELECT COUNT(DISTINCT dest_ip) FROM connections
+                           WHERE device_ip = ? AND timestamp >= datetime('now', '-1 hour')""",
+                        (device_ip,)
+                    )
+                    last_hour_dests = int(cur.fetchone()[0] or 0)
+                    sigma_note = self._sigma_sentence(last_hour_dests, *stats['unique_destinations_per_hour'])
+                return (
+                    f"{label} contacted {today_dests} different destinations today. "
+                    f"Its normal is around {int(baseline_dests)}. "
+                    f"That is a {ratio}x spike in unusual outbound activity." + sigma_note
+                )
+
+            # Signal 3: new destination + significant data transfer
+            if new_dest and dest_ip and bytes_sent > 2_000_000:
+                mb = bytes_sent // 1_000_000
+                return (
+                    f"{label} contacted {dest_ip} for the first time ever "
+                    f"and transferred {mb} MB of data to it."
+                )
+
+            # Signal 4: first-ever destination (even without large data)
+            if new_dest and dest_ip:
+                return (
+                    f"{label} contacted {dest_ip} for the first time. "
+                    f"This destination has never appeared in its traffic history."
+                )
+
+            # Signal 5: bytes spike vs baseline (even without destination spike)
+            if (today_bytes > 20_000_000 and baseline_bytes >= 1_000_000
+                    and today_bytes > baseline_bytes * 3):
+                mb_today = today_bytes // 1_000_000
+                mb_baseline = int(baseline_bytes // 1_000_000)
+                # Qualify with the learned per-connection std deviation
+                # (same-unit comparison: this connection vs learned average).
+                sigma_note = ''
+                stats = self._baseline_stats(device_ip)
+                if bytes_sent and 'bytes_sent_per_connection' in stats:
+                    sigma_note = self._sigma_sentence(bytes_sent, *stats['bytes_sent_per_connection'])
+                return (
+                    f"{label} sent {mb_today} MB of data today. "
+                    f"Its daily average is {mb_baseline} MB. "
+                    f"That is a {round(today_bytes / max(baseline_bytes, 1), 1)}x spike." + sigma_note
+                )
+
+            # Signal 6: absolute large transfer with no baseline context
+            if bytes_sent > 50_000_000:
+                mb = bytes_sent // 1_000_000
+                return f"{label} sent {mb} MB in a single connection, which is unusually high."
+
+        except Exception:
+            pass
+
+        return ''  # Fall through to MITRE template
+
     def _generate_plain_explanation(self, connection: dict, mitre_tactic: str) -> str:
-        """One plain-English sentence for home-user alert cards, using MITRE tactic labels."""
+        """Plain-English sentence for home-user alert cards.
+
+        Tries to produce a specific, data-driven sentence using the device's real
+        baseline before falling back to the generic MITRE tactic template.
+        """
         device_ip = connection.get('device_ip', 'A device')
         dest_port = connection.get('dest_port')
-        bytes_sent = connection.get('bytes_sent', 0) or 0
+        bytes_sent = int(connection.get('bytes_sent', 0) or 0)
 
-        # Match the tactic prefix to a plain sentence
+        # Try baseline-diff first — specific and personal (requires live DB; skip if unavailable)
+        specific = ''
+        if self is not None and hasattr(self, 'db') and self.db is not None:
+            specific = self._baseline_diff_sentence(connection)
+        if specific:
+            return specific
+
+        # MITRE tactic template fallback
+        can_lookup = self is not None and hasattr(self, 'db') and self.db is not None
+        label = (self._device_label(device_ip)
+                 if can_lookup and device_ip != 'A device' else device_ip)
         for key, sentence in InferenceEngine._PLAIN_TACTIC_MAP.items():
             if key.lower() in mitre_tactic.lower():
-                return f"{device_ip}: {sentence}"
+                return f"{label} {sentence}"
 
-        # Fallback using connection specifics
+        # Generic last resort
         if bytes_sent > 10_000_000:
-            return f"{device_ip} is sending unusually large amounts of data — this may indicate a security issue."
+            return f"{label} is sending unusually large amounts of data. This may indicate a security issue."
         if dest_port:
-            return f"{device_ip} is making unusual network connections that don't match its normal behaviour."
-        return f"{device_ip} showed unusual network behaviour that may need your attention."
+            return f"{label} is making unusual network connections on port {dest_port} that do not match its normal behaviour."
+        return f"{label} showed unusual network behaviour that may need your attention."
 
     def _create_alert(self, device_ip: str, severity: str, anomaly_score: float,
                       explanation: str, top_features: str = None,
-                      connection: dict = None) -> int:
+                      connection: dict = None, learning_note: bool = False) -> int:
         """
         Create an alert using the alerting system if available, otherwise direct to DB.
 
@@ -126,6 +376,7 @@ class InferenceEngine:
             explanation: Technical explanation (kept for security_admin view)
             top_features: JSON string of top contributing features
             connection: Raw connection dict used to generate plain_explanation
+            learning_note: Append the still-learning sentence (cold-start damped alerts)
 
         Returns:
             Alert ID if created successfully
@@ -134,6 +385,8 @@ class InferenceEngine:
         plain_explanation = None
         if connection is not None:
             plain_explanation = self._generate_plain_explanation(connection, explanation)
+        if learning_note and plain_explanation:
+            plain_explanation = f"{plain_explanation} {self._LEARNING_NOTE}"
 
         if self.alerting:
             return self.alerting.create_alert(
@@ -236,6 +489,14 @@ class InferenceEngine:
             if is_anomaly and anomaly_score >= self.anomaly_threshold:
                 severity = self._calculate_severity(anomaly_score)
 
+                # Cold-start damping: while a device is still being learned,
+                # lower ML-driven severities one level. The threat-intel path
+                # above is never damped (it `continue`s before this point).
+                is_learning = (self.cold_start_damping
+                               and self._is_learning_period(device_ip))
+                if is_learning:
+                    severity = self._SEVERITY_DAMP.get(severity, severity)
+
                 # Generate explanation with River insights
                 explanation = self._generate_river_explanation(
                     conn,
@@ -262,6 +523,7 @@ class InferenceEngine:
                     explanation=explanation,
                     top_features=json.dumps(top_features),
                     connection=conn,
+                    learning_note=is_learning,
                 )
 
                 anomaly_count += 1

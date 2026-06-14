@@ -10,6 +10,8 @@ ENV/
 *.egg-info/
 
 # Data (too large for git)
+data/*.db
+data/*.db-*
 data/database/*.db
 data/database/*.db-*
 data/logs/*.log
@@ -57,6 +59,16 @@ config/config.json
 credentials.json
 secrets.yaml
 .secrets/
+
+# Build artifacts — regenerated at boot by dashboard/asset_build.py
+dashboard/assets/custom.min.css
+dashboard/assets/mobile-responsive.min.css
+dashboard/assets/skeleton.min.css
+# PWA icons — generated from logo.png at boot (ensure_pwa_icons)
+dashboard/assets/icon-192.png
+dashboard/assets/icon-512.png
+dashboard/assets/icon-maskable-512.png
+dashboard/assets/apple-touch-icon.png
 
 # Temp and Backups
 *.tmp

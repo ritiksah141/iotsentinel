@@ -16,7 +16,6 @@ import tempfile
 import json
 import time
 from pathlib import Path
-from datetime import datetime
 import sys
 import sqlite3
 import pandas as pd
@@ -24,7 +23,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database.db_manager import DatabaseManager
 from ml.feature_extractor import FeatureExtractor
 from capture.zeek_log_parser import ZeekLogParser
 from config.config_manager import config
@@ -114,7 +112,6 @@ class TestZeekToDatabase:
         """TC-INT-001: Verify Zeek conn.log parsing into database."""
         # Arrange
         # Temporarily override config for test
-        import importlib
 
         # Create parser with test paths
         with patch.object(config, 'get') as mock_config:

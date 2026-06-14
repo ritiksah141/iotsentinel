@@ -7,8 +7,6 @@ Parses CPE (Common Platform Enumeration) and matches to device vendor/model/firm
 """
 
 import logging
-import sqlite3
-import re
 from typing import Dict, Any, Optional, List, Tuple
 from fuzzywuzzy import fuzz
 from datetime import datetime
@@ -26,17 +24,27 @@ class CVEMatcher:
     def __init__(
         self,
         db_path: str = 'data/iot_monitor.db',
-        match_threshold: float = 0.85
+        match_threshold: float = 0.85,
+        db_manager=None,
     ):
         """
         Initialize CVE matcher.
 
         Args:
-            db_path: Path to database
+            db_path: Path to SQLite database (used when db_manager is not provided)
             match_threshold: Fuzzy match threshold (0.0-1.0)
+            db_manager: DatabaseManager instance (preferred over db_path)
         """
-        self.db_path = db_path
         self.match_threshold = match_threshold
+
+        if db_manager is not None:
+            self.db_manager = db_manager
+            self.db_path = None
+        else:
+            # Create a lightweight DatabaseManager from path so all methods work
+            from database.db_manager import DatabaseManager
+            self.db_manager = DatabaseManager(db_path=db_path)
+            self.db_path = db_path
 
         logger.info(f"CVE matcher initialized (threshold: {match_threshold})")
 
@@ -275,44 +283,26 @@ class CVEMatcher:
             saved_count = 0
 
             for match in matches:
-                # Check if already exists
+                # risk_score = cvss_score * confidence (both in device_vulnerabilities_detected schema)
+                risk_score = round(
+                    float(match.get('cvss_score', 0.0) or 0.0) *
+                    float(match.get('confidence', 0.8) or 0.8),
+                    2,
+                )
+                # Use INSERT OR IGNORE + UPDATE so UNIQUE(device_ip, cve_id) is respected
                 cursor.execute('''
-                    SELECT COUNT(*) FROM device_vulnerabilities_detected
-                    WHERE device_ip = ? AND cve_id = ?
-                ''', (match['device_ip'], match['cve_id']))
+                    INSERT OR IGNORE INTO device_vulnerabilities_detected
+                    (device_ip, cve_id, detected_date, status, risk_score, auto_detected)
+                    VALUES (?, ?, datetime('now'), 'active', ?, 1)
+                ''', (match['device_ip'], match['cve_id'], risk_score))
 
-                if cursor.fetchone()[0] > 0:
-                    # Update existing
+                if cursor.rowcount == 0:
+                    # Row already existed — refresh risk_score and last_checked
                     cursor.execute('''
                         UPDATE device_vulnerabilities_detected
-                        SET severity = ?, cvss_score = ?, description = ?,
-                            confidence = ?, detected_at = ?
+                        SET risk_score = ?, last_checked = datetime('now')
                         WHERE device_ip = ? AND cve_id = ?
-                    ''', (
-                        match['severity'],
-                        match['cvss_score'],
-                        match['description'],
-                        match['confidence'],
-                        match['detected_at'],
-                        match['device_ip'],
-                        match['cve_id']
-                    ))
-                else:
-                    # Insert new
-                    cursor.execute('''
-                        INSERT INTO device_vulnerabilities_detected
-                        (device_ip, cve_id, severity, cvss_score, description,
-                         confidence, detected_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        match['device_ip'],
-                        match['cve_id'],
-                        match['severity'],
-                        match['cvss_score'],
-                        match['description'],
-                        match['confidence'],
-                        match['detected_at']
-                    ))
+                    ''', (risk_score, match['device_ip'], match['cve_id']))
 
                 saved_count += 1
 
@@ -344,9 +334,14 @@ class CVEMatcher:
             cursor = conn.cursor()
 
             cursor.execute('''
-                SELECT * FROM device_vulnerabilities_detected
-                WHERE device_ip = ?
-                ORDER BY cvss_score DESC
+                SELECT dvd.device_ip, dvd.cve_id, dvd.detected_date,
+                       dvd.status, dvd.risk_score, dvd.auto_detected,
+                       iv.severity, iv.cvss_score, iv.description, iv.title,
+                       iv.exploit_available, iv.patch_available
+                FROM device_vulnerabilities_detected dvd
+                JOIN iot_vulnerabilities iv ON dvd.cve_id = iv.cve_id
+                WHERE dvd.device_ip = ?
+                ORDER BY iv.cvss_score DESC
             ''', (device_ip,))
 
             vulns = [dict(row) for row in cursor.fetchall()]
@@ -404,17 +399,18 @@ class CVEMatcher:
 _cve_matcher = None
 
 
-def get_cve_matcher(db_path: str = 'data/iot_monitor.db') -> CVEMatcher:
+def get_cve_matcher(db_path: str = 'data/iot_monitor.db', db_manager=None) -> CVEMatcher:
     """
     Get global CVE matcher instance.
 
     Args:
-        db_path: Path to database
+        db_path: Path to database (used only when db_manager is not provided)
+        db_manager: DatabaseManager instance (preferred)
 
     Returns:
         CVEMatcher instance
     """
     global _cve_matcher
     if _cve_matcher is None:
-        _cve_matcher = CVEMatcher(db_path=db_path)
+        _cve_matcher = CVEMatcher(db_path=db_path, db_manager=db_manager)
     return _cve_matcher

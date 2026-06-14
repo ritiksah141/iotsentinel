@@ -44,12 +44,10 @@ _UNLOCKED_STYLE = {"display": "none"}
 # ---------------------------------------------------------------------------
 
 def _is_email_configured() -> bool:
-    try:
-        mgr = IntegrationManager(db_manager)
-        creds = mgr.get_integration_credentials('email_smtp')
-        return bool(creds and creds.get('smtp_server'))
-    except Exception:
-        return False
+    import os
+    host = os.getenv('EMAIL_SMTP_HOST', '').strip()
+    user = os.getenv('EMAIL_SMTP_USER', '').strip()
+    return bool(host and user)
 
 
 def _is_threat_intel_configured() -> bool:
@@ -99,21 +97,29 @@ def _save_api_key_impl(n_clicks, api_key, current_trigger):
 def register(app):
 
     # -- 1. Update overlay visibility whenever the page loads or a key is saved --
+    # Features that require threat-intel credentials: api-hub, threat, threat-map
+    _THREAT_INTEL_FEATURES = {"api-hub", "threat", "threat-map"}
+
     @app.callback(
         Output({"type": "padlock-overlay", "feature": "email"}, "style"),
         Output({"type": "padlock-overlay", "feature": "api-hub"}, "style"),
+        Output({"type": "padlock-overlay", "feature": "threat"}, "style"),
+        Output({"type": "padlock-overlay", "feature": "threat-map"}, "style"),
         Input("url", "pathname"),
         Input("padlock-refresh-trigger", "data"),
     )
     def update_lock_states(_pathname, _trigger):
-        email_style = _UNLOCKED_STYLE if _is_email_configured() else _LOCKED_STYLE
-        apihub_style = _UNLOCKED_STYLE if _is_threat_intel_configured() else _LOCKED_STYLE
-        return email_style, apihub_style
+        email_style    = _UNLOCKED_STYLE if _is_email_configured()        else _LOCKED_STYLE
+        threat_configured = _is_threat_intel_configured()
+        apihub_style   = _UNLOCKED_STYLE if threat_configured             else _LOCKED_STYLE
+        threat_style   = _UNLOCKED_STYLE if threat_configured             else _LOCKED_STYLE
+        tmap_style     = _UNLOCKED_STYLE if threat_configured             else _LOCKED_STYLE
+        return email_style, apihub_style, threat_style, tmap_style
 
     # -- 2. Route overlay clicks to the right modal --
     @app.callback(
-        Output("email-modal", "is_open"),
-        Output("unlock-padlock-modal", "is_open"),
+        Output("email-modal", "is_open", allow_duplicate=True),
+        Output("unlock-padlock-modal", "is_open", allow_duplicate=True),
         Input({"type": "padlock-overlay", "feature": ALL}, "n_clicks"),
         State("email-modal", "is_open"),
         prevent_initial_call=True,
@@ -130,7 +136,7 @@ def register(app):
 
         if feature == "email":
             return True, False
-        if feature == "api-hub":
+        if feature in _THREAT_INTEL_FEATURES:
             return no_update, True
 
         return no_update, no_update

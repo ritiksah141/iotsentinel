@@ -253,15 +253,12 @@ class HardwareLifecycleManager:
                            explanation: str, indicators: Dict):
         """Generate hardware EOL alert."""
         try:
-            from alerts.alert_manager import alert_manager
-
-            alert_manager.create_alert(
+            self.db.create_alert(
                 device_ip=device_ip,
                 severity=severity,
                 anomaly_score=0.0,
                 explanation=f"[Hardware EOL] {explanation}",
                 top_features=json.dumps(indicators),
-                category='hardware_lifecycle'
             )
             logger.warning(f"Hardware EOL alert generated for {device_ip}: {explanation}")
 

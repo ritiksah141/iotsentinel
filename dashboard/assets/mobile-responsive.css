@@ -80,11 +80,6 @@
     }
 
     /* Full width buttons on mobile */
-    .btn-block-mobile {
-        display: block;
-        width: 100%;
-        margin-bottom: 0.5rem;
-    }
 
     /* Button groups - Stack vertically */
     .btn-group {
@@ -98,7 +93,7 @@
     }
 
     /* Forms */
-    .form-control, .cyber-input {
+    .form-control {
         font-size: 16px; /* Prevents iOS zoom on focus */
         min-height: 44px;
     }
@@ -188,9 +183,6 @@
     }
 
     /* Hide less important info on mobile */
-    .device-card .device-secondary-info {
-        display: none;
-    }
 
     /* Make device IP and name more prominent */
     .device-card .device-ip {
@@ -212,68 +204,19 @@
 /* ============================================================================
    ALERTS - MOBILE
    ============================================================================ */
-@media (max-width: 767.98px) {
-    .alert-item {
-        padding: 0.75rem;
-        font-size: 0.9rem;
-    }
-
-    .alert-item .alert-header {
-        display: block;
-        margin-bottom: 0.5rem;
-    }
-
-    .alert-item .alert-timestamp {
-        display: block;
-        margin-top: 0.25rem;
-        font-size: 0.75rem;
-    }
-
-    .alert-item .alert-actions {
-        margin-top: 0.5rem;
-    }
-
-    .alert-item .btn {
-        font-size: 0.8rem;
-        padding: 0.25rem 0.5rem;
-    }
-}
 
 /* ============================================================================
    STATISTICS & CHARTS - MOBILE
    ============================================================================ */
 @media (max-width: 767.98px) {
     /* Stack stat cards vertically */
-    .stats-row .col-md-3,
-    .stats-row .col-md-4,
-    .stats-row .col-md-6 {
-        flex: 0 0 100%;
-        max-width: 100%;
-        margin-bottom: 0.75rem;
-    }
 
     /* Stat cards - Compact layout */
     .stat-card {
         padding: 0.75rem;
     }
 
-    .stat-card .stat-value {
-        font-size: 1.5rem;
-    }
-
-    .stat-card .stat-label {
-        font-size: 0.85rem;
-    }
-
-    .stat-card .stat-icon {
-        font-size: 1.5rem;
-    }
-
     /* Charts - Reduce height on mobile */
-    .chart-container {
-        height: 250px !important;
-        min-height: 250px !important;
-    }
 
     /* Hide chart legends on very small screens */
     @media (max-width: 575.98px) {
@@ -360,31 +303,8 @@
     }
 
     /* Stack table rows as cards on mobile */
-    .table-mobile-cards thead {
-        display: none;
-    }
 
-    .table-mobile-cards tr {
-        display: block;
-        margin-bottom: 1rem;
-        border: 1px solid rgba(0, 255, 204, 0.2);
-        border-radius: 8px;
-        padding: 0.75rem;
-        background: rgba(0, 0, 0, 0.3);
-    }
 
-    .table-mobile-cards td {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.5rem 0;
-        border: none;
-    }
-
-    .table-mobile-cards td:before {
-        content: attr(data-label);
-        font-weight: bold;
-        margin-right: 1rem;
-    }
 }
 
 /* ============================================================================
@@ -435,67 +355,10 @@
 /* ============================================================================
    SETTINGS PANEL - MOBILE
    ============================================================================ */
-@media (max-width: 767.98px) {
-    .settings-panel .row {
-        display: block;
-    }
-
-    .settings-panel .col {
-        max-width: 100%;
-        margin-bottom: 0.75rem;
-    }
-
-    /* Stack form fields vertically */
-    .settings-form .row > div {
-        flex: 0 0 100%;
-        max-width: 100%;
-        margin-bottom: 0.75rem;
-    }
-
-    /* Settings labels */
-    .settings-form label {
-        font-size: 0.9rem;
-        margin-bottom: 0.25rem;
-    }
-}
 
 /* ============================================================================
    DASHBOARD HEADER - MOBILE
    ============================================================================ */
-@media (max-width: 767.98px) {
-    .dashboard-header {
-        flex-direction: column;
-        align-items: flex-start !important;
-    }
-
-    .dashboard-header .col {
-        width: 100%;
-        max-width: 100%;
-        margin-bottom: 0.5rem;
-    }
-
-    .dashboard-header .btn {
-        width: 100%;
-        margin-bottom: 0.5rem;
-    }
-
-    /* Time range selector */
-    .time-range-selector {
-        width: 100%;
-        margin-bottom: 0.75rem;
-    }
-
-    .time-range-selector .btn-group {
-        width: 100%;
-        display: flex;
-    }
-
-    .time-range-selector .btn {
-        flex: 1;
-        font-size: 0.8rem;
-        padding: 0.5rem 0.25rem;
-    }
-}
 
 /* ============================================================================
    SEARCH BAR - MOBILE
@@ -515,23 +378,13 @@
     }
 
     /* Search suggestions */
-    .search-suggestions {
-        font-size: 0.85rem;
-    }
+
 }
 
 /* ============================================================================
    FILTERS & DROPDOWNS - MOBILE
    ============================================================================ */
 @media (max-width: 767.98px) {
-    .filters-container {
-        display: block;
-    }
-
-    .filters-container .filter-group {
-        margin-bottom: 0.75rem;
-        width: 100%;
-    }
 
     .dropdown-menu {
         font-size: 0.9rem;
@@ -552,51 +405,11 @@
         position: relative;
     }
 
-    .notification-dropdown {
-        position: fixed;
-        top: 60px;
-        right: 0;
-        left: 0;
-        width: 100%;
-        max-height: calc(100vh - 80px);
-        overflow-y: auto;
-        border-radius: 0;
-        box-shadow: none;
-    }
-
-    .notification-item {
-        padding: 0.75rem;
-        border-bottom: 1px solid rgba(0, 255, 204, 0.1);
-    }
-
-    .notification-item:last-child {
-        border-bottom: none;
-    }
 }
 
 /* ============================================================================
    DEVICE GROUPING - MOBILE
    ============================================================================ */
-@media (max-width: 767.98px) {
-    .group-card {
-        margin-bottom: 0.75rem;
-    }
-
-    .group-card .group-stats {
-        display: block;
-    }
-
-    .group-card .stat-item {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .group-card .stat-item:last-child {
-        border-bottom: none;
-    }
-}
 
 /* ============================================================================
    CHARTS & GRAPHS - MOBILE OPTIMIZATIONS
@@ -629,52 +442,6 @@
 }
 
 /* ============================================================================
-   LOADING STATES - MOBILE
-   ============================================================================ */
-@media (max-width: 767.98px) {
-    .skeleton-loader {
-        height: 80px;
-        margin-bottom: 0.75rem;
-    }
-
-    .loading-spinner {
-        font-size: 1.5rem;
-    }
-}
-
-/* ============================================================================
-   FLOATING ACTION BUTTON (Mobile)
-   ============================================================================ */
-@media (max-width: 767.98px) {
-    .fab-mobile {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        z-index: 1000;
-        transition: transform 0.2s ease;
-    }
-
-    .fab-mobile:active {
-        transform: scale(0.95);
-    }
-
-    .fab-mobile:hover {
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-    }
-}
-
-/* ============================================================================
    LANDSCAPE PHONE - ADJUSTMENTS
    ============================================================================ */
 @media (min-width: 576px) and (max-width: 767.98px) and (orientation: landscape) {
@@ -686,10 +453,6 @@
     /* Compact stat cards */
     .stat-card {
         padding: 0.5rem;
-    }
-
-    .stat-card .stat-value {
-        font-size: 1.25rem;
     }
 
     /* Reduce modal heights */
@@ -708,15 +471,7 @@
         max-width: 50%;
     }
 
-    .stats-row .col-md-3 {
-        flex: 0 0 50%;
-        max-width: 50%;
-    }
-
     /* Adjust chart heights for tablets */
-    .chart-container {
-        height: 300px !important;
-    }
 
     /* Maintain readable font sizes */
     body {
@@ -760,19 +515,14 @@
    ============================================================================ */
 @media print {
     /* Hide navigation and interactive elements */
-    .navbar,
-    .btn,
-    .fab-mobile,
-    .notification-bell,
-    .modal,
-    .dropdown {
+    .navbar, .btn, .notification-bell, .modal, .dropdown {
         display: none !important;
     }
 
     /* Optimize for print */
     body {
         background: white;
-        color: black;
+        color: var(--ink-primary);
     }
 
     .card, .cyber-card {
@@ -812,19 +562,12 @@
 }
 
 /* Dark mode preference (if not already dark) */
-@media (prefers-color-scheme: light) {
-    /* Adjust dashboard for users who prefer light mode */
-    /* (IoTSentinel is dark by default, so this could offer a light variant) */
-}
 
 /* ============================================================================
    iOS SPECIFIC FIXES
    ============================================================================ */
 @supports (-webkit-touch-callout: none) {
     /* Fix iOS Safari 100vh bug */
-    .mobile-full-height {
-        height: -webkit-fill-available;
-    }
 
     /* Prevent iOS zoom on input focus */
     input[type="text"],
@@ -847,10 +590,337 @@
 /* ============================================================================
    ANDROID SPECIFIC FIXES
    ============================================================================ */
+
+/* ============================================================================
+   MOBILE BOTTOM TAB BAR
+   ============================================================================ */
+
+/* Hidden on desktop — shown only on mobile */
+.mobile-tabbar { display: none; }
+
 @media (max-width: 767.98px) {
-    /* Fix Android Chrome address bar height issues */
-    .mobile-viewport {
-        min-height: 100vh;
-        min-height: -webkit-fill-available;
+    /* ---- Bar shell ---- */
+    .mobile-tabbar {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1055;
+        align-items: stretch;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: var(--bg-glass);
+        backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+        border-top: 1px solid var(--glass-border-medium);
+        box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    /* ---- Primary tab button ---- */
+    .tabbar-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 0.5rem 0.25rem;
+        min-height: 52px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        outline: none;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 0.18s ease, transform 0.12s ease;
+    }
+
+    .tabbar-item i {
+        font-size: 1.2rem;
+        line-height: 1;
+    }
+
+    .tabbar-item span {
+        font-size: 0.62rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        line-height: 1;
+        white-space: nowrap;
+    }
+
+    .tabbar-item.tabbar-active {
+        color: var(--accent-color);
+    }
+
+    .tabbar-item.tabbar-active i {
+        filter: drop-shadow(0 0 4px var(--accent-glow));
+    }
+
+    .tabbar-item:active {
+        transform: scale(0.88);
+    }
+
+    /* Clear content above the tab bar */
+    .dashboard-container {
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* ---- More-sheet backdrop ---- */
+    .tabbar-more-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 1054;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+    }
+
+    .tabbar-more-backdrop.open {
+        display: block;
+    }
+
+    /* ---- More sheet ---- */
+    .tabbar-more-sheet {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1056;
+        padding-bottom: env(safe-area-inset-bottom, 12px);
+        background: var(--bg-glass);
+        backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+        border-top: 1px solid var(--glass-border-medium);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+        transform: translateY(100%);
+        transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .tabbar-more-sheet.open {
+        transform: translateY(0);
+    }
+
+    /* Drag handle */
+    .tabbar-more-handle {
+        width: 36px;
+        height: 4px;
+        background: var(--glass-border-medium);
+        border-radius: 2px;
+        margin: 10px auto 6px;
+    }
+
+    .tabbar-more-title {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0 1rem 0.5rem;
+    }
+
+    /* 2-column grid of icon-button tiles (Compliance + Settings) */
+    .tabbar-more-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+        padding: 0.25rem 1rem 1rem;
+    }
+
+    .tabbar-more-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 0.75rem 0.5rem;
+        border: none;
+        background: color-mix(in srgb, var(--surface-1) 55%, transparent);
+        color: var(--text-primary);
+        border-radius: 12px;
+        cursor: pointer;
+        outline: none;
+        min-height: 72px;
+        width: 100%;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, transform 0.12s ease;
+    }
+
+    .tabbar-more-item i {
+        font-size: 1.4rem;
+        color: var(--accent-color);
+    }
+
+    .tabbar-more-item span {
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-align: center;
+        color: var(--text-primary);
+    }
+
+    .tabbar-more-item:active {
+        transform: scale(0.93);
+        background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+    }
+
+    .tabbar-more-item.tabbar-active {
+        background: color-mix(in srgb, var(--accent-color) 16%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 28%, transparent) inset;
+    }
+
+    .tabbar-more-item.tabbar-active i {
+        filter: drop-shadow(0 0 4px var(--accent-glow));
+    }
+}
+
+/* ---- Dark-mode overrides ---- */
+@media (max-width: 767.98px) {
+    body.dark-mode .mobile-tabbar,
+    body.dark-mode .tabbar-more-sheet {
+        background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+        border-top-color: var(--glass-border-heavy, rgba(255,255,255,0.12));
+    }
+
+    body.dark-mode .tabbar-more-item {
+        background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+    }
+
+    body.dark-mode .tabbar-more-handle {
+        background: rgba(255, 255, 255, 0.2);
+    }
+}
+
+/* ============================================================================
+   OVERVIEW PAGE — Responsive layout tweaks
+   ============================================================================ */
+
+/* On tablet and below: stack the 3-column layout vertically (handled by xs/lg
+   breakpoints in Python), but also tighten chart heights and metric cards */
+@media (max-width: 991.98px) {
+    /* Chart heights — medium shrink on tablet */
+    .chart-h-350 {
+        height: 260px !important;
+        min-height: 260px !important;
+    }
+    .chart-h-400 {
+        height: 300px !important;
+        min-height: 300px !important;
+    }
+    .chart-h-450 {
+        height: 320px !important;
+        min-height: 320px !important;
+    }
+    .chart-h-500 {
+        height: 350px !important;
+        min-height: 350px !important;
+    }
+    .chart-h-600 {
+        height: 400px !important;
+        min-height: 400px !important;
+    }
+
+    /* Score trend chart hidden on tablet to save space */
+    #security-score-history-row {
+        display: none !important;
+    }
+
+    /* Metric cards — keep 2-per-row but reduce internal padding */
+    .metric-card .card-body {
+        padding: 0.6rem !important;
+    }
+
+    /* Filter pill buttons — tighter on tablet */
+    .filter-btn-sev {
+        font-size: 0.7rem !important;
+        padding: 0.15rem 0.4rem !important;
+    }
+
+    /* Alert scroll panel — shorter on tablet */
+    .scroll-panel-375 {
+        max-height: 260px !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    /* Chart heights — compact on phone */
+    .chart-h-280,
+    .chart-h-300,
+    .chart-h-350 {
+        height: 200px !important;
+        min-height: 200px !important;
+    }
+    .chart-h-400,
+    .chart-h-450 {
+        height: 250px !important;
+        min-height: 250px !important;
+    }
+    .chart-h-500,
+    .chart-h-600 {
+        height: 280px !important;
+        min-height: 280px !important;
+    }
+
+    /* Navbar mode pills — smaller on phone */
+    .mode-btn-pill {
+        font-size: 0.7rem !important;
+        padding: 0.15rem 0.4rem !important;
+    }
+
+    /* Network Activity card inner padding */
+    .glass-card .card-body.p-4 {
+        padding: 0.75rem !important;
+    }
+}
+
+/* ============================================================================
+   QUICK STATUS — CONNECTED DEVICES: MOBILE RESPONSIVE (W15 / design polish)
+   Collapses the tile grid into a compact vertical list on phone, 2-col on
+   tablet — matching the Device List immediately below it.
+   ============================================================================ */
+
+/* Tablet (576–767px): 2-column grid, tighter padding + font */
+@media (min-width: 576px) and (max-width: 767.98px) {
+    .device-grid-modern {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+    .device-item-compact {
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
+    .device-name-compact {
+        font-size: 0.82rem;
+    }
+    .device-ip-compact {
+        font-size: 0.72rem;
+        padding: 1px 5px;
+    }
+    .protocol-badge-sm {
+        font-size: 0.62rem !important;
+        padding: 1px 4px !important;
+    }
+}
+
+/* Phone (≤575px): single-column list — flex layout inherited from base */
+@media (max-width: 575.98px) {
+    .device-grid-modern {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+    .device-item-compact {
+        padding: 8px 10px;
+        border-radius: 8px;
+    }
+    .device-name-compact {
+        font-size: 0.8rem;
+    }
+    .device-ip-compact {
+        font-size: 0.7rem;
+        padding: 1px 5px;
+    }
+    .protocol-badge-sm {
+        font-size: 0.6rem !important;
+        padding: 1px 3px !important;
+        flex-shrink: 0;
     }
 }

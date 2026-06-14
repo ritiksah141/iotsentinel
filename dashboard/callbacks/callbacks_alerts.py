@@ -7,10 +7,8 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 
 import json
 import logging
-import os
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -20,6 +18,13 @@ import plotly.graph_objs as go
 from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
 
 from flask_login import login_required, current_user
+
+from utils.alert_explainer import (
+    build_prompt, parse_ai_text, persist as persist_plain, clean_ai_text as _clean,
+    source_label as _source_label, source_badge_class as _source_badge_class,
+    source_icon as _source_icon, build_followup_prompt,
+)
+from utils.ip_geolocator import geolocate_ips
 
 from dashboard.shared import (
     db_manager,
@@ -70,7 +75,8 @@ def register(app):
     # Store alerts data from websocket OR interval (fallback for Mac/websocket issues)
     @app.callback(
         Output('alerts-data-store', 'data'),
-        [Input('ws', 'message'), Input('refresh-interval', 'n_intervals')]
+        [Input('ws', 'message'), Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: WS populates on connect; don't burst DB on page load
     )
     def store_alerts_data(ws_message, n_intervals):
         # Try websocket first
@@ -93,7 +99,9 @@ def register(app):
                     a.top_features,
                     a.acknowledged,
                     a.acknowledged_at,
-                    a.plain_explanation
+                    a.plain_explanation,
+                    a.plain_explanation_ai,
+                    a.ai_source
                 FROM alerts a
                 LEFT JOIN devices d ON a.device_ip = d.device_ip
                 WHERE a.timestamp >= datetime('now', '-24 hours')
@@ -116,6 +124,8 @@ def register(app):
                     'acknowledged': row[8] or 0,
                     'acknowledged_at': row[9],
                     'plain_explanation': row[10],
+                    'plain_explanation_ai': row[11] or 0,
+                    'ai_source': row[12] or '',
                 })
 
             return recent_alerts
@@ -130,11 +140,46 @@ def register(app):
         prevent_initial_call=False
     )
     def update_alerts_compact(recent_alerts_raw, filter_severity, show_reviewed):
-        # Handle empty or missing alerts
-        if not recent_alerts_raw:
+        show_acknowledged = bool(show_reviewed and len(show_reviewed) > 0)
+
+        df = pd.DataFrame(recent_alerts_raw) if recent_alerts_raw else pd.DataFrame()
+
+        # When showing reviewed, supplement with acknowledged alerts fetched directly
+        # from DB (the store may only hold recent unacknowledged data).
+        if show_acknowledged:
+            try:
+                cursor = db_manager.conn.cursor()
+                cursor.execute("""
+                    SELECT a.id, a.timestamp, a.device_ip, d.device_name, a.severity,
+                           a.anomaly_score, a.explanation, a.top_features,
+                           a.acknowledged, a.acknowledged_at, a.plain_explanation,
+                           a.plain_explanation_ai, a.ai_source
+                    FROM alerts a
+                    LEFT JOIN devices d ON a.device_ip = d.device_ip
+                    WHERE a.acknowledged = 1
+                    ORDER BY a.timestamp DESC
+                    LIMIT 50
+                """)
+                ack_rows = cursor.fetchall()
+                ack_alerts = [{
+                    'id': r[0], 'timestamp': r[1], 'device_ip': r[2],
+                    'device_name': r[3] or 'Unknown Device', 'severity': r[4],
+                    'anomaly_score': r[5], 'explanation': r[6], 'top_features': r[7],
+                    'acknowledged': r[8] or 0, 'acknowledged_at': r[9],
+                    'plain_explanation': r[10],
+                    'plain_explanation_ai': r[11] or 0,
+                    'ai_source': r[12] or '',
+                } for r in ack_rows]
+                if ack_alerts:
+                    ack_df = pd.DataFrame(ack_alerts)
+                    df = pd.concat([df, ack_df]).drop_duplicates(subset=['id']).reset_index(drop=True)
+            except Exception as e:
+                logger.error(f"Failed to fetch acknowledged alerts: {e}")
+
+        if df.empty:
             return dbc.Alert([
                 html.Div([
-                    html.I(className="fa fa-check-circle me-2", style={'fontSize': '1.5rem'}),
+                    html.I(className="fa fa-check-circle me-2 u-text-xl"),
                     html.Div([
                         html.H5("All Clear!", className="mb-1"),
                         html.P("No security alerts detected in the last 24 hours.", className="mb-0 small text-muted")
@@ -142,15 +187,9 @@ def register(app):
                 ], className="d-flex align-items-center")
             ], color="success", className="compact-alert")
 
-        df = pd.DataFrame(recent_alerts_raw)
-
-        # Filter out acknowledged alerts unless user wants to see them
-        if not df.empty:
-            # show_reviewed is a list: [] when unchecked, [1] when checked
-            show_acknowledged = show_reviewed and len(show_reviewed) > 0
-
-            if not show_acknowledged:
-                df = df[df['acknowledged'] == 0]
+        # Filter out acknowledged unless showing them
+        if not show_acknowledged:
+            df = df[df['acknowledged'] == 0]
 
         if filter_severity and filter_severity != 'all' and not df.empty:
             df = df[df['severity'] == filter_severity]
@@ -158,7 +197,7 @@ def register(app):
         if len(df) == 0:
             return dbc.Alert([
                 html.Div([
-                    html.I(className="fa fa-check-circle me-2", style={'fontSize': '1.5rem'}),
+                    html.I(className="fa fa-check-circle me-2 u-text-xl"),
                     html.Div([
                         html.H5("All Clear!", className="mb-1"),
                         html.P("No security alerts detected in the last 24 hours.", className="mb-0 small text-muted")
@@ -192,6 +231,8 @@ def register(app):
 
             # Check if alert is acknowledged/reviewed
             is_reviewed = alert.get('acknowledged', 0) == 1
+            ai_explained = int(alert.get('plain_explanation_ai', 0)) == 1
+            ai_src = alert.get('ai_source', '')
 
             # Always show plain English on the card — technical detail stays in the modal.
             # Priority: LLM-generated plain_explanation > MITRE user_explanation > truncated technical string
@@ -203,6 +244,18 @@ def register(app):
                 display_text = (explanation[:80] + "…" if explanation and len(explanation) > 80
                                 else explanation or "No description available")
 
+            # AI source badge — only shown when the text was written by an AI provider.
+            # Reuses shared source_label/icon helpers so the label is consistent across
+            # the modal, chat, and briefing card.
+            if ai_explained and ai_src:
+                ai_badge = dbc.Badge(
+                    [html.I(className=f"fa {_source_icon(ai_src)} me-1"), _source_label(ai_src)],
+                    className=f"ms-1 {_source_badge_class(ai_src)}",
+                    title=f"Explanation written by {_source_label(ai_src)}",
+                )
+            else:
+                ai_badge = None
+
             alert_id = int(alert.get('id', 0))
             alert_items.append(
                 dbc.Card([
@@ -212,39 +265,126 @@ def register(app):
                                 dbc.Badge([html.I(className=f"fa {config_data['icon']} me-1"), severity.upper()],
                                          color=config_data['color'], className="me-2"),
                                 dbc.Badge(tactic, color="dark", className="badge-sm"),
-                                dbc.Badge("✓ Reviewed", color="success", className="ms-1") if is_reviewed else None
+                                dbc.Badge("✓ Reviewed", color="success", className="ms-1") if is_reviewed else None,
+                                ai_badge,
                             ]),
                             html.Small(time_str, className="text-cyber")
                         ], className="d-flex justify-content-between mb-2"),
                         html.Strong(device_name, className="d-block mb-1"),
                         html.P(display_text, className="alert-text-compact mb-2",
                                id={'type': 'alert-plain-text', 'index': alert_id}),
-                        dbc.Row([
-                            dbc.Col(
-                                dbc.Button([html.I(className="fa fa-info-circle me-1"), "Details"],
-                                           id={'type': 'alert-detail-btn', 'index': alert_id},
-                                           size="sm", color=config_data['color'], outline=True,
-                                           className="w-100 cyber-button"),
-                                width=8
-                            ),
-                            dbc.Col(
-                                dbc.Button([html.I(className="fa fa-wand-magic-sparkles me-1"), "Explain"],
-                                           id={'type': 'explain-btn', 'index': alert_id},
-                                           size="sm", color="secondary", outline=True,
-                                           className="w-100 cyber-button",
-                                           title="Get a plain-English AI explanation of this alert"),
-                                width=4
-                            ),
-                        ], className="g-1")
+                        html.Div([
+                            dbc.Button([html.I(className="fa fa-info-circle me-1"), "Details"],
+                                       id={'type': 'alert-detail-btn', 'index': alert_id},
+                                       size="sm", color=config_data['color'], outline=True,
+                                       className="w-100 cyber-button"),
+                            dbc.Button([html.I(className="fa fa-wand-magic-sparkles me-1"), "Ask AI"],
+                                       id={'type': 'explain-btn', 'index': alert_id},
+                                       size="sm", color="secondary", outline=True,
+                                       className="w-100 cyber-button",
+                                       title="Get a plain-English AI explanation of this alert"),
+                        ], className="d-grid gap-1")
                     ], className="p-2")
                 ], className=f"alert-card-compact mb-2 border-{config_data['color']}")
             )
         return html.Div(alert_items, className="fade-in")
 
-    # "Explain in plain English" — calls HybridAIAssistant, persists result to DB
+    # Incident correlation panel — groups of related alerts
+    @app.callback(
+        Output('incidents-panel', 'children'),
+        Input('alerts-data-store', 'data'),
+        prevent_initial_call=False,
+    )
+    def update_incidents_panel(alerts_data):
+        from datetime import datetime, timezone
+        try:
+            incidents = db_manager.get_open_incidents(limit=10)
+        except Exception:
+            return None
+
+        if not incidents:
+            return None
+
+        SEV_COLOR = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
+        SEV_ICON = {'critical': 'fa-skull-crossbones', 'high': 'fa-triangle-exclamation',
+                    'medium': 'fa-circle-exclamation', 'low': 'fa-circle-info'}
+
+        cards = []
+        for inc in incidents:
+            sev = inc.get('max_severity', 'low')
+            color = SEV_COLOR.get(sev, 'secondary')
+            icon = SEV_ICON.get(sev, 'fa-circle-info')
+            count = inc.get('alert_count', 1)
+            device = inc.get('device_name') or inc.get('device_ip', 'Unknown')
+            title = inc.get('title', 'Security incident')
+
+            try:
+                updated = datetime.fromisoformat(str(inc.get('updated_at', '')).replace('Z', '+00:00'))
+                now = datetime.now(timezone.utc) if updated.tzinfo else datetime.utcnow()
+                mins_ago = int((now - updated).total_seconds() / 60)
+                age = f"{mins_ago}m ago" if mins_ago < 60 else f"{mins_ago // 60}h ago"
+            except Exception:
+                age = "recently"
+
+            cards.append(
+                dbc.Alert([
+                    html.Div([
+                        html.Div([
+                            html.I(className=f"fa {icon} me-2"),
+                            html.Strong(title, className="me-2"),
+                            dbc.Badge(f"{count} alert{'s' if count != 1 else ''}", color=color,
+                                      className="me-2"),
+                            dbc.Badge(sev.upper(), color=color, className="me-2"),
+                        ], className="d-flex align-items-center flex-wrap gap-1"),
+                        html.Small([
+                            html.I(className="fa fa-microchip me-1 text-muted"),
+                            device,
+                            html.Span(" - ", className="text-muted mx-1"),
+                            html.I(className="fa fa-clock me-1 text-muted"),
+                            age,
+                        ], className="text-muted mt-1 d-block"),
+                    ], className="flex-grow-1"),
+                ], color=color, className="py-2 px-3 mb-1 d-flex align-items-center",
+                   style={"borderRadius": "8px", "fontSize": "0.82rem"})
+            )
+
+        if not cards:
+            return None
+
+        return html.Div([
+            html.Div([
+                html.I(className="fa fa-layer-group me-2 text-warning"),
+                html.Strong(f"Active Incidents ({len(incidents)})", className="u-text-sm"),
+            ], className="d-flex align-items-center mb-1 px-1"),
+            html.Div(cards),
+        ])
+
+    # AI activity pulse badge — shows when the background worker rewrote an alert recently
+    @app.callback(
+        Output('ai-activity-badge', 'className'),
+        Input('refresh-interval', 'n_intervals'),
+        prevent_initial_call=False,
+    )
+    def update_ai_activity_badge(_n):
+        """Pulse the 'AI active' badge when the worker has rewritten an alert in the last 3 min."""
+        import time as _t
+        try:
+            ts_str = db_manager.get_setting('last_ai_activity', '0')
+            ts = int(ts_str or 0)
+            active = ts > 0 and (_t.time() - ts) < 180  # 3-minute window
+        except Exception:
+            active = False
+        base = "ms-2 badge-sm pulse-badge"
+        return f"{base} d-inline-flex" if active else f"{base} d-none"
+
+    # "Ask AI" — opens AI analysis modal with explanation + specific actions
     @app.callback(
         [Output('toast-container', 'children', allow_duplicate=True),
-         Output('alerts-data-store', 'data', allow_duplicate=True)],
+         Output('alerts-data-store', 'data', allow_duplicate=True),
+         Output('alert-ai-analysis-modal', 'is_open'),
+         Output('alert-analysis-modal-title', 'children'),
+         Output('alert-analysis-modal-body', 'children'),
+         Output('alert-chat-history', 'data')],
         Input({'type': 'explain-btn', 'index': ALL}, 'n_clicks'),
         State('alerts-data-store', 'data'),
         prevent_initial_call=True,
@@ -261,8 +401,28 @@ def register(app):
         if alert_id is None:
             raise dash.exceptions.PreventUpdate
 
-        # Find the alert in the current store
-        alert_row = next((a for a in (current_alerts or []) if a.get('id') == alert_id), None)
+        alert_row = next(
+            (a for a in (current_alerts or []) if int(a.get('id', -1)) == int(alert_id)),
+            None
+        )
+        if not alert_row:
+            try:
+                cursor = db_manager.conn.cursor()
+                cursor.execute(
+                    """SELECT a.id, a.device_ip, d.device_name, a.severity, a.explanation, a.plain_explanation
+                       FROM alerts a LEFT JOIN devices d ON a.device_ip = d.device_ip
+                       WHERE a.id = ? LIMIT 1""",
+                    (int(alert_id),)
+                )
+                row = cursor.fetchone()
+                if row:
+                    alert_row = {
+                        'id': row[0], 'device_ip': row[1],
+                        'device_name': row[2] or row[1],
+                        'severity': row[3], 'explanation': row[4], 'plain_explanation': row[5],
+                    }
+            except Exception:
+                pass
         if not alert_row:
             raise dash.exceptions.PreventUpdate
 
@@ -272,50 +432,149 @@ def register(app):
             device_name = alert_row.get('device_name') or device_ip
             severity = alert_row.get('severity', 'medium')
 
-            prompt = (
-                f"Explain this network security alert in one plain sentence that a non-technical "
-                f"home user can understand. No jargon. Be specific about what the device is doing "
-                f"and why it might be a concern.\n\n"
-                f"Device: {device_name} ({device_ip})\n"
-                f"Severity: {severity}\n"
-                f"Technical details: {tech_explanation}"
-            )
-            ai_text, source = ai_assistant.get_response(prompt=prompt, max_tokens=120, temperature=0.4)
+            # Count today's alerts for this device (urgency context)
+            try:
+                cur = db_manager.conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*) FROM alerts WHERE device_ip=? AND timestamp >= date('now')",
+                    (device_ip,)
+                )
+                today_count = cur.fetchone()[0]
+            except Exception:
+                today_count = 1
 
-            # Persist to DB
-            cursor = db_manager.conn.cursor()
-            cursor.execute(
-                "UPDATE alerts SET plain_explanation = ? WHERE id = ?",
-                (ai_text, alert_id)
-            )
-            db_manager.conn.commit()
+            # Get smart recommendations for concrete actions
+            try:
+                recs = smart_recommender.recommend_for_alert(int(alert_id))
+            except Exception:
+                recs = []
 
-            # Update the in-memory store so the card re-renders immediately
+            # Build prompt + call LLM via shared helper (identical to background worker path).
+            prompt = build_prompt(device_name, severity, today_count, tech_explanation, recs)
+            ai_text, source = ai_assistant.get_response(
+                prompt=prompt, max_tokens=250, temperature=0.35
+            )
+
+            # Parse the structured sections via shared helper.
+            sections = parse_ai_text(ai_text, tech_explanation)
+            what_happened = sections['what_happened']
+            worry_level = sections['worry_level']
+            worry_reason = sections['worry_reason']
+            top_action = sections['top_action']
+
+            # Persist to DB, set the AI flag, and record which provider answered.
+            plain_text = what_happened or ai_text or tech_explanation
+            persist_plain(db_manager, alert_id, plain_text, source=source)
+
             updated_alerts = [
-                {**a, 'plain_explanation': ai_text} if a.get('id') == alert_id else a
+                {**a, 'plain_explanation': plain_text} if int(a.get('id', -1)) == int(alert_id) else a
                 for a in (current_alerts or [])
             ]
 
-            source_label = {'groq': 'Groq AI', 'ollama': 'Local AI', 'rules': 'Smart Template'}.get(source, source)
+            # ── Build modal body ──────────────────────────────────────────────
+            worry_color = {
+                'nothing to worry about': 'success',
+                'worth a quick check': 'warning',
+                'take action now': 'danger',
+            }.get((worry_level or '').lower().strip(), 'info')
+
+            rec_items = []
+            for r in recs[:3]:
+                rec_items.append(
+                    dbc.ListGroupItem([
+                        html.Div([
+                            dbc.Badge(f"#{r['priority']}", color="dark", className="me-2 flex-shrink-0"),
+                            html.Span(r['action'], className="fw-semibold"),
+                            dbc.Badge(f"{int(r['confidence']*100)}%", color="secondary",
+                                      className="ms-auto badge-sm flex-shrink-0"),
+                        ], className="d-flex align-items-center mb-1"),
+                        html.Small(_clean(r.get('reason', '')), className="text-muted"),
+                    ], className="px-3 py-2")
+                )
+
+            # Fallback when recommender has no category-specific recs (e.g. EOL / privacy alerts)
+            if not rec_items and top_action:
+                rec_items.append(
+                    dbc.ListGroupItem([
+                        html.Div([
+                            dbc.Badge("#1", color="primary", className="me-2 flex-shrink-0"),
+                            html.Span(top_action, className="fw-semibold"),
+                        ], className="d-flex align-items-center"),
+                    ], className="px-3 py-2")
+                )
+
+            modal_body = html.Div([
+                # What happened
+                html.Div([
+                    html.I(className="fa fa-info-circle me-2 text-info"),
+                    html.Strong("What happened"),
+                ], className="mb-1"),
+                dcc.Markdown(what_happened, className="mb-3"),
+
+                # Worry level verdict
+                dbc.Alert([
+                    html.I(className=f"fa fa-{'check-circle' if worry_color == 'success' else 'exclamation-triangle' if worry_color == 'danger' else 'question-circle'} me-2"),
+                    html.Strong(worry_level or "Assessment"),
+                    html.Span(f". {worry_reason}" if worry_reason else ""),
+                ], color=worry_color, className="py-2 mb-3") if worry_level else None,
+
+                # Top action
+                html.Div([
+                    html.I(className="fa fa-bolt me-2 text-warning"),
+                    html.Strong("What to do: "),
+                    html.Span(top_action or "Check your device's recent activity in the Devices tab."),
+                ], className="mb-3") if top_action else None,
+
+                # Suggested actions list
+                html.Div([
+                    html.Hr(className="my-2"),
+                    html.Div([
+                        html.I(className="fa fa-list-check me-2 text-primary"),
+                        html.Strong("Suggested actions"),
+                        html.Small(f" ({len(recs)} step{'s' if len(recs) != 1 else ''})", className="text-muted ms-1"),
+                    ], className="mb-2"),
+                    dbc.ListGroup(rec_items, flush=True, className="rounded-2"),
+                ]) if rec_items else None,
+
+                # Source footer — which AI provider generated this explanation
+                html.Div([
+                    html.Small([
+                        "Analysis by ",
+                        dbc.Badge(
+                            [html.I(className=f"fa {_source_icon(source)} me-1"), _source_label(source)],
+                            className=_source_badge_class(source),
+                        )
+                    ], className="text-muted")
+                ], className="mt-3 text-end"),
+            ])
+
+            modal_title = [
+                html.I(className=f"fa fa-{'shield-alt' if severity in ('critical','high') else 'info-circle'} me-2 text-{'danger' if severity == 'critical' else 'warning' if severity == 'high' else 'info'}"),
+                f"{severity.upper()} Alert - {device_name}",
+            ]
+
             toast = ToastManager.create_toast(
-                message="Explanation updated",
+                message="AI analysis ready",
                 toast_type="success",
-                header="Plain English",
-                detail_message=f"Explanation generated via {source_label}.",
-                duration=3000,
+                header="Ask AI",
+                detail_message=f"Powered by {_source_label(source)}.",
+                duration=2500,
             )
-            return toast, updated_alerts
+            # Reset the ask-why chat for this alert
+            chat_reset = {'history': [], 'alert_id': int(alert_id)}
+            return toast, updated_alerts, True, modal_title, modal_body, chat_reset
 
         except Exception as e:
-            logger.error(f"Plain-English explain failed for alert {alert_id}: {e}")
+            logger.error(f"AI explain failed for alert {alert_id}: {e}")
             toast = ToastManager.create_toast(
-                message="Could not generate explanation",
+                message="Could not generate analysis",
                 toast_type="warning",
                 header="AI Unavailable",
-                detail_message="Try again, or check AI settings in the dashboard.",
+                detail_message="Try again, or check AI settings.",
                 duration=4000,
             )
-            return toast, no_update
+            return toast, no_update, False, no_update, no_update, no_update
+
 
     # Alert details modal
     @app.callback(
@@ -323,21 +582,17 @@ def register(app):
          Output('alert-details-title', 'children'),
          Output('alert-details-body', 'children'),
          Output('current-alert-id', 'data')],
-        [Input({'type': 'alert-detail-btn', 'index': dash.dependencies.ALL}, 'n_clicks'),
-         Input('alert-close-btn', 'n_clicks')],
+        [Input({'type': 'alert-detail-btn', 'index': dash.dependencies.ALL}, 'n_clicks')],
         [State('alert-details-modal', 'is_open')],
         prevent_initial_call=True
     )
-    def toggle_alert_details(btn_clicks, close_click, is_open):
+    def toggle_alert_details(btn_clicks, is_open):
         ctx = callback_context
         if not ctx.triggered:
             return False, "", "", None
 
         trigger_id = ctx.triggered[0]['prop_id']
 
-        # Close button clicked
-        if 'alert-close-btn' in trigger_id:
-            return False, "", "", None
 
         # Detail button clicked - check if it was actually clicked (not None)
         if 'alert-detail-btn' in trigger_id:
@@ -428,18 +683,80 @@ def register(app):
             )
             return toast, dash.no_update
 
-    # Severity filter buttons
+    # Suppress alert — mute future alerts for this device for a chosen duration
     @app.callback(
-        Output('alert-filter', 'data'),
+        [Output('toast-container', 'children', allow_duplicate=True),
+         Output('alert-details-modal', 'is_open', allow_duplicate=True)],
+        [Input('alert-suppress-btn', 'n_clicks')],
+        [State('current-alert-id', 'data'),
+         State('alert-suppress-duration', 'value')],
+        prevent_initial_call=True,
+    )
+    @login_required
+    def suppress_alert_callback(n_clicks, alert_id, duration_str):
+        """Suppress future alerts for the device associated with this alert."""
+        if not n_clicks or not alert_id:
+            return dash.no_update, dash.no_update
+
+        if not PermissionManager.has_permission(current_user, 'acknowledge_alerts'):
+            toast = ToastManager.error(
+                "Permission Denied",
+                detail_message="You need operator privileges to suppress alerts.",
+            )
+            return toast, dash.no_update
+
+        try:
+            # Resolve device_ip from the alert
+            cursor = db_manager.conn.cursor()
+            cursor.execute("SELECT device_ip FROM alerts WHERE id = ?", (int(alert_id),))
+            row = cursor.fetchone()
+            if not row:
+                return ToastManager.warning("Alert not found"), dash.no_update
+
+            device_ip = row[0] if isinstance(row, (list, tuple)) else row['device_ip']
+            hours = int(duration_str) if duration_str and duration_str != "0" else None
+            username = current_user.username if current_user.is_authenticated else "unknown"
+
+            success = db_manager.suppress_device_alerts(device_ip, hours, username)
+            if not success:
+                return ToastManager.error("Failed to set suppression - check logs."), dash.no_update
+
+            label = f"{hours}h" if hours else "indefinitely"
+            toast = ToastManager.success(
+                f"Alerts suppressed for {device_ip} ({label})",
+                detail_message="Future alerts for this device will be silenced. Remove via Device Settings.",
+                duration=5000,
+            )
+            return toast, False  # close modal
+        except Exception as e:
+            logger.error(f"Suppress alert failed for alert {alert_id}: {e}")
+            return ToastManager.error("Suppression error", detail_message=str(e)), dash.no_update
+
+    # Severity filter buttons — also updates active class on each button
+    @app.callback(
+        [Output('alert-filter', 'data'),
+         Output('filter-all', 'className'),
+         Output('filter-critical', 'className'),
+         Output('filter-high', 'className'),
+         Output('filter-medium', 'className'),
+         Output('filter-low', 'className')],
         [Input('filter-all', 'n_clicks'), Input('filter-critical', 'n_clicks'),
          Input('filter-high', 'n_clicks'), Input('filter-medium', 'n_clicks'), Input('filter-low', 'n_clicks')]
     )
     def update_alert_filter(*_):
         ctx = callback_context
         if not ctx.triggered:
-            return 'all'
-        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        return button_id.split('-')[1]
+            active = 'all'
+        else:
+            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+            active = button_id.split('-')[1]
+        base = 'filter-btn-sev'
+        severities = ['all', 'critical', 'high', 'medium', 'low']
+        classes = [
+            f'{base} filter-btn-{s}' + (' filter-btn-active' if s == active else '')
+            for s in severities
+        ]
+        return active, *classes
 
     # ========================================================================
     # CALLBACKS - AI-POWERED ALERT ANALYSIS
@@ -599,12 +916,11 @@ def register(app):
 
     @app.callback(
         Output("threat-modal", "is_open"),
-        [Input("threat-card-btn", "n_clicks"),
-         Input("close-threat-intel-modal-btn", "n_clicks")],
+        Input("threat-card-btn", "n_clicks"),
         State("threat-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_threat_modal(open_clicks, close_clicks, is_open):
+    def toggle_threat_modal(open_clicks, is_open):
         return not is_open
 
     # Threat Intelligence Overview Tab Callback
@@ -618,10 +934,12 @@ def register(app):
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('threat-modal', 'is_open'),
          Input('refresh-threat-intel-btn', 'n_clicks')],
+        [State('resolved-theme-store', 'data')],
         prevent_initial_call=True
     )
-    def update_threat_intel_overview(is_open, refresh_clicks):
+    def update_threat_intel_overview(is_open, refresh_clicks, theme_data):
         from dash import callback_context
+        is_dark = (theme_data or {}).get('theme') == 'dark'
 
         # Check if refresh button was clicked
         show_toast = callback_context.triggered[0]['prop_id'] == 'refresh-threat-intel-btn.n_clicks' if callback_context.triggered else False
@@ -710,7 +1028,8 @@ def register(app):
             title='Threat Distribution',
             hole=0.4,
             show_legend=True,
-            legend_orientation='v'
+            legend_orientation='v',
+            dark_mode=is_dark
         )
 
         # Recent threats (last 10)
@@ -757,10 +1076,10 @@ def register(app):
                         ], className="mb-1"),
                         html.Div([
                             dbc.Badge(severity.upper() if severity else "UNKNOWN", color=sev_color, className="me-2"),
-                            html.Span(device_name or device_ip, className="text-muted", style={"fontSize": "0.85rem"}),
-                            html.Span(f" • {timestamp[:19] if timestamp else 'Unknown'}", className="text-muted", style={"fontSize": "0.8rem"})
+                            html.Span(device_name or device_ip, className="text-muted u-text-sm"),
+                            html.Span(f" • {timestamp[:19] if timestamp else 'Unknown'}", className="text-muted u-text-xs")
                         ])
-                    ], className="p-2 mb-2", style={"backgroundColor": "rgba(255,255,255,0.05)", "borderRadius": "5px"})
+                    ], className="p-2 mb-2 glass-subtle")
                 ])
             )
 
@@ -917,7 +1236,7 @@ def register(app):
                             html.P([
                                 html.Strong("Details: "),
                                 details or "No additional details available."
-                            ], className="text-muted mb-0", style={"fontSize": "0.9rem"})
+                            ], className="text-muted mb-0 u-text-sm")
                         ])
                     ], className="p-3")
                 ], className="glass-card border-0 shadow-sm mb-2")
@@ -991,8 +1310,7 @@ def register(app):
                                 html.I(className="fa fa-laptop me-2"),
                                 html.Span(device_name or device_ip, className="fw-bold"),
                                 dbc.Badge(f"{alert_count} alerts", color="danger", className="ms-2")
-                            ], className="d-flex align-items-center justify-content-between mb-2 p-2",
-                               style={"backgroundColor": "rgba(255,255,255,0.05)", "borderRadius": "5px"})
+                            ], className="d-flex align-items-center justify-content-between mb-2 p-2 glass-subtle")
                         ])
                         for device_ip, device_name, device_type, alert_count in targeted_devices
                     ]) if targeted_devices else html.P("No targeted devices detected.", className="text-muted")
@@ -1011,8 +1329,7 @@ def register(app):
                             html.Div([
                                 html.Span(attack_type or "Unknown", className="fw-bold"),
                                 dbc.Badge(f"{count} occurrences", color="warning", className="ms-2")
-                            ], className="d-flex align-items-center justify-content-between mb-2 p-2",
-                               style={"backgroundColor": "rgba(255,255,255,0.05)", "borderRadius": "5px"})
+                            ], className="d-flex align-items-center justify-content-between mb-2 p-2 glass-subtle")
                         ])
                         for attack_type, count in attack_types
                     ]) if attack_types else html.P("No attack types detected.", className="text-muted")
@@ -1035,7 +1352,7 @@ def register(app):
                             y_title='Attack Count'
                         ) if temporal_pattern else ChartFactory.create_empty_chart('No attack data available'),
                         config={'displayModeBar': False},
-                        style={'height': '300px'}
+                        className="chart-h-300"
                     )
                 ])
             ], className="glass-card border-0 shadow-sm")
@@ -1192,7 +1509,7 @@ def register(app):
             icon = severity_icons.get(rec['severity'], 'fa-info')
 
             action_items = [
-                html.Li(action, className="mb-1", style={"fontSize": "0.9rem"})
+                html.Li(action, className="mb-1 u-text-sm")
                 for action in rec['actions']
             ]
 
@@ -1215,7 +1532,7 @@ def register(app):
                         html.H6([
                             html.I(className="fa fa-tasks me-2"),
                             "Recommended Actions:"
-                        ], style={"fontSize": "0.95rem"}, className="mb-2"),
+                        ], className="mb-2 u-text-sm"),
                         html.Ul(action_items, className="mb-0")
                     ])
                 ], className="glass-card border-0 shadow-sm mb-3")
@@ -1304,32 +1621,20 @@ def register(app):
     # Toggle callbacks for threat map and risk heatmap modals
     @app.callback(
         Output("threat-map-modal", "is_open"),
-        [Input("threat-map-card-btn", "n_clicks"),
-         Input("close-threat-map-modal-btn", "n_clicks")],
+        Input("threat-map-card-btn", "n_clicks"),
         State("threat-map-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_threat_map_modal(open_clicks, close_clicks, is_open):
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise dash.exceptions.PreventUpdate
-
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if trigger_id == 'close-threat-map-modal-btn':
-            return False
-        if trigger_id == 'threat-map-card-btn' and open_clicks:
-            return not is_open
-        return is_open
+    def toggle_threat_map_modal(open_clicks, is_open):
+        return not is_open
 
     @app.callback(
         Output("risk-heatmap-modal", "is_open"),
-        [Input("risk-heatmap-card-btn", "n_clicks"),
-         Input("close-risk-heatmap-modal-btn", "n_clicks")],
+        Input("risk-heatmap-card-btn", "n_clicks"),
         State("risk-heatmap-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_risk_heatmap_modal(open_clicks, close_clicks, is_open):
+    def toggle_risk_heatmap_modal(open_clicks, is_open):
         return not is_open
 
     # ========================================================================
@@ -1338,12 +1643,11 @@ def register(app):
 
     @app.callback(
         Output("auto-response-modal", "is_open"),
-        [Input("auto-response-card-btn", "n_clicks"),
-         Input("close-auto-response-modal-btn", "n_clicks")],
+        Input("auto-response-card-btn", "n_clicks"),
         State("auto-response-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_auto_response_modal(open_clicks, close_clicks, is_open):
+    def toggle_auto_response_modal(open_clicks, is_open):
         return not is_open
 
     # Auto Response Overview Stats
@@ -1480,7 +1784,7 @@ def register(app):
 
         except Exception as e:
             logger.error(f"Error updating auto response overview: {e}")
-            return "—", "—", "—", "—", {}, timestamp_display, timestamp_str, toast
+            return "-", "-", "-", "-", {}, timestamp_display, timestamp_str, toast
 
     # Alert Rules Table
     @app.callback(
@@ -1529,10 +1833,10 @@ def register(app):
 
                 table_rows.append(html.Tr([
                     html.Td(html.Strong(rule['name'])),
-                    html.Td(rule['description'] or '—'),
+                    html.Td(rule['description'] or '-'),
                     html.Td(rule['rule_type'].replace('_', ' ').title()),
                     html.Td(dbc.Badge(rule['severity'].upper(), color=severity_color)),
-                    html.Td(str(rule['threshold_value']) if rule['threshold_value'] else '—'),
+                    html.Td(str(rule['threshold_value']) if rule['threshold_value'] else '-'),
                     html.Td(status_badge),
                     html.Td(str(rule['trigger_count']) if rule['trigger_count'] else '0'),
                     html.Td(html.Small(rule['last_triggered'][:16] if rule['last_triggered'] else 'Never', className="text-muted"))
@@ -1719,13 +2023,22 @@ def register(app):
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('refresh-interval', 'n_intervals'),
          Input('refresh-threat-map-btn', 'n_clicks')],
+        [State('resolved-theme-store', 'data')],
         prevent_initial_call=True
     )
-    def update_geographic_threat_map(n, refresh_clicks):
+    def update_geographic_threat_map(n, refresh_clicks, theme_data):
         """Update geographic threat map with attack origins."""
         from dash import callback_context
         import requests
         from time import sleep
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        geo_style = dict(
+            landcolor='rgb(40, 45, 60)' if is_dark else 'rgb(243, 243, 243)',
+            coastlinecolor='rgba(255,255,255,0.2)' if is_dark else 'rgb(204, 204, 204)',
+            oceancolor='rgb(20, 25, 40)' if is_dark else 'rgb(230, 245, 255)',
+            countrycolor='rgba(255,255,255,0.15)' if is_dark else 'rgb(204, 204, 204)',
+        )
 
         # Check if refresh button was clicked (and it's a real click, not page load)
         show_toast = (
@@ -1772,44 +2085,23 @@ def register(app):
                     "Threat map refreshed - No threats detected",
                     detail_message="No external threats detected in the last hour.\n\nYour network appears to be secure with no suspicious external connections.\n\nThis is good news - continue monitoring for any changes."
                 ) if show_toast else dash.no_update
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font={'color': text_color})
                 return fig, "0 Threats", "0 Countries", toast
 
-            # IP-to-location mapping using real geolocation
+            # IP-to-location mapping — one cached batch lookup instead of
+            # 20 sequential per-IP requests (see utils/ip_geolocator.py)
+            geo_by_ip = geolocate_ips([t['dest_ip'] for t in threats])
             locations = []
             for threat in threats:
-                # Try to get real geolocation for IP
-                try:
-                    # Use ip-api.com (free, no API key needed, 45 req/min limit)
-                    response = requests.get(
-                        f"http://ip-api.com/json/{threat['dest_ip']}?fields=status,country,countryCode,lat,lon,isp",
-                        timeout=2
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get('status') == 'success':
-                            locations.append({
-                                'ip': threat['dest_ip'],
-                                'count': threat['count'],
-                                'lat': data.get('lat', 0),
-                                'lon': data.get('lon', 0),
-                                'country': data.get('country', 'Unknown'),
-                                'country_code': data.get('countryCode', '??'),
-                                'isp': data.get('isp', 'Unknown')
-                            })
-                            sleep(0.05)  # Rate limiting (max 20 req/sec)
-                            continue
-                except Exception as e:
-                    logger.warning(f"Geolocation failed for {threat['dest_ip']}: {e}")
-
-                # Fallback: Use approximate location for private/invalid IPs
+                geo = geo_by_ip.get(threat['dest_ip'])
                 locations.append({
                     'ip': threat['dest_ip'],
                     'count': threat['count'],
-                    'lat': 0,
-                    'lon': 0,
-                    'country': 'Unknown',
-                    'country_code': '??',
-                    'isp': 'Unknown'
+                    'lat': geo['lat'] if geo else 0,
+                    'lon': geo['lon'] if geo else 0,
+                    'country': geo['country'] if geo else 'Unknown',
+                    'country_code': geo['country_code'] if geo else '??',
+                    'isp': geo['isp'] if geo else 'Unknown'
                 })
 
             # Create map
@@ -1834,20 +2126,16 @@ def register(app):
             ))
 
             fig.update_layout(
-                title=dict(
-                    text='Global Threat Origins - Last Hour',
-                    x=0.5,
-                    xanchor='center'
-                ),
+                title=dict(text='Global Threat Origins - Last Hour', x=0.5, xanchor='center',
+                           font=dict(color=text_color)),
+                paper_bgcolor='rgba(0,0,0,0)',
+                font={'color': text_color},
                 geo=dict(
                     projection_type='natural earth',
                     showland=True,
-                    landcolor='rgb(243, 243, 243)',
-                    coastlinecolor='rgb(204, 204, 204)',
                     showocean=True,
-                    oceancolor='rgb(230, 245, 255)',
                     showcountries=True,
-                    countrycolor='rgb(204, 204, 204)'
+                    **geo_style
                 ),
                 height=500,
                 margin=dict(l=0, r=0, t=40, b=0)
@@ -1904,29 +2192,17 @@ def register(app):
             if not threats:
                 return html.P("No external threats detected in the last hour", className="text-muted text-center py-4")
 
-            # Get geolocation for IPs and group by country
-            import requests
-            from time import sleep
-
+            # Group by country — shares the geolocation cache with the threat
+            # map, so the same IPs are never queried twice per refresh
+            geo_by_ip = geolocate_ips([t['dest_ip'] for t in threats])
             country_stats = defaultdict(lambda: {'count': 0, 'ips': []})
 
             for threat in threats:
-                try:
-                    response = requests.get(
-                        f"http://ip-api.com/json/{threat['dest_ip']}?fields=status,country,countryCode",
-                        timeout=2
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get('status') == 'success':
-                            country = data.get('country', 'Unknown')
-                            country_code = data.get('countryCode', '??')
-                            country_key = f"{country} ({country_code})"
-                            country_stats[country_key]['count'] += threat['count']
-                            country_stats[country_key]['ips'].append(threat['dest_ip'])
-                            sleep(0.05)
-                except Exception as e:
-                    logger.warning(f"Geolocation failed for {threat['dest_ip']}: {e}")
+                geo = geo_by_ip.get(threat['dest_ip'])
+                if geo:
+                    country_key = f"{geo['country']} ({geo['country_code']})"
+                    country_stats[country_key]['count'] += threat['count']
+                    country_stats[country_key]['ips'].append(threat['dest_ip'])
 
             if not country_stats:
                 return html.P("Unable to determine country origins", className="text-muted text-center py-4")
@@ -2058,11 +2334,14 @@ def register(app):
         [Input('risk-heatmap-modal', 'is_open'),
          Input('refresh-risk-heatmap-btn', 'n_clicks'),
          Input('refresh-interval', 'n_intervals')],
+        [State('resolved-theme-store', 'data')],
         prevent_initial_call=True
     )
-    def update_device_risk_heatmap(is_open, refresh_clicks, n):
+    def update_device_risk_heatmap(is_open, refresh_clicks, n, theme_data):
         """Update device risk heat map with vulnerability scores."""
         from dash import callback_context
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
 
         # Check if refresh button was clicked
         show_toast = callback_context.triggered and callback_context.triggered[0]['prop_id'] == 'refresh-risk-heatmap-btn.n_clicks'
@@ -2182,11 +2461,11 @@ def register(app):
             ))
 
             fig.update_layout(
-                title=dict(
-                    text=f'Device Risk Assessment - {len(device_risks)} Devices',
-                    x=0.5,
-                    xanchor='center'
-                ),
+                title=dict(text=f'Device Risk Assessment - {len(device_risks)} Devices',
+                           x=0.5, xanchor='center', font=dict(color=text_color)),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font={'color': text_color},
                 xaxis=dict(showticklabels=False, showgrid=False),
                 yaxis=dict(showticklabels=False, showgrid=False),
                 height=500,
@@ -2298,7 +2577,7 @@ def register(app):
                                 dbc.Row([
                                     dbc.Col([
                                         dbc.Progress(value=risk, max=100, color="danger" if risk >= 70 else "warning" if risk >= 40 else "success",
-                                                    className="mb-2", style={"height": "20px"}),
+                                                    className="mb-2 progress-sm"),
                                         html.Small([
                                             html.Strong("Risk Score: "), f"{risk}/100", html.Br(),
                                             html.Strong("IP: "), device_ip, html.Br(),
@@ -2322,7 +2601,7 @@ def register(app):
                     f"No devices found with {risk_filter} risk level."
                 ], color="info")
 
-            return html.Div(device_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(device_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading risk device details: {e}")
@@ -2501,7 +2780,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-3")
                 )
 
-            return html.Div(recommendations, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(recommendations, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading risk remediation: {e}")
@@ -2652,363 +2931,55 @@ def register(app):
         prevent_initial_call=True
     )
     def update_vulnerability_scanner(n):
-        """Scan devices for known vulnerabilities and security issues."""
+        """
+        Count active CVEs from the real NVD pipeline and exposed-service findings.
+
+        CVE data comes from device_vulnerabilities_detected (populated by the daily
+        NVD sync + on-join CVE scan run by SecurityAgent).  Port-based unsafe-protocol
+        findings are kept as a separate signal but no longer assigned fake CVE IDs.
+        """
         try:
-            conn = get_db_connection()
+            cursor = db_manager.conn.cursor()
 
-            cursor = conn.cursor()
+            # Real CVE counts from NVD pipeline (severity lives in iot_vulnerabilities, not in dvd)
+            cursor.execute("""
+                SELECT iv.severity, COUNT(*) AS cnt
+                FROM device_vulnerabilities_detected dvd
+                JOIN iot_vulnerabilities iv ON dvd.cve_id = iv.cve_id
+                WHERE dvd.status NOT IN ('patched', 'false_positive')
+                GROUP BY iv.severity
+            """)
+            sev_rows = cursor.fetchall()
+            sev_counts = {r['severity']: r['cnt'] for r in sev_rows} if sev_rows else {}
 
-            # Get all devices
-            cursor.execute('SELECT device_ip, device_name, device_type FROM devices')
-            devices = cursor.fetchall()
+            critical_count = sev_counts.get('critical', 0)
+            high_count = sev_counts.get('high', 0)
 
-            vulnerabilities = []
-
-            for device in devices:
-                device_vulns = []
-
-                # Check for insecure ports from connections
-                cursor.execute('''
-                    SELECT DISTINCT dest_port FROM connections
-                    WHERE device_ip = ?
-                    AND timestamp >= datetime("now", "-24 hours")
-                ''', (device['device_ip'],))
-                ports = [row['dest_port'] for row in cursor.fetchall()]
-
-                # Telnet (port 23) - Critical vulnerability
-                if 23 in ports:
-                    device_vulns.append({
-                        'severity': 'critical',
-                        'cve': 'INSECURE-TELNET',
-                        'title': 'Unencrypted Telnet Protocol',
-                        'description': 'Device uses insecure Telnet protocol (port 23). Credentials can be intercepted.',
-                        'recommendation': 'Disable Telnet and use SSH (port 22) instead'
-                    })
-
-                # FTP (port 21) - High vulnerability
-                if 21 in ports:
-                    device_vulns.append({
-                        'severity': 'high',
-                        'cve': 'INSECURE-FTP',
-                        'title': 'Unencrypted FTP Protocol',
-                        'description': 'Device uses insecure FTP protocol. Use SFTP or FTPS.',
-                        'recommendation': 'Switch to SFTP (port 22) or FTPS (port 990)'
-                    })
-
-                # HTTP (port 80) - Medium vulnerability
-                if 80 in ports:
-                    device_vulns.append({
-                        'severity': 'medium',
-                        'cve': 'INSECURE-HTTP',
-                        'title': 'Unencrypted HTTP Protocol',
-                        'description': 'Device uses HTTP without encryption. Use HTTPS.',
-                        'recommendation': 'Enable HTTPS (port 443) for secure communication'
-                    })
-
-                # Check for common IoT device vulnerabilities by type
-                if device['device_type']:
-                    device_type_lower = device['device_type'].lower()
-
-                    # IP Camera vulnerabilities
-                    if 'camera' in device_type_lower or 'cam' in device_type_lower:
-                        device_vulns.append({
-                            'severity': 'high',
-                            'cve': 'CVE-2021-36260',
-                            'title': 'IP Camera Default Credentials',
-                            'description': 'Many IP cameras ship with default credentials that are publicly known.',
-                            'recommendation': 'Change default admin password immediately'
-                        })
-
-                    # Smart TV vulnerabilities
-                    if 'tv' in device_type_lower or 'television' in device_type_lower:
-                        device_vulns.append({
-                            'severity': 'medium',
-                            'cve': 'CVE-2020-27403',
-                            'title': 'Smart TV Privacy Concerns',
-                            'description': 'Smart TVs may collect viewing data and transmit to external servers.',
-                            'recommendation': 'Review privacy settings and disable tracking'
-                        })
-
-                    # Router vulnerabilities
-                    if 'router' in device_type_lower or 'gateway' in device_type_lower:
-                        device_vulns.append({
-                            'severity': 'critical',
-                            'cve': 'CVE-2022-26318',
-                            'title': 'Router Firmware Vulnerabilities',
-                            'description': 'Routers with outdated firmware are vulnerable to remote code execution.',
-                            'recommendation': 'Update router firmware to latest version'
-                        })
-
-                    # IoT Hub vulnerabilities
-                    if 'hub' in device_type_lower or 'bridge' in device_type_lower:
-                        device_vulns.append({
-                            'severity': 'high',
-                            'cve': 'CVE-2021-33041',
-                            'title': 'IoT Hub Authentication Bypass',
-                            'description': 'Some IoT hubs have weak authentication mechanisms.',
-                            'recommendation': 'Enable strong authentication and 2FA if available'
-                        })
-
-                # Add device vulnerabilities to main list
-                for vuln in device_vulns:
-                    vuln['device_ip'] = device['device_ip']
-                    vuln['device_name'] = device['device_name'] or device['device_ip']
-                    vulnerabilities.append(vuln)
-
-
-            # Count vulnerabilities by severity
-            critical_count = len([v for v in vulnerabilities if v['severity'] == 'critical'])
-            high_count = len([v for v in vulnerabilities if v['severity'] == 'high'])
+            # Exposed services (insecure protocols) — add to severity counts as a signal,
+            # but do NOT fabricate CVE IDs for them
+            cursor.execute("""
+                SELECT DISTINCT device_ip, dest_port FROM connections
+                WHERE dest_port IN (21, 23, 80)
+                  AND timestamp >= datetime('now', '-24 hours')
+            """)
+            port_rows = cursor.fetchall()
+            for row in port_rows:
+                port = row['dest_port']
+                if port == 23:   # Telnet — treat as critical exposure
+                    critical_count += 1
+                elif port == 21:  # FTP — treat as high exposure
+                    high_count += 1
+                # port 80 (HTTP) is medium; not counted in critical/high badges
 
             return str(critical_count), str(high_count)
 
         except Exception as e:
-            logger.error(f"Error running vulnerability scan: {e}")
+            logger.error(f"Error running vulnerability scanner: {e}")
             return "0", "0"
 
     # ========================================================================
-    # INTERVAL-BASED API INTEGRATION STATUS
+    # INTERVAL-BASED BENCHMARK COMPARISON  (api-integration-status removed — id no longer exists)
     # ========================================================================
-
-    @app.callback(
-        Output('api-integration-status', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_api_integration_hub(n):
-        """Display status of external API integrations with real connectivity checks."""
-        try:
-            import requests as req_lib
-
-            def check_api_health(api_name, test_url, headers=None, timeout=2):
-                """Check if API is reachable and responding."""
-                try:
-                    response = req_lib.get(test_url, headers=headers, timeout=timeout)
-                    if response.status_code in [200, 401, 403]:  # 401/403 means API exists but needs auth
-                        return 'connected', 'success'
-                    return 'error', 'danger'
-                except:
-                    return 'not_configured', 'warning'
-
-            # Check actual API connectivity
-            api_integrations = []
-
-            # AbuseIPDB - Check from environment or config (FREE tier: 1000 queries/day)
-            abuseipdb_key = os.getenv('THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY') or os.getenv('ABUSEIPDB_API_KEY')
-            if not abuseipdb_key:
-                try:
-                    abuseipdb_key = config.get('threat_intel', 'abuseipdb_key')
-                except:
-                    pass
-
-            if abuseipdb_key and abuseipdb_key != 'your_abuseipdb_key_here': # pragma: allowlist secret
-                status, color = check_api_health(
-                    'AbuseIPDB',
-                    'https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8',
-                    headers={'Key': abuseipdb_key, 'Accept': 'application/json'}
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-
-            api_integrations.append({
-                'name': 'AbuseIPDB',
-                'status': status,
-                'description': 'IP reputation (FREE: 1000/day)',
-                'icon': 'fa-database',
-                'color': color,
-                'signup_url': 'https://www.abuseipdb.com/register',
-                'env_var': 'THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY'
-            })
-
-            # VirusTotal - Check for API key in environment (FREE tier: 4 requests/minute)
-            vt_key = os.getenv('VIRUSTOTAL_API_KEY')
-            if vt_key:
-                status, color = check_api_health(
-                    'VirusTotal',
-                    'https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8',
-                    headers={'x-apikey': vt_key}
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-            api_integrations.append({
-                'name': 'VirusTotal',
-                'status': status,
-                'description': 'Malware scanning (FREE: 4 req/min)',
-                'icon': 'fa-virus',
-                'color': color,
-                'signup_url': 'https://www.virustotal.com/gui/join-us',
-                'env_var': 'VIRUSTOTAL_API_KEY'
-            })
-
-            # Shodan - Check for API key (FREE tier: 100 queries/month)
-            shodan_key = os.getenv('SHODAN_API_KEY')
-            if shodan_key:
-                status, color = check_api_health(
-                    'Shodan',
-                    f'https://api.shodan.io/api-info?key={shodan_key}'
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-            api_integrations.append({
-                'name': 'Shodan',
-                'status': status,
-                'description': 'IoT search (FREE: 100/month)',
-                'icon': 'fa-search',
-                'color': color,
-                'signup_url': 'https://account.shodan.io/register',
-                'env_var': 'SHODAN_API_KEY'
-            })
-
-            # AlienVault OTX - Check for API key (100% FREE)
-            otx_key = os.getenv('OTX_API_KEY')
-            if otx_key:
-                # Use a better endpoint that works with new accounts
-                status, color = check_api_health(
-                    'OTX',
-                    'https://otx.alienvault.com/api/v1/indicators/IPv4/8.8.8.8/general',
-                    headers={'X-OTX-API-KEY': otx_key}
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-            api_integrations.append({
-                'name': 'AlienVault OTX',
-                'status': status,
-                'description': 'Open threat exchange (100% FREE)',
-                'icon': 'fa-exchange-alt',
-                'color': color,
-                'signup_url': 'https://otx.alienvault.com/accounts/signup',
-                'env_var': 'OTX_API_KEY'
-            })
-
-            # GreyNoise - Check for API key (FREE tier: 50 queries/day)
-            greynoise_key = os.getenv('GREYNOISE_API_KEY')
-            if greynoise_key:
-                status, color = check_api_health(
-                    'GreyNoise',
-                    'https://api.greynoise.io/v3/community/8.8.8.8',
-                    headers={'key': greynoise_key}
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-            api_integrations.append({
-                'name': 'GreyNoise',
-                'status': status,
-                'description': 'Internet scanner intel (FREE: 50/day)',
-                'icon': 'fa-radar',
-                'color': color,
-                'signup_url': 'https://www.greynoise.io/signup',
-                'env_var': 'GREYNOISE_API_KEY'
-            })
-
-            # IPinfo - Check for API key (FREE tier: 50k queries/month)
-            ipinfo_key = os.getenv('IPINFO_API_KEY')
-            if ipinfo_key:
-                status, color = check_api_health(
-                    'IPinfo',
-                    f'https://ipinfo.io/8.8.8.8?token={ipinfo_key}'
-                )
-            else:
-                status, color = 'not_configured', 'warning'
-            api_integrations.append({
-                'name': 'IPinfo',
-                'status': status,
-                'description': 'IP geolocation (FREE: 50k/month)',
-                'icon': 'fa-map-marked-alt',
-                'color': color,
-                'signup_url': 'https://ipinfo.io/signup',
-                'env_var': 'IPINFO_API_KEY'
-            })
-
-            # MITRE ATT&CK - Public resource (100% FREE, no API key needed)
-            status, color = check_api_health('MITRE', 'https://attack.mitre.org/')
-            api_integrations.append({
-                'name': 'MITRE ATT&CK',
-                'status': status,
-                'description': 'Threat framework (100% FREE, no key)',
-                'icon': 'fa-shield-alt',
-                'color': color,
-                'signup_url': None,
-                'env_var': None
-            })
-
-            api_cards = []
-            for api in api_integrations:
-                status_text = {
-                    'connected': '✓ Connected',
-                    'not_configured': 'Configure',
-                    'error': '✗ Connection Failed'
-                }.get(api['status'], api['status'].title())
-
-                status_badge = dbc.Badge(
-                    status_text,
-                    color=api['color'],
-                    className="ms-2",
-                    pill=True
-                )
-
-                # Build card content
-                card_content = [
-                    html.Div([
-                        html.I(className=f"fa {api['icon']} fa-2x text-{api['color']} me-3"),
-                        html.Div([
-                            html.H5([api['name'], status_badge], className="mb-1"),
-                            html.P(api['description'], className="mb-0 text-muted small")
-                        ], style={'flex': '1'})
-                    ], className="d-flex align-items-center")
-                ]
-
-                # Add configuration instructions if not configured
-                if api['status'] == 'not_configured' and api.get('env_var'):
-                    card_content.append(
-                        html.Div([
-                            html.Hr(className="my-2"),
-                            html.Div([
-                                html.Strong("To configure:", className="text-primary small"),
-                                html.Ol([
-                                    html.Li([
-                                        "Sign up: ",
-                                        html.A("Get API Key", href=api['signup_url'], target="_blank", className="text-decoration-none")
-                                    ], className="small mb-1"),
-                                    html.Li([
-                                        "Add to .env file: ",
-                                        html.Code(f"{api['env_var']}=your_key_here", className="bg-light px-2 py-1 rounded")
-                                    ], className="small mb-1"),
-                                    html.Li("Restart dashboard", className="small")
-                                ], className="mb-0 ps-3", style={'fontSize': '0.85rem'})
-                            ], className="bg-light p-2 rounded")
-                        ])
-                    )
-                elif api['status'] == 'connected':
-                    card_content.append(
-                        html.Div([
-                            html.Hr(className="my-2"),
-                            html.Div([
-                                html.I(className="fa fa-check-circle text-success me-2"),
-                                html.Span("API is active and responding", className="small text-success")
-                            ])
-                        ])
-                    )
-                elif api['status'] == 'error' and api.get('env_var'):
-                    card_content.append(
-                        html.Div([
-                            html.Hr(className="my-2"),
-                            html.Div([
-                                html.I(className="fa fa-exclamation-triangle text-danger me-2"),
-                                html.Span("Check API key or network connection", className="small text-danger")
-                            ])
-                        ])
-                    )
-
-                api_cards.append(
-                    dbc.Card([
-                        dbc.CardBody(card_content)
-                    ], className="mb-3 border-0 shadow-sm hover-card")
-                )
-
-            return html.Div(api_cards)
-
-        except Exception as e:
-            logger.error(f"Error loading API integration status: {e}")
-            return html.P(f"Error: {str(e)}", className="text-danger")
 
     # ========================================================================
     # INTERVAL-BASED BENCHMARK COMPARISON
@@ -3016,7 +2987,8 @@ def register(app):
 
     @app.callback(
         Output('benchmark-comparison', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: not on active tab at startup
     )
     def update_benchmark_comparison(n):
         """Compare network security metrics against industry standards."""
@@ -3036,7 +3008,7 @@ def register(app):
             blocked_devices = cursor.fetchone()['count']
 
 
-            # Industry benchmarks (simulated)
+            # Recommended targets (fixed security baselines, not live industry data)
             benchmarks = [
                 {
                     'metric': 'Device Inventory',
@@ -3088,13 +3060,13 @@ def register(app):
                                         html.Small("Your Network", className="text-muted d-block"),
                                         html.H4(str(benchmark['your_value']), className=f"text-{color} mb-0")
                                     ])
-                                ], width=6),
+                                ], xs=12, sm=6),
                                 dbc.Col([
                                     html.Div([
-                                        html.Small("Industry Average", className="text-muted d-block"),
+                                        html.Small("Recommended Target", className="text-muted d-block"),
                                         html.H4(str(benchmark['industry_avg']), className="text-muted mb-0")
                                     ])
-                                ], width=6)
+                                ], xs=12, sm=6)
                             ]),
                             html.Hr(),
                             html.P([
@@ -3121,10 +3093,15 @@ def register(app):
          Output('perf-packet-loss', 'children', allow_duplicate=True),
          Output('performance-graph', 'figure', allow_duplicate=True)],
         [Input('refresh-interval', 'n_intervals')],
+        [State('resolved-theme-store', 'data')],
         prevent_initial_call=True
     )
-    def update_performance_analytics(n):
+    def update_performance_analytics(n, theme_data):
         """Display network performance metrics."""
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         try:
             conn = get_db_connection()
             if not conn:
@@ -3198,9 +3175,9 @@ def register(app):
                     title="Network Activity (Last Hour)",
                     xaxis_title="Time",
                     yaxis_title="Connections",
-                    template='plotly_white',
                     height=300,
-                    showlegend=False
+                    showlegend=False,
+                    **base_layout
                 )
             else:
                 fig = go.Figure()
@@ -3208,8 +3185,8 @@ def register(app):
                     title="No performance data available",
                     xaxis=dict(visible=False),
                     yaxis=dict(visible=False),
-                    template='plotly_white',
-                    height=300
+                    height=300,
+                    **base_layout
                 )
 
             return avg_latency, throughput, packet_loss, fig
@@ -3293,15 +3270,18 @@ def register(app):
         Output('attack-path-sankey', 'figure'),
         [Input('threat-modal', 'is_open'),
          Input('global-severity-filter', 'data')],
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True
     )
-    def create_attack_path_visualization(is_open, severity_filter):
+    def create_attack_path_visualization(is_open, severity_filter, theme_data):
         """
         Create Sankey diagram showing attack progression through MITRE ATT&CK kill chain.
         Maps alerts to MITRE tactics and shows attack flow.
         """
         if not is_open:
             raise dash.exceptions.PreventUpdate
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
 
         try:
             conn = get_db_connection()
@@ -3399,7 +3379,8 @@ def register(app):
 
             fig.update_layout(
                 title="Attack Path Visualization - MITRE ATT&CK Kill Chain",
-                font=dict(size=12),
+                font=dict(size=12, color=text_color),
+                paper_bgcolor='rgba(0,0,0,0)',
                 height=500,
                 hovermode='closest'
             )
@@ -3408,7 +3389,212 @@ def register(app):
 
         except Exception as e:
             logger.error(f"Error creating attack path visualization: {e}")
-            # Return empty figure on error
             fig = go.Figure()
-            fig.update_layout(title=f"Error loading attack path: {str(e)}")
+            fig.update_layout(title=f"Error loading attack path: {str(e)}",
+                              paper_bgcolor='rgba(0,0,0,0)', font={'color': text_color})
             return fig
+
+    # ── Ask Why: per-alert conversational AI analyst ─────────────────────────
+    # Handles chip clicks ("Why is this bad?" etc.) and free-text input.
+    # Grounds every answer in the actual alert + device data from this network.
+
+    def _render_alert_chat(history: list) -> list:
+        """Render alert conversation as chat bubbles (reuses .chat-bubble CSS)."""
+        bubbles = []
+        for msg in history:
+            role = msg.get('role', 'assistant')
+            content = msg.get('content', '')
+            src = msg.get('source', '')
+            ts = msg.get('timestamp', '')[:16].replace('T', ' ')
+
+            if role == 'user':
+                bubbles.append(
+                    dbc.Card(
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="fa fa-user-circle me-2"),
+                                html.Strong("You", className="u-text-chat"),
+                                html.Small(ts, className="ms-2 text-muted u-text-chat-sm"),
+                            ], className="d-flex align-items-center mb-1"),
+                            html.P(content, className="mb-0 small"),
+                        ], className="chat-bubble"),
+                        color="primary", outline=True, className="mb-2 chat-bubble--user",
+                    )
+                )
+            else:
+                src_badge = (
+                    dbc.Badge(
+                        [html.I(className=f"fa {_source_icon(src)} me-1"), _source_label(src)],
+                        className=f"ms-2 {_source_badge_class(src)}",
+                    ) if src else html.Span()
+                )
+                bubbles.append(
+                    dbc.Card(
+                        dbc.CardBody([
+                            html.Div([
+                                html.I(className="fa fa-robot me-2"),
+                                html.Strong("IoTSentinel AI", className="u-text-chat"),
+                                src_badge,
+                                html.Small(ts, className="ms-2 text-muted u-text-chat-sm"),
+                            ], className="d-flex align-items-center mb-1"),
+                            dcc.Markdown(content, className="mb-0 small"),
+                        ], className="chat-bubble"),
+                        className="mb-2 chat-bubble--ai",
+                    )
+                )
+        return bubbles
+
+    @app.callback(
+        [Output('alert-chat-messages', 'children'),
+         Output('alert-chat-history', 'data', allow_duplicate=True),
+         Output('alert-chat-input', 'value')],
+        [Input('alert-chat-send', 'n_clicks'),
+         Input('alert-q-why', 'n_clicks'),
+         Input('alert-q-action', 'n_clicks'),
+         Input('alert-q-data', 'n_clicks')],
+        [State('alert-chat-input', 'value'),
+         State('alert-chat-history', 'data'),
+         State('alerts-data-store', 'data')],
+        prevent_initial_call=True,
+    )
+    def alert_followup_chat(send_n, why_n, action_n, data_n,
+                            user_input, chat_store, alerts_data):
+        """Handle Ask-why follow-up conversation grounded in the real alert data."""
+        triggered_id = callback_context.triggered_id
+
+        # Determine the user message from chip or free-text
+        chip_questions = {
+            'alert-q-why':    "Why is this bad?",
+            'alert-q-action': "What should I do?",
+            'alert-q-data':   "Is my data safe?",
+        }
+        question = chip_questions.get(triggered_id, (user_input or '').strip())
+        if not question:
+            raise dash.exceptions.PreventUpdate
+
+        chat_store = chat_store or {'history': [], 'alert_id': None}
+        history = list(chat_store.get('history', []))
+        alert_id = chat_store.get('alert_id')
+
+        history.append({
+            'role': 'user',
+            'content': question,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+        # --- Build grounded context from the actual alert + device + baseline ---
+        try:
+            alert_row = None
+            for a in (alerts_data or []):
+                if alert_id and int(a.get('id', -1)) == int(alert_id):
+                    alert_row = a
+                    break
+
+            if alert_row is None and alert_id:
+                # Try DB fallback
+                try:
+                    cur = db_manager.conn.cursor()
+                    cur.execute(
+                        "SELECT a.*, d.device_name FROM alerts a "
+                        "LEFT JOIN devices d ON a.device_ip=d.device_ip "
+                        "WHERE a.id=?", (alert_id,)
+                    )
+                    r = cur.fetchone()
+                    if r:
+                        alert_row = dict(r)
+                except Exception:
+                    pass
+
+            device_name = 'Unknown device'
+            device_ip = ''
+            severity = 'medium'
+            explanation = ''
+            plain_exp = ''
+            today_count = 1
+            recent_dests = []
+
+            if alert_row:
+                device_name = alert_row.get('device_name') or alert_row.get('device_ip', 'Unknown')
+                device_ip = alert_row.get('device_ip', '')
+                severity = alert_row.get('severity', 'medium')
+                explanation = alert_row.get('explanation', '')
+                plain_exp = alert_row.get('plain_explanation', '')
+                try:
+                    cur = db_manager.conn.cursor()
+                    cur.execute(
+                        "SELECT COUNT(*) FROM alerts WHERE device_ip=? AND timestamp>=date('now')",
+                        (device_ip,)
+                    )
+                    today_count = cur.fetchone()[0] or 1
+                    # Recent destinations for context
+                    cur.execute(
+                        "SELECT DISTINCT dest_ip FROM connections "
+                        "WHERE device_ip=? AND timestamp>=datetime('now','-24 hours') LIMIT 5",
+                        (device_ip,)
+                    )
+                    recent_dests = [r[0] for r in cur.fetchall()]
+                except Exception:
+                    pass
+
+            # Smart recommendations
+            recs = []
+            try:
+                recs = smart_recommender.recommend_for_alert(int(alert_id)) if alert_id else []
+            except Exception:
+                pass
+
+            prompt, network_context = build_followup_prompt(
+                alert_row=alert_row or {
+                    'device_name': device_name, 'device_ip': device_ip,
+                    'severity': severity,
+                    'explanation': explanation, 'plain_explanation': plain_exp,
+                },
+                today_count=today_count,
+                destinations=recent_dests,
+                recs=recs,
+                history=history,
+                question=question,
+            )
+
+        except Exception as exc:
+            logger.error(f"alert_followup_chat context build failed: {exc}")
+            network_context = "You are a helpful network security assistant."
+            prompt = question
+
+        # --- Rate cap (same soft cap as AI chat) ---
+        try:
+            from dashboard.shared import config as _cfg, rate_limiter as _rl
+            _tier = _cfg.get('system', 'deployment_tier', 'household')
+            _uid = str(getattr(current_user, 'id', 'anonymous')) if current_user.is_authenticated else 'anonymous'
+            _cap_ok, _, _ = _rl.check_rate_limit(_uid, f'ai_chat_{_tier}')
+        except Exception:
+            _cap_ok = True
+
+        # --- Call AI ---
+        try:
+            if not _cap_ok:
+                ai_text = "Daily AI limit reached. Try again after midnight."
+                source = 'rules'
+            else:
+                ai_text, source = ai_assistant.get_response(
+                    prompt=prompt,
+                    context=network_context,
+                    max_tokens=200,
+                    temperature=0.4,
+                )
+                ai_text = _clean(ai_text or "I could not find an answer. Try again.")
+        except Exception as exc:
+            logger.warning(f"alert_followup_chat AI call failed: {exc}")
+            ai_text = "AI is unavailable right now. Check AI Settings for configuration."
+            source = 'rules'
+
+        history.append({
+            'role': 'assistant',
+            'content': ai_text,
+            'timestamp': datetime.now().isoformat(),
+            'source': source,
+        })
+
+        new_store = {**chat_store, 'history': history[-20:]}  # keep last 10 turns
+        bubbles = _render_alert_chat(history)
+        return bubbles, new_store, ''  # clear input box

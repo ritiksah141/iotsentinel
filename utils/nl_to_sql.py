@@ -7,7 +7,6 @@ Enhances HybridAI with database schema awareness and safe SQL generation
 import logging
 import re
 from typing import Dict, List, Optional, Tuple
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -117,15 +116,17 @@ class NLtoSQLGenerator:
         'EXEC', 'EXECUTE', 'GRANT', 'REVOKE', '--', ';--', '/*', '*/'
     ]
 
-    def __init__(self, db_manager=None):
+    def __init__(self, db_manager=None, ai_assistant=None):
         """
         Initialize NL to SQL generator.
 
         Args:
             db_manager: DatabaseManager instance for query execution
+            ai_assistant: Optional HybridAIAssistant for LLM-powered SQL generation
         """
         self.db = db_manager
-        logger.info("✓ NLtoSQLGenerator initialized with IoTSentinel schema")
+        self.ai = ai_assistant
+        logger.info("NLtoSQLGenerator initialized with IoTSentinel schema")
 
     def parse_query(self, natural_query: str) -> Dict:
         """
@@ -183,6 +184,138 @@ class NLtoSQLGenerator:
             ]
         }
 
+    # ------------------------------------------------------------------
+    # LLM-powered SQL generation with strict read-only guardrails
+    # ------------------------------------------------------------------
+
+    def validate_sql(self, sql: str) -> Tuple[bool, str]:
+        """
+        Validate that a SQL string is safe to execute (SELECT-only, no injection).
+
+        Returns (True, cleaned_sql) or (False, reason_string).
+        """
+        if not sql or not sql.strip():
+            return False, "Empty SQL"
+
+        cleaned = sql.strip().rstrip(';')
+
+        # Must start with SELECT
+        if not cleaned.upper().startswith('SELECT'):
+            return False, "Only SELECT queries are allowed"
+
+        # Must be a single statement (no semicolons mid-query)
+        if ';' in cleaned:
+            return False, "Multi-statement queries are not allowed"
+
+        upper = cleaned.upper()
+
+        # Blocked write/admin keywords
+        for kw in self.BLOCKED_KEYWORDS:
+            if kw in upper:
+                return False, f"Blocked keyword detected: {kw}"
+
+        # All referenced tables must be in the known schema
+        table_words = re.findall(
+            r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)', cleaned, re.IGNORECASE
+        )
+        known_tables = set(self.SCHEMA.keys())
+        for tbl in table_words:
+            if tbl.lower() not in known_tables:
+                return False, f"Unknown table referenced: {tbl}"
+
+        # Force LIMIT if missing (safety cap)
+        if 'LIMIT' not in upper:
+            cleaned += ' LIMIT 100'
+
+        return True, cleaned
+
+    def generate_sql_llm(self, natural_query: str) -> Optional[str]:
+        """
+        Use the AI assistant to generate a safe SELECT query.
+        Returns the validated SQL string, or None if unavailable/invalid.
+        """
+        if self.ai is None:
+            return None
+
+        schema_summary = '\n'.join(
+            f"  {tbl}({', '.join(info['columns'])})"
+            for tbl, info in self.SCHEMA.items()
+        )
+
+        prompt = (
+            f"Convert the following question into a single SQLite SELECT query.\n"
+            f"Rules:\n"
+            f"  1. Output ONLY the SQL query, nothing else - no explanation, no markdown.\n"
+            f"  2. Use only SELECT (no INSERT, UPDATE, DELETE, DROP, etc.).\n"
+            f"  3. Only reference these tables:\n{schema_summary}\n"
+            f"  4. Always include LIMIT 50 unless the user asks for more.\n"
+            f"  5. Use datetime('now', '-N hours/days') for time filters.\n\n"
+            f"Question: {natural_query}"
+        )
+        try:
+            sql_raw, _ = self.ai.get_response(
+                prompt=prompt, max_tokens=150, temperature=0.1
+            )
+        except Exception as e:
+            logger.warning(f"LLM SQL generation failed: {e}")
+            return None
+
+        if not sql_raw:
+            return None
+
+        # Strip any markdown code fences the LLM might have added
+        sql_clean = re.sub(r'```(?:sql)?', '', sql_raw, flags=re.IGNORECASE).strip().strip('`')
+        # Take only the first line that starts with SELECT (discard explanation text)
+        for line in sql_clean.splitlines():
+            if line.strip().upper().startswith('SELECT'):
+                sql_clean = line.strip()
+                break
+
+        valid, result = self.validate_sql(sql_clean)
+        if valid:
+            return result
+        logger.debug(f"LLM SQL failed validation ({result}): {sql_clean}")
+        return None
+
+    def answer_in_plain_english(self, natural_query: str, results: Dict) -> str:
+        """
+        Given a NL query and the DB results, produce a 1-2 sentence plain-English answer.
+        Falls back to the structured table format if AI unavailable or fails.
+        No em dashes, no markdown bold.
+        """
+        if self.ai is None or results.get('status') != 'success':
+            return ""
+
+        rows = results.get('results', [])
+        row_count = results.get('row_count', 0)
+        description = results.get('description', '')
+
+        # Compact representation for the prompt
+        if rows:
+            sample = rows[:5]
+            row_text = '; '.join(
+                ', '.join(f"{k}={v}" for k, v in row.items() if v is not None)
+                for row in sample
+            )
+            if row_count > 5:
+                row_text += f' ... ({row_count} total rows)'
+        else:
+            row_text = 'No results found.'
+
+        prompt = (
+            f"Answer this home network question in 1-2 plain sentences using the data below.\n"
+            f"No em dashes, no markdown, no jargon.\n\n"
+            f"Question: {natural_query}\n"
+            f"Data ({description}): {row_text}"
+        )
+        try:
+            answer, _ = self.ai.get_response(prompt=prompt, max_tokens=80, temperature=0.3)
+            if answer:
+                return answer.replace('—', '-').replace('–', '-').replace('**', '')
+        except Exception:
+            pass
+        return ""
+
     def execute_query(self, natural_query: str, max_results: int = 100) -> Dict:
         """
         Parse and execute natural language query.
@@ -200,7 +333,32 @@ class NLtoSQLGenerator:
                 'error': 'Database manager not configured'
             }
 
-        # Parse query
+        # 1. Try LLM-powered SQL first (falls back to regex templates if unavailable)
+        llm_sql = self.generate_sql_llm(natural_query)
+        if llm_sql:
+            try:
+                cursor = self.db.conn.cursor()
+                cursor.execute(llm_sql)
+                rows = cursor.fetchall()
+                columns = self._extract_column_names(llm_sql)
+                results = [
+                    {col: (row[i] if i < len(row) else None) for i, col in enumerate(columns)}
+                    for row in rows[:max_results]
+                ]
+                return {
+                    'status': 'success',
+                    'query': natural_query,
+                    'sql': llm_sql,
+                    'description': f"Results for: {natural_query}",
+                    'results': results,
+                    'row_count': len(results),
+                    'columns': columns,
+                    'source': 'llm',
+                }
+            except Exception as e:
+                logger.debug(f"LLM SQL execution failed, falling back to templates: {e}")
+
+        # 2. Fall back to regex template matcher
         parsed = self.parse_query(natural_query)
 
         if parsed['status'] != 'success':

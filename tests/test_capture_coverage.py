@@ -10,8 +10,6 @@ Run: pytest tests/test_capture_coverage.py -v --cov=capture.zeek_log_parser
 
 import json
 import gzip
-import os
-import tempfile
 from pathlib import Path
 import sys
 

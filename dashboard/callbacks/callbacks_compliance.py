@@ -5,18 +5,14 @@ Education, and Network Segmentation callbacks.
 Extracted from app.py.  All callbacks are registered via ``register(app)``.
 """
 
-import json
 import logging
-import random
 from collections import defaultdict
 from datetime import datetime
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
-import plotly.express as px
 import plotly.graph_objs as go
-from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
+from dash import (dcc, html, Input, Output, State, callback_context, no_update)
 
 from flask_login import current_user, login_required
 
@@ -41,6 +37,8 @@ from dashboard.shared import (
     create_timestamp_display,
     ToastManager,
     PermissionManager,
+    ai_assistant,
+    get_latest_alerts,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,114 +60,41 @@ def register(app):
     def toggle_firewall_modal(n, is_open):
         return not is_open
 
-    @app.callback(
-        [Output("firewall-modal", "is_open", allow_duplicate=True),
-         Output("toast-container", "children", allow_duplicate=True)],
-        [Input("save-firewall-btn", "n_clicks"),
-         Input("cancel-firewall-btn", "n_clicks")],
-        State("lockdown-switch", "value"),
-        prevent_initial_call=True
-    )
-    def handle_firewall_modal_actions(save_clicks, cancel_clicks, lockdown_state):
-        """Handle Firewall modal Save and Cancel actions (Admin/Parent only)."""
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            return dash.no_update, dash.no_update
-
-        # Defensive check: ensure buttons have actually been clicked
-        if save_clicks is None and cancel_clicks is None:
-            return dash.no_update, dash.no_update
-
-        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if button_id == 'cancel-firewall-btn':
-            # Cancel button - close modal with toast
-            toast = ToastManager.info(
-                "Changes discarded",
-                detail_message="Firewall settings were not saved."
-            )
-            return False, toast
-
-        elif button_id == 'save-firewall-btn':
-            # RBAC permission check - require manage_firewall (security_analyst+)
-            if not PermissionManager.has_permission(current_user, 'manage_firewall'):
-                security_audit_logger.log(
-                    event_type='permission_denied',
-                    user_id=current_user.id if current_user.is_authenticated else None,
-                    username=current_user.username if current_user.is_authenticated else 'anonymous',
-                    details={'action': 'modify_firewall', 'lockdown_state': lockdown_state},
-                    severity='high',
-                    result='failure',
-                    failure_reason='Requires manage_firewall permission (security_analyst+)'
-                )
-                toast = ToastManager.error(
-                    "Permission Denied",
-                    detail_message="Firewall and lockdown settings require security analyst privileges."
-                )
-                return False, toast
-
-            try:
-                # Save firewall settings
-                conn = db_manager.conn
-                cursor = conn.cursor()
-
-                # Permissions already enforced via RBAC
-            except Exception as e:
-                logger.error(f"Error checking user permissions: {e}")
-
-            # Save button - apply lockdown state and close modal
-            try:
-                # Here you would typically save the lockdown state to database or config
-                # For now, we'll just show a success toast
-                if lockdown_state:
-                    toast = ToastManager.success(
-                        "Lockdown Mode Enabled",
-                        detail_message="All untrusted devices are now blocked. Only trusted devices can access the network."
-                    )
-                else:
-                    toast = ToastManager.success(
-                        "Lockdown Mode Disabled",
-                        detail_message="Network access restrictions have been removed."
-                    )
-
-                security_audit_logger.log(
-                    event_type='lockdown_activated' if lockdown_state else 'lockdown_deactivated',
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    details={'lockdown_enabled': lockdown_state, 'action': 'firewall_settings_changed'},
-                    severity='high',
-                    resource_type='firewall',
-                    result='success'
-                )
-                return False, toast
-            except Exception as e:
-                toast = ToastManager.error(
-                    "Failed to save firewall settings",
-                    detail_message=f"Error: {str(e)}"
-                )
-                return dash.no_update, toast
-
-        return dash.no_update, dash.no_update
 
     # =========================================================================
     # EDUCATION CALLBACKS
     # =========================================================================
 
-    @app.callback(
-        Output("education-modal", "is_open"),
-        [Input("education-card-btn", "n_clicks"),
-         Input("close-education-modal-btn", "n_clicks")],
-        State("education-modal", "is_open"),
-        prevent_initial_call=True
-    )
-    def toggle_education_modal(open_clicks, close_clicks, is_open):
-        return not is_open
+    def _build_education_context():
+        """Build a live network snapshot string to feed into education AI prompts."""
+        try:
+            devices = db_manager.get_all_devices()
+            type_counts = {}
+            for d in devices:
+                cat = d.get('category') or d.get('device_type') or 'unknown'
+                type_counts[cat] = type_counts.get(cat, 0) + 1
+            device_summary = ", ".join(f"{n} {t}" for t, n in type_counts.items()) or "none yet"
+        except Exception:
+            devices, device_summary = [], "unknown"
 
-    @app.callback(
-        Output('threat-scenarios-section', 'children'),
-        Input('refresh-interval', 'n_intervals')
-    )
-    def update_threat_scenarios(n):
+        try:
+            alerts = db_manager.get_recent_alerts(hours=24)
+            alert_lines = "\n".join(
+                f"  - {a.get('severity','?').upper()}: "
+                f"{a.get('plain_explanation') or a.get('explanation','?')} "
+                f"({a.get('device_name') or a.get('device_ip','?')})"
+                for a in alerts[:6]
+            ) or "  (none in the last 24 hours)"
+        except Exception:
+            alert_lines = "  (unavailable)"
+
+        return (
+            f"Network: {len(devices)} devices ({device_summary})\n"
+            f"Recent alerts (last 24 h):\n{alert_lines}"
+        )
+
+    def _threat_cards_from_db():
+        """Fallback: render threat scenarios from the static DB library."""
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -184,18 +109,17 @@ def register(app):
             if not scenarios:
                 return dbc.Alert([
                     html.I(className="fa fa-book me-2"),
-                    "Educational threat scenarios will appear here. Run migration with --populate to load examples."
+                    "No threat scenarios in the library yet."
                 ], color="info")
 
             severity_icons = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🟢'}
             severity_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
-
             cards = []
             for s in scenarios:
                 icon = severity_icons.get(s['severity'], '⚪')
                 cards.append(dbc.Card([
                     dbc.CardHeader([
-                        html.Span(icon + " ", style={"fontSize": "1.2rem"}),
+                        html.Span(icon + " "),
                         html.Strong(s['scenario_name']),
                         dbc.Badge(s['severity'].upper(),
                                   color=severity_colors.get(s['severity'], 'secondary'),
@@ -206,17 +130,13 @@ def register(app):
                         dbc.Badge(f"📂 {s['category']}", color="secondary")
                     ])
                 ], className="mb-2 cyber-card"))
-
             return html.Div(cards, className="mt-3")
         except Exception as e:
-            logger.error(f"Error loading threat scenarios: {e}")
-            return dbc.Alert("Educational content library active", color="info")
+            logger.error(f"Education DB fallback (scenarios): {e}")
+            return dbc.Alert("Educational content library active.", color="info")
 
-    @app.callback(
-        Output('security-tips-section', 'children'),
-        Input('refresh-interval', 'n_intervals')
-    )
-    def update_security_tips(n):
+    def _tips_cards_from_db():
+        """Fallback: render security tips from the static DB library."""
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -244,7 +164,6 @@ def register(app):
 
             importance_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
             difficulty_icons = {'easy': '✅', 'moderate': '⚙️', 'advanced': '🔧'}
-
             cards = []
             for tip in tips:
                 d_icon = difficulty_icons.get(tip['difficulty'], '⚙️')
@@ -264,7 +183,6 @@ def register(app):
                         ])
                     ])
                 ], className="mb-2 cyber-card"))
-
             return html.Div([
                 dbc.Alert([
                     html.I(className="fa fa-shield-alt me-2"),
@@ -273,8 +191,107 @@ def register(app):
                 html.Div(cards)
             ], className="mt-3")
         except Exception as e:
-            logger.error(f"Error loading security tips: {e}")
-            return dbc.Alert("Security tips library active", color="info")
+            logger.error(f"Education DB fallback (tips): {e}")
+            return dbc.Alert("Security tips library active.", color="info")
+
+    def _ai_education_card(text):
+        """Wrap AI-generated markdown text in a glass card with a source label."""
+        return html.Div([
+            dbc.Alert([
+                html.I(className="fa fa-robot me-2"),
+                html.Span("AI-generated · tailored to your network", className="text-muted small")
+            ], color="success", className="mb-3 py-2"),
+            dbc.Card(
+                dbc.CardBody(dcc.Markdown(text, className="small mb-0")),
+                className="glass-card border-0 shadow-sm"
+            )
+        ], className="mt-2")
+
+    @app.callback(
+        Output("education-modal", "is_open"),
+        Input("education-card-btn", "n_clicks"),
+        State("education-modal", "is_open"),
+        prevent_initial_call=True
+    )
+    def toggle_education_modal(open_clicks, is_open):
+        return not is_open
+
+    @app.callback(
+        Output('threat-scenarios-section', 'children'),
+        Output('toast-container', 'children', allow_duplicate=True),
+        Input('education-card-btn', 'n_clicks'),
+        Input('education-regenerate-btn', 'n_clicks'),
+        prevent_initial_call=True
+    )
+    def update_threat_scenarios(open_clicks, regen_clicks):
+        tid = callback_context.triggered_id
+        if tid not in ('education-card-btn', 'education-regenerate-btn'):
+            raise dash.exceptions.PreventUpdate
+        is_regen = tid == 'education-regenerate-btn'
+        try:
+            ctx = _build_education_context()
+            prompt = (
+                "Based on the network context below, explain 3–4 relevant IoT threat scenarios "
+                "in plain English. For each scenario: what the threat is, how it could affect "
+                "the devices shown, and one practical step to reduce the risk. "
+                "Be concise — 2–3 sentences per scenario. Use plain paragraphs, no markdown headers."
+            )
+            text, source = ai_assistant.get_response(
+                prompt=prompt, context=ctx, max_tokens=500, temperature=0.5
+            )
+            content = _threat_cards_from_db() if source == "rules" else _ai_education_card(text)
+            toast = ToastManager.success(
+                "Threat scenarios refreshed",
+                detail_message="AI has generated updated threat scenarios based on your current network."
+            ) if is_regen else no_update
+            return content, toast
+        except Exception as e:
+            logger.error(f"Education AI (scenarios): {e}")
+            toast = ToastManager.error(
+                "Regenerate failed",
+                detail_message="Could not reach AI — showing library content instead."
+            ) if is_regen else no_update
+            return _threat_cards_from_db(), toast
+
+    @app.callback(
+        Output('security-tips-section', 'children'),
+        Output('toast-container', 'children', allow_duplicate=True),
+        Input('education-card-btn', 'n_clicks'),
+        Input('education-modal-tabs', 'active_tab'),
+        Input('education-regenerate-btn', 'n_clicks'),
+        prevent_initial_call=True
+    )
+    def update_security_tips(open_clicks, active_tab, regen_clicks):
+        tid = callback_context.triggered_id
+        if tid == 'education-modal-tabs' and active_tab != 'security-tips-tab':
+            raise dash.exceptions.PreventUpdate
+        if tid not in ('education-card-btn', 'education-modal-tabs', 'education-regenerate-btn'):
+            raise dash.exceptions.PreventUpdate
+        is_regen = tid == 'education-regenerate-btn'
+        try:
+            ctx = _build_education_context()
+            prompt = (
+                "Based on the network context below, give 4–5 prioritized, actionable IoT security tips "
+                "tailored to the devices and recent events. For each tip: one sentence on what to do "
+                "and one sentence on why it matters for this specific network. "
+                "Start each tip with a bold keyword phrase. Use plain text, no markdown headers."
+            )
+            text, source = ai_assistant.get_response(
+                prompt=prompt, context=ctx, max_tokens=500, temperature=0.5
+            )
+            content = _tips_cards_from_db() if source == "rules" else _ai_education_card(text)
+            toast = ToastManager.success(
+                "Security tips refreshed",
+                detail_message="AI has generated updated security tips based on your current network."
+            ) if is_regen else no_update
+            return content, toast
+        except Exception as e:
+            logger.error(f"Education AI (tips): {e}")
+            toast = ToastManager.error(
+                "Regenerate failed",
+                detail_message="Could not reach AI — showing library content instead."
+            ) if is_regen else no_update
+            return _tips_cards_from_db(), toast
 
     # =========================================================================
     # EXPORT SECURITY REPORT CALLBACK (RBAC)
@@ -356,12 +373,11 @@ def register(app):
 
     @app.callback(
         Output("segmentation-modal", "is_open"),
-        [Input("segmentation-card-btn", "n_clicks"),
-         Input("close-segmentation-modal-btn", "n_clicks")],
+        Input("segmentation-card-btn", "n_clicks"),
         State("segmentation-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_segmentation_modal(open_clicks, close_clicks, is_open):
+    def toggle_segmentation_modal(open_clicks, is_open):
         return not is_open
 
     # Segmentation Modal - Timestamp Update
@@ -890,23 +906,23 @@ def register(app):
                         html.Div([
                             html.Div([
                                 dbc.Row([
-                                    dbc.Col(html.Strong("Device IP"), width=3),
-                                    dbc.Col(html.Strong("Name/Type"), width=4),
-                                    dbc.Col(html.Strong("Status"), width=2),
-                                    dbc.Col(html.Strong("Suggested Segment"), width=3)
+                                    dbc.Col(html.Strong("Device IP"), xs=3),
+                                    dbc.Col(html.Strong("Name/Type"), xs=4),
+                                    dbc.Col(html.Strong("Status"), xs=2),
+                                    dbc.Col(html.Strong("Suggested Segment"), xs=3)
                                 ], className="mb-2 pb-2 border-bottom")
                             ]),
                             html.Div([
                                 dbc.Row([
-                                    dbc.Col(dev['device_ip'], width=3),
+                                    dbc.Col(dev['device_ip'], xs=3),
                                     dbc.Col([
                                         html.Div(dev['device_name'] if dev['device_name'] else '—'),
                                         html.Small(dev['device_type'] if dev['device_type'] else 'Unknown', className="text-muted")
-                                    ], width=4),
+                                    ], xs=4),
                                     dbc.Col(
                                         dbc.Badge("Blocked" if dev['is_blocked'] else "Trusted" if dev['is_trusted'] else "Unknown",
                                         color='danger' if dev['is_blocked'] else 'success' if dev['is_trusted'] else 'warning'),
-                                        width=2
+                                        xs=2
                                     ),
                                     dbc.Col(
                                         dbc.Badge(
@@ -914,12 +930,12 @@ def register(app):
                                             color="primary",
                                             className="w-100"
                                         ),
-                                        width=3
+                                        xs=3
                                     )
                                 ], className="mb-2 py-1")
                                 for dev in unsegmented_devices[:10]
                             ])
-                        ])
+                        ], style={"overflowX": "auto"})
                     ])
                 ], className="glass-card border-0 shadow-sm mb-3")
             )
@@ -952,12 +968,11 @@ def register(app):
 
     @app.callback(
         Output("attack-surface-modal", "is_open"),
-        [Input("attack-surface-card-btn", "n_clicks"),
-         Input("close-attack-surface-modal-btn", "n_clicks")],
+        Input("attack-surface-card-btn", "n_clicks"),
         State("attack-surface-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_attack_surface_modal(open_clicks, close_clicks, is_open):
+    def toggle_attack_surface_modal(open_clicks, is_open):
         return not is_open
 
     # Attack Surface Overview Tab Callback
@@ -1079,8 +1094,7 @@ def register(app):
                         html.I(className=f"fa {icon} me-2 text-{badge_color}"),
                         html.Span(vector, className="fw-bold"),
                         dbc.Badge(f"{count} connections", color=badge_color, className="ms-2")
-                    ], className="d-flex align-items-center justify-content-between mb-2 p-2",
-                       style={"backgroundColor": "rgba(255,255,255,0.05)", "borderRadius": "5px"})
+                    ], className="d-flex align-items-center justify-content-between mb-2 p-2 glass-subtle")
                 ])
             )
 
@@ -1090,7 +1104,7 @@ def register(app):
             str(high_risk_devices),
             html.Span([
                 str(exposure_score),
-                html.Span("/100", className="text-muted", style={"fontSize": "0.7rem"})
+                html.Span("/100", className="text-muted u-text-xxs")
             ], className=f"text-{score_color}"),
             vector_fig,
             html.Div(top_vectors_items) if top_vectors_items else html.P("No attack vectors detected.", className="text-muted mb-0"),
@@ -1233,22 +1247,22 @@ def register(app):
                                         risk_level.upper()
                                     ], color=badge_color)
                                 ], className="mb-2"),
-                                html.P(description, className="text-muted mb-1", style={"fontSize": "0.85rem"})
+                                html.P(description, className="text-muted mb-1")
                             ], md=8),
                             dbc.Col([
                                 html.Div([
                                     html.Div([
                                         html.I(className="fa fa-network-wired me-1"),
-                                        html.Span(f"{device_count} devices", className="text-muted", style={"fontSize": "0.85rem"})
+                                        html.Span(f"{device_count} devices", className="text-muted")
                                     ], className="mb-1"),
                                     html.Div([
                                         html.I(className="fa fa-exchange-alt me-1"),
-                                        html.Span(f"{conn_count} connections", className="text-muted", style={"fontSize": "0.85rem"})
+                                        html.Span(f"{conn_count} connections", className="text-muted")
                                     ], className="mb-1"),
                                     html.Div([
                                         html.I(className="fa fa-clock me-1"),
                                         html.Span(f"Last: {last_seen[:19] if last_seen else 'Unknown'}",
-                                                 className="text-muted", style={"fontSize": "0.85rem"})
+                                                 className="text-muted")
                                     ])
                                 ])
                             ], md=4, className="text-end")
@@ -1329,7 +1343,7 @@ def register(app):
                             dbc.Badge(f"{port_count} ports", color="warning")
                         ], className="mb-2"),
                         html.Div([
-                            html.P("Open Ports:", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
+                            html.P("Open Ports:", className="text-muted mb-1"),
                             html.Div(port_badges)
                         ])
                     ], className="p-3")
@@ -1486,7 +1500,7 @@ def register(app):
             icon = severity_icons.get(rec['severity'], 'fa-info')
 
             action_items = [
-                html.Li(action, className="mb-1", style={"fontSize": "0.9rem"})
+                html.Li(action, className="mb-1")
                 for action in rec['actions']
             ]
 
@@ -1509,7 +1523,7 @@ def register(app):
                         html.H6([
                             html.I(className="fa fa-tasks me-2"),
                             "Recommended Actions:"
-                        ], style={"fontSize": "0.95rem"}, className="mb-2"),
+                        ], className="mb-2"),
                         html.Ul(action_items, className="mb-0")
                     ])
                 ], className="glass-card border-0 shadow-sm mb-3")
@@ -1523,23 +1537,12 @@ def register(app):
 
     @app.callback(
         Output("compliance-modal", "is_open"),
-        [Input("compliance-card-btn", "n_clicks"),
-         Input("close-compliance-modal-btn", "n_clicks")],
+        Input("compliance-card-btn", "n_clicks"),
         State("compliance-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_compliance_modal(open_clicks, close_clicks, is_open):
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise dash.exceptions.PreventUpdate
-
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if trigger_id == 'close-compliance-modal-btn':
-            return False
-        if trigger_id == 'compliance-card-btn' and open_clicks:
-            return not is_open
-        return is_open
+    def toggle_compliance_modal(open_clicks, is_open):
+        return not is_open
 
     @app.callback(
         [Output('compliance-requirements-list', 'children'),
@@ -1749,12 +1752,11 @@ def register(app):
 
     @app.callback(
         Output("vuln-scanner-modal", "is_open"),
-        [Input("vuln-scanner-card-btn", "n_clicks"),
-         Input("close-vuln-scanner-modal-btn", "n_clicks")],
+        Input("vuln-scanner-card-btn", "n_clicks"),
         State("vuln-scanner-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_vuln_scanner_modal(open_clicks, close_clicks, is_open):
+    def toggle_vuln_scanner_modal(open_clicks, is_open):
         return not is_open
 
     # Vulnerability Scanner - Overview Tab
@@ -1985,7 +1987,7 @@ def register(app):
                     ])
                 )
 
-            return html.Div(table_rows, style={'maxHeight': '500px', 'overflowY': 'auto'}), toast
+            return html.Div(table_rows, className="scroll-panel-md"), toast
 
         except Exception as e:
             logger.error(f"Error loading CVE database: {e}")
@@ -2137,7 +2139,7 @@ def register(app):
                     ], className=f"glass-card {card_class} shadow-sm mb-2")
                 )
 
-            return html.Div(device_cards, style={'maxHeight': '500px', 'overflowY': 'auto'}), toast
+            return html.Div(device_cards, className="scroll-panel-md"), toast
 
         except Exception as e:
             logger.error(f"Error loading device scan results: {e}")
@@ -2245,14 +2247,14 @@ def register(app):
                                 html.I(className="fa fa-server me-2"),
                                 html.Strong(f"{affected_devices} device(s) affected"),
                                 html.Span(f" | CVSS Score: {cvss_score:.1f}" if cvss_score else "", className="ms-2")
-                            ], color=severity_colors.get(severity, 'secondary'), className="mb-3"),
+                            ], color=SEVERITY_BADGE_COLORS.get(severity, 'secondary'), className="mb-3"),
                             html.H6("Recommended Actions:", className="mb-2"),
                             html.Ul(rec_items, className="mb-0")
                         ], className="p-3")
                     ], className="glass-card border-0 shadow-sm mb-3")
                 )
 
-            return html.Div(recommendations, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(recommendations, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading recommendations: {e}")
@@ -2264,12 +2266,11 @@ def register(app):
 
     @app.callback(
         Output("sustainability-modal", "is_open"),
-        [Input("sustainability-card-btn", "n_clicks"),
-         Input("close-sustainability-modal-btn", "n_clicks")],
+        Input("sustainability-card-btn", "n_clicks"),
         State("sustainability-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_sustainability_modal(open_clicks, close_clicks, is_open):
+    def toggle_sustainability_modal(open_clicks, is_open):
         """Toggle sustainability modal open/close."""
         return not is_open
 
@@ -2282,9 +2283,10 @@ def register(app):
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('sustainability-modal', 'is_open'),
          Input('refresh-sustainability-btn', 'n_clicks')],
+        State('theme-store', 'data'),
         prevent_initial_call=True
     )
-    def update_carbon_footprint(is_open, refresh_clicks):
+    def update_carbon_footprint(is_open, refresh_clicks, theme_data):
         """Update carbon footprint metrics and visualizations."""
         from dash import callback_context
 
@@ -2299,6 +2301,12 @@ def register(app):
         if not is_open and not show_toast:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#18181b'
+        tick_color = '#a1a1aa' if is_dark else '#374151'
+        gauge_bg = 'rgba(30,41,59,0.6)' if is_dark else 'white'
+        gauge_border = 'rgba(255,255,255,0.15)' if is_dark else 'gray'
+
         try:
             # Get sustainability calculator (using global db_manager)
             sustainability_calc = get_sustainability_calculator(db_manager)
@@ -2311,18 +2319,20 @@ def register(app):
                 mode="gauge+number+delta",
                 value=carbon_data['daily_carbon_kg'],
                 domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "Daily Carbon Footprint (kg CO₂)", 'font': {'size': 20}},
+                title={'text': "Daily Carbon Footprint (kg CO₂)", 'font': {'size': 20, 'color': text_color}},
+                number={'font': {'color': text_color}},
                 delta={'reference': 10, 'increasing': {'color': "#dc2626"}},
                 gauge={
-                    'axis': {'range': [None, 50], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'axis': {'range': [None, 50], 'tickwidth': 1, 'tickcolor': tick_color,
+                             'tickfont': {'color': tick_color}},
                     'bar': {'color': "#10b981"},
-                    'bgcolor': "white",
+                    'bgcolor': gauge_bg,
                     'borderwidth': 2,
-                    'bordercolor': "gray",
+                    'bordercolor': gauge_border,
                     'steps': [
-                        {'range': [0, 15], 'color': '#d1fae5'},
-                        {'range': [15, 30], 'color': '#fef3c7'},
-                        {'range': [30, 50], 'color': '#fee2e2'}
+                        {'range': [0, 15], 'color': '#d1fae5' if not is_dark else 'rgba(16,185,129,0.15)'},
+                        {'range': [15, 30], 'color': '#fef3c7' if not is_dark else 'rgba(245,158,11,0.15)'},
+                        {'range': [30, 50], 'color': '#fee2e2' if not is_dark else 'rgba(220,38,38,0.15)'}
                     ],
                     'threshold': {
                         'line': {'color': "red", 'width': 4},
@@ -2335,7 +2345,7 @@ def register(app):
             gauge_fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font={'color': "var(--text-primary)", 'family': "Arial"},
+                font={'color': text_color, 'family': "Arial"},
                 height=300,
                 margin=dict(l=20, r=20, t=40, b=20)
             )
@@ -2419,53 +2429,31 @@ def register(app):
             # Calculate total energy consumption
             energy_data = sustainability_calc.calculate_total_energy_consumption()
 
-            # Format display values
+            # Format display values (GBP — Ofgem 2024 rate)
             today_kwh = f"{energy_data.get('total_energy_kwh', 0):.2f}"
-            today_cost = f"${energy_data.get('estimated_cost_usd', 0):.2f}"
-            monthly_cost = f"${energy_data.get('monthly_estimate_cost', 0):.2f}"
-            yearly_cost = f"${energy_data.get('yearly_estimate_cost', 0):.2f}"
+            today_cost = f"£{energy_data.get('estimated_cost_gbp', 0):.2f}"
+            monthly_cost = f"£{energy_data.get('monthly_estimate_cost', 0):.2f}"
+            yearly_cost = f"£{energy_data.get('yearly_estimate_cost', 0):.2f}"
 
-            # Create bar chart for top energy consumers
+            # Create bar chart for top energy consumers using ChartFactory
             device_breakdown = energy_data.get('device_breakdown', [])
 
             if device_breakdown:
-                device_names = [f"{d.get('device_name', d.get('device_ip', 'Unknown'))[:20]}" for d in device_breakdown[:10]]
+                device_names = [(d.get('device_name') or d.get('device_ip') or 'Unknown')[:20]
+                                for d in device_breakdown[:10]]
                 energy_values = [d.get('estimated_energy_kwh', 0) for d in device_breakdown[:10]]
 
-                consumers_fig = go.Figure(data=[
-                    go.Bar(
-                        x=device_names,
-                        y=energy_values,
-                        marker_color='#f59e0b',
-                        text=[f"{val:.2f} kWh" for val in energy_values],
-                        textposition='auto',
-                    )
-                ])
-
-                consumers_fig.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font={'color': "var(--text-primary)"},
-                    xaxis={'title': 'Device', 'tickangle': -45},
-                    yaxis={'title': 'Energy (kWh)'},
-                    height=400,
-                    margin=dict(l=40, r=20, t=20, b=100)
+                consumers_fig = ChartFactory.create_bar_chart(
+                    x_values=energy_values,
+                    y_values=device_names,
+                    colors='#f59e0b',
+                    x_title='Energy (kWh)',
+                    orientation='h',
                 )
+                consumers_fig['layout']['margin'] = {'l': 160, 'r': 20, 't': 20, 'b': 50}
+                consumers_fig['layout']['height'] = 420
             else:
-                consumers_fig = go.Figure()
-                consumers_fig.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis={'visible': False},
-                    yaxis={'visible': False},
-                    annotations=[{
-                        'text': 'No energy data available',
-                        'xref': 'paper',
-                        'yref': 'paper',
-                        'showarrow': False,
-                        'font': {'size': 14, 'color': 'gray'}
-                    }]
-                )
+                consumers_fig = ChartFactory.create_empty_chart('No energy data available')
 
             return today_kwh, today_cost, monthly_cost, yearly_cost, consumers_fig
 
@@ -2561,6 +2549,22 @@ def register(app):
                 f"Error loading best practices: {str(e)}"
             ], color="danger")
 
+    # S2 — Sustainability timestamp display
+    @app.callback(
+        Output('sustainability-timestamp-display', 'children'),
+        [Input('sustainability-modal', 'is_open'),
+         Input('refresh-sustainability-btn', 'n_clicks')],
+        prevent_initial_call=True
+    )
+    def update_sustainability_timestamp(is_open, _refresh):
+        if not is_open:
+            return dash.no_update
+        ts = datetime.now().strftime('%H:%M, %d %b %Y')
+        return html.Small([
+            html.I(className="fa fa-clock me-1 text-muted"),
+            f"Updated {ts}"
+        ], className="text-muted")
+
     # Sustainability Modal - Export Callback
     @app.callback(
         [Output('download-sustainability-report', 'data'),
@@ -2623,7 +2627,10 @@ def register(app):
          Output('gdpr-compliance-content', 'children'),
          Output('nist-compliance-content', 'children'),
          Output('iot-act-compliance-content', 'children'),
-         Output('toast-container', 'children', allow_duplicate=True)],
+         Output('toast-container', 'children', allow_duplicate=True),
+         Output('compliance-gdpr-score', 'children'),
+         Output('compliance-nist-score', 'children'),
+         Output('compliance-iot-score', 'children')],
         [Input('refresh-interval', 'n_intervals'),
          Input('refresh-compliance-btn', 'n_clicks')],
         prevent_initial_call=True
@@ -2642,13 +2649,13 @@ def register(app):
 
         # Defensive check: ensure at least one input has triggered
         if n is None and refresh_clicks is None:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         try:
             conn = get_db_connection()
             if not conn:
                 toast = ToastManager.error("Failed to connect to database") if show_toast else dash.no_update
-                return "N/A", "Database error", "Database error", "Database error", toast
+                return "N/A", "Database error", "Database error", "Database error", toast, dash.no_update, dash.no_update, dash.no_update
 
             cursor = conn.cursor()
 
@@ -2690,9 +2697,8 @@ def register(app):
             else:
                 gdpr_checks.append(("User Consent", "✗ FAIL", "danger", "Most devices not explicitly trusted"))
 
-            # 4. Right to deletion
-            gdpr_checks.append(("Right to Deletion", "✓ PASS", "success", "Deletion capabilities implemented"))
-            gdpr_score += 1
+            # 4. Right to deletion — capability available; manual verification required
+            gdpr_checks.append(("Right to Deletion", "ℹ INFO", "info", "Device/data deletion available — verify process is documented"))
 
             # 5. Data security
             cursor.execute('SELECT COUNT(*) as count FROM alerts WHERE severity = "critical" AND timestamp >= datetime("now", "-7 days")')
@@ -2739,9 +2745,8 @@ def register(app):
             else:
                 nist_checks.append(("Respond", "✗ FAIL", "danger", f"{high_severity} unresolved critical/high alerts"))
 
-            # 5. Recover - Backup capabilities
-            nist_checks.append(("Recover", "✓ PASS", "success", "Database backup enabled"))
-            nist_score += 1
+            # 5. Recover - Backup capabilities (manual verification required)
+            nist_checks.append(("Recover", "ℹ INFO", "info", "Manual verification required — confirm backup schedule is active"))
 
             # ========== IoT CYBERSECURITY ACT ==========
             iot_checks = []
@@ -2773,9 +2778,8 @@ def register(app):
             # 3. Patch management
             iot_checks.append(("Patch Management", "⚠ INFO", "info", "Manual verification required"))
 
-            # 4. No default passwords
-            iot_checks.append(("Default Credentials", "✓ PASS", "success", "No default passwords detected"))
-            iot_score += 1
+            # 4. Default credentials — cannot auto-verify; flag for manual check
+            iot_checks.append(("Default Credentials", "ℹ INFO", "info", "Manual verification required — ensure admin password has been changed from default"))
 
             # 5. Network segmentation
             cursor.execute('SELECT COUNT(DISTINCT device_ip) as count FROM connections WHERE dest_ip LIKE "192.168.%"')
@@ -2836,10 +2840,14 @@ def register(app):
                 detail_message=f"Overall compliance score: {overall_percentage}%\n\nGDPR: {int(gdpr_score/gdpr_total*100)}%\nNIST: {int(nist_score/nist_total*100)}%\nIoT Act: {int(iot_score/iot_total*100)}%"
             ) if show_toast else dash.no_update
 
-            return overall_display, gdpr_display, nist_display, iot_display, toast
+            gdpr_score_text = f"{gdpr_score}/{gdpr_total}"
+            nist_score_text = f"{nist_score}/{nist_total}"
+            iot_score_text  = f"{iot_score}/{iot_total}"
+
+            return overall_display, gdpr_display, nist_display, iot_display, toast, gdpr_score_text, nist_score_text, iot_score_text
 
         except Exception as e:
             logger.error(f"Error evaluating compliance: {e}")
             error_msg = html.P(f"Error: {str(e)}", className="text-danger")
             toast = ToastManager.error("Failed to update compliance dashboard", detail_message=str(e)) if show_toast else dash.no_update
-            return "Error", error_msg, error_msg, error_msg, toast
+            return "Error", error_msg, error_msg, error_msg, toast, dash.no_update, dash.no_update, dash.no_update

@@ -11,7 +11,6 @@ import socket
 from typing import Dict, Any, Optional, List, Callable
 from zeroconf import ServiceBrowser, ServiceListener, Zeroconf, ServiceInfo
 import threading
-import time
 
 logger = logging.getLogger(__name__)
 

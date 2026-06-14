@@ -11,7 +11,7 @@ Run: pytest tests/test_email_coverage.py -v --cov=alerts.email_notifier
 
 import pytest
 import smtplib
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import (patch, Mock)
 from pathlib import Path
 import sys
 

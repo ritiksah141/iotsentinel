@@ -9,6 +9,7 @@ Handles scheduled generation and sending of security reports:
 Uses APScheduler for reliable scheduling with persistence support.
 """
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Callable, List
@@ -35,16 +36,18 @@ class ReportGenerator:
     weekly and monthly reports.
     """
 
-    def __init__(self, db_manager, alert_service):
+    def __init__(self, db_manager, alert_service, ai_assistant=None):
         """
         Initialize the report generator.
 
         Args:
             db_manager: Database manager instance
             alert_service: AlertService instance for summary data
+            ai_assistant: Optional HybridAIAssistant for narrative digest generation
         """
         self.db = db_manager
         self.alert_service = alert_service
+        self.ai = ai_assistant
 
     def generate_weekly_report(self) -> Dict[str, Any]:
         """
@@ -66,7 +69,7 @@ class ReportGenerator:
         # Get network statistics
         network_stats = self._get_network_stats(hours=168)
 
-        return {
+        report_data = {
             'report_type': 'weekly',
             'period': f"{start_date.strftime('%B %d')} - {end_date.strftime('%B %d, %Y')}",
             'generated_at': datetime.now().isoformat(),
@@ -74,8 +77,24 @@ class ReportGenerator:
             'top_alerts': top_alerts,
             'network_stats': network_stats,
             'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat()
+            'end_date': end_date.isoformat(),
         }
+        report_data['ai_narrative'] = self.generate_ai_narrative(report_data)
+
+        # Attach the full "This Week on Your Network" story so phones get the
+        # same narrated digest the dashboard shows (push channels prefer it
+        # over the short ai_narrative; the webhook payload carries it as-is).
+        try:
+            from utils.weekly_story import build_facts, generate_story
+            facts = build_facts(self.db)
+            story, story_source = generate_story(facts, self.ai)
+            if story:
+                report_data['weekly_story'] = story
+                report_data['weekly_story_source'] = story_source
+        except Exception as e:
+            logger.warning(f"Weekly story for report digest unavailable: {e}")
+
+        return report_data
 
     def generate_monthly_report(self) -> Dict[str, Any]:
         """
@@ -100,7 +119,7 @@ class ReportGenerator:
         # Get trend data (weekly breakdown)
         trends = self._get_weekly_trends()
 
-        return {
+        report_data = {
             'report_type': 'monthly',
             'period': f"{start_date.strftime('%B %d')} - {end_date.strftime('%B %d, %Y')}",
             'generated_at': datetime.now().isoformat(),
@@ -109,8 +128,77 @@ class ReportGenerator:
             'network_stats': network_stats,
             'trends': trends,
             'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat()
+            'end_date': end_date.isoformat(),
         }
+        report_data['ai_narrative'] = self.generate_ai_narrative(report_data)
+        return report_data
+
+    def generate_ai_narrative(self, report_data: dict) -> str:
+        """
+        Generate a plain-English narrative summary of the report using AI.
+        Falls back to a templated sentence if the AI is unavailable.
+        No em dashes, no markdown bold.
+        """
+        if self.ai is None:
+            return self._fallback_narrative(report_data)
+
+        summary = report_data.get('summary', {})
+        network_stats = report_data.get('network_stats', {})
+        top_alerts = report_data.get('top_alerts', [])
+        period = report_data.get('period', 'this period')
+        report_type = report_data.get('report_type', 'weekly')
+
+        crit = summary.get('critical', 0)
+        high = summary.get('high', 0)
+        total_alerts = summary.get('total', 0)
+        total_devices = network_stats.get('total_devices', 0)
+        new_devices = network_stats.get('new_devices', 0)
+
+        top_alert_lines = '\n'.join(
+            f"- {a.get('severity', '?').upper()}: {(a.get('plain_explanation') or a.get('explanation', ''))[:80]}"
+            for a in top_alerts[:3]
+        ) or '- None'
+
+        prompt = (
+            f"Write a 3-4 sentence plain-English summary of this home network security {report_type} report. "
+            f"Be friendly and direct. No em dashes, no markdown bold, no bullet points.\n\n"
+            f"Period: {period}\n"
+            f"Devices seen: {total_devices} (new this period: {new_devices})\n"
+            f"Total alerts: {total_alerts} (critical: {crit}, high: {high})\n"
+            f"Top incidents:\n{top_alert_lines}\n\n"
+            f"Start with the overall security status. Mention the most important finding. "
+            f"End with one practical tip for the homeowner."
+        )
+        try:
+            narrative, _ = self.ai.get_response(
+                prompt=prompt, max_tokens=200, temperature=0.4
+            )
+            if narrative:
+                # Strip any stray em dashes
+                return narrative.replace('—', '-').replace('–', '-').replace('**', '')
+        except Exception as e:
+            logger.warning(f"AI narrative generation failed: {e}")
+
+        return self._fallback_narrative(report_data)
+
+    def _fallback_narrative(self, report_data: dict) -> str:
+        """Rule-based narrative when AI is unavailable."""
+        summary = report_data.get('summary', {})
+        crit = summary.get('critical', 0)
+        high = summary.get('high', 0)
+        total = summary.get('total', 0)
+        period = report_data.get('period', 'this period')
+        if crit + high == 0:
+            return (
+                f"Your network had a quiet week ({period}). "
+                f"{total} alert(s) were logged, none critical or high severity. "
+                "Keep your devices updated and review any new devices you do not recognise."
+            )
+        return (
+            f"Your network had {total} alert(s) during {period}, "
+            f"including {crit} critical and {high} high severity events. "
+            "Review the incidents below and check the Alerts panel for recommended actions."
+        )
 
     def _get_top_alerts(self, hours: int, limit: int = 10) -> list:
         """Get top priority alerts from the time period."""
@@ -321,7 +409,8 @@ class ReportScheduler:
     - Daily digest emails
     """
 
-    def __init__(self, db_manager, alert_service, notification_dispatcher, db_path: str = None, email_notifier=None):
+    def __init__(self, db_manager, alert_service, notification_dispatcher,
+                 db_path: str = None, email_notifier=None, ai_assistant=None):
         """
         Initialize the report scheduler.
 
@@ -331,10 +420,13 @@ class ReportScheduler:
             notification_dispatcher: NotificationDispatcher for sending reports
             db_path: Optional database path for enhanced email attachments
             email_notifier: Optional EmailNotifier instance with attachment support
+            ai_assistant: Optional HybridAIAssistant for AI narrative digest
         """
-        self.report_generator = ReportGenerator(db_manager, alert_service)
+        self.report_generator = ReportGenerator(db_manager, alert_service,
+                                                 ai_assistant=ai_assistant)
         self.dispatcher = notification_dispatcher
         self.db_path = db_path or getattr(db_manager, 'db_path', None)
+        self._db = db_manager  # For persisting schedule state across restarts
 
         # Use provided email_notifier or try to get from dispatcher handlers
         self.email_notifier = email_notifier
@@ -354,12 +446,28 @@ class ReportScheduler:
         if APSCHEDULER_AVAILABLE:
             self._scheduler = BackgroundScheduler()
             self._setup_apscheduler_jobs()
+            self._restore_state()   # Re-add custom jobs + re-apply paused state from DB
         else:
             self._scheduler = SimpleScheduler()
             self._setup_simple_jobs()
 
         self._running = False
-        self._paused_jobs = set()  # Track paused job IDs
+
+        # Metadata store keyed by job ID — APScheduler only stores the trigger,
+        # not template/format, so we maintain this ourselves for display purposes.
+        self._job_meta: dict = {
+            'weekly_report': {
+                'template': 'executive_summary',
+                'format': 'email',
+                'trigger_display': 'Every Sunday at 9:00 AM',
+            },
+            'monthly_report': {
+                'template': 'security_audit',
+                'format': 'email',
+                'trigger_display': '1st of each month at 9:00 AM',
+            },
+        }
+
         logger.info("ReportScheduler initialized")
 
     def _setup_apscheduler_jobs(self):
@@ -405,11 +513,34 @@ class ReportScheduler:
             logger.info("Report scheduler started")
 
     def stop(self):
-        """Stop the scheduler."""
-        if self._running:
-            self._scheduler.shutdown(wait=True)
+        """Stop the scheduler. Idempotent and safe even if the underlying
+        APScheduler was already shut down by another path (e.g. a signal handler
+        and atexit both firing) — avoids a spurious 'Scheduler is not running'."""
+        if not self._running:
+            return
+        try:
+            if getattr(self._scheduler, 'running', False):
+                self._scheduler.shutdown(wait=True)
+        except Exception as e:
+            logger.debug(f"Scheduler already stopped: {e}")
+        finally:
             self._running = False
             logger.info("Report scheduler stopped")
+
+    def _stamp_report_sent(self, report_type: str, success_count: int):
+        """Write report-sent timestamp to settings so the dashboard can notify the user."""
+        try:
+            import time as _t, json as _j
+            self.report_generator.db.set_setting(
+                'last_report_sent',
+                _j.dumps({
+                    'type': report_type,
+                    'ts': int(_t.time()),
+                    'channels': success_count,
+                })
+            )
+        except Exception:
+            pass
 
     def _send_weekly_report(self):
         """Generate and send weekly report."""
@@ -421,6 +552,7 @@ class ReportScheduler:
 
             success_count = sum(1 for r in results if r.success)
             logger.info(f"Weekly report sent to {success_count}/{len(results)} channels")
+            self._stamp_report_sent('weekly', success_count)
 
         except Exception as e:
             logger.error(f"Error sending weekly report: {e}", exc_info=True)
@@ -435,6 +567,7 @@ class ReportScheduler:
 
             success_count = sum(1 for r in results if r.success)
             logger.info(f"Monthly report sent to {success_count}/{len(results)} channels")
+            self._stamp_report_sent('monthly', success_count)
 
         except Exception as e:
             logger.error(f"Error sending monthly report: {e}", exc_info=True)
@@ -591,6 +724,23 @@ class ReportScheduler:
                 logger.error("Must provide either cron_expression or interval_hours")
                 return False
 
+            # Store metadata so list_schedules() can display it correctly
+            if cron_expression:
+                trigger_display = f"Custom: {cron_expression}"
+            else:
+                trigger_display = f"Every {interval_hours} hour{'s' if interval_hours != 1 else ''}"
+
+            self._job_meta[schedule_id] = {
+                'template': template_name,
+                'format': format,
+                'trigger_display': trigger_display,
+                # Stored so the job can be reconstructed after a restart
+                'cron_expression': cron_expression,
+                'interval_hours': interval_hours,
+                'parameters': parameters,
+            }
+
+            self._persist_custom_schedules()
             logger.info(f"Added custom schedule: {schedule_id} for template {template_name}")
             return True
 
@@ -613,13 +763,82 @@ class ReportScheduler:
                 return False
 
             self._scheduler.remove_job(schedule_id)
-            self._paused_jobs.discard(schedule_id)  # Clean up paused state if present
+            self._job_meta.pop(schedule_id, None)
+            self._persist_custom_schedules()
+            self._persist_paused_state()
             logger.info(f"Removed custom schedule: {schedule_id}")
             return True
 
         except Exception as e:
             logger.error(f"Error removing custom schedule: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # State persistence (survives process restarts)
+    # ------------------------------------------------------------------
+
+    _BUILTIN_JOB_IDS = {'weekly_report', 'monthly_report'}
+
+    def _persist_paused_state(self):
+        """Write current set of paused job IDs to system_settings."""
+        try:
+            paused = [
+                job.id for job in self._scheduler.get_jobs()
+                if job.next_run_time is None
+            ]
+            self._db.set_setting('scheduler_paused_jobs', json.dumps(paused))
+        except Exception as e:
+            logger.warning(f"[scheduler] Could not persist paused state: {e}")
+
+    def _persist_custom_schedules(self):
+        """Write custom (non-built-in) job definitions to system_settings."""
+        try:
+            custom = {
+                sid: meta for sid, meta in self._job_meta.items()
+                if sid not in self._BUILTIN_JOB_IDS
+            }
+            self._db.set_setting('scheduler_custom_jobs', json.dumps(custom))
+        except Exception as e:
+            logger.warning(f"[scheduler] Could not persist custom schedules: {e}")
+
+    def _restore_state(self):
+        """
+        Re-add custom jobs and re-apply paused state from system_settings.
+
+        Called once at startup, after _setup_apscheduler_jobs().
+        Failures are non-fatal — the built-in jobs always run.
+        """
+        try:
+            # Restore custom schedules first
+            raw_custom = self._db.get_setting('scheduler_custom_jobs')
+            if raw_custom:
+                saved = json.loads(raw_custom)
+                for sid, meta in saved.items():
+                    try:
+                        self.add_custom_schedule(
+                            schedule_id=sid,
+                            template_name=meta.get('template', 'executive_summary'),
+                            cron_expression=meta.get('cron_expression'),
+                            interval_hours=meta.get('interval_hours'),
+                            format=meta.get('format', 'email'),
+                            parameters=meta.get('parameters'),
+                        )
+                        logger.info(f"[scheduler] Restored custom schedule: {sid}")
+                    except Exception as e:
+                        logger.warning(f"[scheduler] Could not restore schedule {sid}: {e}")
+
+            # Restore paused state
+            raw_paused = self._db.get_setting('scheduler_paused_jobs')
+            if raw_paused:
+                for job_id in json.loads(raw_paused):
+                    try:
+                        self._scheduler.pause_job(job_id)
+                        logger.info(f"[scheduler] Restored paused state for: {job_id}")
+                    except Exception as e:
+                        logger.debug(f"[scheduler] Could not restore paused state for {job_id}: {e}")
+
+        except Exception as e:
+            logger.warning(f"[scheduler] State restore failed (non-fatal): {e}")
 
     def list_schedules(self) -> List[Dict[str, Any]]:
         """
@@ -634,12 +853,23 @@ class ReportScheduler:
 
             schedules = []
             for job in self._scheduler.get_jobs():
+                meta = self._job_meta.get(job.id, {})
+
+                # Format next_run as a readable date string
+                if job.next_run_time:
+                    next_run = job.next_run_time.strftime('%A, %b %d at %-I:%M %p')
+                else:
+                    next_run = 'Not scheduled'
+
                 schedules.append({
                     'id': job.id,
                     'name': job.name,
-                    'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                    'next_run': next_run,
                     'trigger': str(job.trigger),
-                    'paused': job.id in self._paused_jobs  # Include paused state
+                    'trigger_display': meta.get('trigger_display', str(job.trigger)),
+                    'template': meta.get('template', 'executive_summary'),
+                    'format': meta.get('format', 'email'),
+                    'paused': job.next_run_time is None,
                 })
 
             return schedules
@@ -663,7 +893,7 @@ class ReportScheduler:
                 return False
 
             self._scheduler.pause_job(schedule_id)
-            self._paused_jobs.add(schedule_id)  # Track paused state
+            self._persist_paused_state()
             logger.info(f"Paused schedule: {schedule_id}")
             return True
 
@@ -686,7 +916,7 @@ class ReportScheduler:
                 return False
 
             self._scheduler.resume_job(schedule_id)
-            self._paused_jobs.discard(schedule_id)  # Remove from paused set
+            self._persist_paused_state()
             logger.info(f"Resumed schedule: {schedule_id}")
             return True
 

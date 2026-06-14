@@ -411,3 +411,108 @@ class TestReportGeneration:
         assert 'summary' in report
         assert 'period' in report
         assert report.get('report_type') == 'weekly'
+
+
+class TestAlertFingerprint:
+    """Dedup fingerprint: attack-aware, score-stripped, preamble-proof."""
+
+    @staticmethod
+    def _alert(device_ip='192.168.1.100', severity='high',
+               explanation='Anomalous activity', top_features=None):
+        from alerts.alert_service import Alert
+        import json as _json
+        return Alert(
+            device_ip=device_ip,
+            severity=severity,
+            anomaly_score=0.9,
+            explanation=explanation,
+            top_features=_json.dumps(top_features) if top_features else None,
+        )
+
+    # The shared River preamble that used to collide every alert from one device
+    _PREAMBLE = ("⚠️ Anomalous network activity detected from 192.168.1.100 "
+                 "using River incremental learning. ")
+
+    def test_same_event_different_score_dedups(self):
+        a = self._alert(explanation=self._PREAMBLE + "Anomaly score 0.83 indicates a scan.")
+        b = self._alert(explanation=self._PREAMBLE + "Anomaly score 0.91 indicates a scan.")
+        assert a.get_fingerprint() == b.get_fingerprint()
+
+    def test_different_attack_type_does_not_dedup(self):
+        a = self._alert(top_features={'predicted_attack': 'PORT_SCAN'},
+                        explanation=self._PREAMBLE + "details")
+        b = self._alert(top_features={'predicted_attack': 'BRUTE_FORCE'},
+                        explanation=self._PREAMBLE + "details")
+        assert a.get_fingerprint() != b.get_fingerprint()
+
+    def test_different_text_past_old_50_char_window_does_not_dedup(self):
+        # Old fingerprint truncated at 50 chars — these two collided before.
+        a = self._alert(explanation=self._PREAMBLE + "Scanning behaviour detected.")
+        b = self._alert(explanation=self._PREAMBLE + "Large outbound data transfer detected.")
+        assert a.get_fingerprint() != b.get_fingerprint()
+
+    def test_different_device_does_not_dedup(self):
+        a = self._alert(device_ip='192.168.1.100')
+        b = self._alert(device_ip='192.168.1.101')
+        assert a.get_fingerprint() != b.get_fingerprint()
+
+    def test_different_severity_does_not_dedup(self):
+        a = self._alert(severity='high')
+        b = self._alert(severity='critical')
+        assert a.get_fingerprint() != b.get_fingerprint()
+
+    def test_whitespace_and_case_normalized(self):
+        a = self._alert(explanation="Unusual   Traffic\nDetected")
+        b = self._alert(explanation="unusual traffic detected")
+        assert a.get_fingerprint() == b.get_fingerprint()
+
+    def test_malformed_top_features_safe(self):
+        from alerts.alert_service import Alert
+        alert = Alert(device_ip='192.168.1.100', severity='high',
+                      anomaly_score=0.9, explanation='x', top_features='{not json')
+        assert alert.get_fingerprint()  # no exception
+
+    def test_empty_explanation_safe(self):
+        assert self._alert(explanation='').get_fingerprint()
+
+    def test_cooldown_still_honored_with_new_fingerprint(self):
+        from alerts.alert_service import RateLimiter
+        limiter = RateLimiter(max_per_device_per_hour=10,
+                              max_global_per_hour=20, cooldown_minutes=15)
+        first = self._alert(explanation=self._PREAMBLE + "score 0.83 scan")
+        repeat = self._alert(explanation=self._PREAMBLE + "score 0.95 scan")
+        ok, _ = limiter.should_send(first)
+        assert ok
+        limiter.record_sent(first)
+        ok, reason = limiter.should_send(repeat)
+        assert not ok  # duplicate within cooldown
+
+
+class TestWeeklyReportStory:
+    """The weekly report carries the narrated story for push digests."""
+
+    def _generator(self, db_manager):
+        from alerts.report_scheduler import ReportGenerator
+        from alerts.alert_service import AlertService
+        db_manager.get_recent_alerts.return_value = []
+        db_manager.get_device_count.return_value = 0
+        db_manager.get_connection_count.return_value = 0
+        db_manager.get_bandwidth_stats.return_value = []
+        alert_service = AlertService(db_manager, MagicMock())
+        return ReportGenerator(db_manager, alert_service)
+
+    def test_weekly_report_includes_story(self, db_manager):
+        generator = self._generator(db_manager)
+        with patch('utils.weekly_story.build_facts', return_value={'mood': 'quiet'}), \
+             patch('utils.weekly_story.generate_story',
+                   return_value=("A calm week on your network.", "rules")):
+            report = generator.generate_weekly_report()
+        assert report['weekly_story'] == "A calm week on your network."
+        assert report['weekly_story_source'] == 'rules'
+
+    def test_story_failure_does_not_break_report(self, db_manager):
+        generator = self._generator(db_manager)
+        with patch('utils.weekly_story.build_facts', side_effect=RuntimeError("boom")):
+            report = generator.generate_weekly_report()
+        assert report.get('report_type') == 'weekly'
+        assert 'weekly_story' not in report

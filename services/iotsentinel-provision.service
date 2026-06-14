@@ -1,0 +1,30 @@
+[Unit]
+Description=IoTSentinel WiFi Provisioning
+After=NetworkManager.service
+Before=iotsentinel-dashboard.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal
+ExecStart=/bin/bash -c '\
+  HOTSPOT="IoTSentinel-Setup"; IFACE="wlan0"; \
+  ACTIVE=$(nmcli -t -f NAME,TYPE,STATE device status 2>/dev/null \
+    | grep ":wifi:" | grep ":connected:" | grep -v "$HOTSPOT" || true); \
+  if [ -n "$ACTIVE" ]; then \
+    echo "[provision] Already on home WiFi — hotspot not needed"; exit 0; \
+  fi; \
+  if nmcli -t -f NAME connection show --active 2>/dev/null | grep -q "^$HOTSPOT"; then \
+    echo "[provision] Hotspot already active"; exit 0; \
+  fi; \
+  echo "[provision] No WiFi configured — starting $HOTSPOT hotspot"; \
+  nmcli device wifi hotspot ifname "$IFACE" ssid "$HOTSPOT" band bg channel 6 2>&1 | head -5 || true; \
+  iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport 80 -j REDIRECT --to-port 8050 2>/dev/null || true; \
+  sleep 2; \
+  echo "[provision] Hotspot ready — connect to $HOTSPOT and open http://10.42.0.1:8050/setup"'
+
+[Install]
+WantedBy=multi-user.target

@@ -13,7 +13,6 @@ import threading
 import time
 import requests
 from typing import Dict, Any, Optional, List, Callable
-from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)

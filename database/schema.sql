@@ -1,6 +1,8 @@
 -- IoTSentinel Database Schema Documentation
 -- This is for REFERENCE ONLY - actual schema is created by config/init_database.py
--- Last updated: 2026-01-19 (Added template audit trail and emergency mode logging)
+-- Last updated: 2026-06-01 (Added alert_suppressions, agent_actions, totp_secrets,
+--   rate_limit_log, sustainability tables, API integration tables,
+--   manufacturer_eol_database; synced devices + users column additions)
 
 -- ====================================================================================
 -- CORE TABLES
@@ -12,19 +14,22 @@ devices (
     device_type,
     mac_address,
     manufacturer,
-    model,                          -- NEW: Device model
-    firmware_version,               -- NEW: Firmware version
+    model,                          -- Device model
+    firmware_version,               -- Firmware version
     first_seen TIMESTAMP,
     last_seen TIMESTAMP,
-    last_activity TIMESTAMP,        -- NEW: Last network activity
+    last_activity TIMESTAMP,        -- Last network activity
     is_trusted BOOLEAN,
     is_blocked BOOLEAN,
-    custom_name,                    -- NEW: User-defined name
-    notes,                          -- NEW: User notes
-    icon DEFAULT '❓',              -- NEW: Device icon emoji
-    category DEFAULT 'other',       -- NEW: Device category
-    confidence DEFAULT 'low',       -- NEW: Classification confidence
-    total_connections DEFAULT 0     -- NEW: Connection counter
+    custom_name,                    -- User-defined name
+    notes,                          -- User notes
+    icon DEFAULT '❓',              -- Device icon emoji
+    category DEFAULT 'other',       -- Device category
+    confidence DEFAULT 'low',       -- Classification confidence
+    total_connections DEFAULT 0,    -- Connection counter
+    is_kids_device INTEGER DEFAULT 0,  -- Kids Protection toggle
+    manufacturing_date DATE,        -- Device manufacture date
+    hardware_eol_date DATE          -- Hardware end-of-life date
 )
 
 connections (
@@ -55,6 +60,15 @@ alerts (
     acknowledged BOOLEAN,
     acknowledged_at TIMESTAMP,
     plain_explanation TEXT          -- one plain-English sentence (shown on compact card)
+)
+
+alert_suppressions (
+    id PRIMARY KEY,
+    device_ip,                      -- Device whose alerts are suppressed
+    expires_at TIMESTAMP,           -- NULL = suppress indefinitely
+    created_by,                     -- Username who created suppression
+    created_at TIMESTAMP,
+    INDEX(device_ip, expires_at)
 )
 
 ml_predictions (
@@ -89,11 +103,13 @@ users (
     id PRIMARY KEY,
     username UNIQUE,
     password_hash,
-    email,                          -- User email address
-    role,                           -- admin/viewer
+    email,                              -- User email address
+    email_verified INTEGER DEFAULT 0,   -- Email verification status
+    role,                               -- admin/viewer
     created_at TIMESTAMP,
     last_login TIMESTAMP,
-    is_active BOOLEAN
+    is_active BOOLEAN,
+    must_change_password INTEGER DEFAULT 0  -- Force password change on first login (set for default admin)
 )
 
 user_preferences (
@@ -195,6 +211,28 @@ emergency_mode_log (
     ip_address,                         -- Client IP (metadata only)
     is_active BOOLEAN DEFAULT 1,        -- Currently active flag
     INDEX(is_active, trigger_timestamp DESC)
+)
+
+rate_limit_log (
+    id PRIMARY KEY,
+    identifier,                         -- Username or IP being rate-limited
+    action_type,                        -- 'login', 'api_call', etc.
+    timestamp TIMESTAMP,
+    ip_address,
+    success BOOLEAN DEFAULT 1,
+    INDEX(identifier, action_type, timestamp),
+    INDEX(timestamp)                    -- For TTL cleanup queries
+)
+
+totp_secrets (
+    id PRIMARY KEY,
+    user_id UNIQUE → users,
+    secret,                             -- TOTP secret (encrypted)
+    enabled BOOLEAN DEFAULT 0,          -- Whether 2FA is active
+    backup_codes,                       -- JSON: one-time recovery codes
+    created_at TIMESTAMP,
+    verified_at TIMESTAMP,              -- When user first verified the TOTP code
+    INDEX(user_id, enabled)
 )
 
 audit_log (
@@ -495,9 +533,20 @@ smart_home_rooms (
 
 device_room_assignments (
     device_ip → devices,
-    room_id → smart_home_rooms,
+    room_id → smart_home_rooms ON DELETE CASCADE,
     assigned_at TIMESTAMP,
     PRIMARY KEY (device_ip, room_id)
+)
+
+smart_home_automations (
+    id PRIMARY KEY,
+    name,                            -- Human-readable automation name
+    trigger_type,                    -- time / device / location / sensor
+    condition_text,                  -- Plain-English condition (optional)
+    action_text,                     -- Plain-English action to perform
+    is_enabled INTEGER DEFAULT 1,   -- 1 = active, 0 = disabled
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 )
 
 device_ecosystems (
@@ -659,6 +708,21 @@ device_provisioning (
     approved_by,                    -- user_id
     approved_at TIMESTAMP,
     notes
+)
+
+manufacturer_eol_database (
+    id PRIMARY KEY,
+    manufacturer,
+    model,
+    device_type,
+    release_date DATE,
+    eol_date DATE,                  -- End-of-life date
+    support_end_date DATE,          -- Extended support end date
+    replacement_model,              -- Suggested successor model
+    recycling_info,                 -- E-waste/recycling guidance
+    notes,
+    created_at TIMESTAMP,
+    UNIQUE(manufacturer, model)
 )
 
 -- ====================================================================================
@@ -867,13 +931,133 @@ scheduled_tasks (
 )
 
 -- ====================================================================================
+-- SUSTAINABILITY & GREEN METRICS
+-- ====================================================================================
+
+sustainability_metrics (
+    id PRIMARY KEY,
+    timestamp TIMESTAMP,
+    period_start TIMESTAMP,
+    period_end TIMESTAMP,
+    total_data_gb REAL DEFAULT 0,
+    estimated_energy_kwh REAL DEFAULT 0,
+    carbon_footprint_kg REAL DEFAULT 0,
+    device_count INTEGER DEFAULT 0,
+    active_device_hours REAL DEFAULT 0,
+    notes
+)
+
+device_energy_estimates (
+    id PRIMARY KEY,
+    device_ip → devices,
+    device_type,
+    date DATE,
+    estimated_power_watts REAL DEFAULT 0,
+    active_hours REAL DEFAULT 0,
+    estimated_energy_kwh REAL DEFAULT 0,
+    data_transferred_gb REAL DEFAULT 0,
+    UNIQUE(device_ip, date)
+)
+
+-- ====================================================================================
+-- API INTEGRATION HUB
+-- ====================================================================================
+
+api_integrations (
+    id PRIMARY KEY,
+    integration_name UNIQUE,
+    integration_type,
+    category,                           -- threat_intel/geolocation/notifications/ticketing/webhooks
+    priority,                           -- high/medium/low
+    is_enabled BOOLEAN DEFAULT 0,
+    api_key_encrypted,
+    api_secret_encrypted,
+    config_json,                        -- JSON: integration-specific settings
+    rate_limit_per_day INTEGER,
+    rate_limit_per_month INTEGER,
+    last_used TIMESTAMP,
+    total_requests INTEGER DEFAULT 0,
+    successful_requests INTEGER DEFAULT 0,
+    failed_requests INTEGER DEFAULT 0,
+    last_error,
+    last_health_check TIMESTAMP,
+    health_status,                      -- healthy/degraded/error/untested
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    INDEX(category, is_enabled),
+    INDEX(health_status, is_enabled)
+)
+
+api_integration_logs (
+    id PRIMARY KEY,
+    integration_id → api_integrations,
+    timestamp TIMESTAMP,
+    request_type,
+    request_params,
+    response_status INTEGER,
+    response_time_ms INTEGER,
+    success BOOLEAN DEFAULT 1,
+    error_message,
+    INDEX(integration_id, timestamp),
+    INDEX(success, timestamp)
+)
+
+-- ====================================================================================
+-- AI AGENT ACTIONS
+-- ====================================================================================
+
+agent_actions (
+    id PRIMARY KEY,
+    alert_id → alerts,                  -- Alert that triggered this action (nullable)
+    device_ip,
+    action_type,                        -- e.g., 'block_device', 'notify', 'quarantine'
+    params,                             -- JSON: action parameters
+    risk_level DEFAULT 'low',           -- low/medium/high/critical
+    rationale,                          -- Technical justification
+    plain_report,                       -- Plain-English summary shown in UI
+    status DEFAULT 'pending',           -- pending/approved/rejected/executed/failed
+    created_at TIMESTAMP,
+    resolved_at TIMESTAMP,
+    resolved_by,                        -- Username or 'auto'
+    INDEX(status, created_at DESC),
+    INDEX(device_ip, created_at DESC)
+)
+
+-- ====================================================================================
 -- NOTES:
 -- - This schema is for documentation only
 -- - Actual tables are created by: config/init_database.py
--- - Total tables: 61 (10 core + 43 IoT security features + 3 toast system + 2 ML management + 3 security audit)
+-- - Runtime migrations (system_settings, etc.) are applied by: database/db_manager.py
+-- - Total tables: 70
+--     7 core (devices, connections, alerts, alert_suppressions, ml_predictions,
+--             model_performance, malicious_ips)
+--     13 user management (users, user_preferences, password_reset_tokens,
+--                         email_verification_codes, oauth_accounts, webauthn_credentials,
+--                         user_login_history, template_change_audit, emergency_mode_log,
+--                         rate_limit_log, totp_secrets, audit_log, security_audit_log)
+--     3  alert rules & device groups (alert_rules, device_groups, device_group_members)
+--     3  IoT device intelligence
+--     4  IoT protocol awareness
+--     4  IoT threat detection
+--     4  smart home context
+--     3  privacy & data exfiltration
+--     3  network segmentation
+--     5  firmware & lifecycle (firmware_database, device_firmware_status,
+--                              firmware_update_history, device_provisioning,
+--                              manufacturer_eol_database)
+--     3  educational content
+--     3  advanced analytics (network_health_metrics, device_behavior_baselines,
+--                            schema_migrations)
+--     3  toast system
+--     2  ML model management
+--     1  security scoring
+--     2  auto-discovery
+--     2  sustainability & green metrics
+--     2  API integration hub
+--     1  AI agent actions
 -- - Audit Tables:
 --   * audit_log: Legacy general action logging
 --   * security_audit_log: RBAC security events (comprehensive)
 --   * template_change_audit: Dashboard template changes
--- - Last updated: 6 February 2026 (Added security_audit_log for RBAC compliance)
+-- - Last updated: 2026-06-01 (synced with init_database.py)
 -- ====================================================================================

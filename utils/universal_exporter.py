@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, Literal
-from pathlib import Path
 
 from .report_generator import ReportGenerator
 from .pdf_exporter import PDFExporter
@@ -19,7 +18,7 @@ from .excel_exporter import ExcelExporter
 logger = logging.getLogger(__name__)
 
 ExportFormat = Literal['csv', 'json', 'pdf', 'excel']
-ExportType = Literal['devices', 'alerts', 'connections', 'alert_rules', 'security_summary']
+ExportType = Literal['devices', 'alerts', 'connections', 'security_summary']
 
 
 class UniversalExporter:
@@ -352,81 +351,6 @@ class UniversalExporter:
                 'mimetype': 'text/plain'
             }
 
-    def export_alert_rules(
-        self,
-        format: ExportFormat = 'csv',
-        include_metadata: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Export alert rules in specified format.
-
-        Args:
-            format: Export format ('csv', 'json', 'pdf', 'excel')
-            include_metadata: Include metadata in export
-
-        Returns:
-            Dictionary with 'content', 'filename', and 'mimetype'
-        """
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-            if format == 'csv':
-                content = self.report_gen.export_alert_rules_csv()
-                return {
-                    'content': content,
-                    'filename': f'alert_rules_{timestamp}.csv',
-                    'mimetype': 'text/csv'
-                }
-
-            elif format == 'json':
-                # Get alert rules and convert to JSON
-                import sqlite3
-                conn = self.db_manager.conn
-
-                cursor = conn.cursor()
-
-                cursor.execute("""
-                    SELECT * FROM alert_rules
-                    ORDER BY severity DESC, name ASC
-                """)
-
-                rules = [dict(row) for row in cursor.fetchall()]
-
-                export_data = {
-                    'export_type': 'alert_rules',
-                    'generated_at': datetime.now().isoformat(),
-                    'total_count': len(rules),
-                    'rules': rules
-                } if include_metadata else rules
-
-                content = json.dumps(export_data, indent=2, default=str)
-                return {
-                    'content': content,
-                    'filename': f'alert_rules_{timestamp}.json',
-                    'mimetype': 'application/json'
-                }
-
-            elif format in ['pdf', 'excel']:
-                # For now, fallback to CSV for alert rules PDF/Excel
-                # Can be enhanced later with dedicated formatters
-                content = self.report_gen.export_alert_rules_csv()
-                return {
-                    'content': content,
-                    'filename': f'alert_rules_{timestamp}.csv',
-                    'mimetype': 'text/csv'
-                }
-
-            else:
-                raise ValueError(f"Unsupported format: {format}")
-
-        except Exception as e:
-            logger.error(f"Error exporting alert rules as {format}: {e}")
-            return {
-                'content': '',
-                'filename': f'error_{timestamp}.txt',
-                'mimetype': 'text/plain'
-            }
-
     def export_sustainability_report(
         self,
         format: ExportFormat = 'csv',
@@ -702,7 +626,6 @@ class UniversalExporter:
             'devices': self.export_devices,
             'alerts': self.export_alerts,
             'connections': self.export_connections,
-            'alert_rules': self.export_alert_rules
         }
 
         if export_type not in export_map:

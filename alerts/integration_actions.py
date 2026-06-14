@@ -36,7 +36,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from alerts.integration_system import IntegrationManager
-from utils.log_sanitizer import safe_log_data, get_safe_credentials_summary
 
 logger = logging.getLogger(__name__)
 api_logger = logging.getLogger('api')  # Dedicated API logger
@@ -263,6 +262,56 @@ class IntegrationActions:
             logger.error(f"Pushover alert failed: {e}")
             self.integration_mgr.log_request('pushover', 'send_alert', False, None, str(e))
             self.integration_mgr.update_health_status('pushover', 'error', str(e))
+            return False
+
+    def send_ntfy_alert(self, message: str, severity: str = "medium") -> bool:
+        """Send alert via ntfy.sh push notification."""
+        start_time = time.time()
+        api_logger.info(f"Sending ntfy alert (severity: {severity})")
+
+        try:
+            creds = self.integration_mgr.get_integration_credentials('ntfy')
+            if not creds or not creds.get('topic'):
+                logger.warning("ntfy not configured")
+                api_logger.warning("ntfy alert failed: Not configured")
+                return False
+
+            server = creds.get('server_url', 'https://ntfy.sh').rstrip('/')
+            topic = creds['topic']
+
+            priority_map = {"low": "low", "medium": "default", "high": "high", "critical": "urgent"}
+            tag_map = {"low": "information_source", "medium": "warning",
+                       "high": "rotating_light", "critical": "rotating_light"}
+
+            response = requests.post(
+                f"{server}/{topic}",
+                data=message.encode('utf-8'),
+                headers={
+                    "Title": "IoTSentinel Alert",
+                    "Priority": priority_map.get(severity, "default"),
+                    "Tags": tag_map.get(severity, "warning"),
+                },
+                timeout=10
+            )
+            response_time = int((time.time() - start_time) * 1000)
+
+            success = response.status_code == 200
+            self.integration_mgr.log_request('ntfy', 'send_alert', success, response_time,
+                                             None if success else response.text)
+
+            if success:
+                self.integration_mgr.update_health_status('ntfy', 'healthy')
+                api_logger.info(f"ntfy alert sent successfully ({response_time}ms)")
+            else:
+                api_logger.warning(f"ntfy alert failed: HTTP {response.status_code}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"ntfy alert failed: {e}")
+            api_logger.error(f"ntfy API error: {str(e)}")
+            self.integration_mgr.log_request('ntfy', 'send_alert', False, None, str(e))
+            self.integration_mgr.update_health_status('ntfy', 'error', str(e))
             return False
 
     # =================================================================

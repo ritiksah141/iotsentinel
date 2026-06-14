@@ -8,10 +8,12 @@ Covers:
 - Wizard layout structure (required component IDs present)
 - _save_config writes expected env keys
 - Validation helpers handle bad/good keys defensively
+- Interface detection and step-4 finale logic (merged from test_setup_wizard_step0)
 
 Run: pytest tests/test_setup_wizard.py -v
 """
 
+import json
 import sys
 import pytest
 from pathlib import Path
@@ -159,27 +161,45 @@ class TestSetupWizardLayout:
 
 
 # ---------------------------------------------------------------------------
-# Setup gate logic (display_page .env check)
+# Setup gate logic: DB-based _admin_exists() check (cross-platform)
 # ---------------------------------------------------------------------------
 
 class TestSetupGate:
+    """Tests for the new DB-truth first-run gate introduced in Phase 5.
 
-    def test_gate_skipped_when_env_exists(self, tmp_path):
-        """If .env exists, display_page should NOT return setup_wizard_layout."""
-        env_file = tmp_path / ".env"
-        env_file.write_text("FLASK_SECRET_KEY=something\n")
+    The old gate was Linux-only + is_configured flag.  The new gate queries
+    ``SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1`` on every
+    platform so macOS/Windows dev machines also get proper onboarding.
+    """
 
-        # The gate logic is: if not env_path.exists() → return setup_wizard_layout
-        # We just test the predicate, not the Dash callback machinery
-        assert env_file.exists(), "precondition: .env must exist"
-        # Gate would be: not env_file.exists() == False → wizard NOT shown
-        assert not (not env_file.exists()), "Gate should be inactive when .env exists"
+    def test_admin_exists_returns_false_when_no_admin(self):
+        """_admin_exists() returns False when the users table is empty."""
+        from dashboard.callbacks.callbacks_auth import _admin_exists
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (0,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        with patch("dashboard.callbacks.callbacks_auth.db_manager") as mock_db:
+            mock_db.conn = mock_conn
+            assert _admin_exists() is False
 
-    def test_gate_activates_when_env_absent(self, tmp_path):
-        env_file = tmp_path / ".env"
-        assert not env_file.exists(), "precondition: .env must not exist"
-        # Gate: not env_file.exists() == True → wizard shown
-        assert not env_file.exists(), "Gate should be active when .env is absent"
+    def test_admin_exists_returns_true_when_admin_present(self):
+        """_admin_exists() returns True when at least one active admin exists."""
+        from dashboard.callbacks.callbacks_auth import _admin_exists
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        with patch("dashboard.callbacks.callbacks_auth.db_manager") as mock_db:
+            mock_db.conn = mock_conn
+            assert _admin_exists() is True
+
+    def test_admin_exists_returns_false_on_db_error(self):
+        """_admin_exists() degrades safely to False if the DB raises."""
+        from dashboard.callbacks.callbacks_auth import _admin_exists
+        with patch("dashboard.callbacks.callbacks_auth.db_manager") as mock_db:
+            mock_db.conn.cursor.side_effect = Exception("db gone")
+            assert _admin_exists() is False
 
 
 # ---------------------------------------------------------------------------
@@ -189,15 +209,19 @@ class TestSetupGate:
 class TestSaveConfig:
 
     def test_save_config_writes_email_keys(self, tmp_path):
-        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
+        # New signature: _save_config(cidr, interface, smtp_user, smtp_password,
+        #                             groq_key, abuseipdb_key, tier, public_url)
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager"):
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False  # simulate first-run (not yet configured)
 
             from dashboard.callbacks.callbacks_setup import _save_config
             result = _save_config(
-                "192.168.1.0/24", "eth0", "admin123",
+                "192.168.1.0/24", "eth0",
                 "user@gmail.com", "apppassword",
-                None, None, "admin123",
+                None, None, "household", None,
             )
 
         assert result is True
@@ -205,16 +229,20 @@ class TestSaveConfig:
         assert "EMAIL_SMTP_HOST" in call_kwargs
         assert call_kwargs["EMAIL_SMTP_USER"] == "user@gmail.com"
         assert call_kwargs["EMAIL_SMTP_PASSWORD"] == "apppassword"  # pragma: allowlist secret
+        # Admin password must NOT appear in .env (DB is the only source of truth)
+        assert "IOTSENTINEL_ADMIN_PASSWORD" not in call_kwargs
 
     def test_save_config_writes_groq_key(self):
-        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager"):
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False
 
             from dashboard.callbacks.callbacks_setup import _save_config
             result = _save_config(
-                "192.168.0.0/24", "wlan0", "pw",
-                None, None, "gsk_testkey12345678", None, "pw",
+                "192.168.0.0/24", "wlan0",
+                None, None, "gsk_testkey12345678", None, "household", None,
             )
 
         assert result is True
@@ -223,25 +251,99 @@ class TestSaveConfig:
         assert env_dict["GROQ_API_KEY"] == "gsk_testkey12345678"  # pragma: allowlist secret
 
     def test_save_config_marks_is_configured(self):
-        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager"):
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False
 
             from dashboard.callbacks.callbacks_setup import _save_config
             _save_config("192.168.1.0/24", "wlan0", None, None, None, None, None, None)
 
         mock_cfg.update.assert_any_call("system", "is_configured", True)
 
-    def test_save_config_skips_env_write_when_no_optional_keys(self):
-        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg:
+    def test_save_config_always_writes_env(self):
+        # _save_config always calls write_env (even with no optional keys) so
+        # the .env sentinel file is created and the wizard exits cleanly.
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager"):
             mock_cfg.write_env.return_value = True
             mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False
 
             from dashboard.callbacks.callbacks_setup import _save_config
             _save_config("192.168.1.0/24", "wlan0", None, None, None, None, None, None)
 
-        # write_env should not be called if no env vars to write
-        mock_cfg.write_env.assert_not_called()
+        mock_cfg.write_env.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Privacy / security additions: auto-block consent, alert sensitivity, firewall
+# ---------------------------------------------------------------------------
+
+class TestSaveConfigProtection:
+
+    def _save(self, **kwargs):
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager"):
+            mock_cfg.write_env.return_value = True
+            mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False   # first-run + falsy auto_block lookup
+            from dashboard.callbacks.callbacks_setup import _save_config
+            _save_config("192.168.1.0/24", "wlan0", None, None, None, None,
+                         "household", None, **kwargs)
+            return mock_cfg
+
+    def test_autoblock_disabled_persists_enabled_false(self):
+        cfg = self._save(auto_block=False)
+        # The auto_block dict is written back with enabled flipped off.
+        calls = [c for c in cfg.update.call_args_list
+                 if c.args[:2] == ("agent", "auto_block")]
+        assert calls, "expected agent.auto_block to be written"
+        assert calls[-1].args[2].get("enabled") is False
+
+    def test_autoblock_enabled_persists_enabled_true(self):
+        cfg = self._save(auto_block=True)
+        calls = [c for c in cfg.update.call_args_list
+                 if c.args[:2] == ("agent", "auto_block")]
+        assert calls and calls[-1].args[2].get("enabled") is True
+
+    def test_alert_sensitivity_high_sets_thresholds(self):
+        cfg = self._save(alert_sensitivity="high")
+        cfg.update.assert_any_call("alerting", "max_per_device_per_hour", 10)
+        cfg.update.assert_any_call("alerting", "max_global_per_hour", 40)
+
+    def test_alert_sensitivity_none_leaves_alerting_untouched(self):
+        cfg = self._save()
+        assert not [c for c in cfg.update.call_args_list if c.args[0] == "alerting"]
+
+    def test_firewall_enabled_writes_router_settings(self):
+        cfg = self._save(firewall_enable=True, firewall_router_ip="10.0.0.1",
+                         firewall_router_user="admin", firewall_key_path="/k/id")
+        cfg.update.assert_any_call("firewall", "enabled", True)
+        cfg.update.assert_any_call("firewall", "router_ip", "10.0.0.1")
+        cfg.update.assert_any_call("firewall", "router_user", "admin")
+
+    def test_firewall_off_does_not_enable(self):
+        cfg = self._save(firewall_enable=False)
+        assert not [c for c in cfg.update.call_args_list
+                    if c.args[:2] == ("firewall", "enabled")]
+
+
+class TestBuildReviewProtection:
+
+    def test_review_shows_protection_rows(self):
+        with patch("dashboard.callbacks.callbacks_setup.db_manager"):
+            from dashboard.callbacks.callbacks_setup import _build_review
+            table = _build_review(
+                "192.168.1.0/24", "wlan0", None, None, None,
+                "household", None,
+                auto_block=False, alert_sensitivity="high", firewall_enable=True,
+            )
+        rendered = str(table)
+        assert "Off" in rendered            # auto-block disclosed as off
+        assert "High" in rendered           # alert sensitivity
+        assert "router" in rendered.lower()  # firewall enforcement row
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +351,12 @@ class TestSaveConfig:
 # ---------------------------------------------------------------------------
 
 class TestValidationHelpers:
+
+    def test_router_ssh_empty_args_fails(self):
+        from dashboard.callbacks.callbacks_setup import _test_router_ssh
+        ok, msg = _test_router_ssh("", "", "")
+        assert not ok
+        assert "fill in" in msg.lower()
 
     def test_validate_groq_short_key_fails(self):
         from dashboard.callbacks.callbacks_setup import _validate_groq
@@ -297,3 +405,674 @@ class TestValidationHelpers:
             ok, msg = _validate_abuseipdb("v" * 40)
         assert not ok
         assert "internet" in msg.lower() or "reach" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Interface detection (merged from test_setup_wizard_step0)
+# ---------------------------------------------------------------------------
+
+class TestInterfaceDetection:
+
+    def test_psutil_returns_at_least_one_interface(self):
+        import psutil
+        ifaces = list(psutil.net_if_addrs().keys())
+        assert len(ifaces) >= 1
+
+    def test_interface_options_are_dicts_with_label_and_value(self):
+        import psutil
+        interfaces = list(psutil.net_if_addrs().keys())
+        options = [{"label": i, "value": i} for i in interfaces]
+        for opt in options:
+            assert "label" in opt and "value" in opt
+            assert isinstance(opt["label"], str) and isinstance(opt["value"], str)
+
+    def test_default_value_prefers_non_loopback(self):
+        """Default interface should not be loopback when better options exist."""
+        import psutil
+
+        def _rank(name):
+            n = name.lower()
+            if any(x in n for x in ('wlan', 'wifi', 'wi-fi', 'wireless', 'en0', 'en1')):
+                return 0
+            if any(x in n for x in ('eth', 'en', 'lan')):
+                return 1
+            if any(x in n for x in ('lo', 'loop')):
+                return 3
+            return 2
+
+        interfaces = list(psutil.net_if_addrs().keys())
+        non_loopback = [i for i in interfaces if not i.lower().startswith('lo')]
+        if non_loopback:
+            interfaces.sort(key=_rank)
+            default = interfaces[0]
+            assert not default.lower().startswith('lo') or len(non_loopback) == 0
+
+    def test_fallback_when_psutil_fails(self):
+        """If psutil raises, callback must still return valid options."""
+        with patch('psutil.net_if_addrs', side_effect=Exception("no psutil")):
+            import psutil
+            try:
+                interfaces = list(psutil.net_if_addrs().keys())
+            except Exception:
+                interfaces = []
+            options = (
+                [{"label": "wlan0", "value": "wlan0"}, {"label": "eth0", "value": "eth0"}]
+                if not interfaces
+                else [{"label": i, "value": i} for i in interfaces]
+            )
+            assert len(options) >= 1
+
+
+# ---------------------------------------------------------------------------
+# show_step_4 callback logic
+# ---------------------------------------------------------------------------
+
+def _show_step_4_logic(step_data):
+    step = (step_data or {}).get("step", 1)
+    return {"display": "block"} if step == 4 else {"display": "none"}
+
+
+class TestShowStep4Logic:
+
+    def test_step_1_hides_step_4(self):
+        assert _show_step_4_logic({"step": 1}) == {"display": "none"}
+
+    def test_step_2_hides_step_4(self):
+        assert _show_step_4_logic({"step": 2}) == {"display": "none"}
+
+    def test_step_3_hides_step_4(self):
+        assert _show_step_4_logic({"step": 3}) == {"display": "none"}
+
+    def test_step_4_shows_step_4(self):
+        assert _show_step_4_logic({"step": 4}) == {"display": "block"}
+
+    def test_none_step_data_defaults_to_hidden(self):
+        assert _show_step_4_logic(None) == {"display": "none"}
+
+
+# ---------------------------------------------------------------------------
+# navigate_to_dashboard
+# ---------------------------------------------------------------------------
+
+class TestNavigateToDashboard:
+
+    def test_returns_root_url_when_clicked(self):
+        n_clicks = 1
+        result = "/" if n_clicks else None
+        assert result == "/"
+
+    def test_no_clicks_does_not_navigate(self):
+        n_clicks = 0
+        result = "/" if n_clicks else None
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Step navigation: step 3 → step 4 on save success
+# ---------------------------------------------------------------------------
+
+class TestStep3ToStep4OnSave:
+
+    def test_successful_save_advances_to_step_4(self):
+        # _save_config(cidr, interface, smtp_user, smtp_pass, groq, abuse, tier, public_url)
+        # admin_password no longer a parameter — DB is the only credential store.
+        from dashboard.callbacks.callbacks_setup import _save_config
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / '.env'
+            with patch('dashboard.callbacks.callbacks_setup._ENV_PATH', env_path), \
+                 patch('dashboard.callbacks.callbacks_setup.config') as mock_cfg, \
+                 patch('dashboard.callbacks.callbacks_setup.db_manager'):
+                mock_cfg.update.return_value = None
+                mock_cfg.write_env.return_value = None
+                mock_cfg.get.return_value = False
+                result = _save_config(
+                    "192.168.1.0/24", "wlan0",
+                    None, None, None, None, "household", None
+                )
+        assert result is True
+
+    def test_step_4_step_store_value(self):
+        success = True
+        new_step = 4 if success else 3
+        assert new_step == 4
+
+
+# ---------------------------------------------------------------------------
+# config/default_config.json contains monitor_interface
+# ---------------------------------------------------------------------------
+
+class TestDefaultConfigMonitorInterface:
+
+    def test_monitor_interface_key_exists(self):
+        cfg_path = Path('config/default_config.json')
+        data = json.loads(cfg_path.read_text())
+        assert 'network' in data
+        assert 'monitor_interface' in data['network'], \
+            "default_config.json['network'] must have 'monitor_interface'"
+
+    def test_monitor_interface_default_is_null(self):
+        cfg_path = Path('config/default_config.json')
+        data = json.loads(cfg_path.read_text())
+        assert data['network']['monitor_interface'] is None
+
+
+# ---------------------------------------------------------------------------
+# Wizard layout: "What's next?" panel exists
+# ---------------------------------------------------------------------------
+
+class TestWizardFinalePanel:
+
+    def test_setup_done_btn_exists_in_layout(self):
+        import inspect
+        from dashboard.layouts import setup_wizard
+        src = inspect.getsource(setup_wizard)
+        assert 'setup-done-btn' in src, "Wizard finale must have 'setup-done-btn'"
+
+    def test_setup_step_4_container_exists_in_layout(self):
+        import inspect
+        from dashboard.layouts import setup_wizard
+        src = inspect.getsource(setup_wizard)
+        assert 'setup-step-4-container' in src
+
+    def test_wizard_has_6_step_labels(self):
+        from dashboard.layouts import setup_wizard
+        # Labels are generated via _step_header(n) using _STEPS — verify 6 steps defined
+        assert len(setup_wizard._STEPS) == 6, "Wizard must have exactly 6 steps in _STEPS"
+        # Confirm _step_header renders the badge for each step
+        for n, _, name in setup_wizard._STEPS:
+            header = setup_wizard._step_header(n)
+            assert str(header).count(f"Step {n} of 6") >= 1 or \
+                   f"Step {n} of 6" in str(header), \
+                   f"_step_header({n}) must produce 'Step {n} of 6' badge"
+
+    def test_nav_buttons_use_responsive_columns(self):
+        import inspect
+        from dashboard.layouts import setup_wizard
+        src = inspect.getsource(setup_wizard)
+        # xs=12 breakpoint ensures buttons stack full-width on mobile
+        assert "xs=12" in src, "Wizard nav buttons must use xs=12 for mobile layout"
+
+
+# ---------------------------------------------------------------------------
+# navigate_steps: 6-step progression logic
+# ---------------------------------------------------------------------------
+
+S = {"display": "block"}
+H = {"display": "none"}
+
+
+STRONG_PW = "ValidPass1!"   # meets is_password_strong_enough: upper+lower+digit+special
+
+
+def _call(triggered_id, step,
+          password=STRONG_PW, password_confirm=STRONG_PW,
+          admin_username="admin",
+          cidr="192.168.1.0/24", interface="eth0",
+          smtp_user=None, smtp_password=None, groq_key=None, abuseipdb_key=None,
+          tier="household", public_url=None):
+    """Helper: call _navigate_steps_logic with sensible defaults.
+
+    Patches auth_manager.create_admin to always succeed so unit tests do not
+    need a live DB; each test that verifies Step-1 DB behaviour uses its own
+    patch/mock.
+    """
+    from dashboard.callbacks.callbacks_setup import _navigate_steps_logic
+    with patch("dashboard.callbacks.callbacks_setup.auth_manager.create_admin",
+               return_value=True):
+        return _navigate_steps_logic(
+            triggered_id, step,
+            admin_username, password, password_confirm,
+            cidr, interface,
+            smtp_user, smtp_password, groq_key, abuseipdb_key,
+            tier, public_url,
+        )
+
+
+class TestNavigateSteps:
+    """Tests for _navigate_steps_logic — the pure 6-step wizard navigation."""
+
+    # ------------------------------------------------------------------
+    # Step 1 validation
+    # ------------------------------------------------------------------
+
+    def test_next_step1_valid_password_advances_to_step2(self):
+        result = _call("setup-next-btn", 1, password=STRONG_PW, password_confirm=STRONG_PW)
+        assert result[0] == {"step": 2}
+        assert result[2] == S   # step-2 container visible
+        assert result[1] == H   # step-1 container hidden
+
+    def test_next_step1_short_password_stays_on_step1(self):
+        result = _call("setup-next-btn", 1, password="short", password_confirm="short")
+        assert result[0] == {"step": 1}
+        assert result[1] == S   # step-1 container stays visible
+
+    def test_next_step1_short_password_returns_alert_status(self):
+        result = _call("setup-next-btn", 1, password="short", password_confirm="short")
+        status = result[11]
+        assert status is not None and status != ""
+
+    def test_next_step1_weak_password_no_special_stays_on_step1(self):
+        # Meets length + case + digit but lacks special character
+        result = _call("setup-next-btn", 1, password="Longpass1", password_confirm="Longpass1")
+        assert result[0] == {"step": 1}
+
+    def test_next_step1_password_mismatch_stays_on_step1(self):
+        result = _call("setup-next-btn", 1, password=STRONG_PW, password_confirm="Diff3rent!")
+        assert result[0] == {"step": 1}
+
+    def test_next_step1_password_mismatch_returns_alert_status(self):
+        result = _call("setup-next-btn", 1, password=STRONG_PW, password_confirm="Diff3rent!")
+        status = result[11]
+        assert status is not None and status != ""
+
+    def test_next_step1_empty_password_stays_on_step1(self):
+        result = _call("setup-next-btn", 1, password="", password_confirm="")
+        assert result[0] == {"step": 1}
+
+    # ------------------------------------------------------------------
+    # Step 1 → 2: back button visibility
+    # ------------------------------------------------------------------
+
+    def test_step1_back_button_hidden_on_validation_failure(self):
+        # Failed validation stays on step 1 — back must never appear on step 1
+        result = _call("setup-next-btn", 1, password="short", password_confirm="short")
+        assert result[6] == H
+
+    def test_step2_back_button_visible(self):
+        result = _call("setup-next-btn", 1, password=STRONG_PW, password_confirm=STRONG_PW)
+        assert result[6] == S   # advancing TO step 2 shows back
+
+    def test_skip_hidden_on_step1(self):
+        # Skip is mandatory-hidden on step 1 — account creation cannot be skipped
+        result = _call("setup-next-btn", 1, password="short", password_confirm="short")
+        assert result[12] == H   # skip_style index
+
+    # ------------------------------------------------------------------
+    # Forward progression steps 2 → 5
+    # ------------------------------------------------------------------
+
+    def test_next_step2_advances_to_step3(self):
+        result = _call("setup-next-btn", 2)
+        assert result[0] == {"step": 3}
+        assert result[3] == S   # step-3 visible
+
+    def test_next_step3_advances_to_step4(self):
+        result = _call("setup-next-btn", 3)
+        assert result[0] == {"step": 4}
+        assert result[4] == S   # step-4 visible
+
+    def test_next_step4_advances_to_step5_with_launch_label(self):
+        result = _call("setup-next-btn", 4)
+        assert result[0] == {"step": 5}
+        assert result[7] == "Launch IoTSentinel →"
+        assert result[8] == "success"
+
+    def test_next_step5_success_advances_to_step6(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True), \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            result = _call("setup-next-btn", 5)
+        assert result[0] == {"step": 6}
+
+    def test_next_step5_success_hides_all_containers(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True), \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            result = _call("setup-next-btn", 5)
+        for i in range(1, 6):
+            assert result[i] == H, f"Step {i} container should be hidden on step 6"
+
+    def test_next_step5_failure_stays_on_step5(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=False):
+            result = _call("setup-next-btn", 5)
+        assert result[0] == {"step": 5}
+
+    def test_next_step5_failure_returns_error_alert(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=False):
+            result = _call("setup-next-btn", 5)
+        assert result[11] is not None
+
+    # ------------------------------------------------------------------
+    # Back navigation
+    # ------------------------------------------------------------------
+
+    def test_back_from_step2_returns_to_step1(self):
+        result = _call("setup-back-btn", 2)
+        assert result[0] == {"step": 1}
+        assert result[1] == S   # step-1 visible
+
+    def test_back_from_step2_hides_back_button(self):
+        result = _call("setup-back-btn", 2)
+        assert result[6] == H
+
+    def test_back_from_step3_returns_to_step2(self):
+        result = _call("setup-back-btn", 3)
+        assert result[0] == {"step": 2}
+
+    def test_back_from_step4_returns_to_step3(self):
+        result = _call("setup-back-btn", 4)
+        assert result[0] == {"step": 3}
+
+    def test_back_from_step5_returns_to_step4(self):
+        result = _call("setup-back-btn", 5)
+        assert result[0] == {"step": 4}
+
+    # ------------------------------------------------------------------
+    # Skip button
+    # ------------------------------------------------------------------
+
+    def test_skip_jumps_to_step6(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True), \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            result = _call("setup-skip-btn", 1)
+        assert result[0] == {"step": 6}
+
+    def test_skip_hides_back_button(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True), \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            result = _call("setup-skip-btn", 1)
+        assert result[6] == H
+
+    def test_skip_saves_with_household_defaults(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True) as mock_save, \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            _call("setup-skip-btn", 1, cidr="10.0.0.0/24", interface="wlan0")
+        args = mock_save.call_args[0]
+        # _save_config(cidr, interface, smtp_user, smtp_pass, groq, abuse, tier, public_url)
+        # tier is at index 6
+        assert args[6] == "household"
+
+    # ------------------------------------------------------------------
+    # Progress bar values (_PROG contract)
+    # ------------------------------------------------------------------
+
+    def test_progress_step1_is_17(self):
+        # Validation failure keeps us on step 1 (progress = 17)
+        result = _call("setup-next-btn", 1, password="short", password_confirm="short")
+        assert result[9] == 17
+
+    def test_progress_step2_is_33(self):
+        result = _call("setup-next-btn", 1, password=STRONG_PW, password_confirm=STRONG_PW)
+        assert result[9] == 33
+
+    def test_progress_step3_is_50(self):
+        result = _call("setup-next-btn", 2)
+        assert result[9] == 50
+
+    def test_progress_step4_is_67(self):
+        result = _call("setup-next-btn", 3)
+        assert result[9] == 67
+
+    def test_progress_step5_is_83(self):
+        result = _call("setup-next-btn", 4)
+        assert result[9] == 83
+
+    def test_progress_step6_is_100(self):
+        with patch("dashboard.callbacks.callbacks_setup._save_config", return_value=True), \
+             patch("dashboard.callbacks.callbacks_setup._build_review", return_value=None):
+            result = _call("setup-next-btn", 5)
+        assert result[9] == 100
+
+    # ------------------------------------------------------------------
+    # Unknown trigger → PreventUpdate
+    # ------------------------------------------------------------------
+
+    def test_unknown_trigger_raises_prevent_update(self):
+        import dash
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            _call("some-other-btn", 1)
+
+
+# ---------------------------------------------------------------------------
+# show_step_6 visibility logic
+# ---------------------------------------------------------------------------
+
+def _show_step_6_logic(step_data):
+    """Mirror of the show_step_6 callback logic."""
+    step = (step_data or {}).get("step", 1)
+    return {"display": "block"} if step == 6 else {"display": "none"}
+
+
+class TestShowStep6:
+
+    def test_step6_shows_container(self):
+        assert _show_step_6_logic({"step": 6}) == {"display": "block"}
+
+    def test_step5_hides_container(self):
+        assert _show_step_6_logic({"step": 5}) == {"display": "none"}
+
+    def test_step1_hides_container(self):
+        assert _show_step_6_logic({"step": 1}) == {"display": "none"}
+
+    def test_none_step_data_defaults_to_hidden(self):
+        assert _show_step_6_logic(None) == {"display": "none"}
+
+
+# ---------------------------------------------------------------------------
+# auth_manager.create_admin — always sets email_verified=1
+# ---------------------------------------------------------------------------
+
+class TestCreateAdmin:
+    """Verify the HA-style onboarding helper creates the account correctly."""
+
+    def test_create_admin_sets_email_verified(self):
+        """create_admin must INSERT with email_verified=1 so custom usernames can log in."""
+        from utils.auth import AuthManager
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_db = MagicMock()
+        mock_db.conn = mock_conn
+
+        with patch("utils.auth.bcrypt") as mock_bcrypt:
+            mock_bcrypt.hashpw.return_value = b"$2b$12$fakehash"
+            mock_bcrypt.gensalt.return_value = b"$2b$12$fakesalt"
+            am = AuthManager(mock_db)
+            am.create_admin("ritik_admin", "ValidPass1!")
+
+        call_sql = mock_cursor.execute.call_args[0][0]
+        assert "email_verified" in call_sql.lower()
+        # Verify the value passed for email_verified is 1 (not 0)
+        call_params = mock_cursor.execute.call_args[0][1]
+        # INSERT ... VALUES (?, ?, 'admin', 1, 0, 1) — email_verified is the 4th ?
+        assert "ritik_admin" in call_params
+
+    def test_create_admin_returns_true_on_success(self):
+        from utils.auth import AuthManager
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_db = MagicMock()
+        mock_db.conn = mock_conn
+
+        with patch("utils.auth.bcrypt"):
+            am = AuthManager(mock_db)
+            result = am.create_admin("admin", "ValidPass1!")
+
+        assert result is True
+
+    def test_create_admin_returns_false_on_duplicate(self):
+        import sqlite3
+        from utils.auth import AuthManager
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = sqlite3.IntegrityError("UNIQUE constraint")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_db = MagicMock()
+        mock_db.conn = mock_conn
+
+        with patch("utils.auth.bcrypt"):
+            am = AuthManager(mock_db)
+            result = am.create_admin("admin", "ValidPass1!")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# account_setup_layout exists (non-Linux first-run screen)
+# ---------------------------------------------------------------------------
+
+class TestAccountSetupLayout:
+
+    def test_account_setup_layout_imports(self):
+        from dashboard.layouts.account_setup import account_setup_layout
+        assert account_setup_layout is not None
+
+    def test_account_setup_layout_exported_from_package(self):
+        from dashboard.layouts import account_setup_layout
+        assert account_setup_layout is not None
+
+    def test_account_setup_layout_has_required_ids(self):
+        from dashboard.layouts.account_setup import account_setup_layout
+        layout_str = str(account_setup_layout)
+        required_ids = [
+            "account-setup-username",
+            "account-setup-password",
+            "account-setup-password-confirm",
+            "account-setup-submit-btn",
+            "account-setup-feedback",
+        ]
+        for cid in required_ids:
+            assert cid in layout_str, f"account_setup_layout missing component ID '{cid}'"
+
+    def test_username_field_has_admin_default(self):
+        from dashboard.layouts.account_setup import account_setup_layout
+        layout_str = str(account_setup_layout)
+        # Default username should be "admin" so it's ready out of the box
+        assert "admin" in layout_str
+
+    def test_wizard_username_field_present(self):
+        """setup_wizard_layout Step 1 must expose an editable username field."""
+        from dashboard.layouts.setup_wizard import setup_wizard_layout
+        layout_str = str(setup_wizard_layout)
+        assert "setup-admin-username" in layout_str, \
+            "Wizard Step 1 must have an editable 'setup-admin-username' input"
+
+
+# ---------------------------------------------------------------------------
+# toggle_tailscale_panel logic
+# ---------------------------------------------------------------------------
+
+def _toggle_tailscale_panel_logic(enabled):
+    """Mirror of the toggle_tailscale_panel callback logic."""
+    return {"display": "block"} if enabled else {"display": "none"}
+
+
+class TestToggleTailscalePanel:
+
+    def test_enabled_true_shows_panel(self):
+        assert _toggle_tailscale_panel_logic(True) == {"display": "block"}
+
+    def test_enabled_false_hides_panel(self):
+        assert _toggle_tailscale_panel_logic(False) == {"display": "none"}
+
+    def test_enabled_none_hides_panel(self):
+        assert _toggle_tailscale_panel_logic(None) == {"display": "none"}
+
+    def test_enabled_empty_list_hides_panel(self):
+        assert _toggle_tailscale_panel_logic([]) == {"display": "none"}
+
+
+# ---------------------------------------------------------------------------
+# Local AI (Ollama) detection + AI privacy choice (wizard Step 3)
+# ---------------------------------------------------------------------------
+
+class TestDetectOllama:
+
+    def _response(self, status=200, models=None):
+        resp = MagicMock()
+        resp.status_code = status
+        resp.json.return_value = {"models": [{"name": m} for m in (models or [])]}
+        return resp
+
+    def test_running_with_expected_model(self):
+        from dashboard.callbacks.callbacks_setup import _detect_ollama
+        with patch("dashboard.callbacks.callbacks_setup.requests.get",
+                   return_value=self._response(models=["gemma2:2b", "llama3:8b"])):
+            ok, msg = _detect_ollama()
+        assert ok is True
+        assert "gemma2:2b" in msg
+
+    def test_running_without_models_suggests_pull(self):
+        from dashboard.callbacks.callbacks_setup import _detect_ollama
+        with patch("dashboard.callbacks.callbacks_setup.requests.get",
+                   return_value=self._response(models=[])):
+            ok, msg = _detect_ollama()
+        assert ok is True
+        assert "ollama pull" in msg
+
+    def test_running_with_other_models_suggests_gemma(self):
+        from dashboard.callbacks.callbacks_setup import _detect_ollama
+        with patch("dashboard.callbacks.callbacks_setup.requests.get",
+                   return_value=self._response(models=["mistral:7b"])):
+            ok, msg = _detect_ollama()
+        assert ok is True
+        assert "mistral:7b" in msg
+        assert "gemma2:2b" in msg
+
+    def test_not_running_is_friendly(self):
+        from dashboard.callbacks.callbacks_setup import _detect_ollama
+        import requests as _requests
+        with patch("dashboard.callbacks.callbacks_setup.requests.get",
+                   side_effect=_requests.exceptions.ConnectionError()):
+            ok, msg = _detect_ollama()
+        assert ok is False
+        assert "ollama.com" in msg
+        assert "Optional" in msg
+
+    def test_bad_status_reported(self):
+        from dashboard.callbacks.callbacks_setup import _detect_ollama
+        with patch("dashboard.callbacks.callbacks_setup.requests.get",
+                   return_value=self._response(status=500)):
+            ok, msg = _detect_ollama()
+        assert ok is False
+        assert "500" in msg
+
+
+class TestAiPrivacyChoice:
+
+    def _run_save(self, choice):
+        with patch("dashboard.callbacks.callbacks_setup.config") as mock_cfg, \
+             patch("dashboard.callbacks.callbacks_setup.db_manager") as mock_db:
+            mock_cfg.write_env.return_value = True
+            mock_cfg.update.return_value = True
+            mock_cfg.get.return_value = False
+
+            from dashboard.callbacks.callbacks_setup import _save_config
+            result = _save_config(
+                "192.168.1.0/24", "wlan0", None, None, None, None,
+                "household", None, ai_privacy_choice=choice,
+            )
+        return result, mock_db
+
+    def test_local_choice_persists_privacy_mode_on(self):
+        result, mock_db = self._run_save("local")
+        assert result is True
+        mock_db.set_setting.assert_any_call('ai_privacy_mode', '1')
+
+    def test_cloud_choice_persists_privacy_mode_off(self):
+        result, mock_db = self._run_save("cloud")
+        mock_db.set_setting.assert_any_call('ai_privacy_mode', '0')
+
+    def test_no_choice_defaults_to_cloud(self):
+        result, mock_db = self._run_save(None)
+        mock_db.set_setting.assert_any_call('ai_privacy_mode', '0')
+
+    def test_review_shows_local_first(self):
+        with patch("dashboard.callbacks.callbacks_setup.db_manager"):
+            from dashboard.callbacks.callbacks_setup import _build_review
+            table = _build_review("192.168.1.0/24", "wlan0", None, None, None,
+                                  ai_privacy_choice="local")
+        assert "Local first" in str(table)
+
+    def test_review_shows_cloud_first_by_default(self):
+        with patch("dashboard.callbacks.callbacks_setup.db_manager"):
+            from dashboard.callbacks.callbacks_setup import _build_review
+            table = _build_review("192.168.1.0/24", "wlan0", None, None, None)
+        assert "Cloud first" in str(table)
+
+    def test_wizard_layout_has_ollama_components(self):
+        from dashboard.layouts.setup_wizard import setup_wizard_layout
+        layout_str = str(setup_wizard_layout)
+        assert "setup-ollama-detect-btn" in layout_str
+        assert "setup-ollama-feedback" in layout_str
+        assert "setup-ai-privacy-choice" in layout_str

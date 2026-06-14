@@ -7,7 +7,7 @@ Provides safe logging functions that automatically redact credentials.
 """
 
 import re
-from typing import Any, Dict, Optional
+from typing import (Any, Dict)
 
 
 # Sensitive field patterns (case-insensitive)

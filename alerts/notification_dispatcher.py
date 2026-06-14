@@ -15,7 +15,7 @@ Supports multiple notification channels:
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import (List, Dict, Any)
 from dataclasses import dataclass
 from enum import Enum
 
@@ -24,8 +24,11 @@ logger = logging.getLogger(__name__)
 
 class NotificationChannel(Enum):
     """Available notification channels."""
-    EMAIL = "email"
-    WEBHOOK = "webhook"
+    EMAIL    = "email"
+    NTFY     = "ntfy"
+    TELEGRAM = "telegram"
+    DISCORD  = "discord"
+    WEBHOOK  = "webhook"
     LOG_ONLY = "log_only"
 
 
@@ -102,13 +105,16 @@ class NotificationDispatcher:
         self.config = config
         self._handlers: Dict[str, NotificationHandler] = {}
 
-        # Severity routing configuration
-        # Maps severity to list of channels that should receive notifications
+        # Severity routing configuration.
+        # critical/high use the sentinel _ALL_ACTIVE so that every registered
+        # handler fires — new channels (ntfy, telegram, discord, webhook) are
+        # automatically included as soon as they are registered.
+        # medium/low remain log-only (digest only).
         self._severity_routing = {
-            'critical': [NotificationChannel.EMAIL],
-            'high': [NotificationChannel.EMAIL],
-            'medium': [NotificationChannel.LOG_ONLY],  # Include in digest only
-            'low': [NotificationChannel.LOG_ONLY]       # Include in digest only
+            'critical': None,                            # None -> all active handlers
+            'high':     None,                            # None -> all active handlers
+            'medium':   [NotificationChannel.LOG_ONLY],
+            'low':      [NotificationChannel.LOG_ONLY],
         }
 
         logger.info("NotificationDispatcher initialized")
@@ -159,7 +165,8 @@ class NotificationDispatcher:
         results = []
         severity = alert.severity.lower()
 
-        # Get channels for this severity
+        # Get routing config for this severity.
+        # None means "fan out to every registered handler" (critical / high).
         channels = self._severity_routing.get(severity, [NotificationChannel.LOG_ONLY])
 
         # Always log the alert
@@ -168,6 +175,34 @@ class NotificationDispatcher:
             f"Severity={severity}, Score={alert.anomaly_score:.4f}"
         )
 
+        # Fan-out path: all registered handlers
+        if channels is None:
+            if not self._handlers:
+                results.append(NotificationResult(
+                    channel="log",
+                    success=True,
+                    message="Alert logged (no notification handlers configured)"
+                ))
+            for handler in list(self._handlers.values()):
+                try:
+                    result = handler.send(alert)
+                    results.append(result)
+                    if result.success:
+                        logger.info(f"Alert sent via {handler.channel_name}")
+                    else:
+                        logger.warning(
+                            f"Failed to send alert via {handler.channel_name}: {result.message}"
+                        )
+                except Exception as e:
+                    logger.error(f"Error dispatching to {handler.channel_name}: {e}")
+                    results.append(NotificationResult(
+                        channel=handler.channel_name,
+                        success=False,
+                        message=str(e)
+                    ))
+            return results
+
+        # Explicit channel-list path (e.g. log-only for medium/low)
         for channel in channels:
             if channel == NotificationChannel.LOG_ONLY:
                 # Log-only means no external notification

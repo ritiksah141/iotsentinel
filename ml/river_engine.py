@@ -24,16 +24,14 @@ Features:
 import sys
 import logging
 import pickle
-import json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque, defaultdict, Counter
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
-import numpy as np
 
 # River imports
-from river import anomaly, tree, ensemble
+from river import (anomaly, tree)
 from river.drift import ADWIN
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

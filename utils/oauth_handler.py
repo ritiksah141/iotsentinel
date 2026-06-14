@@ -5,11 +5,9 @@ Handles OAuth 2.0 authentication flow with Google Sign-In
 """
 
 import os
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 from authlib.integrations.flask_client import OAuth
-from flask import session, url_for
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,7 +18,11 @@ class GoogleOAuthHandler:
 
     def __init__(self, app, db_path: str = None, db_manager=None):
         """
-        Initialize Google OAuth handler
+        Initialize Google OAuth handler.
+
+        Credentials are read lazily from the environment on every auth request so
+        that credentials saved via the admin panel take effect immediately — no
+        restart required.
 
         Args:
             app: Flask app instance
@@ -36,44 +38,82 @@ class GoogleOAuthHandler:
             self.db_manager = DatabaseManager(db_path=self.db_path)
         self.oauth = OAuth(app)
 
-        # Get OAuth credentials from environment
-        self.client_id = os.getenv('GOOGLE_CLIENT_ID', '')
-        self.client_secret = os.getenv('GOOGLE_CLIENT_SECRET', '')
-        self.redirect_uri = os.getenv('OAUTH_REDIRECT_URI', 'http://localhost:8050/auth/google/callback')
+        # Lazily-registered Google client — see _ensure_google_client().
+        self._google = None
+        self._registered_client_id = ''  # tracks which client_id is currently registered
 
-        if not self.client_id or not self.client_secret:
-            logger.warning("Google OAuth credentials not configured. OAuth will be disabled.")
-            self.enabled = False
-            return
+        if os.getenv('GOOGLE_CLIENT_ID') and os.getenv('GOOGLE_CLIENT_SECRET'):
+            # Pre-register at startup if creds are already present.
+            self._ensure_google_client()
+        else:
+            logger.warning("Google OAuth credentials not configured. OAuth will be enabled once credentials are saved.")
 
-        self.enabled = True
+    @property
+    def enabled(self) -> bool:
+        """Live check — true whenever GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET are in env."""
+        return bool(os.getenv('GOOGLE_CLIENT_ID') and os.getenv('GOOGLE_CLIENT_SECRET'))
 
-        # Register Google OAuth client
-        self.google = self.oauth.register(
-            name='google',
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-            client_kwargs={
-                'scope': 'openid email profile',
-                'prompt': 'select_account'  # Always show account selector
-            }
-        )
+    def _ensure_google_client(self):
+        """
+        Lazily initialize or re-initialize the Google OAuth client from the
+        current environment variables.  Safe to call on every request — it
+        only re-registers when credentials have actually changed.
 
-        logger.info("Google OAuth handler initialized successfully")
+        Returns the authlib remote-app client, or None if creds are absent.
+        """
+        client_id = os.getenv('GOOGLE_CLIENT_ID', '')
+        client_secret = os.getenv('GOOGLE_CLIENT_SECRET', '')
+        if not client_id or not client_secret:
+            return None
+        # Re-register only when the client_id changed (covers initial + cred rotation).
+        if self._google is not None and self._registered_client_id == client_id:
+            return self._google
+        overwrite = self._google is not None  # avoid RuntimeError on re-registration
+        try:
+            self._google = self.oauth.register(
+                name='google',
+                overwrite=overwrite,
+                client_id=client_id,
+                client_secret=client_secret,
+                server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+                client_kwargs={
+                    'scope': 'openid email profile',
+                    'prompt': 'select_account'  # Always show account selector
+                }
+            )
+            self._registered_client_id = client_id
+            logger.info("Google OAuth client initialized/updated from environment.")
+        except Exception as e:
+            logger.error(f"Failed to register Google OAuth client: {e}")
+            return None
+        return self._google
+
+    @property
+    def redirect_uri(self) -> str:
+        """Derive redirect URI from OAUTH_REDIRECT_URI, falling back to IOTSENTINEL_PUBLIC_URL."""
+        explicit = os.getenv('OAUTH_REDIRECT_URI', '')
+        if explicit:
+            return explicit
+        public_url = os.getenv('IOTSENTINEL_PUBLIC_URL', '').rstrip('/')
+        if public_url:
+            return f"{public_url}/auth/google/callback"
+        return 'http://localhost:8050/auth/google/callback'
 
     def get_authorization_url(self) -> Tuple[str, str]:
         """
-        Generate OAuth authorization URL
+        Generate OAuth authorization URL.
+
+        Credentials are loaded from the environment on every call so that
+        credentials saved via the admin panel apply without a restart.
 
         Returns:
             Tuple of (authorization_url, state)
         """
-        if not self.enabled:
-            raise Exception("Google OAuth is not configured")
+        google = self._ensure_google_client()
+        if not google:
+            raise Exception("Google OAuth is not configured. Save your Client ID and Secret in Admin → Edit Profile → Credentials.")
 
-        redirect_uri = self.redirect_uri
-        return self.google.authorize_redirect(redirect_uri)
+        return google.authorize_redirect(self.redirect_uri)
 
     def handle_callback(self, request) -> Optional[Dict]:
         """
@@ -85,20 +125,21 @@ class GoogleOAuthHandler:
         Returns:
             User info dict if successful, None otherwise
         """
-        if not self.enabled:
+        google = self._ensure_google_client()
+        if not google:
             logger.error("Google OAuth callback received but OAuth is not configured")
             return None
 
         try:
             # Get access token
-            token = self.google.authorize_access_token()
+            token = google.authorize_access_token()
 
             if not token:
                 logger.error("Failed to get access token from Google")
                 return None
 
             # Get user info from Google
-            resp = self.google.get('https://www.googleapis.com/oauth2/v3/userinfo')
+            resp = google.get('https://www.googleapis.com/oauth2/v3/userinfo')
             user_info = resp.json()
 
             if not user_info or 'sub' not in user_info:

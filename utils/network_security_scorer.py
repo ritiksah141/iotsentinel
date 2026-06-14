@@ -12,8 +12,7 @@ Score range: 0-100 (consumer-friendly)
 """
 
 import logging
-import sqlite3
-from typing import Dict, Any, List, Optional
+from typing import (Dict, Any, List)
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -253,45 +252,62 @@ class NetworkSecurityScorer:
             conn = self.db_manager.conn
             cursor = conn.cursor()
 
-            # Get protocol usage from recent connections
             cutoff_time = (datetime.now() - timedelta(days=7)).isoformat()
 
-            cursor.execute('''
-                SELECT protocol, COUNT(*) as count
-                FROM connections
-                WHERE timestamp > ?
-                GROUP BY protocol
-            ''', (cutoff_time,))
+            cursor.execute(
+                "SELECT COUNT(*) FROM connections WHERE timestamp > ?", (cutoff_time,)
+            )
+            total_connections = cursor.fetchone()[0]
 
-            protocol_counts = dict(cursor.fetchall())
+            if total_connections == 0:
+                return {'score': 50, 'details': 'No recent connection data', 'secure_ratio': 0,
+                        'secure_connections': 0, 'insecure_connections': 0, 'total_connections': 0}
 
-            if not protocol_counts:
-                return {'score': 50, 'details': 'No recent connection data'}
+            # Zeek stores transport layer in 'protocol' (tcp/udp) and application layer in
+            # 'service' (ssl, http, ssh …). Check both columns to avoid always-zero score.
+            secure_labels = {'https', 'ssh', 'tls', 'ssl'}
+            insecure_labels = {'http', 'telnet', 'ftp'}
 
-            total_connections = sum(protocol_counts.values())
+            cursor.execute(
+                "SELECT protocol, COUNT(*) FROM connections WHERE timestamp > ? GROUP BY protocol",
+                (cutoff_time,)
+            )
+            proto_counts = {(k or '').lower(): v for k, v in cursor.fetchall()}
 
-            # Calculate weighted score based on protocol security
-            secure_protocols = ['https', 'ssh', 'tls', 'ssl']
-            insecure_protocols = ['http', 'telnet', 'ftp']
+            cursor.execute(
+                "SELECT service, COUNT(*) FROM connections "
+                "WHERE timestamp > ? AND service IS NOT NULL AND service != '' GROUP BY service",
+                (cutoff_time,)
+            )
+            svc_counts = {(k or '').lower(): v for k, v in cursor.fetchall()}
 
-            secure_count = sum(protocol_counts.get(p, 0) for p in secure_protocols)
-            insecure_count = sum(protocol_counts.get(p, 0) for p in insecure_protocols)
+            secure_count = (
+                sum(proto_counts.get(p, 0) for p in secure_labels) +
+                sum(svc_counts.get(p, 0) for p in secure_labels)
+            )
+            insecure_count = (
+                sum(proto_counts.get(p, 0) for p in insecure_labels) +
+                sum(svc_counts.get(p, 0) for p in insecure_labels)
+            )
 
-            # Score based on secure protocol ratio
-            secure_ratio = secure_count / total_connections if total_connections > 0 else 0
+            # When no application protocol is identifiable (all tcp/udp with empty service),
+            # absence of insecure protocols is a positive signal — give a neutral 70.
+            if secure_count == 0 and insecure_count == 0:
+                encryption_score = 70
+            else:
+                # Penalise only on detected insecure traffic; unclassified traffic is neutral.
+                insecure_ratio = insecure_count / total_connections
+                encryption_score = max(0, 100 - insecure_ratio * 100)
 
-            # Penalty for insecure protocols
-            insecure_penalty = (insecure_count / total_connections * 30) if total_connections > 0 else 0
-
-            encryption_score = max(0, secure_ratio * 100 - insecure_penalty)
+            secure_ratio_pct = round(secure_count / total_connections * 100, 1)
 
             return {
                 'score': round(encryption_score, 1),
                 'secure_connections': secure_count,
                 'insecure_connections': insecure_count,
                 'total_connections': total_connections,
-                'secure_ratio': round(secure_ratio * 100, 1),
-                'protocol_breakdown': protocol_counts
+                'secure_ratio': secure_ratio_pct,
+                'protocol_breakdown': {**proto_counts, **svc_counts}
             }
 
         except Exception as e:

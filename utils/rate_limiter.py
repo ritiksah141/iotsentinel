@@ -121,10 +121,12 @@ class RateLimiter:
 
     # Rate limit configurations (attempts, window in minutes)
     LIMITS = {
-        'login': (5, 15),           # 5 attempts per 15 minutes
-        'bulk_operation': (3, 5),   # 3 bulk ops per 5 minutes
-        'device_block': (10, 5),    # 10 device blocks per 5 minutes
-        'api_call': (60, 1),        # 60 API calls per minute
+        'login': (5, 15),               # 5 attempts per 15 minutes
+        'bulk_operation': (3, 5),       # 3 bulk ops per 5 minutes
+        'device_block': (10, 5),        # 10 device blocks per 5 minutes
+        'api_call': (60, 1),            # 60 API calls per minute
+        'ai_chat_household': (20, 1440),  # set from config at startup
+        'ai_chat_business': (100, 1440),  # set from config at startup
     }
 
     def __init__(self, db_manager):

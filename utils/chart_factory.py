@@ -35,17 +35,28 @@ class ChartFactory:
     """Factory class for generating consistent Plotly charts"""
 
     @staticmethod
-    def _get_base_layout(title='', margin=None):
-        """Get base layout configuration for all charts"""
+    def _get_base_layout(title='', margin=None, dark_mode=False):
+        """Get base layout configuration for all charts.
+
+        Args:
+            title: Chart title
+            margin: Dict with l/r/t/b margin values
+            dark_mode: If True, use light-coloured text for dark glass backgrounds.
+                       Drives font.color, paper_bgcolor and plot_bgcolor so all
+                       chart text (axes, ticks, legend, annotations) adapts correctly.
+        """
+        text_color = '#e4e4e7' if dark_mode else '#333333'
         return {
             'title': title,
-            'font': {'size': CHART_DEFAULTS['font_size']},
-            'margin': margin or {'l': 50, 'r': 20, 't': 40, 'b': 50}
+            'font': {'size': CHART_DEFAULTS['font_size'], 'color': text_color},
+            'margin': margin or {'l': 50, 'r': 20, 't': 40, 'b': 50},
+            'paper_bgcolor': 'rgba(0,0,0,0)',   # transparent — adapts to glass card
+            'plot_bgcolor': 'rgba(0,0,0,0)',    # transparent — adapts to glass card
         }
 
     @staticmethod
     def create_pie_chart(labels, values, colors=None, title='', hole=0.0, show_legend=True,
-                        legend_orientation='h'):
+                        legend_orientation='h', dark_mode=False):
         """
         Create a pie/donut chart
 
@@ -68,7 +79,7 @@ class ChartFactory:
         # Increased to 95 to prevent title cutoff
         top_margin = 95 if title else 20
         # Pass empty title to base layout since we'll position it ourselves
-        layout = ChartFactory._get_base_layout('', {'l': 20, 'r': 20, 't': top_margin, 'b': 80})
+        layout = ChartFactory._get_base_layout('', {'l': 20, 'r': 20, 't': top_margin, 'b': 80}, dark_mode=dark_mode)
         layout.update({
             'showlegend': show_legend,
             'legend': {
@@ -101,7 +112,7 @@ class ChartFactory:
 
     @staticmethod
     def create_bar_chart(x_values, y_values, colors=None, title='', x_title='', y_title='',
-                        orientation='v', tick_angle=0):
+                        orientation='v', tick_angle=0, dark_mode=False):
         """
         Create a bar chart
 
@@ -119,7 +130,7 @@ class ChartFactory:
             dict: Plotly figure dictionary
         """
         bottom_margin = 100 if tick_angle != 0 else 60
-        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': bottom_margin})
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': bottom_margin}, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -148,7 +159,7 @@ class ChartFactory:
 
     @staticmethod
     def create_line_chart(x_values, y_values, line_color='#17a2b8', title='', x_title='',
-                         y_title='', mode='lines+markers', fill=None):
+                         y_title='', mode='lines+markers', fill=None, dark_mode=False):
         """
         Create a line/scatter chart
 
@@ -165,7 +176,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title)
+        layout = ChartFactory._get_base_layout(title, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -200,7 +211,7 @@ class ChartFactory:
 
     @staticmethod
     def create_multi_line_chart(traces_data, title='', x_title='', y_title='',
-                               show_legend=True):
+                               show_legend=True, dark_mode=False):
         """
         Create a multi-line chart
 
@@ -214,7 +225,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title)
+        layout = ChartFactory._get_base_layout(title, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -255,7 +266,7 @@ class ChartFactory:
 
     @staticmethod
     def create_stacked_bar_chart(x_values, y_data_list, labels, colors, title='', x_title='',
-                                  y_title=''):
+                                  y_title='', dark_mode=False):
         """
         Create a stacked bar chart
 
@@ -271,7 +282,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 60})
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 60}, dark_mode=dark_mode)
         layout.update({
             'barmode': 'stack',
             'xaxis': {
@@ -310,7 +321,7 @@ class ChartFactory:
         }
 
     @staticmethod
-    def create_empty_chart(message='No data available'):
+    def create_empty_chart(message='No data available', dark_mode=False):
         """
         Create an empty chart with a message
 
@@ -320,31 +331,36 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
+        text_color = '#e4e4e7' if dark_mode else '#333333'
         return {
             'data': [],
             'layout': {
+                'paper_bgcolor': 'rgba(0,0,0,0)',
+                'plot_bgcolor': 'rgba(0,0,0,0)',
+                'font': {'color': text_color},
                 'annotations': [{
                     'text': message,
                     'showarrow': False,
-                    'font': {'size': 16}
+                    'font': {'size': 16, 'color': text_color}
                 }]
             }
         }
 
     @staticmethod
-    def create_radar_chart(categories, your_scores, industry_scores, title=''):
+    def create_radar_chart(categories, your_scores, industry_scores, title='', dark_mode=False):
         """
         Create a radar/polar chart for comparison
 
         Args:
             categories: List of category names
             your_scores: List of scores for "Your Network"
-            industry_scores: List of scores for "Industry Avg"
+            industry_scores: Fixed recommended security target scores (shown as "Recommended Target")
             title: Chart title
 
         Returns:
             dict: Plotly figure dictionary
         """
+        text_color = '#e4e4e7' if dark_mode else '#333333'
         return {
             'data': [
                 {
@@ -359,7 +375,7 @@ class ChartFactory:
                     'r': industry_scores + [industry_scores[0]],
                     'theta': categories + [categories[0]],
                     'fill': 'toself',
-                    'name': 'Industry Avg',
+                    'name': 'Recommended Target',
                     'line': {'width': 2, 'dash': 'dash'}
                 }
             ],
@@ -372,13 +388,15 @@ class ChartFactory:
                 },
                 'showlegend': True,
                 'legend': {'orientation': 'h', 'yanchor': 'bottom', 'y': -0.2},
-                'margin': {'l': 80, 'r': 80, 't': 20, 'b': 80}
+                'margin': {'l': 80, 'r': 80, 't': 20, 'b': 80},
+                'paper_bgcolor': 'rgba(0,0,0,0)',
+                'font': {'color': text_color},
             }
         }
 
     @staticmethod
     def create_area_chart(x_values, y_values, fill_color='#17a2b8', line_color='#0d6efd',
-                          title='', x_title='', y_title='', show_line=True):
+                          title='', x_title='', y_title='', show_line=True, dark_mode=False):
         """
         Create an area chart for trend visualization
 
@@ -395,7 +413,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title)
+        layout = ChartFactory._get_base_layout(title, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -426,7 +444,7 @@ class ChartFactory:
     @staticmethod
     def create_trend_chart(x_values, y_values, show_moving_avg=True, ma_period=7,
                           title='', x_title='', y_title='', trend_color='#17a2b8',
-                          ma_color='#ffc107'):
+                          ma_color='#ffc107', dark_mode=False):
         """
         Create a trend chart with optional moving average overlay
 
@@ -444,7 +462,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title)
+        layout = ChartFactory._get_base_layout(title, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -503,7 +521,7 @@ class ChartFactory:
 
     @staticmethod
     def create_heatmap(x_labels, y_labels, z_values, title='', x_title='', y_title='',
-                       colorscale='RdYlGn_r'):
+                       colorscale='RdYlGn_r', dark_mode=False):
         """
         Create a heatmap for pattern visualization
 
@@ -519,7 +537,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title, {'l': 100, 'r': 20, 't': 60, 'b': 100})
+        layout = ChartFactory._get_base_layout(title, {'l': 100, 'r': 20, 't': 60, 'b': 100}, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -548,7 +566,8 @@ class ChartFactory:
 
     @staticmethod
     def create_gauge_chart(value, max_value=100, title='', thresholds=None,
-                          colors=None, show_delta=False, delta_reference=None):
+                          colors=None, show_delta=False, delta_reference=None,
+                          dark_mode=False):
         """
         Create an enhanced gauge/indicator chart for KPI visualization with animations
 
@@ -591,13 +610,16 @@ class ChartFactory:
                 bar_color = colors[i]
                 break
 
+        text_color = '#e4e4e7' if dark_mode else '#333'
+        tick_color = '#a1a1aa' if dark_mode else '#333'
+
         # Build gauge configuration
         gauge_config = {
             'axis': {
                 'range': [0, max_value],
                 'tickwidth': 2,
-                'tickcolor': '#333',
-                'tickfont': {'size': 12}
+                'tickcolor': tick_color,
+                'tickfont': {'size': 12, 'color': text_color}
             },
             'bar': {
                 'color': bar_color,
@@ -606,7 +628,7 @@ class ChartFactory:
             },
             'steps': steps,
             'borderwidth': 2,
-            'bordercolor': '#333',
+            'bordercolor': tick_color,
             'shape': 'angular'  # Speedometer style
         }
 
@@ -617,10 +639,10 @@ class ChartFactory:
             'value': value,
             'title': {
                 'text': title,
-                'font': {'size': 18, 'weight': 'bold', 'color': '#333'}
+                'font': {'size': 18, 'weight': 'bold', 'color': text_color}
             },
             'number': {
-                'font': {'size': 36, 'weight': 'bold'},
+                'font': {'size': 36, 'weight': 'bold', 'color': text_color},
                 'suffix': f'/{max_value}'
             },
             'gauge': gauge_config
@@ -643,7 +665,7 @@ class ChartFactory:
                 'height': 300,
                 'paper_bgcolor': 'rgba(0,0,0,0)',
                 'plot_bgcolor': 'rgba(0,0,0,0)',
-                'font': {'color': '#333'},
+                'font': {'color': text_color},
                 'transition': {
                     'duration': 800,
                     'easing': 'cubic-in-out'
@@ -655,7 +677,7 @@ class ChartFactory:
         }
 
     @staticmethod
-    def create_waterfall_chart(categories, values, title='', x_title='', y_title=''):
+    def create_waterfall_chart(categories, values, title='', x_title='', y_title='', dark_mode=False):
         """
         Create a waterfall chart showing cumulative changes
 
@@ -669,7 +691,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 100})
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 100}, dark_mode=dark_mode)
         layout.update({
             'xaxis': {
                 'title': x_title,
@@ -710,7 +732,7 @@ class ChartFactory:
         }
 
     @staticmethod
-    def create_box_plot(data_groups, labels, title='', y_title='', show_outliers=True):
+    def create_box_plot(data_groups, labels, title='', y_title='', show_outliers=True, dark_mode=False):
         """
         Create a box plot for distribution analysis
 
@@ -724,7 +746,7 @@ class ChartFactory:
         Returns:
             dict: Plotly figure dictionary
         """
-        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 80})
+        layout = ChartFactory._get_base_layout(title, {'l': 50, 'r': 20, 't': 40, 'b': 80}, dark_mode=dark_mode)
         layout.update({
             'yaxis': {
                 'title': y_title,

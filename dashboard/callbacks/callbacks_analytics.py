@@ -7,18 +7,14 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 
 import json
 import logging
-import random
 from collections import defaultdict
 from datetime import datetime
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
-import plotly.express as px
 import plotly.graph_objs as go
-from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
+from dash import (dcc, html, Input, Output, State, callback_context, no_update)
 
-from flask_login import current_user
 
 from dashboard.shared import (
     db_manager,
@@ -53,12 +49,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("analytics-modal", "is_open"),
-        [Input("analytics-card-btn", "n_clicks"),
-         Input("close-analytics-modal-btn", "n_clicks")],
+        Input("analytics-card-btn", "n_clicks"),
         State("analytics-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_analytics_modal(open_clicks, close_clicks, is_open):
+    def toggle_analytics_modal(open_clicks, is_open):
         return not is_open
 
     # ================================================================
@@ -103,12 +98,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("timeline-viz-modal", "is_open"),
-        [Input("timeline-card-btn", "n_clicks"),
-         Input("close-timeline-modal-btn", "n_clicks")],
+        Input("timeline-card-btn", "n_clicks"),
         State("timeline-viz-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_timeline_viz_modal(open_clicks, close_clicks, is_open):
+    def toggle_timeline_viz_modal(open_clicks, is_open):
         """Toggle Timeline Visualization modal."""
         return not is_open
 
@@ -509,7 +503,7 @@ def register(app):
                         html.Td(f"{score:.2f}")
                     ]) for ip, count, score in top_sources
                 ])
-            ], bordered=True, dark=False, hover=True, className="mt-3 table-adaptive")
+            ], bordered=True, dark=False, hover=True, responsive=True, className="mt-3 table-adaptive")
 
             return html.Div([
                 dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}),
@@ -526,12 +520,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("protocol-modal", "is_open"),
-        [Input("protocol-card-btn", "n_clicks"),
-         Input("close-protocol-modal-btn", "n_clicks")],
+        Input("protocol-card-btn", "n_clicks"),
         State("protocol-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_protocol_modal(open_clicks, close_clicks, is_open):
+    def toggle_protocol_modal(open_clicks, is_open):
         return not is_open
 
     # ================================================================
@@ -801,7 +794,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-2")
                 )
 
-            return html.Div(message_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(message_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading MQTT traffic: {e}")
@@ -891,7 +884,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-2")
                 )
 
-            return html.Div(request_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(request_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading CoAP traffic: {e}")
@@ -999,7 +992,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-2")
                 )
 
-            return html.Div(device_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(device_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading protocol device summary: {e}")
@@ -1010,12 +1003,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("forensic-timeline-modal", "is_open"),
-        [Input("forensic-timeline-card-btn", "n_clicks"),
-         Input("close-forensic-modal-btn", "n_clicks")],
+        Input("forensic-timeline-card-btn", "n_clicks"),
         State("forensic-timeline-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_forensic_timeline_modal(open_clicks, close_clicks, is_open):
+    def toggle_forensic_timeline_modal(open_clicks, is_open):
         """Toggle Forensic Timeline modal."""
         return not is_open
 
@@ -1257,7 +1249,7 @@ def register(app):
                             html.Td(f"{row[4]:.2f}s" if row[4] else "N/A")
                         ]) for row in patterns
                     ])
-                ], bordered=True, dark=False, hover=True, size="sm", className="table-adaptive")
+                ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
 
                 pattern_cards.append(html.Div([
                     html.H6([html.I(className="fa fa-search me-2 text-info"), "Connection Patterns"], className="mb-3"),
@@ -1284,7 +1276,7 @@ def register(app):
                             html.Td(str(row[4])[:50] + "..." if len(str(row[4])) > 50 else str(row[4]), className="small")
                         ]) for row in anomaly_patterns
                     ])
-                ], bordered=True, dark=False, hover=True, size="sm", className="table-adaptive")
+                ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
 
                 pattern_cards.append(html.Div([
                     html.H6([html.I(className="fa fa-exclamation-triangle me-2 text-danger"), "Anomalous Patterns"], className="mb-3 mt-4"),
@@ -1471,16 +1463,16 @@ def register(app):
                         html.Td(str(row[4] or 'N/A'), className="small"),
                         html.Td(f"{(row[5] or 0) + (row[6] or 0):,}", className="small"),
                         html.Td(
-                            html.Span(f"{row[8]:.2f}", className="badge bg-danger") if row[7] else html.Span("—", className="text-muted"),
+                            html.Span(f"{row[8]:.2f}", className="badge bg-danger") if row[7] else html.Span("-", className="text-muted"),
                             className="small"
                         ),
                         html.Td(
-                            html.Span(str(row[9]).upper(), className=get_severity_class(row[9])) if row[9] else html.Span("—", className="text-muted"),
+                            html.Span(str(row[9]).upper(), className=get_severity_class(row[9])) if row[9] else html.Span("-", className="text-muted"),
                             className="small"
                         )
                     ], className="text-danger" if row[7] or row[9] == 'critical' else "") for row in events
                 ])
-            ], bordered=True, dark=False, hover=True, size="sm", className="table-adaptive", style={'fontSize': '0.85rem'})
+            ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
 
             return html.Div([
                 dbc.Alert([
@@ -1699,12 +1691,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("benchmark-modal", "is_open"),
-        [Input("benchmark-card-btn", "n_clicks"),
-         Input("close-benchmark-modal-btn", "n_clicks")],
+        Input("benchmark-card-btn", "n_clicks"),
         State("benchmark-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_benchmark_modal(open_clicks, close_clicks, is_open):
+    def toggle_benchmark_modal(open_clicks, is_open):
         return not is_open
 
     # ================================================================
@@ -1720,9 +1711,11 @@ def register(app):
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('benchmark-modal', 'is_open'),
          Input('refresh-benchmark-btn', 'n_clicks')],
+        [State('resolved-theme-store', 'data')],
         prevent_initial_call=True
     )
-    def update_benchmark_overview(is_open, refresh_clicks):
+    def update_benchmark_overview(is_open, refresh_clicks, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
         from dash import callback_context
 
         # Check if refresh button was clicked
@@ -1779,22 +1772,23 @@ def register(app):
 
             overall_score = (trust_score + vulnerability_score + alert_score + encryption_score + blocking_score) / 5
 
-            # Industry averages (benchmark values)
-            industry_avg = 72.5
-            percentile = min(100, max(0, (overall_score / industry_avg) * 50 + 25))
+            # Recommended security targets (fixed baseline, not real industry data)
+            target_avg = 72.5
+            score_vs_target = min(200, round(overall_score / target_avg * 100))
 
-            # Create radar chart
+            # Create radar chart — "Recommended Target" is a fixed security baseline
             categories = ['Trust', 'Vulnerabilities', 'Alerts', 'Encryption', 'Security']
             your_scores = [trust_score, vulnerability_score, alert_score, encryption_score, blocking_score]
-            industry_scores = [75, 80, 85, 70, 65]  # Industry benchmarks
+            target_scores = [75, 80, 85, 70, 65]  # Recommended security targets
 
             radar_fig = ChartFactory.create_radar_chart(
                 categories=categories,
                 your_scores=your_scores,
-                industry_scores=industry_scores
+                industry_scores=target_scores,
+                dark_mode=is_dark
             )
 
-            return f"{overall_score:.1f}/100", f"{industry_avg:.1f}/100", f"{percentile:.0f}th", radar_fig, timestamp_display, timestamp_str, toast
+            return f"{overall_score:.1f}/100", f"{target_avg:.1f}/100", f"{score_vs_target}%", radar_fig, timestamp_display, timestamp_str, toast
 
         except Exception as e:
             logger.error(f"Error loading benchmark overview: {e}")
@@ -1879,11 +1873,11 @@ def register(app):
                             dbc.Row([
                                 dbc.Col([
                                     html.P("Your Network", className="small text-muted mb-1"),
-                                    dbc.Progress(value=your_score, max=100, color=progress_color, className="mb-2", style={"height": "20px"}, label=f"{your_score:.1f}%")
+                                    dbc.Progress(value=your_score, max=100, color=progress_color, className="mb-2 progress-md", label=f"{your_score:.1f}%")
                                 ], md=6),
                                 dbc.Col([
                                     html.P("Industry Average", className="small text-muted mb-1"),
-                                    dbc.Progress(value=industry_avg, max=100, color="secondary", className="mb-2", style={"height": "20px"}, label=f"{industry_avg}%")
+                                    dbc.Progress(value=industry_avg, max=100, color="secondary", className="mb-2 progress-md", label=f"{industry_avg}%")
                                 ], md=6)
                             ]),
                             html.Small(detail, className="text-muted")
@@ -1891,7 +1885,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-3")
                 )
 
-            return html.Div(comparison_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(comparison_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading benchmark metrics: {e}")
@@ -1999,7 +1993,7 @@ def register(app):
                 html.P(f"You are following {completed_count} out of {len(practices)} security best practices.", className="mb-0")
             ], color="success" if completed_count >= len(practices) * 0.7 else "warning")
 
-            return html.Div([summary, html.Div(checklist_items, style={'maxHeight': '400px', 'overflowY': 'auto'})])
+            return html.Div([summary, html.Div(checklist_items, className="scroll-panel-sm")])
 
         except Exception as e:
             logger.error(f"Error loading best practices: {e}")
@@ -2141,7 +2135,7 @@ def register(app):
                     ], className="glass-card border-0 shadow-sm mb-3")
                 )
 
-            return html.Div(rec_cards, style={'maxHeight': '500px', 'overflowY': 'auto'})
+            return html.Div(rec_cards, className="scroll-panel-md")
 
         except Exception as e:
             logger.error(f"Error loading recommendations: {e}")
@@ -2152,12 +2146,11 @@ def register(app):
     # ================================================================
     @app.callback(
         Output("performance-modal", "is_open"),
-        [Input("performance-card-btn", "n_clicks"),
-         Input("close-performance-modal-btn", "n_clicks")],
+        Input("performance-card-btn", "n_clicks"),
         State("performance-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_performance_modal(open_clicks, close_clicks, is_open):
+    def toggle_performance_modal(open_clicks, is_open):
         return not is_open
 
     # ================================================================
@@ -2331,9 +2324,9 @@ def register(app):
                                 dbc.Badge(f"{port_count} ports", color="info")
                             ], className="mb-2"),
                             html.Div([
-                                html.P("Bandwidth Usage:", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
-                                dbc.Progress(value=usage_percent, color=color, className="mb-1", style={"height": "8px"}),
-                                html.Span(f"{usage_percent:.1f}% of total traffic", className="text-muted", style={"fontSize": "0.8rem"})
+                                html.P("Bandwidth Usage:", className="text-muted mb-1"),
+                                dbc.Progress(value=usage_percent, color=color, className="mb-1 progress-sm"),
+                                html.Span(f"{usage_percent:.1f}% of total traffic", className="text-muted u-text-sm")
                             ])
                         ])
                     ], className="p-3")
@@ -2348,8 +2341,7 @@ def register(app):
                     html.Div([
                         html.Span(protocol.upper(), className="fw-bold"),
                         dbc.Badge(f"{count} connections", color="info", className="ms-2")
-                    ], className="d-flex align-items-center justify-content-between mb-2 p-2",
-                       style={"backgroundColor": "rgba(255,255,255,0.05)", "borderRadius": "5px"})
+                    ], className="d-flex align-items-center justify-content-between mb-2 p-2 glass-subtle")
                 ])
             )
 
@@ -2437,7 +2429,8 @@ def register(app):
                             html.I(className="fa fa-check-circle fa-2x text-success mb-2")
                         ]),
                         html.H3(f"{success_rate:.1f}%", className="mb-1"),
-                        html.P("Success Rate", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                        html.P("Est. Success Rate", className="text-muted mb-0",
+                               title="Estimated from blocked-device counts, not measured per-connection.")
                     ], className="text-center p-3")
                 ], className="glass-card border-0 shadow-sm mb-3")
             ], md=3),
@@ -2448,7 +2441,7 @@ def register(app):
                             html.I(className="fa fa-link fa-2x text-info mb-2")
                         ]),
                         html.H3(str(total_connections), className="mb-1"),
-                        html.P("Total Connections", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                        html.P("Total Connections", className="text-muted mb-0")
                     ], className="text-center p-3")
                 ], className="glass-card border-0 shadow-sm mb-3")
             ], md=3),
@@ -2459,7 +2452,7 @@ def register(app):
                             html.I(className="fa fa-clock fa-2x text-warning mb-2")
                         ]),
                         html.H3(str(recent_connections), className="mb-1"),
-                        html.P("Last Hour", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                        html.P("Last Hour", className="text-muted mb-0")
                     ], className="text-center p-3")
                 ], className="glass-card border-0 shadow-sm mb-3")
             ], md=3),
@@ -2470,7 +2463,8 @@ def register(app):
                             html.I(className="fa fa-times-circle fa-2x text-danger mb-2")
                         ]),
                         html.H3(str(failed_est), className="mb-1"),
-                        html.P("Failed Attempts", className="text-muted mb-0", style={"fontSize": "0.85rem"})
+                        html.P("Est. Failed Attempts", className="text-muted mb-0",
+                               title="Estimated from currently-blocked device count.")
                     ], className="text-center p-3")
                 ], className="glass-card border-0 shadow-sm mb-3")
             ], md=3)
@@ -2514,7 +2508,8 @@ def register(app):
                                 html.Th("Protocol"),
                                 html.Th("Connections"),
                                 html.Th("Devices"),
-                                html.Th("Quality")
+                                html.Th("Activity Score (est.)",
+                                        title="Heuristic: connections / unique devices. Not a measured link-quality metric.")
                             ])
                         ]),
                         html.Tbody(protocol_rows)
@@ -2662,7 +2657,7 @@ def register(app):
             icon = severity_icons.get(rec['severity'], 'fa-info')
 
             action_items = [
-                html.Li(action, className="mb-1", style={"fontSize": "0.9rem"})
+                html.Li(action, className="mb-1")
                 for action in rec['actions']
             ]
 
@@ -2685,7 +2680,7 @@ def register(app):
                         html.H6([
                             html.I(className="fa fa-tasks me-2"),
                             "Recommended Actions:"
-                        ], style={"fontSize": "0.95rem"}, className="mb-2"),
+                        ], className="mb-2"),
                         html.Ul(action_items, className="mb-0")
                     ])
                 ], className="glass-card border-0 shadow-sm mb-3")
@@ -2699,7 +2694,7 @@ def register(app):
     @app.callback(
         Output('alert-trend-chart', 'figure'),
         Input('analytics-modal-tabs', 'active_tab'),
-        prevent_initial_call=False
+        prevent_initial_call=True  # W15: don't run DB analysis on page load
     )
     def update_alert_trend_chart(active_tab):
         """Update the alert trends chart with latest data."""
@@ -2782,7 +2777,7 @@ def register(app):
     @app.callback(
         Output('activity-heatmap-chart', 'figure'),
         Input('analytics-modal-tabs', 'active_tab'),
-        prevent_initial_call=False
+        prevent_initial_call=True  # W15: don't run DB analysis on page load
     )
     def update_activity_heatmap(active_tab):
         """Update the network activity heatmap."""
@@ -2897,9 +2892,9 @@ def register(app):
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
-                            html.I(className="fa fa-shield-alt me-2", style={'color': '#6366f1'}),
+                            html.I(className="fa fa-shield-alt me-2 text-info"),
                             "Security Posture"
-                        ], className="bg-light border-bottom"),
+                        ], className="glass-card-header"),
                         dbc.CardBody([
                             html.Div([
                                 html.Small("Total Alerts", className="text-muted d-block"),
@@ -2921,15 +2916,15 @@ def register(app):
                             ])
                         ])
                     ], className="glass-card border-0 shadow-sm h-100")
-                ], width=4),
+                ], xs=12, sm=4),
 
                 # Network Activity Column
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
-                            html.I(className="fa fa-network-wired me-2", style={'color': '#10b981'}),
+                            html.I(className="fa fa-network-wired me-2 text-success"),
                             "Network Activity"
-                        ], className="bg-light border-bottom"),
+                        ], className="glass-card-header"),
                         dbc.CardBody([
                             html.Div([
                                 html.Small("Total Connections", className="text-muted d-block"),
@@ -2946,15 +2941,15 @@ def register(app):
                             ])
                         ])
                     ], className="glass-card border-0 shadow-sm h-100")
-                ], width=4),
+                ], xs=12, sm=4),
 
                 # Device Status Column
                 dbc.Col([
                     dbc.Card([
                         dbc.CardHeader([
-                            html.I(className="fa fa-devices me-2", style={'color': '#f59e0b'}),
+                            html.I(className="fa fa-devices me-2 text-warning"),
                             "Device Status"
-                        ], className="bg-light border-bottom"),
+                        ], className="glass-card-header"),
                         dbc.CardBody([
                             html.Div([
                                 html.Small("Total Devices", className="text-muted d-block"),

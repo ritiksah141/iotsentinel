@@ -37,7 +37,7 @@ def test_imports():
     logger.info("=" * 70)
 
     try:
-        from utils.rbac_manager import PermissionManager, can_export_data, ROLES
+        from utils.rbac_manager import (can_export_data, ROLES)
         logger.info("✅ RBAC Manager imported successfully")
         logger.info(f"   - Roles defined: {list(ROLES.keys())}")
         logger.info(f"   - Permissions per role:")

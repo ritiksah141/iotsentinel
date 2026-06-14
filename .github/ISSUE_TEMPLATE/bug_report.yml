@@ -1,0 +1,49 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do **not** include API keys,
+        passwords, or `.env` contents in this report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: When I ... I expected ... but instead ...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: How are you running IoTSentinel?
+      options:
+        - Raspberry Pi image (.img)
+        - macOS / Linux (install.sh)
+        - Windows (install.bat)
+        - From source / development
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / tag
+      placeholder: e.g. v1.0.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output from data/logs/ or the browser console. Redact anything sensitive.
+      render: shell

@@ -7,23 +7,24 @@ Supports tables, charts, and formatted text.
 """
 
 import io
-import sqlite3
 import logging
+import sqlite3
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Optional
 from pathlib import Path
+
+from utils.report_datasets import devices_dataset, alerts_dataset, connections_dataset
 
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import (
         SimpleDocTemplate, Table, TableStyle, Paragraph,
         Spacer, PageBreak, Image, KeepTogether
     )
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-    from reportlab.pdfgen import canvas
+    from reportlab.lib.enums import (TA_CENTER, TA_RIGHT)
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -181,27 +182,7 @@ class PDFExporter:
             PDF file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT
-                    device_ip,
-                    device_name,
-                    device_type,
-                    mac_address,
-                    manufacturer,
-                    first_seen,
-                    last_seen,
-                    is_trusted,
-                    is_blocked
-                FROM devices
-                ORDER BY last_seen DESC
-            """)
-
-            devices = cursor.fetchall()
+            devices = devices_dataset(self.db_manager)
 
             # Create PDF
             buffer = io.BytesIO()
@@ -325,30 +306,7 @@ class PDFExporter:
             PDF file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            cursor.execute("""
-                SELECT
-                    a.id,
-                    a.timestamp,
-                    a.device_ip,
-                    d.device_name,
-                    a.severity,
-                    a.anomaly_score,
-                    a.explanation,
-                    a.acknowledged
-                FROM alerts a
-                LEFT JOIN devices d ON a.device_ip = d.device_ip
-                WHERE a.timestamp > ?
-                ORDER BY a.timestamp DESC
-            """, (cutoff_date.isoformat(),))
-
-            alerts = cursor.fetchall()
+            alerts = alerts_dataset(self.db_manager, days=days)
 
             # Create PDF
             buffer = io.BytesIO()
@@ -487,49 +445,12 @@ class PDFExporter:
             PDF file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-
-            if device_ip:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        bytes_sent,
-                        bytes_received,
-                        conn_state
-                    FROM connections
-                    WHERE device_ip = ? AND timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 500
-                """, (device_ip, cutoff_time.isoformat()))
-            else:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        bytes_sent,
-                        bytes_received,
-                        conn_state
-                    FROM connections
-                    WHERE timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 500
-                """, (cutoff_time.isoformat(),))
-
-            connections = cursor.fetchall()
+            connections = connections_dataset(
+                self.db_manager,
+                device_ip=device_ip,
+                hours=hours,
+                limit=500,  # Sensible cap for PDF page count
+            )
 
             # Create PDF
             buffer = io.BytesIO()

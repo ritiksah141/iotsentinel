@@ -6,7 +6,7 @@
 #   1. Checks Python 3.9+
 #   2. Creates a virtual environment (venv/)
 #   3. Installs Python dependencies
-#   4. Initialises the database (admin/admin — change in the wizard)
+#   4. Initialises the database schema (no default admin — you create one on first launch)
 #   5. Opens your browser to http://localhost:8050/setup
 #   6. Starts the dashboard
 
@@ -85,23 +85,55 @@ echo ""
 # ---------------------------------------------------------------------------
 # 4. Initialise database
 # ---------------------------------------------------------------------------
-echo -e "${YELLOW}Initialising database...${NC}"
-# Redirect stdin from /dev/null so init_database.py uses non-interactive defaults
+echo -e "${YELLOW}Initialising database schema...${NC}"
+# Redirect stdin from /dev/null so init_database.py runs non-interactively.
+# No default admin is created — IoTSentinel will prompt you to create one on first launch.
 python3 config/init_database.py </dev/null
-echo -e "${GREEN}✓ Database ready${NC}"
+echo -e "${GREEN}✓ Database schema ready${NC}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# 5. Open browser after a short delay (let the server start first)
+# 5. Schedule automated DB maintenance (backup + rotation via cron)
 # ---------------------------------------------------------------------------
+echo -e "${YELLOW}Scheduling database maintenance cron jobs...${NC}"
+if bash scripts/setup_db_automation.sh 2>/dev/null; then
+    echo -e "${GREEN}✓ DB maintenance cron jobs registered${NC}"
+else
+    echo -e "${YELLOW}⚠ Could not register cron jobs (run 'bash scripts/setup_db_automation.sh' manually)${NC}"
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# 6. Open browser after a short delay (let the server start first)
+# ---------------------------------------------------------------------------
+# Prefer a Chromium-based browser in --app mode so the dashboard launches as a
+# chromeless, native-feeling window (no tabs/address bar) — the "open like an app"
+# experience. Falls back to the default browser if none is found.
 open_browser() {
     sleep 4
     URL="http://localhost:8050/setup"
-    if command -v open &>/dev/null; then          # macOS
-        open "$URL"
-    elif command -v xdg-open &>/dev/null; then    # Linux (X11 / Wayland)
+
+    # macOS: launch a registered app bundle in app mode.
+    if [ "$(uname)" = "Darwin" ]; then
+        for app in "Google Chrome" "Microsoft Edge" "Brave Browser" "Chromium"; do
+            if [ -d "/Applications/$app.app" ]; then
+                open -na "$app" --args --app="$URL" && return
+            fi
+        done
+        command -v open &>/dev/null && open "$URL" && return
+    fi
+
+    # Linux: try Chromium-family binaries in --app mode.
+    for bin in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge brave-browser; do
+        if command -v "$bin" &>/dev/null; then
+            "$bin" --app="$URL" >/dev/null 2>&1 & return
+        fi
+    done
+
+    # Fallback: default browser (plain tab).
+    if command -v xdg-open &>/dev/null; then        # Linux (X11 / Wayland)
         xdg-open "$URL"
-    elif command -v wslview &>/dev/null; then      # WSL
+    elif command -v wslview &>/dev/null; then        # WSL
         wslview "$URL"
     fi
 }

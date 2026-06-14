@@ -11,11 +11,13 @@ import csv
 import sqlite3
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import (Dict, Any, Optional)
 from pathlib import Path
 import io
 import json
 from io import BytesIO
+
+from utils.report_datasets import devices_dataset, alerts_dataset, connections_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -89,26 +91,7 @@ class ReportGenerator:
             CSV string with device data
         """
         try:
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT
-                    device_ip,
-                    device_name,
-                    device_type,
-                    mac_address,
-                    manufacturer,
-                    first_seen,
-                    last_seen,
-                    is_trusted,
-                    is_blocked
-                FROM devices
-                ORDER BY last_seen DESC
-            """)
-
-            devices = cursor.fetchall()
+            devices = devices_dataset(self.db_manager)
 
             # Create CSV in memory
             output = io.StringIO()
@@ -155,29 +138,7 @@ class ReportGenerator:
             CSV string with alert data
         """
         try:
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            cursor.execute("""
-                SELECT
-                    a.id,
-                    a.timestamp,
-                    a.device_ip,
-                    d.device_name,
-                    a.severity,
-                    a.anomaly_score,
-                    a.explanation,
-                    a.acknowledged
-                FROM alerts a
-                LEFT JOIN devices d ON a.device_ip = d.device_ip
-                WHERE a.timestamp > ?
-                ORDER BY a.timestamp DESC
-            """, (cutoff_date.isoformat(),))
-
-            alerts = cursor.fetchall()
+            alerts = alerts_dataset(self.db_manager, days=days)
 
             # Create CSV in memory
             output = io.StringIO()
@@ -224,53 +185,14 @@ class ReportGenerator:
             CSV string with connection data
         """
         try:
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-
-            if device_ip:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        duration,
-                        bytes_sent,
-                        bytes_received,
-                        packets_sent,
-                        packets_received,
-                        conn_state
-                    FROM connections
-                    WHERE device_ip = ? AND timestamp > ?
-                    ORDER BY timestamp DESC
-                """, (device_ip, cutoff_time.isoformat()))
-            else:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        duration,
-                        bytes_sent,
-                        bytes_received,
-                        packets_sent,
-                        packets_received,
-                        conn_state
-                    FROM connections
-                    WHERE timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 10000
-                """, (cutoff_time.isoformat(),))
-
-            connections = cursor.fetchall()
+            # No limit for device-specific; cap all-device CSV at 10 000 rows
+            row_limit = None if device_ip else 10000
+            connections = connections_dataset(
+                self.db_manager,
+                device_ip=device_ip,
+                hours=hours,
+                limit=row_limit,
+            )
 
             # Create CSV in memory
             output = io.StringIO()
@@ -418,76 +340,6 @@ class ReportGenerator:
         except sqlite3.Error as e:
             logger.error(f"Database error generating statistics: {e}")
             return {}
-
-    def export_alert_rules_csv(self) -> str:
-        """
-        Export alert rules to CSV format.
-
-        Returns:
-            CSV string with alert rule data
-        """
-        try:
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT
-                    id,
-                    name,
-                    description,
-                    rule_type,
-                    condition_operator,
-                    threshold_value,
-                    time_window_hours,
-                    severity,
-                    is_enabled,
-                    trigger_count,
-                    last_triggered,
-                    created_at
-                FROM alert_rules
-                ORDER BY severity DESC, name ASC
-            """)
-
-            rules = cursor.fetchall()
-
-            # Create CSV in memory
-            output = io.StringIO()
-            writer = csv.writer(output)
-
-            # Write header
-            writer.writerow([
-                'Rule ID', 'Name', 'Description', 'Type', 'Condition',
-                'Threshold', 'Time Window (hrs)', 'Severity', 'Enabled',
-                'Trigger Count', 'Last Triggered', 'Created At'
-            ])
-
-            # Write data rows
-            for rule in rules:
-                writer.writerow([
-                    rule['id'],
-                    rule['name'],
-                    rule['description'] or '',
-                    rule['rule_type'],
-                    rule['condition_operator'],
-                    rule['threshold_value'] or 'N/A',
-                    rule['time_window_hours'],
-                    rule['severity'].upper(),
-                    'Yes' if rule['is_enabled'] else 'No',
-                    rule['trigger_count'] or 0,
-                    rule['last_triggered'] or 'Never',
-                    rule['created_at']
-                ])
-
-            csv_data = output.getvalue()
-            output.close()
-
-            logger.info(f"Exported {len(rules)} alert rules to CSV")
-            return csv_data
-
-        except sqlite3.Error as e:
-            logger.error(f"Database error exporting alert rules: {e}")
-            return ""
 
     def generate_executive_summary(self, days: int = 7) -> str:
         """
@@ -926,7 +778,7 @@ class ReportGenerator:
         """
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.styles import Font
 
             wb = Workbook()
             ws = wb.active

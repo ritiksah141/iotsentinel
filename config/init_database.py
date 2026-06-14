@@ -114,6 +114,8 @@ def init_database():
             acknowledged INTEGER DEFAULT 0,
             acknowledged_at TIMESTAMP,
             plain_explanation TEXT,
+            plain_explanation_ai INTEGER DEFAULT 0,
+            ai_source TEXT,
             FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
         )
     ''')
@@ -124,6 +126,41 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_device ON alerts(device_ip)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_devices_name ON devices(device_name)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)')
+
+    # Incidents — correlated groups of related alerts for the same device
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            device_ip TEXT NOT NULL,
+            title TEXT NOT NULL,
+            max_severity TEXT DEFAULT 'low',
+            status TEXT DEFAULT 'open',
+            alert_count INTEGER DEFAULT 1,
+            alert_ids TEXT NOT NULL,
+            FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
+        )
+    ''')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_incidents_device_status '
+        'ON incidents(device_ip, status, updated_at)'
+    )
+
+    # Alert suppressions — mute future alerts for a device for a window
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS alert_suppressions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_ip TEXT NOT NULL,
+            expires_at TIMESTAMP,          -- NULL means suppress indefinitely
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_suppressions_device '
+        'ON alert_suppressions(device_ip, expires_at)'
+    )
 
     # ML predictions
     cursor.execute('''
@@ -159,6 +196,43 @@ def init_database():
         )
     ''')
 
+    # Malicious domains table — populated by DomainBlocklistSync (URLhaus + seed)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS malicious_domains (
+            domain TEXT PRIMARY KEY,
+            source TEXT,
+            category TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_malicious_domains_domain ON malicious_domains(domain)'
+    )
+
+    # DNS queries table — populated by ZeekLogParser.parse_dns_log()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dns_queries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            device_ip TEXT NOT NULL,
+            query TEXT NOT NULL,
+            query_type TEXT,
+            answers TEXT,
+            flagged INTEGER DEFAULT 0,
+            threat_source TEXT,
+            FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
+        )
+    ''')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_dns_timestamp ON dns_queries(timestamp)'
+    )
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_dns_device ON dns_queries(device_ip)'
+    )
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_dns_flagged ON dns_queries(flagged, timestamp)'
+    )
+
     # Users table for authentication
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -170,20 +244,24 @@ def init_database():
             role TEXT CHECK(role IN ('admin', 'viewer')) DEFAULT 'viewer',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER DEFAULT 0
         )
     ''')
 
-    # Add email_verified column if table exists but column doesn't (migration)
-    try:
-        cursor.execute('ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0')
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    # Migrations: add columns that may be absent in existing databases
+    for _col, _ddl in [
+        ('email_verified', 'ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0'),
+        ('must_change_password', 'ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0'),
+    ]:
+        try:
+            cursor.execute(_ddl)
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     # Create default admin user
     import bcrypt
     import os
-    import getpass
 
     # Check if an admin user already exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
@@ -197,39 +275,38 @@ def init_database():
         cursor.execute("SELECT username FROM users WHERE role = 'admin' LIMIT 1")
         try:
             admin_username_to_print = cursor.fetchone()[0]
-        except TypeError: # No admin found, should not happen with admin_exists check but good practice
+        except TypeError:
             admin_username_to_print = "[existing admin]"
 
     else:
-        print("\n--- Create Admin User ---")
-        # Fallback for non-interactive environments (e.g., in a script or container)
-        if not sys.stdout.isatty():
-             admin_username = "admin"
-             admin_password = os.environ.get("IOTSENTINEL_ADMIN_PASSWORD", "admin")  # pragma: allowlist secret
-             if admin_password == "admin": # pragma: allowlist secret
-                print("  ⚠️  Running in a non-interactive shell. Using default admin credentials (admin/admin).")
-                print("     For production, set the IOTSENTINEL_ADMIN_PASSWORD environment variable for security.")
-        else: # Interactive prompt
-            admin_username = input("Enter admin username [default: admin]: ") or "admin"
-            while True:
-                admin_password = getpass.getpass(f"Enter password for '{admin_username}': ")
-                if not admin_password:
-                    print("Password cannot be empty. Please try again.")
-                    continue
-
-                confirm_password = getpass.getpass("Confirm password: ")
-                if admin_password == confirm_password:
-                    break
-                else:
-                    print("Passwords do not match. Please try again.")
-
-        admin_username_to_print = admin_username
-        password_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-        cursor.execute('''
-            INSERT OR IGNORE INTO users (username, password_hash, role)
-            VALUES (?, ?, ?)
-        ''', (admin_username, password_hash, 'admin'))
+        # HA-style: no default credentials ship.
+        # On first launch the app's onboarding UI creates the admin account.
+        #
+        # OPTIONAL HEADLESS SEED: if IOTSENTINEL_ADMIN_PASSWORD is explicitly
+        # set in the environment (e.g. in CI or automated Pi provisioning),
+        # create the admin now so the app can start without the wizard.
+        headless_password = os.environ.get("IOTSENTINEL_ADMIN_PASSWORD", "")  # pragma: allowlist secret
+        if headless_password:
+            admin_username = os.environ.get("IOTSENTINEL_ADMIN_USERNAME", "admin")
+            password_hash = bcrypt.hashpw(
+                headless_password.encode('utf-8'), bcrypt.gensalt()
+            ).decode('utf-8')
+            cursor.execute(
+                '''
+                INSERT OR IGNORE INTO users
+                    (username, password_hash, role, email_verified,
+                     must_change_password, is_active)
+                VALUES (?, ?, 'admin', 1, 0, 1)
+                ''',
+                (admin_username, password_hash),
+            )
+            admin_username_to_print = admin_username
+            print(f"\n  Admin account created from environment: '{admin_username}'")
+            print("  Remove IOTSENTINEL_ADMIN_PASSWORD from the environment after first launch.")
+        else:
+            print("\n  No admin account created.")
+            print("  IoTSentinel will prompt you to create one on first launch.")
+            admin_username_to_print = "(will be created on first launch)"
 
     # User Preferences table
     cursor.execute('''
@@ -575,7 +652,19 @@ def init_database():
 
     CREATE TABLE IF NOT EXISTS device_room_assignments (
         device_ip TEXT, room_id INTEGER, assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (device_ip, room_id)
+        PRIMARY KEY (device_ip, room_id),
+        FOREIGN KEY (room_id) REFERENCES smart_home_rooms(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS smart_home_automations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        condition_text TEXT,
+        action_text TEXT NOT NULL,
+        is_enabled INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS device_ecosystems (
@@ -1214,6 +1303,29 @@ def init_database():
     ''')
 
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_totp_user ON totp_secrets(user_id, enabled)')
+
+    # AI Agent Actions — pending / executed remediation decisions
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS agent_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_id INTEGER,
+            device_ip TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            params TEXT,
+            risk_level TEXT DEFAULT 'low',
+            rationale TEXT,
+            plain_report TEXT,
+            status TEXT DEFAULT 'pending',
+            investigation TEXT,
+            ai_source TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP,
+            resolved_by TEXT,
+            FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE SET NULL
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_actions_status ON agent_actions(status, created_at DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_actions_device ON agent_actions(device_ip, created_at DESC)')
 
     conn.commit()
     # No need to close - using shared connection from db_manager

@@ -1,0 +1,31 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff
+
+      # Gating check: the high-signal correctness rules from pyproject.toml.
+      - name: ruff check
+        run: ruff check .
+
+      # Advisory: surface formatting drift without failing the build.
+      - name: ruff format (advisory)
+        run: ruff format --check --diff .
+        continue-on-error: true

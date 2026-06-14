@@ -14,7 +14,6 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
-import tempfile
 import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -596,3 +595,181 @@ class TestCleanupOldBackups:
 class TestEnsureConnection:
     def test_ensure_connection_alive(self, db):
         db._ensure_connection()  # should not raise when connection is fine
+
+
+# ── migration v5 ──────────────────────────────────────────────────────────────
+
+class TestMigrationV5:
+    """
+    Verifies _migrate_to_v5 on two real-world upgrade scenarios:
+      1. Fresh upgrade path: DB at v4 with no must_change_password column
+         and no smart_home tables at all.
+      2. Legacy automations table path: smart_home_automations exists but
+         has the old schema (wrong columns). Migration must drop and recreate.
+    """
+
+    def _build_v4_db_raw(self, db_path: str) -> None:
+        """
+        Build a pre-migration (v4) DB using raw sqlite3, bypassing DatabaseManager.
+        This avoids DatabaseManager.__init__ auto-running migrate_schema() and
+        creating all v5 tables before we can test the migration path.
+        """
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS devices (
+                device_ip TEXT PRIMARY KEY, device_name TEXT, device_type TEXT,
+                mac_address TEXT, manufacturer TEXT, is_blocked INTEGER DEFAULT 0,
+                is_trusted INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_ip TEXT, severity TEXT, explanation TEXT
+            );
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                email TEXT,
+                email_verified INTEGER DEFAULT 0,
+                role TEXT DEFAULT 'viewer',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+        # Set schema version to 4 (simulate a DB that has completed v4 migration)
+        conn.execute("PRAGMA user_version = 4")
+        conn.commit()
+        conn.close()
+
+    def _open_and_migrate(self, db_path: str):
+        """Open the pre-built DB via DatabaseManager (triggers migrate_schema from v4→v5)."""
+        # Ensure no cached singleton from a previous test
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+        return DatabaseManager(db_path)
+
+    def test_v5_migration_adds_must_change_password_column(self, tmp_path):
+        """Fresh upgrade: must_change_password column must be created."""
+        db_path = str(tmp_path / 'v4_users.db')
+        self._build_v4_db_raw(db_path)
+
+        # Confirm column absent BEFORE migration (raw read)
+        raw = sqlite3.connect(db_path)
+        cols_before = {r[1] for r in raw.execute('PRAGMA table_info(users)').fetchall()}
+        raw.close()
+        assert 'must_change_password' not in cols_before
+
+        # Open via DatabaseManager → auto-runs migrate_schema v4→v5
+        db = self._open_and_migrate(db_path)
+
+        cols_after = {r[1] for r in db.conn.execute('PRAGMA table_info(users)').fetchall()}
+        assert 'must_change_password' in cols_after
+        assert db.get_schema_version() >= 5
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+    def test_v5_migration_creates_smart_home_rooms_table(self, tmp_path):
+        """Fresh upgrade: smart_home_rooms and device_room_assignments created."""
+        db_path = str(tmp_path / 'v4_rooms.db')
+        self._build_v4_db_raw(db_path)
+
+        # Confirm tables absent before migration
+        raw = sqlite3.connect(db_path)
+        tables_before = {r[0] for r in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        raw.close()
+        assert 'smart_home_rooms' not in tables_before
+        assert 'device_room_assignments' not in tables_before
+
+        db = self._open_and_migrate(db_path)
+
+        tables_after = {r[0] for r in db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        assert 'smart_home_rooms' in tables_after
+        assert 'device_room_assignments' in tables_after
+        room_cols = {r[1] for r in db.conn.execute('PRAGMA table_info(smart_home_rooms)').fetchall()}
+        assert {'id', 'room_name', 'room_type', 'floor_level', 'icon', 'created_at'} == room_cols
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+    def test_v5_migration_creates_smart_home_automations_fresh(self, tmp_path):
+        """Fresh upgrade: smart_home_automations created with the new schema."""
+        db_path = str(tmp_path / 'v4_auto.db')
+        self._build_v4_db_raw(db_path)
+
+        db = self._open_and_migrate(db_path)
+
+        auto_cols = {r[1] for r in db.conn.execute(
+            'PRAGMA table_info(smart_home_automations)'
+        ).fetchall()}
+        assert {'id', 'name', 'trigger_type', 'condition_text',
+                'action_text', 'is_enabled', 'created_at', 'updated_at'} == auto_cols
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+    def test_v5_migration_recreates_old_automations_table(self, tmp_path):
+        """
+        Legacy path: smart_home_automations exists with the OLD schema
+        (automation_name, trigger_device_ip, …). Migration must drop and recreate.
+        """
+        db_path = str(tmp_path / 'v4_legacy_auto.db')
+        self._build_v4_db_raw(db_path)
+
+        # Plant the old table schema using raw sqlite3
+        raw = sqlite3.connect(db_path)
+        raw.execute("""
+            CREATE TABLE smart_home_automations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                automation_name TEXT,
+                trigger_device_ip TEXT,
+                trigger_event TEXT,
+                action_devices TEXT,
+                action_description TEXT,
+                execution_time TEXT,
+                success INTEGER DEFAULT 0
+            )
+        """)
+        raw.commit()
+        old_cols = {r[1] for r in raw.execute(
+            'PRAGMA table_info(smart_home_automations)'
+        ).fetchall()}
+        raw.close()
+        assert 'automation_name' in old_cols
+        assert 'name' not in old_cols
+
+        db = self._open_and_migrate(db_path)
+
+        new_cols = {r[1] for r in db.conn.execute(
+            'PRAGMA table_info(smart_home_automations)'
+        ).fetchall()}
+        assert 'name' in new_cols
+        assert 'trigger_type' in new_cols
+        assert 'automation_name' not in new_cols
+        assert db.get_schema_version() >= 5
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+    def test_v5_migration_idempotent_on_already_migrated_db(self, tmp_path):
+        """Running migrate_schema on an already-v5 DB is a no-op."""
+        db_path = str(tmp_path / 'v5_already.db')
+        self._build_v4_db_raw(db_path)
+        db = self._open_and_migrate(db_path)  # migrates to v5
+        assert db.get_schema_version() >= 5
+
+        result = db.migrate_schema()  # second call — must not raise or corrupt
+        assert result is True
+        assert db.get_schema_version() >= 5
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)

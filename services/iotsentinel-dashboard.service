@@ -1,7 +1,7 @@
 [Unit]
 Description=IoTSentinel Web Dashboard
 After=iotsentinel-backend.service
-BindsTo=iotsentinel-backend.service
+Wants=iotsentinel-backend.service
 
 [Service]
 Type=simple

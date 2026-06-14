@@ -1,5 +1,6 @@
 """Integrations & API callbacks — Email, API Hub, External Integrations."""
 
+import json
 import os
 import smtplib
 import logging
@@ -9,11 +10,12 @@ from email.mime.multipart import MIMEMultipart
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
+from dash import (html, Input, Output, State, callback_context, ALL, no_update)
 from flask_login import login_required, current_user
 
 from dashboard.shared import (
     db_manager,
+    config,
     export_helper,
     security_audit_logger,
     get_db_connection,
@@ -126,6 +128,47 @@ def register(app):
             )
             return toast, dash.no_update  # Keep modal open on error
 
+    # ------------------------------------------------------------------
+    # SMTP credentials save — writes to .env
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output('smtp-save-result', 'children'),
+        Input('smtp-settings-save-btn', 'n_clicks'),
+        [State('smtp-host-input', 'value'),
+         State('smtp-port-input', 'value'),
+         State('smtp-user-input', 'value'),
+         State('smtp-password-input', 'value')],
+        prevent_initial_call=True,
+    )
+    def save_smtp_credentials(n_clicks, host, port, user, password):
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        try:
+            env_updates = {}
+            if host and host.strip():
+                env_updates['EMAIL_SMTP_HOST'] = host.strip()
+            if port:
+                env_updates['EMAIL_SMTP_PORT'] = str(int(port))
+            if user and user.strip():
+                env_updates['EMAIL_SMTP_USER'] = user.strip()
+                env_updates['EMAIL_SENDER_EMAIL'] = user.strip()
+                env_updates['EMAIL_RECIPIENT_EMAIL'] = user.strip()
+            if password and password.strip():
+                env_updates['EMAIL_SMTP_PASSWORD'] = password.strip()
+            if not env_updates:
+                return dbc.Alert("Enter at least one field to save.", color="warning", duration=3000)
+            config.write_env(env_updates)
+            logger.info("SMTP credentials updated via email modal.")
+            return dbc.Alert([
+                html.Strong("Saved. "),
+                "Open the Test & History tab and send a test email to verify.",
+            ], color="success", duration=8000)
+        except Exception as e:
+            logger.error(f"Failed to save SMTP credentials: {e}")
+            return dbc.Alert(f"Error: {str(e)}", color="danger", duration=6000)
+
     @app.callback(
         Output('toast-container', 'children', allow_duplicate=True),
         Input('test-email-btn', 'n_clicks'),
@@ -178,7 +221,7 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 If you received this email, your email notification settings are configured correctly!
 
 ---
-IoTSentinel Network Security Monitor
+IoTSentinel AI-Powered Edge Network Guardian
 """
 
             html_content = f"""
@@ -205,7 +248,7 @@ IoTSentinel Network Security Monitor
         </div>
 
         <div style="margin-top: 20px; text-align: center; font-size: 12px; color: #999;">
-            <p>IoTSentinel - Network Security Monitoring System</p>
+            <p>IoTSentinel - AI-Powered Edge Network Guardian</p>
         </div>
     </div>
 </body>
@@ -242,21 +285,201 @@ IoTSentinel Network Security Monitor
 
     @app.callback(
         Output("email-modal", "is_open"),
-        [Input("email-card-btn", "n_clicks"),
-         Input("close-email-modal-btn", "n_clicks")],
+        Input("email-card-btn", "n_clicks"),
         State("email-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_email_modal(open_clicks, close_clicks, is_open):
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise dash.exceptions.PreventUpdate
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-email-modal-btn':
-            return False
-        if trigger_id == 'email-card-btn' and open_clicks:
-            return not is_open
-        return is_open
+    def toggle_email_modal(open_clicks, is_open):
+        return not is_open
+
+    # ========================================================================
+    # PUSH NOTIFICATION CHANNELS — save + test callbacks
+    # ========================================================================
+
+    def _push_test_alert():
+        """Minimal fake alert object for channel test sends."""
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            severity="high",
+            device_ip="192.168.1.1",
+            device_name="Test Device",
+            anomaly_score=0.95,
+            explanation="This is a test notification from IoTSentinel.",
+            timestamp=datetime.now().isoformat(),
+        )
+
+    def _push_config(section_values: dict):
+        """Thin config shim that serves values from a plain dict."""
+        class _Cfg:
+            def get(self, section, key, default=None):
+                if section == "notifications":
+                    return section_values.get(key, default)
+                return default
+        return _Cfg()
+
+    # ── ntfy ──────────────────────────────────────────────────────────────
+
+    @app.callback(
+        Output("notif-ntfy-result", "children"),
+        Input("notif-ntfy-save-btn", "n_clicks"),
+        Input("notif-ntfy-test-btn", "n_clicks"),
+        State("notif-ntfy-topic", "value"),
+        State("notif-ntfy-server", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_ntfy(save_clicks, test_clicks, topic, server):
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        triggered = callback_context.triggered_id
+        topic  = (topic  or "").strip()
+        server = (server or "https://ntfy.sh").strip().rstrip("/")
+        if not topic:
+            return dbc.Alert("Topic is required.", color="warning", duration=3000)
+        if triggered == "notif-ntfy-save-btn":
+            try:
+                config.write_env({
+                    "NOTIFICATIONS_NTFY_ENABLED": "true",
+                    "NOTIFICATIONS_NTFY_SERVER":  server,
+                    "NOTIFICATIONS_NTFY_TOPIC":   topic,
+                })
+                os.environ["NOTIFICATIONS_NTFY_ENABLED"] = "true"
+                os.environ["NOTIFICATIONS_NTFY_SERVER"]  = server
+                os.environ["NOTIFICATIONS_NTFY_TOPIC"]   = topic
+                return dbc.Alert(f"Saved. Subscribe at {server}/{topic}", color="success", duration=6000)
+            except Exception as exc:
+                return dbc.Alert(f"Error: {exc}", color="danger", duration=6000)
+        if triggered == "notif-ntfy-test-btn":
+            from alerts.push_notifiers import NtfyNotifier
+            cfg = _push_config({"ntfy_enabled": "true", "ntfy_topic": topic, "ntfy_server": server})
+            result = NtfyNotifier(cfg).send(_push_test_alert())
+            if result.success:
+                return dbc.Alert(f"Test sent to {server}/{topic}. Check your phone.", color="success", duration=6000)
+            return dbc.Alert(f"Failed: {result.message}", color="danger", duration=6000)
+        raise dash.exceptions.PreventUpdate
+
+    # ── Telegram ──────────────────────────────────────────────────────────
+
+    @app.callback(
+        Output("notif-telegram-result", "children"),
+        Input("notif-telegram-save-btn", "n_clicks"),
+        Input("notif-telegram-test-btn", "n_clicks"),
+        State("notif-telegram-token", "value"),
+        State("notif-telegram-chat", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_telegram(save_clicks, test_clicks, token, chat_id):
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        triggered = callback_context.triggered_id
+        # When the placeholder shows "(set)" the user may not have re-entered the token.
+        # Fall back to env if the field is empty.
+        token   = (token   or "").strip() or os.getenv("NOTIFICATIONS_TELEGRAM_BOT_TOKEN", "")
+        chat_id = (chat_id or "").strip() or os.getenv("NOTIFICATIONS_TELEGRAM_CHAT_ID",   "")
+        if not token or not chat_id:
+            return dbc.Alert("Bot token and chat ID are both required.", color="warning", duration=3000)
+        if triggered == "notif-telegram-save-btn":
+            try:
+                config.write_env({
+                    "NOTIFICATIONS_TELEGRAM_ENABLED":   "true",
+                    "NOTIFICATIONS_TELEGRAM_BOT_TOKEN": token,
+                    "NOTIFICATIONS_TELEGRAM_CHAT_ID":   chat_id,
+                })
+                os.environ["NOTIFICATIONS_TELEGRAM_ENABLED"]   = "true"
+                os.environ["NOTIFICATIONS_TELEGRAM_BOT_TOKEN"] = token
+                os.environ["NOTIFICATIONS_TELEGRAM_CHAT_ID"]   = chat_id
+                return dbc.Alert("Telegram credentials saved.", color="success", duration=5000)
+            except Exception as exc:
+                return dbc.Alert(f"Error: {exc}", color="danger", duration=6000)
+        if triggered == "notif-telegram-test-btn":
+            from alerts.push_notifiers import TelegramNotifier
+            cfg = _push_config({
+                "telegram_enabled": "true",
+                "telegram_bot_token": token,
+                "telegram_chat_id":   chat_id,
+            })
+            result = TelegramNotifier(cfg).send(_push_test_alert())
+            if result.success:
+                return dbc.Alert("Test message sent to Telegram.", color="success", duration=5000)
+            return dbc.Alert(f"Failed: {result.message}", color="danger", duration=6000)
+        raise dash.exceptions.PreventUpdate
+
+    # ── Discord ───────────────────────────────────────────────────────────
+
+    @app.callback(
+        Output("notif-discord-result", "children"),
+        Input("notif-discord-save-btn", "n_clicks"),
+        Input("notif-discord-test-btn", "n_clicks"),
+        State("notif-discord-webhook", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_discord(save_clicks, test_clicks, webhook_url):
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        triggered = callback_context.triggered_id
+        webhook_url = (webhook_url or "").strip() or os.getenv("NOTIFICATIONS_DISCORD_WEBHOOK_URL", "")
+        if not webhook_url:
+            return dbc.Alert("Webhook URL is required.", color="warning", duration=3000)
+        if triggered == "notif-discord-save-btn":
+            try:
+                config.write_env({
+                    "NOTIFICATIONS_DISCORD_ENABLED":     "true",
+                    "NOTIFICATIONS_DISCORD_WEBHOOK_URL": webhook_url,
+                })
+                os.environ["NOTIFICATIONS_DISCORD_ENABLED"]     = "true"
+                os.environ["NOTIFICATIONS_DISCORD_WEBHOOK_URL"] = webhook_url
+                return dbc.Alert("Discord webhook saved.", color="success", duration=5000)
+            except Exception as exc:
+                return dbc.Alert(f"Error: {exc}", color="danger", duration=6000)
+        if triggered == "notif-discord-test-btn":
+            from alerts.push_notifiers import DiscordNotifier
+            cfg = _push_config({
+                "discord_enabled":     "true",
+                "discord_webhook_url": webhook_url,
+            })
+            result = DiscordNotifier(cfg).send(_push_test_alert())
+            if result.success:
+                return dbc.Alert("Test embed sent to Discord.", color="success", duration=5000)
+            return dbc.Alert(f"Failed: {result.message}", color="danger", duration=6000)
+        raise dash.exceptions.PreventUpdate
+
+    # ── Generic webhook ───────────────────────────────────────────────────
+
+    @app.callback(
+        Output("notif-webhook-result", "children"),
+        Input("notif-webhook-save-btn", "n_clicks"),
+        Input("notif-webhook-test-btn", "n_clicks"),
+        State("notif-webhook-url", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_push_webhook(save_clicks, test_clicks, webhook_url):
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        triggered = callback_context.triggered_id
+        webhook_url = (webhook_url or "").strip() or os.getenv("NOTIFICATIONS_WEBHOOK_URL", "")
+        if not webhook_url:
+            return dbc.Alert("Endpoint URL is required.", color="warning", duration=3000)
+        if triggered == "notif-webhook-save-btn":
+            try:
+                config.write_env({
+                    "NOTIFICATIONS_WEBHOOK_ENABLED": "true",
+                    "NOTIFICATIONS_WEBHOOK_URL":     webhook_url,
+                })
+                os.environ["NOTIFICATIONS_WEBHOOK_ENABLED"] = "true"
+                os.environ["NOTIFICATIONS_WEBHOOK_URL"]     = webhook_url
+                return dbc.Alert("Webhook endpoint saved.", color="success", duration=5000)
+            except Exception as exc:
+                return dbc.Alert(f"Error: {exc}", color="danger", duration=6000)
+        if triggered == "notif-webhook-test-btn":
+            from alerts.push_notifiers import WebhookNotifier
+            cfg = _push_config({
+                "webhook_enabled": "true",
+                "webhook_url":     webhook_url,
+            })
+            result = WebhookNotifier(cfg).send(_push_test_alert())
+            if result.success:
+                return dbc.Alert(f"Test payload posted to {webhook_url[:60]}.", color="success", duration=5000)
+            return dbc.Alert(f"Failed: {result.message}", color="danger", duration=6000)
+        raise dash.exceptions.PreventUpdate
 
     # ========================================================================
     # EMAIL HISTORY LIST
@@ -501,12 +724,11 @@ This is an automated weekly report from IoTSentinel.'''
 
     @app.callback(
         Output("api-hub-modal", "is_open"),
-        [Input("api-hub-card-btn", "n_clicks"),
-         Input("api-hub-close-btn", "n_clicks")],
+        Input("api-hub-card-btn", "n_clicks"),
         State("api-hub-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_api_hub_modal(open_clicks, close_clicks, is_open):
+    def toggle_api_hub_modal(open_clicks, is_open):
         return not is_open
 
     # ========================================================================
@@ -541,8 +763,10 @@ This is an automated weekly report from IoTSentinel.'''
             conn = get_db_connection()
             mgr = IntegrationManager(db_manager)
 
-            # Get all integrations
-            integrations = mgr.get_all_integrations()
+            # Get integrations filtered by deployment tier
+            deployment_tier = config.get('system', 'deployment_tier', 'household')
+            max_tier = 'advanced' if deployment_tier == 'household' else 'enterprise'
+            integrations = mgr.get_all_integrations(max_tier=max_tier)
 
             # Calculate stats
             enabled_count = sum(1 for i in integrations if i['is_enabled'])
@@ -752,14 +976,22 @@ This is an automated weekly report from IoTSentinel.'''
                                 html.H6([html.I(className="fa fa-tachometer-alt me-2"), "Rate Limiting"], className="mb-3"),
                                 dbc.Row([
                                     dbc.Col([
-                                        html.Label("Global Daily Request Limit", className="form-label"),
-                                        dbc.Input(type="number", value=10000, disabled=True, size="sm"),
-                                        html.Small("Maximum total API requests per day across all integrations", className="text-muted")
+                                        html.P("Global Daily Request Limit", className="form-label mb-1"),
+                                        html.Div([
+                                            html.Span("10,000 requests / day",
+                                                      className="badge bg-secondary text-white me-2 py-2 px-3"),
+                                            html.Small("(system default)", className="text-muted"),
+                                        ]),
+                                        html.Small("Maximum total API requests per day across all integrations", className="text-muted mt-1 d-block")
                                     ], md=6),
                                     dbc.Col([
-                                        html.Label("Request Timeout (seconds)", className="form-label"),
-                                        dbc.Input(type="number", value=30, disabled=True, size="sm"),
-                                        html.Small("Maximum time to wait for API responses", className="text-muted")
+                                        html.P("Request Timeout", className="form-label mb-1"),
+                                        html.Div([
+                                            html.Span("30 seconds",
+                                                      className="badge bg-secondary text-white me-2 py-2 px-3"),
+                                            html.Small("(system default)", className="text-muted"),
+                                        ]),
+                                        html.Small("Maximum time to wait for API responses", className="text-muted mt-1 d-block")
                                     ], md=6)
                                 ], className="mb-4"),
 
@@ -777,17 +1009,17 @@ This is an automated weekly report from IoTSentinel.'''
 
                                 dbc.Row([
                                     dbc.Col([
-                                        html.Label("Encryption Status", className="form-label"),
-                                        dbc.InputGroup([
-                                            dbc.InputGroupText(html.I(className="fa fa-check-circle text-success")),
-                                            dbc.Input(value="Active - AES-256 Fernet", disabled=True, size="sm")
+                                        html.P("Encryption Status", className="form-label mb-1"),
+                                        html.Div([
+                                            html.I(className="fa fa-check-circle text-success me-2"),
+                                            html.Span("Active — AES-256 Fernet", className="text-success fw-semibold"),
                                         ]),
                                     ], md=6),
                                     dbc.Col([
-                                        html.Label("Credential Storage", className="form-label"),
-                                        dbc.InputGroup([
-                                            dbc.InputGroupText(html.I(className="fa fa-database text-info")),
-                                            dbc.Input(value="SQLite - Encrypted Blobs", disabled=True, size="sm")
+                                        html.P("Credential Storage", className="form-label mb-1"),
+                                        html.Div([
+                                            html.I(className="fa fa-database text-info me-2"),
+                                            html.Span("SQLite — Encrypted Blobs", className="text-info fw-semibold"),
                                         ]),
                                     ], md=6)
                                 ], className="mb-4"),
@@ -1150,7 +1382,7 @@ This is an automated weekly report from IoTSentinel.'''
             return dash.no_update
 
         ctx = callback_context
-        button_id = eval(ctx.triggered[0]['prop_id'].split('.')[0])
+        button_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
         integration_id = button_id['index']
 
         try:
@@ -1223,7 +1455,7 @@ This is an automated weekly report from IoTSentinel.'''
             return dash.no_update
 
         ctx = callback_context
-        button_id = eval(ctx.triggered[0]['prop_id'].split('.')[0])
+        button_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
         integration_id = button_id['index']
 
         try:

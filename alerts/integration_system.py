@@ -2,12 +2,12 @@
 """
 Integration System for IoTSentinel
 
-Manages 28 free-tier external API integrations across 5 categories:
-- Threat Intelligence (8): AbuseIPDB, VirusTotal, OTX, GreyNoise, IPQualityScore, ThreatFox, Shodan, NVD
-- Geolocation (3): IPinfo, IP-API, IPGeolocation
-- Notifications (5): Slack, Discord, Telegram, Pushover, Email (SMTP)
-- Ticketing (4): GitHub Issues, GitLab Issues, Trello, Linear
-- Webhooks (4): Custom webhook, Zapier, IFTTT, n8n
+Manages 17 integrations across 5 categories:
+- Threat Intelligence (4): AbuseIPDB, VirusTotal, OTX, GreyNoise
+- Geolocation (2): IPinfo, IP-API
+- Notifications (6): ntfy, Slack, Discord, Telegram, Pushover, Email (SMTP)
+- Ticketing (3): GitHub Issues, GitLab Issues, Trello
+- Webhooks (2): Zapier, IFTTT
 
 All integrations use encrypted credential storage and have real-time health checks.
 
@@ -25,8 +25,6 @@ Usage:
 
 import logging
 import json
-import sqlite3
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import sys
@@ -42,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Integration definitions with free tier limits
 INTEGRATIONS = {
     # =================================================================
-    # THREAT INTELLIGENCE (6 integrations)
+    # THREAT INTELLIGENCE (4 integrations)
     # =================================================================
     'abuseipdb': {
         'name': 'AbuseIPDB',
@@ -56,7 +54,8 @@ INTEGRATIONS = {
         'docs_url': 'https://docs.abuseipdb.com/',
         'setup_fields': ['api_key'],
         'test_method': 'check_ip',
-        'icon': 'shield-alt'
+        'icon': 'shield-alt',
+        'tier': 'essential'
     },
     'virustotal': {
         'name': 'VirusTotal',
@@ -70,7 +69,8 @@ INTEGRATIONS = {
         'docs_url': 'https://developers.virustotal.com/',
         'setup_fields': ['api_key'],
         'test_method': 'check_ip',
-        'icon': 'virus'
+        'icon': 'virus',
+        'tier': 'advanced'
     },
     'alienvault_otx': {
         'name': 'AlienVault OTX',
@@ -84,7 +84,8 @@ INTEGRATIONS = {
         'docs_url': 'https://otx.alienvault.com/api',
         'setup_fields': ['api_key'],
         'test_method': 'check_ip',
-        'icon': 'satellite-dish'
+        'icon': 'satellite-dish',
+        'tier': 'advanced'
     },
     'greynoise': {
         'name': 'GreyNoise',
@@ -98,67 +99,12 @@ INTEGRATIONS = {
         'docs_url': 'https://docs.greynoise.io/',
         'setup_fields': ['api_key'],
         'test_method': 'check_ip',
-        'icon': 'search'
-    },
-    'ipqualityscore': {
-        'name': 'IPQualityScore',
-        'category': 'threat_intel',
-        'priority': 'medium',
-        'description': 'IP reputation, proxy/VPN detection, fraud prevention',
-        'free_tier': '5,000 requests/month',
-        'rate_limit_day': 200,
-        'rate_limit_month': 5000,
-        'api_endpoint': 'https://ipqualityscore.com/api/json/ip/',
-        'docs_url': 'https://www.ipqualityscore.com/documentation/overview',
-        'setup_fields': ['api_key'],
-        'test_method': 'check_ip',
-        'icon': 'fingerprint'
-    },
-    'threatfox': {
-        'name': 'ThreatFox',
-        'category': 'threat_intel',
-        'priority': 'medium',
-        'description': 'Malware indicators of compromise (IOCs) sharing platform',
-        'free_tier': 'Unlimited (free)',
-        'rate_limit_day': None,
-        'rate_limit_month': None,
-        'api_endpoint': 'https://threatfox-api.abuse.ch/api/v1/',
-        'docs_url': 'https://threatfox.abuse.ch/api/',
-        'setup_fields': [],  # No API key required
-        'test_method': 'search_ioc',
-        'icon': 'biohazard'
-    },
-    'shodan': {
-        'name': 'Shodan',
-        'category': 'threat_intel',
-        'priority': 'medium',
-        'description': 'Internet-connected devices search engine',
-        'free_tier': '100 query credits/month',
-        'rate_limit_day': 10,
-        'rate_limit_month': 100,
-        'api_endpoint': 'https://api.shodan.io/shodan/host/',
-        'docs_url': 'https://developer.shodan.io/',
-        'setup_fields': ['api_key'],
-        'test_method': 'host_lookup',
-        'icon': 'search-location'
-    },
-    'nvd': {
-        'name': 'NVD (National Vulnerability Database)',
-        'category': 'threat_intel',
-        'priority': 'high',
-        'description': 'CVE vulnerability database from NIST',
-        'free_tier': '50 requests/30s with key',
-        'rate_limit_day': 5000,
-        'rate_limit_month': 150000,
-        'api_endpoint': 'https://services.nvd.nist.gov/rest/json/cves/2.0',
-        'docs_url': 'https://nvd.nist.gov/developers',
-        'setup_fields': ['api_key'],
-        'test_method': 'search_cve',
-        'icon': 'shield-virus'
+        'icon': 'search',
+        'tier': 'advanced'
     },
 
     # =================================================================
-    # GEOLOCATION (3 integrations)
+    # GEOLOCATION (2 integrations)
     # =================================================================
     'ipinfo': {
         'name': 'IPinfo',
@@ -172,7 +118,8 @@ INTEGRATIONS = {
         'docs_url': 'https://ipinfo.io/developers',
         'setup_fields': ['api_key'],
         'test_method': 'lookup_ip',
-        'icon': 'globe'
+        'icon': 'globe',
+        'tier': 'advanced'
     },
     'ip_api': {
         'name': 'IP-API',
@@ -186,26 +133,28 @@ INTEGRATIONS = {
         'docs_url': 'https://ip-api.com/docs',
         'setup_fields': [],  # No API key required
         'test_method': 'lookup_ip',
-        'icon': 'map-marker-alt'
-    },
-    'ipgeolocation': {
-        'name': 'IPGeolocation',
-        'category': 'geolocation',
-        'priority': 'low',
-        'description': 'IP geolocation with timezone and currency info',
-        'free_tier': '1,000 requests/day',
-        'rate_limit_day': 1000,
-        'rate_limit_month': 30000,
-        'api_endpoint': 'https://api.ipgeolocation.io/ipgeo',
-        'docs_url': 'https://ipgeolocation.io/documentation.html',
-        'setup_fields': ['api_key'],
-        'test_method': 'lookup_ip',
-        'icon': 'compass'
+        'icon': 'map-marker-alt',
+        'tier': 'essential'
     },
 
     # =================================================================
-    # NOTIFICATIONS (5 integrations)
+    # NOTIFICATIONS (6 integrations)
     # =================================================================
+    'ntfy': {
+        'name': 'ntfy.sh',
+        'category': 'notifications',
+        'priority': 'high',
+        'description': 'Zero-account phone push notifications (no sign-up required)',
+        'free_tier': 'Unlimited (self-hosted or ntfy.sh)',
+        'rate_limit_day': None,
+        'rate_limit_month': None,
+        'api_endpoint': 'https://ntfy.sh',
+        'docs_url': 'https://docs.ntfy.sh',
+        'setup_fields': ['topic', 'server_url'],
+        'test_method': 'send_message',
+        'icon': 'bell',
+        'tier': 'advanced'
+    },
     'slack': {
         'name': 'Slack',
         'category': 'notifications',
@@ -218,7 +167,8 @@ INTEGRATIONS = {
         'docs_url': 'https://api.slack.com/messaging/webhooks',
         'setup_fields': ['webhook_url'],
         'test_method': 'send_message',
-        'icon': 'slack'
+        'icon': 'slack',
+        'tier': 'advanced'
     },
     'discord': {
         'name': 'Discord',
@@ -232,7 +182,8 @@ INTEGRATIONS = {
         'docs_url': 'https://discord.com/developers/docs/resources/webhook',
         'setup_fields': ['webhook_url'],
         'test_method': 'send_message',
-        'icon': 'discord'
+        'icon': 'discord',
+        'tier': 'advanced'
     },
     'telegram': {
         'name': 'Telegram',
@@ -246,7 +197,8 @@ INTEGRATIONS = {
         'docs_url': 'https://core.telegram.org/bots/api',
         'setup_fields': ['bot_token', 'chat_id'],
         'test_method': 'send_message',
-        'icon': 'telegram'
+        'icon': 'telegram',
+        'tier': 'advanced'
     },
     'pushover': {
         'name': 'Pushover',
@@ -260,7 +212,8 @@ INTEGRATIONS = {
         'docs_url': 'https://pushover.net/api',
         'setup_fields': ['user_key', 'api_token'],
         'test_method': 'send_message',
-        'icon': 'mobile-alt'
+        'icon': 'mobile-alt',
+        'tier': 'advanced'
     },
     'email_smtp': {
         'name': 'Email (SMTP)',
@@ -274,11 +227,12 @@ INTEGRATIONS = {
         'docs_url': 'https://en.wikipedia.org/wiki/Simple_Mail_Transfer_Protocol',
         'setup_fields': ['smtp_server', 'smtp_port', 'username', 'password', 'from_email', 'to_email'],
         'test_method': 'send_email',
-        'icon': 'envelope'
+        'icon': 'envelope',
+        'tier': 'essential'
     },
 
     # =================================================================
-    # TICKETING (4 integrations)
+    # TICKETING (3 integrations)
     # =================================================================
     'github_issues': {
         'name': 'GitHub Issues',
@@ -292,7 +246,8 @@ INTEGRATIONS = {
         'docs_url': 'https://docs.github.com/en/rest/issues',
         'setup_fields': ['personal_access_token', 'repo_owner', 'repo_name'],
         'test_method': 'create_issue',
-        'icon': 'github'
+        'icon': 'github',
+        'tier': 'enterprise'
     },
     'gitlab_issues': {
         'name': 'GitLab Issues',
@@ -306,7 +261,8 @@ INTEGRATIONS = {
         'docs_url': 'https://docs.gitlab.com/ee/api/issues.html',
         'setup_fields': ['personal_access_token', 'project_id'],
         'test_method': 'create_issue',
-        'icon': 'gitlab'
+        'icon': 'gitlab',
+        'tier': 'enterprise'
     },
     'trello': {
         'name': 'Trello',
@@ -320,40 +276,13 @@ INTEGRATIONS = {
         'docs_url': 'https://developer.atlassian.com/cloud/trello/rest/',
         'setup_fields': ['api_key', 'api_token', 'board_id', 'list_id'],
         'test_method': 'create_card',
-        'icon': 'trello'
-    },
-    'linear': {
-        'name': 'Linear',
-        'category': 'ticketing',
-        'priority': 'medium',
-        'description': 'Create issues in Linear project management',
-        'free_tier': 'Unlimited (free tier)',
-        'rate_limit_day': None,
-        'rate_limit_month': None,
-        'api_endpoint': 'https://api.linear.app/graphql',
-        'docs_url': 'https://developers.linear.app/docs/graphql/working-with-the-graphql-api',
-        'setup_fields': ['api_key', 'team_id'],
-        'test_method': 'create_issue',
-        'icon': 'tasks'
+        'icon': 'trello',
+        'tier': 'enterprise'
     },
 
     # =================================================================
-    # WEBHOOKS (4 integrations)
+    # WEBHOOKS (2 integrations)
     # =================================================================
-    'custom_webhook': {
-        'name': 'Custom Webhook',
-        'category': 'webhooks',
-        'priority': 'high',
-        'description': 'Send data to any custom HTTP endpoint',
-        'free_tier': 'Unlimited (depends on endpoint)',
-        'rate_limit_day': None,
-        'rate_limit_month': None,
-        'api_endpoint': 'custom_url',
-        'docs_url': 'https://en.wikipedia.org/wiki/Webhook',
-        'setup_fields': ['webhook_url', 'http_method'],
-        'test_method': 'send_webhook',
-        'icon': 'plug'
-    },
     'zapier': {
         'name': 'Zapier',
         'category': 'webhooks',
@@ -366,7 +295,8 @@ INTEGRATIONS = {
         'docs_url': 'https://zapier.com/app/webhooks',
         'setup_fields': ['webhook_url'],
         'test_method': 'trigger_zap',
-        'icon': 'bolt'
+        'icon': 'bolt',
+        'tier': 'enterprise'
     },
     'ifttt': {
         'name': 'IFTTT',
@@ -380,21 +310,8 @@ INTEGRATIONS = {
         'docs_url': 'https://ifttt.com/maker_webhooks',
         'setup_fields': ['webhook_key', 'event_name'],
         'test_method': 'trigger_applet',
-        'icon': 'link'
-    },
-    'n8n': {
-        'name': 'n8n',
-        'category': 'webhooks',
-        'priority': 'low',
-        'description': 'Open-source workflow automation',
-        'free_tier': 'Unlimited (self-hosted)',
-        'rate_limit_day': None,
-        'rate_limit_month': None,
-        'api_endpoint': 'webhook_url',
-        'docs_url': 'https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/',
-        'setup_fields': ['webhook_url'],
-        'test_method': 'trigger_workflow',
-        'icon': 'project-diagram'
+        'icon': 'link',
+        'tier': 'enterprise'
     },
 }
 
@@ -450,9 +367,15 @@ class IntegrationManager:
         except Exception as e:
             logger.error(f"Failed to initialize integrations: {e}")
 
-    def get_all_integrations(self) -> List[Dict[str, Any]]:
+    _TIER_ORDER = {'essential': 0, 'advanced': 1, 'enterprise': 2}
+
+    def get_all_integrations(self, max_tier: str = None) -> List[Dict[str, Any]]:
         """
-        Get all available integrations with their configurations.
+        Get available integrations with their configurations.
+
+        Args:
+            max_tier: If provided, only return integrations at or below this tier
+                      ('essential', 'advanced', or 'enterprise'). None returns all.
 
         Returns:
             List of integration dictionaries
@@ -460,7 +383,12 @@ class IntegrationManager:
         integrations = []
         cursor = self.db.conn.cursor()
 
+        max_tier_val = self._TIER_ORDER.get(max_tier, 2) if max_tier else 2
+
         for integration_id, integration_info in INTEGRATIONS.items():
+            if self._TIER_ORDER.get(integration_info.get('tier', 'essential'), 0) > max_tier_val:
+                continue
+
             # Get database info
             cursor.execute('''
                 SELECT is_enabled, health_status, last_health_check,

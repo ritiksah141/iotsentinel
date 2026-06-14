@@ -32,7 +32,8 @@ class TestPadlockOverlayComponent:
         from dash import html
         child = html.Div("inner", id="test-child")
         result = padlock_overlay(child, "email", "desc")
-        assert result.style.get("position") == "relative"
+        # Wrapper uses className="position-relative" (Bootstrap utility), not inline style
+        assert "position-relative" in (result.className or "")
 
     def test_overlay_starts_hidden(self):
         from dashboard.components.feature_padlock import padlock_overlay
@@ -79,18 +80,17 @@ class TestPadlockOverlayComponent:
 class TestLockStateHelpers:
 
     def test_is_email_configured_false_when_no_creds(self):
+        # _is_email_configured reads EMAIL_SMTP_HOST / EMAIL_SMTP_USER from env
         import dashboard.callbacks.callbacks_padlock as mod
-        mock_mgr = MagicMock()
-        mock_mgr.get_integration_credentials.return_value = None
-        with patch.object(mod, 'IntegrationManager', return_value=mock_mgr):
+        with patch.dict('os.environ', {'EMAIL_SMTP_HOST': '', 'EMAIL_SMTP_USER': ''}, clear=False):
             result = mod._is_email_configured()
         assert result is False
 
     def test_is_email_configured_true_when_smtp_present(self):
         import dashboard.callbacks.callbacks_padlock as mod
-        mock_mgr = MagicMock()
-        mock_mgr.get_integration_credentials.return_value = {'smtp_server': 'smtp.gmail.com'}
-        with patch.object(mod, 'IntegrationManager', return_value=mock_mgr):
+        with patch.dict('os.environ',
+                        {'EMAIL_SMTP_HOST': 'smtp.gmail.com', 'EMAIL_SMTP_USER': 'test@gmail.com'},
+                        clear=False):
             result = mod._is_email_configured()
         assert result is True
 

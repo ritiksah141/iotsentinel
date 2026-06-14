@@ -3,7 +3,6 @@ IoT Device Classifier
 Identifies device types, manufacturers, and categories based on multiple fingerprinting techniques
 """
 
-import re
 import logging
 from typing import Dict, Optional, Tuple
 

@@ -7,17 +7,13 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 
 import json
 import base64
-import io
 import os
-import logging
 from datetime import datetime
 from pathlib import Path
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
-import plotly.graph_objs as go
 from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
 
 from flask_login import current_user
@@ -47,6 +43,7 @@ from dashboard.shared import (
     get_db_connection,
     create_timestamp_display,
     DASHBOARD_TEMPLATES,
+    TEMPLATE_ALIASES,
     ToastManager,
     PermissionManager,
 )
@@ -274,8 +271,7 @@ def register(app):
                 activity_items.append(
                     html.Div([
                         html.Div([
-                            html.I(className=f"fa {activity['icon']} text-{activity['color']} me-3",
-                                   style={"fontSize": "1.2rem", "width": "24px"}),
+                            html.I(className=f"fa {activity['icon']} text-{activity['color']} me-3 u-icon-sm"),
                             html.Div([
                                 html.Div(activity['action'], className="fw-semibold"),
                                 html.Small([
@@ -571,34 +567,18 @@ def register(app):
             return [current_user.username, " ", role_badge]
         return "User"
 
-    # Show/hide admin menu items
-    @app.callback(
-        [Output('admin-divider', 'style'),
-         Output('profile-user-mgmt-btn', 'style')],
-        Input('url', 'pathname'),
-        prevent_initial_call=False
-    )
-    def toggle_admin_menu_items(pathname):
-        """Show admin menu items only for admin users"""
-        if current_user.is_authenticated and current_user.is_admin():
-            return {"display": "block"}, {"display": "block"}
-        return {"display": "none"}, {"display": "none"}
-
     # Open profile edit modal
     @app.callback(
         Output("profile-edit-modal", "is_open"),
-        [Input("edit-profile-btn", "n_clicks"),
-         Input("close-profile-modal-btn", "n_clicks")],
+        Input("edit-profile-btn", "n_clicks"),
         [State("profile-edit-modal", "is_open")],
         prevent_initial_call=True,
     )
-    def toggle_profile_edit_modal(open_clicks, close_clicks, is_open):
+    def toggle_profile_edit_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-profile-modal-btn':
-            return False
         if trigger_id == 'edit-profile-btn' and open_clicks:
             return True
         return is_open
@@ -618,22 +598,6 @@ def register(app):
             if user_data:
                 return user_data.get('username', ''), user_data.get('email', '')
         return '', ''
-
-    # Open user management modal (admin only)
-    @app.callback(
-        Output("user-modal", "is_open", allow_duplicate=True),
-        Input("profile-user-mgmt-btn", "n_clicks"),
-        State("user-modal", "is_open"),
-        prevent_initial_call=True
-    )
-    def open_user_management_modal(n_clicks, is_open):
-        """Open user management modal (admin only)"""
-        if not current_user.is_authenticated or not current_user.is_admin():
-            raise dash.exceptions.PreventUpdate
-
-        if n_clicks:
-            return True
-        raise dash.exceptions.PreventUpdate
 
     # Update profile information
     @app.callback(
@@ -769,11 +733,14 @@ def register(app):
          State('layout-dropdown', 'value'),
          State('auto-export-dropdown', 'value'),
          State('backup-schedule-dropdown', 'value'),
-         State('backup-retention-input', 'value')],
+         State('backup-retention-input', 'value'),
+         State('pref-dashboard-template', 'value'),
+         State('pref-family-role', 'value')],
         prevent_initial_call=True
     )
     def save_preferences(n_clicks, refresh_interval, retention, threshold, display_density, timezone, alert_prefs,
-                         theme, language, layout, auto_export, backup_schedule, backup_retention):
+                         theme, language, layout, auto_export, backup_schedule, backup_retention,
+                         dashboard_template, family_role):
         """Save user preferences to database and apply them"""
         if n_clicks is None:
             raise dash.exceptions.PreventUpdate
@@ -805,7 +772,9 @@ def register(app):
                 'layout': layout,
                 'auto_export': auto_export,
                 'backup_schedule': backup_schedule,
-                'backup_retention': str(backup_retention) if backup_retention else '30'
+                'backup_retention': str(backup_retention) if backup_retention else '30',
+                'dashboard_template': dashboard_template or 'simple',
+                'is_kid': '1' if family_role == 'kid' else '0',
             }
 
             for key, value in preferences.items():
@@ -846,18 +815,15 @@ def register(app):
     # System modal toggle
     @app.callback(
         Output("system-modal", "is_open"),
-        [Input("system-card-btn", "n_clicks"),
-         Input("close-system-modal-btn", "n_clicks")],
+        Input("system-card-btn", "n_clicks"),
         State("system-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_system_modal(open_clicks, close_clicks, is_open):
+    def toggle_system_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-system-modal-btn':
-            return False
         if trigger_id == 'system-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -897,114 +863,21 @@ def register(app):
 
         return display, timestamp_str, toast
 
-    # Model Accuracy Display Callback
-    @app.callback(
-        Output('model-accuracy-display', 'children'),
-        [Input('system-modal', 'is_open')],
-        prevent_initial_call=True
-    )
-    def update_model_accuracy_display(is_open):
-        """Update model accuracy display with River model statistics."""
-        if not is_open:
-            raise dash.exceptions.PreventUpdate
-
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-
-            # Get latest model performance metrics (using 'river' model_type)
-            cursor.execute('''
-                SELECT model_type, precision, recall, f1_score,
-                       timestamp
-                FROM model_performance
-                WHERE model_type = 'river'
-                ORDER BY timestamp DESC
-                LIMIT 1
-            ''')
-            model_data = cursor.fetchone()
-
-            if not model_data:
-                # No performance data yet - query actual ML predictions to show activity
-                cursor.execute('''
-                    SELECT COUNT(*) as total_predictions,
-                           SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END) as anomalies_detected
-                    FROM ml_predictions
-                    WHERE model_type = 'river'
-                    AND timestamp > datetime('now', '-24 hours')
-                ''')
-                prediction_stats = cursor.fetchone()
-
-                total = prediction_stats['total_predictions'] if prediction_stats else 0
-                anomalies = prediction_stats['anomalies_detected'] if prediction_stats else 0
-
-                return html.Div([
-                    dbc.Alert([
-                        html.I(className="fa fa-info-circle me-2"),
-                        f"River models active - {total} predictions in last 24h ({anomalies} anomalies detected)"
-                    ], color="info", className="mb-3"),
-                    html.Div([
-                        html.Small("Active River Models:", className="text-muted d-block mb-2"),
-                        dbc.Badge("HalfSpaceTrees", color="success", className="me-2"),
-                        dbc.Badge("HoeffdingAdaptive", color="success", className="me-2"),
-                        dbc.Badge("SNARIMAX", color="success")
-                    ])
-                ])
-
-            # If we have performance data, show it
-            f1 = model_data['f1_score'] or 0
-            precision = model_data['precision'] or 0
-            recall = model_data['recall'] or 0
-
-            f1_pct = int(f1 * 100)
-            precision_pct = int(precision * 100)
-            recall_pct = int(recall * 100)
-
-            return html.Div([
-                html.Div([
-                    html.Span("River ML Engine", className="fw-bold small"),
-                    html.Span(f" - Last updated: {model_data['timestamp']}", className="text-muted small ms-2")
-                ]),
-                dbc.Progress(
-                    value=f1_pct,
-                    color="success",
-                    className="mb-3",
-                    style={"height": "25px"},
-                    label=f"F1: {f1_pct}%"
-                ),
-                dbc.Row([
-                    dbc.Col([
-                        html.Small("Precision", className="text-muted"),
-                        dbc.Progress(value=precision_pct, color="info", label=f"{precision_pct}%", style={"height": "15px"})
-                    ], md=6),
-                    dbc.Col([
-                        html.Small("Recall", className="text-muted"),
-                        dbc.Progress(value=recall_pct, color="warning", label=f"{recall_pct}%", style={"height": "15px"})
-                    ], md=6)
-                ])
-            ])
-
-        except Exception as e:
-            logger.error(f"Error updating model accuracy: {e}")
-            return dbc.Alert("River models active and learning", color="info")
-
     # ========================================================================
     # USER MANAGEMENT MODAL TOGGLE
     # ========================================================================
 
     @app.callback(
         Output("user-modal", "is_open", allow_duplicate=True),
-        [Input("user-card-btn", "n_clicks"),
-         Input("close-user-modal-btn", "n_clicks")],
+        Input("user-card-btn", "n_clicks"),
         State("user-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_user_modal(open_clicks, close_clicks, is_open):
+    def toggle_user_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-user-modal-btn':
-            return False
         if trigger_id == 'user-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -1043,7 +916,9 @@ def register(app):
          Output('layout-dropdown', 'value'),
          Output('auto-export-dropdown', 'value'),
          Output('backup-schedule-dropdown', 'value'),
-         Output('backup-retention-input', 'value')],
+         Output('backup-retention-input', 'value'),
+         Output('pref-dashboard-template', 'value'),
+         Output('pref-family-role', 'value')],
         Input("preferences-modal", "is_open"),
         prevent_initial_call=True
     )
@@ -1067,7 +942,9 @@ def register(app):
             'layout': 'grid',
             'auto_export': 'disabled',
             'backup_schedule': 'daily',
-            'backup_retention': 30
+            'backup_retention': 30,
+            'dashboard_template': 'simple',
+            'is_kid': '0',
         }
 
         try:
@@ -1101,6 +978,9 @@ def register(app):
             # Convert alert_notifications string back to list
             alert_prefs = defaults['alert_notifications'].split(',') if defaults['alert_notifications'] else []
 
+            # Map is_kid flag to family-role select value
+            family_role = 'kid' if defaults['is_kid'] == '1' else 'parent'
+
             return (
                 defaults['refresh_interval'],
                 defaults['data_retention'],
@@ -1113,7 +993,9 @@ def register(app):
                 defaults['layout'],
                 defaults['auto_export'],
                 defaults['backup_schedule'],
-                defaults['backup_retention']
+                defaults['backup_retention'],
+                defaults['dashboard_template'],
+                family_role,
             )
 
         except Exception as e:
@@ -1173,109 +1055,6 @@ def register(app):
                 detail_message=f"Error Details:\n{str(e)}\n\nPossible Solutions:\n• Check file permissions\n• Verify disk space\n• Try exporting again\n• Check browser console for errors"
             )
             return toast, None
-
-    # Import Models Callback (System & ML Models Modal)
-    @app.callback(
-        [Output('import-models-status', 'children'),
-         Output('toast-container', 'children', allow_duplicate=True)],
-        Input('import-models-upload', 'contents'),
-        State('import-models-upload', 'filename'),
-        prevent_initial_call=True
-    )
-    def import_models(contents_list, filenames_list):
-        """Import ML models from uploaded files (.pkl, .h5, or .zip)."""
-        if not contents_list:
-            raise dash.exceptions.PreventUpdate
-
-        try:
-            import zipfile
-            import io
-            from pathlib import Path
-
-            # Ensure we have lists
-            if not isinstance(contents_list, list):
-                contents_list = [contents_list]
-                filenames_list = [filenames_list]
-
-            imported_files = []
-            errors = []
-
-            for contents, filename in zip(contents_list, filenames_list):
-                try:
-                    # Parse the uploaded file
-                    content_type, content_string = contents.split(',')
-                    decoded = base64.b64decode(content_string)
-
-                    if filename.endswith('.zip'):
-                        # Handle zip file containing multiple models
-                        with zipfile.ZipFile(io.BytesIO(decoded)) as zf:
-                            for name in zf.namelist():
-                                if name.endswith(('.pkl', '.h5')):
-                                    file_data = zf.read(name)
-                                    success = save_model_file(name, file_data)
-                                    if success:
-                                        imported_files.append(name)
-                                    else:
-                                        errors.append(f"Failed to save {name}")
-
-                    elif filename.endswith(('.pkl', '.h5')):
-                        # Handle individual model file
-                        success = save_model_file(filename, decoded)
-                        if success:
-                            imported_files.append(filename)
-                        else:
-                            errors.append(f"Failed to save {filename}")
-                    else:
-                        errors.append(f"Unsupported file type: {filename}")
-
-                except Exception as e:
-                    errors.append(f"Error processing {filename}: {str(e)}")
-                    logger.error(f"Error importing model file {filename}: {e}")
-
-            # Build status message
-            status_items = []
-            if imported_files:
-                status_items.append(html.Div([
-                    html.I(className="fa fa-check-circle text-success me-2"),
-                    f"Successfully imported: {', '.join(imported_files)}"
-                ], className="mb-1"))
-
-            if errors:
-                for error in errors:
-                    status_items.append(html.Div([
-                        html.I(className="fa fa-exclamation-circle text-danger me-2"),
-                        error
-                    ], className="mb-1"))
-
-            status = html.Div(status_items) if status_items else None
-
-            # Show toast
-            if imported_files and not errors:
-                toast = ToastManager.success(
-                "Models Imported",
-                detail_message="Models Imported"
-            )
-            elif errors:
-                toast = ToastManager.warning(
-                "Import Warning",
-                detail_message="Import Warning"
-            )
-            else:
-                toast = dash.no_update
-
-            return status, toast
-
-        except Exception as e:
-            logger.error(f"Error in import_models callback: {e}")
-            error_status = html.Div([
-                html.I(className="fa fa-exclamation-circle text-danger me-2"),
-                f"Error: {str(e)}"
-            ])
-            toast = ToastManager.error(
-                "Import Error",
-                detail_message="Import Error"
-            )
-            return error_status, toast
 
     # ========================================================================
     # REFRESH SYSTEM INFO
@@ -1417,12 +1196,11 @@ def register(app):
     # Callback to open/close custom reports modal
     @app.callback(
         Output('custom-reports-modal', 'is_open'),
-        [Input('open-reports-modal', 'n_clicks'),
-         Input('close-reports-modal', 'n_clicks')],
+        [Input('open-reports-modal', 'n_clicks')],
         [State('custom-reports-modal', 'is_open')],
         prevent_initial_call=True
     )
-    def toggle_reports_modal(open_clicks, close_clicks, is_open):
+    def toggle_reports_modal(open_clicks, is_open):
         """Toggle the custom reports modal."""
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1432,8 +1210,6 @@ def register(app):
 
         if button_id == 'open-reports-modal':
             return True
-        elif button_id == 'close-reports-modal':
-            return False
 
         return is_open
 
@@ -1998,36 +1774,24 @@ def register(app):
             format_colors = {
                 'pdf': 'danger',
                 'excel': 'success',
-                'json': 'info'
+                'json': 'info',
+                'email': 'primary',
             }
 
             for schedule in schedules:
                 # Extract schedule details
                 schedule_id = schedule.get('id', 'unknown')
-                schedule_name = schedule.get('name', 'Unnamed Schedule')
-                next_run = schedule.get('next_run', 'N/A')
-                trigger_info = schedule.get('trigger', 'N/A')
-
-                # Parse trigger to get readable format
-                if isinstance(trigger_info, str):
-                    if 'cron' in trigger_info.lower():
-                        trigger_type = 'Cron Schedule'
-                        trigger_icon = 'fa-calendar-alt'
-                    elif 'interval' in trigger_info.lower():
-                        trigger_type = 'Interval Schedule'
-                        trigger_icon = 'fa-clock'
-                    else:
-                        trigger_type = 'Custom Schedule'
-                        trigger_icon = 'fa-calendar-check'
-                else:
-                    trigger_type = 'Schedule'
-                    trigger_icon = 'fa-calendar'
+                schedule_name = schedule.get('name', schedule_id.replace('_', ' ').title())
+                next_run = schedule.get('next_run', 'Not scheduled')
+                # Use human-readable trigger string if available
+                trigger_display = schedule.get('trigger_display') or schedule.get('trigger', 'N/A')
+                trigger_icon = 'fa-clock'
 
                 # Get template name and format from schedule
-                template = schedule.get('template', 'unknown')
-                report_format = schedule.get('format', 'pdf')
+                template = schedule.get('template', 'executive_summary')
+                report_format = schedule.get('format', 'email')
                 template_icon = template_icons.get(template, 'fa-file-alt')
-                format_color = format_colors.get(report_format, 'secondary')
+                format_color = format_colors.get(report_format, 'info')
 
                 # Get template display name
                 template_names = {
@@ -2039,7 +1803,7 @@ def register(app):
                 }
                 template_display = template_names.get(template, template.replace('_', ' ').title())
 
-                # Determine if schedule is paused (placeholder - scheduler needs to track this)
+                # Paused state comes from ReportScheduler._paused_jobs via list_schedules()
                 is_paused = schedule.get('paused', False)
                 status_badge = dbc.Badge(
                     [html.I(className=f"fa fa-{'pause' if is_paused else 'check-circle'} me-1"),
@@ -2055,23 +1819,26 @@ def register(app):
                             dbc.Row([
                                 dbc.Col([
                                     html.I(className=f"fa {template_icon} me-2 text-primary"),
-                                    html.Span(schedule_id, className="fw-bold")
-                                ], width=8),
+                                    html.Span(schedule_name, className="fw-bold")
+                                ], xs=12, sm=8),
                                 dbc.Col([
                                     status_badge,
-                                    dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
-                                ], width=4, className="text-end")
+                                    dbc.Badge(
+                                        "Email" if report_format == 'email' else report_format.upper(),
+                                        color=format_color, className="ms-1"
+                                    )
+                                ], xs=12, sm=4, className="text-end")
                             ])
                         ], className="bg-light"),
                         dbc.CardBody([
                             html.H6(template_display, className="card-title mb-2"),
                             html.P([
                                 html.I(className=f"fa {trigger_icon} me-2 text-muted"),
-                                html.Small(trigger_info, className="text-muted")
+                                html.Small(trigger_display, className="text-muted")
                             ], className="mb-2"),
                             html.P([
-                                html.I(className="fa fa-clock me-2 text-info"),
-                                html.Small([html.Strong("Next Run: "), next_run], className="text-muted")
+                                html.I(className="fa fa-calendar me-2 text-info"),
+                                html.Small([html.Strong("Next: "), next_run], className="text-muted")
                             ], className="mb-3"),
                             dbc.ButtonGroup([
                                 dbc.Button([
@@ -2096,7 +1863,7 @@ def register(app):
                                 )
                             ], className="w-100")
                         ])
-                    ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+                    ], className="shadow-sm mb-3 h-100 hover-shadow u-hover-lift")
                 ], md=6, lg=4, className="mb-3")
 
                 schedule_cards.append(card)
@@ -2345,11 +2112,11 @@ def register(app):
                                         dbc.Col([
                                             html.I(className=f"fa {template_icon} me-2 text-primary"),
                                             html.Span(s_id, className="fw-bold")
-                                        ], width=8),
+                                        ], xs=12, sm=8),
                                         dbc.Col([
                                             status_badge,
                                             dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
-                                        ], width=4, className="text-end")
+                                        ], xs=12, sm=4, className="text-end")
                                     ])
                                 ], className="bg-light"),
                                 dbc.CardBody([
@@ -2385,7 +2152,7 @@ def register(app):
                                         )
                                     ], className="w-100")
                                 ])
-                            ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+                            ], className="shadow-sm mb-3 h-100 hover-shadow u-hover-lift")
                         ], md=6, lg=4, className="mb-3")
 
                         schedule_cards.append(card)
@@ -2513,11 +2280,11 @@ def register(app):
                                         dbc.Col([
                                             html.I(className=f"fa {template_icon} me-2 text-primary"),
                                             html.Span(s_id, className="fw-bold")
-                                        ], width=8),
+                                        ], xs=12, sm=8),
                                         dbc.Col([
                                             status_badge,
                                             dbc.Badge(report_format.upper(), color=format_color, className="ms-1")
-                                        ], width=4, className="text-end")
+                                        ], xs=12, sm=4, className="text-end")
                                     ])
                                 ], className="bg-light"),
                                 dbc.CardBody([
@@ -2553,7 +2320,7 @@ def register(app):
                                         )
                                     ], className="w-100")
                                 ])
-                            ], className="shadow-sm mb-3 h-100 hover-shadow", style={"transition": "all 0.3s"})
+                            ], className="shadow-sm mb-3 h-100 hover-shadow u-hover-lift")
                         ], md=6, lg=4, className="mb-3")
 
                         schedule_cards.append(card)
@@ -2768,7 +2535,7 @@ def register(app):
                             html.P("Devices Monitored", className="text-muted mb-0 small")
                         ], className="text-center p-3")
                     ], className="glass-card border-0 shadow-sm")
-                ], width=3),
+                ], xs=6, sm=3),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -2777,7 +2544,7 @@ def register(app):
                             html.P("High Privacy Risk", className="text-muted mb-0 small")
                         ], className="text-center p-3")
                     ], className="glass-card border-0 shadow-sm")
-                ], width=3),
+                ], xs=6, sm=3),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -2786,7 +2553,7 @@ def register(app):
                             html.P("Critical Data Types", className="text-muted mb-0 small")
                         ], className="text-center p-3")
                     ], className="glass-card border-0 shadow-sm")
-                ], width=3),
+                ], xs=6, sm=3),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -2795,7 +2562,7 @@ def register(app):
                             html.P("Cloud Services", className="text-muted mb-0 small")
                         ], className="text-center p-3")
                     ], className="glass-card border-0 shadow-sm")
-                ], width=3)
+                ], xs=6, sm=3)
             ])
 
             # Device table
@@ -2867,12 +2634,11 @@ def register(app):
         [Output('privacy-detail-modal', 'is_open'),
          Output('privacy-detail-modal-title', 'children'),
          Output('privacy-detail-modal-body', 'children')],
-        [Input({'type': 'privacy-detail-btn', 'index': ALL}, 'n_clicks'),
-         Input('privacy-detail-modal-close', 'n_clicks')],
+        [Input({'type': 'privacy-detail-btn', 'index': ALL}, 'n_clicks')],
         [State('privacy-detail-modal', 'is_open')],
         prevent_initial_call=True
     )
-    def toggle_privacy_detail_modal(detail_clicks, close_click, is_open):
+    def toggle_privacy_detail_modal(detail_clicks, is_open):
         """Show detailed privacy analysis for a specific device."""
         ctx = callback_context
 
@@ -2886,9 +2652,6 @@ def register(app):
         if triggered_value is None or triggered_value == 0:
             return dash.no_update, dash.no_update, dash.no_update
 
-        # Close modal
-        if 'privacy-detail-modal-close' in triggered_id:
-            return False, dash.no_update, dash.no_update
 
         # Open modal with device details - check if a privacy detail button was clicked
         if 'privacy-detail-btn' in triggered_id:
@@ -2972,7 +2735,7 @@ def register(app):
                                 html.Small("Data Transmitted", className="text-muted")
                             ])
                         ], className="text-center")
-                    ], width=3),
+                    ], xs=6, sm=3),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
@@ -2980,7 +2743,7 @@ def register(app):
                                 html.Small("Transmission Events", className="text-muted")
                             ])
                         ], className="text-center")
-                    ], width=3),
+                    ], xs=6, sm=3),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
@@ -2988,7 +2751,7 @@ def register(app):
                                 html.Small("Unique Services", className="text-muted")
                             ])
                         ], className="text-center")
-                    ], width=3),
+                    ], xs=6, sm=3),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
@@ -2996,7 +2759,7 @@ def register(app):
                                 html.Small("Data Types", className="text-muted")
                             ])
                         ], className="text-center")
-                    ], width=3)
+                    ], xs=6, sm=3)
                 ]),
 
                 # Recommendations
@@ -3023,13 +2786,12 @@ def register(app):
     def load_user_template_on_page_load(pathname):
         """Load user's saved dashboard template from database preferences."""
         if not current_user.is_authenticated:
-            return 'custom'  # Default for non-authenticated users
+            return 'simple'
 
         try:
             conn = db_manager.conn
             cursor = conn.cursor()
 
-            # Get user's saved template preference
             cursor.execute('''
                 SELECT preference_value
                 FROM user_preferences
@@ -3038,15 +2800,15 @@ def register(app):
 
             result = cursor.fetchone()
             if result and result[0]:
-                return result[0]
+                raw = result[0]
+                return TEMPLATE_ALIASES.get(raw, raw)
 
-            # No saved preference - return custom as default
-            logger.info(f"No saved template for {current_user.username}, using custom")
-            return 'custom'
+            logger.info(f"No saved template for {current_user.username}, defaulting to simple")
+            return 'simple'
 
         except Exception as e:
             logger.error(f"Error loading user template: {e}")
-            return 'custom'
+            return 'simple'
 
     # Save template selection to store (only when user changes it) + Audit Trail
     @app.callback(
@@ -3129,43 +2891,21 @@ def register(app):
         return template, toast
 
     # Apply template by hiding/showing feature cards (clientside)
+    # Rules are read from dashboard-template-rules store (single source of truth in shared.py)
     app.clientside_callback(
         """
-        function(template) {
-            // Define template configurations
-            const templates = {
-                'security_admin': {
-                    visible: [
-                        'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
-                        'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
-                        'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
-                        'timeline-card-btn', 'system-card-btn'
-                    ]
-                },
-                'home_user': {
-                    visible: [
-                        'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
-                        'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
-                        'preferences-card-btn', 'quick-settings-btn'
-                    ]
-                },
-                'developer': {
-                    visible: 'all'
-                },
-                'custom': {
-                    visible: 'custom'
-                }
-            };
-
+        function(template, rules) {
             if (!template || template === 'custom') {
-                // Don't modify layout for custom template
                 return window.dash_clientside.no_update;
             }
 
-            const config = templates[template];
+            // Map legacy values so old session tokens still work
+            const aliases = {home_user: 'simple', security_admin: 'advanced', developer: 'advanced'};
+            const canonical = aliases[template] || template;
+
+            const config = rules && rules[canonical];
             if (!config) return window.dash_clientside.no_update;
 
-            // Get all masonry items (feature cards)
             const items = document.querySelectorAll('.masonry-item');
 
             items.forEach(item => {
@@ -3174,20 +2914,15 @@ def register(app):
 
                 const buttonId = button.id;
 
-                // Show or hide based on template
-                if (config.visible === 'all') {
-                    // Developer: show everything
+                if (config.visible_features === 'all') {
                     item.style.display = '';
                     item.style.opacity = '1';
                     item.classList.remove('template-hidden');
-                } else if (Array.isArray(config.visible)) {
-                    // Security Admin or Home User: show only specified features
-                    if (config.visible.includes(buttonId)) {
+                } else if (Array.isArray(config.visible_features)) {
+                    if (config.visible_features.includes(buttonId)) {
                         item.classList.remove('template-hidden');
                         item.style.display = '';
-                        requestAnimationFrame(() => {
-                            item.style.opacity = '1';
-                        });
+                        requestAnimationFrame(() => { item.style.opacity = '1'; });
                     } else {
                         item.style.opacity = '0';
                         item.classList.add('template-hidden');
@@ -3207,7 +2942,8 @@ def register(app):
         }
         """,
         Output('admin-features-section', 'className', allow_duplicate=True),
-        Input('dashboard-template-store', 'data'),
+        [Input('dashboard-template-store', 'data'),
+         Input('dashboard-template-rules', 'data')],
         prevent_initial_call=True
     )
 
@@ -3231,78 +2967,65 @@ def register(app):
         prevent_initial_call=False
     )
     def update_template_options(is_open):
-        """Show Security Admin template option only for admin users."""
-        base_options = [
+        return [
             {
                 'label': html.Div([
-                    html.I(className="fa fa-home text-success me-2"),
-                    html.Span("Home User", className="fw-bold"),
+                    html.I(className="fa fa-house text-success me-2"),
+                    html.Span("Simple", className="fw-bold"),
                     html.Br(),
-                    html.Small("Focus: Device Status, Privacy Score, Basic Security Health", className="text-muted")
+                    html.Small("Focused on what matters — device status, privacy, home security", className="text-muted")
                 ]),
-                'value': 'home_user'
+                'value': 'simple'
             },
             {
                 'label': html.Div([
-                    html.I(className="fa fa-code text-info me-2"),
-                    html.Span("Developer/Auditor", className="fw-bold"),
+                    html.I(className="fa fa-sliders text-info me-2"),
+                    html.Span("Advanced", className="fw-bold"),
                     html.Br(),
-                    html.Small("Focus: All Features, API Hub, Analytics, Performance", className="text-muted")
+                    html.Small("Full security console — threat intelligence, forensics, all tools", className="text-muted")
                 ]),
-                'value': 'developer'
+                'value': 'advanced'
             },
             {
                 'label': html.Div([
-                    html.I(className="fa fa-sliders text-warning me-2"),
+                    html.I(className="fa fa-grid-2 text-warning me-2"),
                     html.Span("Custom", className="fw-bold"),
                     html.Br(),
-                    html.Small("Use your own customized widget layout", className="text-muted")
+                    html.Small("Your own customized widget layout", className="text-muted")
                 ]),
                 'value': 'custom'
             }
         ]
 
-        # Add Security Admin option only for admin users
-        if current_user.is_authenticated and current_user.is_admin():
-            admin_option = {
-                'label': html.Div([
-                    html.I(className="fa fa-shield-halved text-danger me-2"),
-                    html.Span("Security Admin", className="fw-bold"),
-                    html.Br(),
-                    html.Small("Focus: Threat Intelligence, Alerts, Firewall, Forensics", className="text-muted")
-                ]),
-                'value': 'security_admin'
-            }
-            return [admin_option] + base_options
-
-        return base_options
-
-    # ========================================================================
-    # ADVANCED-VIEW HEADER TOGGLE ↔ DASHBOARD TEMPLATE STORE
-    # ========================================================================
-
-    # Toggle ON (True) → advanced view; Toggle OFF (False) → home_user view
+    # Segmented Simple/Advanced pills in the navbar
     @app.callback(
         [Output('dashboard-template-store', 'data', allow_duplicate=True),
          Output('toast-container', 'children', allow_duplicate=True)],
-        Input('advanced-view-toggle', 'value'),
+        [Input('view-mode-simple-btn', 'n_clicks'),
+         Input('view-mode-advanced-btn', 'n_clicks')],
         State('dashboard-template-store', 'data'),
         prevent_initial_call=True,
     )
-    def apply_view_toggle(is_advanced, current_template):
-        """Translate the Simple/Advanced header switch into a template store update."""
+    def toggle_view_mode(simple_clicks, advanced_clicks, current_template):
         if not current_user.is_authenticated:
             return no_update, no_update
 
-        target_template = (
-            ('security_admin' if current_user.is_admin() else 'developer')
-            if is_advanced else 'home_user'
-        )
-
-        if target_template == current_template:
+        ctx = callback_context
+        if not ctx.triggered:
             return no_update, no_update
 
-        # Persist to DB
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == 'view-mode-simple-btn':
+            target, label = 'simple', 'Simple'
+        elif trigger_id == 'view-mode-advanced-btn':
+            target, label = 'advanced', 'Advanced'
+        else:
+            return no_update, no_update
+
+        resolved = TEMPLATE_ALIASES.get(current_template, current_template)
+        if target == resolved:
+            return no_update, no_update
+
         try:
             conn = db_manager.conn
             cursor = conn.cursor()
@@ -3312,26 +3035,283 @@ def register(app):
                 ON CONFLICT(user_id, preference_key) DO UPDATE SET
                     preference_value = excluded.preference_value,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (current_user.id, target_template))
+            ''', (current_user.id, target))
             conn.commit()
         except Exception as e:
             logger.error(f"Failed to persist view toggle: {e}")
 
-        label = "Advanced" if is_advanced else "Simple"
         toast = ToastManager.create_toast(
-            message=f"Switched to {label} view",
+            message=f"Switched to {label} mode",
             toast_type="info",
             header="View Mode",
             duration=2500,
         )
-        return target_template, toast
+        return target, toast
 
-    # Keep toggle in sync when template changes via profile modal or on page load
     @app.callback(
-        Output('advanced-view-toggle', 'value'),
+        [Output('view-mode-simple-btn', 'className'),
+         Output('view-mode-advanced-btn', 'className'),
+         Output('mode-banner', 'children'),
+         Output('mode-banner', 'className'),
+         Output('dashboard-navbar', 'className'),
+         Output('email-alert-nav-toggle', 'className')],
         Input('dashboard-template-store', 'data'),
         prevent_initial_call=False,
     )
-    def sync_toggle_from_template(template):
-        """Reflect the current template in the header toggle (home_user=OFF, else=ON)."""
-        return template != 'home_user'
+    def sync_view_mode_ui(template):
+        canonical = TEMPLATE_ALIASES.get(template, template) if template else 'simple'
+        if canonical == 'simple':
+            return (
+                'mode-btn-pill mode-btn-active-simple',
+                'mode-btn-pill mode-btn-inactive',
+                [html.I(className="fa fa-house me-2"),
+                 html.Span("Simple Mode", className="fw-bold"),
+                 html.Span(" — focused on what matters", className="text-muted small ms-2")],
+                'mode-banner mode-banner-simple',
+                'mb-3 glass-card border-0 shadow-lg navbar-mode-simple',
+                'text-white px-2',
+            )
+        return (
+            'mode-btn-pill mode-btn-inactive',
+            'mode-btn-pill mode-btn-active-advanced',
+            [html.I(className="fa fa-sliders me-2"),
+             html.Span("Advanced Mode", className="fw-bold"),
+             html.Span(" — full security console", className="text-muted small ms-2")],
+            'mode-banner mode-banner-advanced',
+            'mb-3 glass-card border-0 shadow-lg navbar-mode-advanced',
+            'text-white px-2',
+        )
+
+    # ========================================================================
+    # AI PROVIDER API KEY SETTINGS
+    # ========================================================================
+
+    @app.callback(
+        Output('ai-key-save-result', 'children'),
+        Input('ai-key-save-btn', 'n_clicks'),
+        [State('ai-groq-key-input', 'value'),
+         State('ai-openai-key-input', 'value'),
+         State('ai-anthropic-key-input', 'value'),
+         State('ai-gemini-key-input', 'value')],
+        prevent_initial_call=True,
+    )
+    def save_ai_api_keys(n_clicks, groq_key, openai_key, anthropic_key, gemini_key):
+        """Persist AI provider API keys to .env and reload the ai_assistant singleton."""
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+
+        try:
+            from dashboard import shared as _shared
+
+            env_updates = {}
+            if groq_key and groq_key.strip():
+                env_updates['GROQ_API_KEY'] = groq_key.strip()
+            if openai_key and openai_key.strip():
+                env_updates['OPENAI_API_KEY'] = openai_key.strip()
+            if anthropic_key and anthropic_key.strip():
+                env_updates['ANTHROPIC_API_KEY'] = anthropic_key.strip()
+            if gemini_key and gemini_key.strip():
+                env_updates['GEMINI_API_KEY'] = gemini_key.strip()
+
+            if env_updates:
+                config.write_env(env_updates)
+                # Reload keys on the live singleton so the change takes effect immediately
+                import os
+                if 'GROQ_API_KEY' in env_updates:
+                    _shared.ai_assistant.groq_api_key = env_updates['GROQ_API_KEY']
+                    _shared.ai_assistant._groq_client = None  # force re-init
+                if 'OPENAI_API_KEY' in env_updates:
+                    _shared.ai_assistant.openai_api_key = env_updates['OPENAI_API_KEY']
+                    _shared.ai_assistant._openai_client = None  # force re-init
+                if 'ANTHROPIC_API_KEY' in env_updates:
+                    _shared.ai_assistant.anthropic_api_key = env_updates['ANTHROPIC_API_KEY']
+                    _shared.ai_assistant._anthropic_client = None  # force re-init
+                if 'GEMINI_API_KEY' in env_updates:
+                    _shared.ai_assistant.gemini_api_key = env_updates['GEMINI_API_KEY']
+
+            log_settings_change(
+                section='ai_assistant',
+                key='api_keys',
+                old_value='[redacted]',
+                new_value=f"updated providers: {list(env_updates.keys())}",
+            )
+            return dbc.Alert("AI API keys saved successfully.", color="success", duration=4000)
+
+        except Exception as e:
+            logger.error(f"Failed to save AI API keys: {e}")
+            return dbc.Alert(f"Error saving keys: {str(e)}", color="danger", duration=6000)
+
+    # AI Privacy Mode toggle
+    @app.callback(
+        [Output('ai-privacy-mode-toggle', 'value'),
+         Output('ai-privacy-mode-result', 'children')],
+        [Input('ai-privacy-mode-toggle', 'value'),
+         Input('profile-edit-tabs', 'active_tab')],  # fires when user opens any tab in profile modal
+        prevent_initial_call=False,
+    )
+    def toggle_ai_privacy_mode(enabled, active_tab):
+        from dashboard import shared as _shared
+        ctx_id = dash.callback_context.triggered[0]['prop_id'] if dash.callback_context.triggered else ''
+
+        # Tab-open trigger: read current setting only when AI Settings tab is opened
+        if 'profile-edit-tabs' in ctx_id:
+            if active_tab != 'ai-settings-tab':
+                raise dash.exceptions.PreventUpdate
+
+        if 'profile-edit-tabs' in ctx_id or not dash.callback_context.triggered:
+            try:
+                raw = db_manager.get_setting('ai_privacy_mode', '0')
+                current = str(raw).lower() in ('1', 'true', 'yes')
+            except Exception:
+                current = False
+            return current, None
+
+        # Toggle was flipped — persist and apply live
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return enabled, dbc.Alert("Admin access required.", color="danger", duration=3000)
+
+        try:
+            db_manager.set_setting('ai_privacy_mode', '1' if enabled else '0')
+            _shared.ai_assistant.privacy_mode = bool(enabled)
+            msg = ("Privacy mode ON. Ollama used first. Cloud providers are fallback only."
+                   if enabled else
+                   "Privacy mode OFF. Cloud providers used in standard priority order.")
+            return enabled, dbc.Alert(msg, color="success" if enabled else "secondary", duration=4000)
+        except Exception as exc:
+            logger.error(f"Failed to save ai_privacy_mode: {exc}")
+            return enabled, dbc.Alert(f"Error: {exc}", color="danger", duration=5000)
+
+    # AI Engine health card
+    _HEALTH_DOT_CLASSES = {
+        'ok': 'text-success',
+        'failing': 'text-danger',
+        'untested': 'text-warning',
+        'off': 'text-muted',
+    }
+
+    @app.callback(
+        Output('ai-health-card-body', 'children'),
+        [Input('profile-edit-tabs', 'active_tab'),
+         Input('ai-health-refresh-btn', 'n_clicks')],
+        prevent_initial_call=False,
+    )
+    def render_ai_health_card(active_tab, n_clicks):
+        ctx_id = dash.callback_context.triggered[0]['prop_id'] if dash.callback_context.triggered else ''
+        if 'profile-edit-tabs' in ctx_id and active_tab != 'ai-settings-tab':
+            raise dash.exceptions.PreventUpdate
+
+        from dashboard import shared as _shared
+        from utils.ai_health import build_health_rows, build_usage_line
+
+        health = _shared.ai_assistant.get_health()
+        stats = _shared.ai_assistant.get_stats()
+
+        rows = []
+        for row in build_health_rows(health):
+            dot = _HEALTH_DOT_CLASSES.get(row['status'], 'text-muted')
+            rows.append(html.Div([
+                html.I(className=f"fa fa-circle me-2 small {dot}"),
+                html.Span(row['label'], className="fw-semibold me-2"),
+                html.Span(row['detail'], className="text-muted small"),
+            ], className="d-flex align-items-center mb-1",
+               title=row['last_error'] or None))
+
+        extras = [html.P(build_usage_line(stats), className="text-muted small mb-1 mt-2")]
+
+        try:
+            from dashboard.shared import rate_limiter
+            tier = config.get('system', 'deployment_tier', 'household')
+            action_type = f'ai_chat_{tier}'
+            _, remaining, _ = rate_limiter.check_rate_limit(str(current_user.id), action_type)
+            cap = rate_limiter.LIMITS.get(action_type, (0, 0))[0]
+            if cap:
+                extras.append(html.P(f"Daily chat allowance: {remaining} of {cap} messages left.",
+                                     className="text-muted small mb-1"))
+        except Exception:
+            pass
+
+        if health.get('privacy_mode'):
+            extras.append(html.P("Privacy mode is ON. Local AI is tried first.",
+                                 className="text-muted small mb-0"))
+
+        return rows + extras
+
+    # ------------------------------------------------------------------
+    # Credentials tab — redirect URI display
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output('creds-google-redirect-uri', 'children'),
+        Input('profile-edit-modal', 'is_open'),
+        prevent_initial_call=True,
+    )
+    def populate_redirect_uri(is_open):
+        if not is_open or not current_user.is_authenticated or not current_user.is_admin():
+            raise dash.exceptions.PreventUpdate
+        from utils.webauthn_handler import _effective_origin
+        return f"{_effective_origin()}/auth/google/callback"
+
+    # ------------------------------------------------------------------
+    # Hide admin-only tabs in profile-edit-modal for non-admin users
+    # ------------------------------------------------------------------
+    @app.callback(
+        [Output('ai-settings-tab-nav', 'disabled'),
+         Output('ai-settings-tab-nav', 'label_style'),
+         Output('credentials-tab-nav', 'disabled'),
+         Output('credentials-tab-nav', 'label_style')],
+        Input('profile-edit-modal', 'is_open'),
+        prevent_initial_call=True,
+    )
+    def gate_admin_profile_tabs(is_open):
+        hidden = {'display': 'none'}
+        if not is_open or not current_user.is_authenticated or not current_user.is_admin():
+            return True, hidden, True, hidden
+        return False, {}, False, {}
+
+    # ------------------------------------------------------------------
+    # Hide SMTP credentials section in email modal for non-admin users
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output('smtp-credentials-section', 'style'),
+        Input('email-modal', 'is_open'),
+        prevent_initial_call=True,
+    )
+    def gate_smtp_credentials_section(is_open):
+        if not is_open or not current_user.is_authenticated or not current_user.is_admin():
+            return {'display': 'none'}
+        return {}
+
+    # ------------------------------------------------------------------
+    # Credentials tab — Google OAuth save
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output('creds-google-save-result', 'children'),
+        Input('creds-google-save-btn', 'n_clicks'),
+        [State('creds-google-client-id', 'value'),
+         State('creds-google-client-secret', 'value')],
+        prevent_initial_call=True,
+    )
+    def save_google_credentials(n_clicks, client_id, client_secret):
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated or not current_user.is_admin():
+            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+        try:
+            env_updates = {}
+            if client_id and client_id.strip():
+                env_updates['GOOGLE_CLIENT_ID'] = client_id.strip()
+            if client_secret and client_secret.strip():
+                env_updates['GOOGLE_CLIENT_SECRET'] = client_secret.strip()
+            if not env_updates:
+                return dbc.Alert("Enter credentials to save.", color="warning", duration=3000)
+            config.write_env(env_updates)
+            logger.info("Google OAuth credentials updated via admin panel.")
+            return dbc.Alert([
+                html.Strong("Saved. "),
+                "Google Sign-in is now active — no restart required.",
+            ], color="success", duration=8000)
+        except Exception as e:
+            logger.error(f"Failed to save Google OAuth credentials: {e}")
+            return dbc.Alert(f"Error: {str(e)}", color="danger", duration=6000)

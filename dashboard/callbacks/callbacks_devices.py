@@ -11,18 +11,14 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 import base64
 import io
 import json
-import logging
-import os
-from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import List
 
 import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objs as go
-from dash import dcc, html, Input, Output, State, callback_context, ALL, MATCH, no_update
+from dash import (dcc, html, Input, Output, State, callback_context, ALL, no_update)
 
 from flask_login import login_required, current_user
 
@@ -34,6 +30,7 @@ from dashboard.shared import (
     config,
     audit_logger,
     security_audit_logger,
+    ai_assistant,
     group_manager,
     get_intelligence,
     get_protocol_analyzer,
@@ -42,6 +39,7 @@ from dashboard.shared import (
     get_privacy_monitor,
     get_network_segmentation,
     get_firmware_manager,
+    firewall_enforcer,
     log_device_action,
     log_bulk_action,
     can_export_data,
@@ -84,6 +82,58 @@ def get_non_eol_devices():
     except Exception as e:
         logger.error(f"Error fetching non-EOL devices: {e}")
         return []
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers for smart-home UI rendering
+# ---------------------------------------------------------------------------
+
+def _render_automations(db_mgr):
+    """Build the automations list from smart_home_automations table."""
+    try:
+        automations = db_mgr.get_all_automations()
+        if not automations:
+            return dbc.Alert([
+                html.I(className="fa fa-magic me-2"),
+                "No automations yet. Click 'Create Automation' to get started!"
+            ], color="info")
+
+        trigger_labels = {
+            "time": "🕐 Time-based", "device": "🔌 Device State",
+            "location": "🏠 Location", "sensor": "🌡️ Sensor",
+        }
+        cards = []
+        for auto in automations:
+            status_badge = (dbc.Badge("Active", color="success", className="me-2")
+                            if auto.get('is_enabled')
+                            else dbc.Badge("Disabled", color="secondary", className="me-2"))
+            cards.append(
+                dbc.Card([dbc.CardBody([
+                    html.H5([html.I(className="fa fa-magic me-2 text-primary"), auto['name']],
+                            className="mb-2"),
+                    dbc.Row([
+                        dbc.Col([html.Strong("Trigger:"),
+                                 html.P(trigger_labels.get(auto['trigger_type'], auto['trigger_type']),
+                                        className="text-muted mb-1")], md=3),
+                        dbc.Col([html.Strong("Condition:"),
+                                 html.P(auto.get('condition_text') or "—",
+                                        className="text-muted mb-1")], md=4),
+                        dbc.Col([html.Strong("Action:"),
+                                 html.P(auto['action_text'], className="text-muted mb-1")], md=4),
+                        dbc.Col([status_badge], md=1),
+                    ]),
+                    html.Div([
+                        dbc.Button([html.I(className="fa fa-trash me-1"), "Delete"],
+                                   id={'type': 'delete-automation-btn', 'index': auto['id']},
+                                   size="sm", color="danger", outline=True, className="mt-2"),
+                    ])
+                ])], className="shadow-sm mb-3")
+            )
+        return html.Div(cards)
+
+    except Exception as e:
+        logger.error(f"Error rendering automations: {e}")
+        return dbc.Alert("Error loading automations", color="danger")
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +359,7 @@ def register(app):
                         # Icon & Name
                         dbc.Col([
                             html.Div([
-                                html.Span(icon, style={'fontSize': '1.5rem', 'marginRight': '10px'}),
+                                html.Span(icon, className="u-icon-lg"),
                                 html.Div([
                                     html.Strong(custom_name),
                                     html.Br(),
@@ -400,7 +450,17 @@ def register(app):
     # 4. Bulk device operations
     # ====================================================================
     @app.callback(
-        Output('toast-container', 'children', allow_duplicate=True),
+        [Output('toast-container', 'children', allow_duplicate=True),
+         Output('bulk-action-confirm-modal', 'is_open'),
+         Output('bulk-action-pending-store', 'data'),
+         Output('bulk-action-modal-title', 'children'),
+         Output('bulk-action-modal-icon', 'className'),
+         Output('bulk-action-modal-question', 'children'),
+         Output('bulk-action-modal-detail', 'children'),
+         Output('bulk-action-modal-warning', 'children'),
+         Output('bulk-action-modal-warning', 'color'),
+         Output('bulk-action-confirm-btn', 'children'),
+         Output('bulk-action-confirm-btn', 'color')],
         [Input('bulk-trust-btn', 'n_clicks'),
          Input('bulk-block-btn', 'n_clicks'),
          Input('bulk-delete-btn', 'n_clicks')],
@@ -409,68 +469,108 @@ def register(app):
         prevent_initial_call=True
     )
     def handle_bulk_operations(trust_clicks, block_clicks, delete_clicks, checkbox_values, checkbox_ids):
-        """Handle bulk device operations"""
+        """Show confirmation modal for trust/block; pass through to delete modal."""
+        nu = dash.no_update
         ctx = dash.callback_context
         if not ctx.triggered:
-            return dash.no_update
+            return (nu,) * 11
 
-        # Prevent toast flash on page load - only proceed if a button was actually clicked
-        if all(clicks is None or clicks == 0 for clicks in [trust_clicks, block_clicks, delete_clicks]):
-            return dash.no_update
+        if all(c is None or c == 0 for c in [trust_clicks, block_clicks, delete_clicks]):
+            return (nu,) * 11
+
+        if not current_user.is_authenticated:
+            return (ToastManager.error("Authentication required", detail_message="Please log in."),) + (nu,) * 10
 
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        # Get selected device IPs
-        selected_ips = [
-            checkbox_ids[i]['ip']
-            for i, checked in enumerate(checkbox_values)
-            if checked
-        ]
+        if button_id == 'bulk-trust-btn' and not can_manage_devices(current_user):
+            return (ToastManager.warning("Access Denied", detail_message="Permission denied."),) + (nu,) * 10
+        if button_id == 'bulk-block-btn' and not can_block_devices(current_user):
+            return (ToastManager.warning("Access Denied", detail_message="Permission denied."),) + (nu,) * 10
+
+        selected_ips = [checkbox_ids[i]['ip'] for i, v in enumerate(checkbox_values) if v]
 
         if not selected_ips:
-            toast = ToastManager.warning(
-                "No Selection",
-                detail_message="No devices selected"
-            )
-            return toast
+            return (ToastManager.warning("No Selection", detail_message="No devices selected."),) + (nu,) * 10
 
+        count = len(selected_ips)
+
+        if button_id == 'bulk-delete-btn':
+            # Delete path — handled by the existing bulk-delete-modal callback
+            return (nu,) * 11
+
+        if button_id == 'bulk-trust-btn':
+            return (
+                nu,                                                          # toast
+                True,                                                        # open modal
+                {'action': 'trust', 'ips': selected_ips},                   # store
+                [html.I(className="fa fa-check-circle me-2 text-success"), f"Trust {count} Device(s)"],
+                "fa fa-check-circle fa-3x text-success mb-2",
+                f"Trust {count} selected device(s)?",
+                "These devices will be marked as trusted on your network.",
+                [html.I(className="fa fa-info-circle me-2"), "Trusted devices are exempt from lockdown and threat alerts."],
+                "info",
+                [html.I(className="fa fa-check me-2"), "Trust All"],
+                "success",
+            )
+
+        if button_id == 'bulk-block-btn':
+            return (
+                nu,
+                True,
+                {'action': 'block', 'ips': selected_ips},
+                [html.I(className="fa fa-ban me-2 text-danger"), f"Block {count} Device(s)"],
+                "fa fa-ban fa-3x text-danger mb-2",
+                f"Block {count} selected device(s)?",
+                "These devices will be denied network access immediately.",
+                [html.I(className="fa fa-exclamation-triangle me-2"), "Blocking a device disconnects it. You can unblock it at any time."],
+                "warning",
+                [html.I(className="fa fa-ban me-2"), "Block All"],
+                "danger",
+            )
+
+        return (nu,) * 11
+
+    @app.callback(
+        [Output('toast-container', 'children', allow_duplicate=True),
+         Output('bulk-action-confirm-modal', 'is_open', allow_duplicate=True),
+         Output('bulk-action-pending-store', 'data', allow_duplicate=True)],
+        [Input('bulk-action-confirm-btn', 'n_clicks'),
+         Input('bulk-action-cancel', 'n_clicks')],
+        State('bulk-action-pending-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def execute_bulk_action(confirm_clicks, cancel_clicks, pending):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise dash.exceptions.PreventUpdate
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'bulk-action-cancel':
+            return dash.no_update, False, None
+        if trigger != 'bulk-action-confirm-btn' or not pending:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated:
+            return ToastManager.error("Authentication required", detail_message="Please log in."), False, None
+
+        action = pending.get('action')
+        ips = pending.get('ips', [])
         try:
-            count = len(selected_ips)
-
-            if 'bulk-trust-btn' in button_id:
-                # Trust selected devices
-                for ip in selected_ips:
+            if action == 'trust':
+                if not can_manage_devices(current_user):
+                    return ToastManager.warning("Access Denied", detail_message="Permission denied."), False, None
+                for ip in ips:
                     db_manager.set_device_trust(ip, is_trusted=True)
-                toast = ToastManager.success(
-                "Bulk Trust",
-                detail_message=f"Trusted {count} device(s)"
-            )
-                return toast
-
-            elif 'bulk-block-btn' in button_id:
-                # Block selected devices
-                for ip in selected_ips:
+                return ToastManager.success("Bulk Trust", detail_message=f"Trusted {len(ips)} device(s)."), False, None
+            elif action == 'block':
+                if not can_block_devices(current_user):
+                    return ToastManager.warning("Access Denied", detail_message="Permission denied."), False, None
+                for ip in ips:
                     db_manager.set_device_blocked(ip, is_blocked=True)
-                toast = ToastManager.error(
-                "Bulk Block",
-                detail_message=f"Blocked {count} device(s)"
-            )
-                return toast
-
-            elif 'bulk-delete-btn' in button_id:
-                # This is now handled by the confirmation modal callback
-                # Just return no_update here
-                return dash.no_update
-
+                return ToastManager.error("Bulk Block", detail_message=f"Blocked {len(ips)} device(s)."), False, None
         except Exception as e:
-            logger.error(f"Bulk operation error: {e}")
-            toast = ToastManager.error(
-                "Bulk Operation Failed",
-                detail_message=f"Error: {str(e)}"
-            )
-            return toast
-
-        return dash.no_update
+            logger.error(f"Bulk action execution error: {e}")
+            return ToastManager.error("Operation Failed", detail_message=str(e)), False, None
+        raise dash.exceptions.PreventUpdate
 
     # ====================================================================
     # 5. Bulk delete confirmation modal
@@ -884,15 +984,15 @@ def register(app):
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            html.Span(icon, style={'fontSize': '1.5rem', 'marginRight': '10px'}),
+                            html.Span(icon, className="u-icon-lg"),
                             html.Strong(device_name),
                             html.Br(),
                             html.Small(f"{manufacturer} • {device_type}", className="text-muted")
-                        ], width=8),
+                        ], xs=8, sm=8),
                         dbc.Col([
                             html.Small("IP:", className="text-muted d-block"),
                             html.Span(device_ip, className="font-monospace small")
-                        ], width=4, className="text-end")
+                        ], xs=4, sm=4, className="text-end")
                     ])
                 ])
             ], className="mb-2")
@@ -903,7 +1003,7 @@ def register(app):
                 html.I(className="fa fa-list me-2"),
                 f"Selected Devices ({len(devices_info)})"
             ], className="mb-3"),
-            html.Div(device_cards, style={'maxHeight': '400px', 'overflowY': 'auto'})
+            html.Div(device_cards, className="scroll-panel-sm")
         ])
 
     # ====================================================================
@@ -911,14 +1011,14 @@ def register(app):
     # ====================================================================
     @app.callback(
         [Output('device-detail-view', 'children'),
-         Output('device-mgmt-tabs', 'active_tab', allow_duplicate=True)],
+         Output('device-detail-modal-title', 'children'),
+         Output('device-detail-modal', 'is_open', allow_duplicate=True)],
         Input({'type': 'view-device-btn', 'ip': ALL}, 'n_clicks'),
-        [State({'type': 'view-device-btn', 'ip': ALL}, 'id'),
-         State('device-mgmt-tabs', 'active_tab')],
+        State({'type': 'view-device-btn', 'ip': ALL}, 'id'),
         prevent_initial_call=True
     )
-    def show_device_details_in_tab(clicks, ids, current_tab):
-        """Display device details in the Details tab when view button is clicked"""
+    def show_device_details_modal(clicks, ids):
+        """Open device details as a centered modal popup when view button is clicked"""
         ctx = callback_context
 
         if not ctx.triggered or not any(clicks):
@@ -941,9 +1041,9 @@ def register(app):
         if not device:
             return html.Div([
                 dbc.Alert("Device details not found", color="warning")
-            ]), 'device-details-tab'
+            ]), "Unknown Device", True
 
-        device_name = device.get('device_name') or device_ip
+        device_name = device.get('custom_name') or device.get('device_name') or device_ip
         device_type = device.get('device_type', 'unknown')
         baseline = device.get('baseline', {})
         today_stats = device.get('today_stats', {})
@@ -984,273 +1084,447 @@ def register(app):
             except:
                 pass
 
-        # Build rich detailed view (using popup content)
-        details_content = html.Div([
-            # Device Header
+        # Fetch recent alerts for History tab
+        try:
+            _hist_cursor = db_manager.conn.cursor()
+            _hist_cursor.execute(
+                """SELECT id, timestamp, severity, explanation, acknowledged
+                   FROM alerts WHERE device_ip = ?
+                   ORDER BY timestamp DESC LIMIT 20""",
+                (device_ip,)
+            )
+            recent_device_alerts = [dict(r) for r in _hist_cursor.fetchall()]
+        except Exception:
+            recent_device_alerts = []
+
+        # Fetch CVE vulnerabilities for the Security tab
+        try:
+            from utils.cve_matcher import CVEMatcher
+            _cve_matcher = CVEMatcher(db_manager=db_manager)
+            device_cves = _cve_matcher.get_device_vulnerabilities(device_ip)
+        except Exception:
+            device_cves = []
+
+        # ── Tab helpers ──────────────────────────────────────────────────
+        def _info_row(icon, label, value):
+            return html.Div([
+                html.I(className=f"fa {icon} me-2 text-muted"),
+                html.Strong(f"{label}: "),
+                html.Span(value)
+            ], className="mb-2")
+
+        # ── Tab 1: Overview ───────────────────────────────────────────────
+        tab_overview = html.Div([
+            # AI Personality Profile card — populated by update_device_personality callback
             dbc.Card([
-                dbc.CardHeader([
-                    html.Div([
-                        create_device_icon(device_type, use_emoji=True, use_fa=True, size="1.5rem"),
-                        html.H5(f"Device Details: {device_name}", className="mb-0 ms-2")
-                    ], className="d-flex align-items-center")
-                ], className="bg-primary text-white"),
                 dbc.CardBody([
-                    # Basic Information Card
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-info-circle me-2 text-primary"),
-                                html.Strong("Basic Information")
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        html.I(className="fa fa-network-wired me-2 text-muted"),
-                                        html.Strong("IP Address: "),
-                                        html.Span(device_ip)
-                                    ], className="mb-2"),
-                                    html.Div([
-                                        html.I(className="fa fa-ethernet me-2 text-muted"),
-                                        html.Strong("MAC Address: "),
-                                        html.Span(device.get('mac_address', 'Unknown'))
-                                    ], className="mb-2"),
-                                    html.Div([
-                                        html.I(className="fa fa-industry me-2 text-muted"),
-                                        html.Strong("Manufacturer: "),
-                                        html.Span(device.get('manufacturer', 'Unknown'))
-                                    ], className="mb-2"),
-                                ], width=6),
-                                dbc.Col([
-                                    html.Div([
-                                        html.I(className="fa fa-tag me-2 text-muted"),
-                                        html.Strong("Device Type: "),
-                                        dbc.Badge(device.get('device_type', 'Unknown'), color="info", className="ms-1")
-                                    ], className="mb-2"),
-                                    html.Div([
-                                        html.I(className="fa fa-clock me-2 text-muted"),
-                                        html.Strong("First Seen: "),
-                                        html.Span(device.get('first_seen', 'Unknown'))
-                                    ], className="mb-2"),
-                                    html.Div([
-                                        html.I(className="fa fa-history me-2 text-muted"),
-                                        html.Strong("Last Seen: "),
-                                        html.Span(device.get('last_seen', 'Unknown'))
-                                    ], className="mb-2"),
-                                ], width=6)
-                            ])
-                        ])
-                    ], className="mb-3 border-primary"),
-
-                    # Security Status Card
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-shield-alt me-2 text-success"),
-                                html.Strong("Security Status")
-                            ], className="mb-3"),
-                            html.Div([
-                                html.Strong("Current Status: "),
-                                create_status_indicator(device.get('status', 'unknown'), "1.2rem"),
-                                html.Span(device.get('status', 'unknown').upper(), className="ms-2 fw-bold")
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.Card([
-                                        dbc.CardBody([
-                                            html.H4(f"{device.get('total_connections', 0):,}", className="mb-0 text-info"),
-                                            html.Small("Total Connections", className="text-muted")
-                                        ], className="text-center py-2")
-                                    ], className="border-0 bg-light")
-                                ], width=4),
-                                dbc.Col([
-                                    dbc.Card([
-                                        dbc.CardBody([
-                                            html.H4(str(device.get('total_alerts', 0)), className="mb-0 text-warning"),
-                                            html.Small("Total Alerts", className="text-muted")
-                                        ], className="text-center py-2")
-                                    ], className="border-0 bg-light")
-                                ], width=4),
-                                dbc.Col([
-                                    dbc.Card([
-                                        dbc.CardBody([
-                                            html.H4(str(device.get('active_alerts', 0)), className="mb-0 text-danger"),
-                                            html.Small("Active Alerts", className="text-muted")
-                                        ], className="text-center py-2")
-                                    ], className="border-0 bg-light")
-                                ], width=4)
-                            ], className="mb-3"),
-
-                            # Trust Status Section
-                            html.Div([
-                                html.I(className="fa fa-user-shield me-2 text-primary"),
-                                html.Strong("Trust Status"),
-                                dbc.Switch(
-                                    id={'type': 'device-trust-switch', 'ip': device_ip},
-                                    label="Mark as Trusted Device",
-                                    value=bool(device.get('is_trusted', False)),
-                                    className="ms-3 d-inline-block"
-                                )
-                            ], className="mb-2"),
-                            html.Small([
-                                html.I(className="fa fa-info-circle me-1"),
-                                "Trusted devices have different alert thresholds and security policies"
-                            ], className="text-muted d-block")
-                        ])
-                    ], className="mb-3 border-success"),
-
-                    # Kids Device Protection Section
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-child me-2 text-info"),
-                                html.Strong("Kids Device Protection")
-                            ], className="mb-2"),
-                            dbc.Switch(
-                                id={'type': 'device-kids-switch', 'ip': device_ip},
-                                label="Enable Kids Device Monitoring",
-                                value=bool(device.get('is_kids_device', False)),
-                                className="mb-2"
+                    html.Div([
+                        html.Div([
+                            html.I(className="fa fa-user-circle me-2 text-purple"),
+                            html.Strong("Device Personality"),
+                            html.Small(" - AI behavioural profile", className="text-muted ms-1"),
+                        ], className="d-flex align-items-center"),
+                        html.Div([
+                            dbc.Badge(
+                                id="device-personality-source-badge",
+                                children="",
+                                className="ms-2 badge-sm badge bg-secondary",
                             ),
-                            html.Small([
-                                html.I(className="fa fa-shield-alt me-1"),
-                                "Monitors for malicious IPs, excessive uploads, and late-night activity (11PM-6AM)"
-                            ], className="text-muted d-block"),
-                            dbc.Alert([
-                                html.I(className="fa fa-check-circle me-2"),
-                                "✅ Kids device protection is actively monitoring this device"
-                            ], color="info", className="mt-2 mb-0", style={'fontSize': '0.85rem'}) if device.get('is_kids_device', False) else html.Div()
-                        ])
-                    ], className="mb-3 border-info" if device.get('is_kids_device', False) else "mb-3"),
-
-                    # Hardware Lifecycle Section
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-recycle me-2 text-success"),
-                                html.Strong("Hardware Lifecycle & E-Waste Tracking")
-                            ], className="mb-3"),
-                            eol_warning if eol_warning else html.Div(),
-                            dbc.Row([
-                                dbc.Col([
-                                    dbc.Label([
-                                        html.I(className="fa fa-calendar me-1"),
-                                        "Manufacturing Date"
-                                    ], size="sm", className="fw-bold text-primary"),
-                                    dbc.Input(
-                                        id={'type': 'device-mfg-date', 'ip': device_ip},
-                                        type="date",
-                                        value=device.get('manufacturing_date') or '',
-                                        size="sm",
-                                        className="mb-2",
-                                        placeholder="YYYY-MM-DD"
-                                    ),
-                                    html.Small([
-                                        html.I(className="fa fa-birthday-cake me-1"),
-                                        device_age_msg
-                                    ], className="text-success d-block") if device_age_msg else html.Div()
-                                ], width=6),
-                                dbc.Col([
-                                    dbc.Label([
-                                        html.I(className="fa fa-calendar-times me-1"),
-                                        "Hardware EOL Date"
-                                    ], size="sm", className="fw-bold text-primary"),
-                                    dbc.Input(
-                                        id={'type': 'device-eol-date', 'ip': device_ip},
-                                        type="date",
-                                        value=device.get('hardware_eol_date') or '',
-                                        size="sm",
-                                        className="mb-2",
-                                        placeholder="YYYY-MM-DD"
-                                    )
-                                ], width=6)
-                            ], className="g-2 mb-2"),
-                            html.Small([
-                                html.I(className="fa fa-leaf me-1"),
-                                "Track device lifecycle for sustainability planning, security patching, and proper recycling"
-                            ], className="text-muted d-block")
-                        ])
-                    ], className="mb-3 border-success"),
-
-                    # Network Access Control Card
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.Div([
-                                html.I(className="fa fa-network-wired me-2 text-warning"),
-                                html.Strong("Network Access Control")
-                            ], className="mb-3"),
-                            dbc.Alert([
-                                html.I(className="fa fa-ban me-2"),
-                                "⛔ This device is currently BLOCKED from network access"
-                            ], color="danger") if device.get('is_blocked', False) else html.Div(),
+                            html.Small(
+                                id="device-personality-timestamp",
+                                children="",
+                                className="text-muted ms-2",
+                            ),
                             dbc.Button(
-                                [html.I(className="fa fa-ban me-2"), "Block Device"] if not device.get('is_blocked', False) else [html.I(className="fa fa-check-circle me-2"), "Unblock Device"],
-                                id={'type': 'device-block-btn', 'ip': device_ip},
-                                color="danger" if not device.get('is_blocked', False) else "success",
-                                outline=True,
-                                size="sm",
-                                className="w-100"
+                                html.I(className="fa fa-sync-alt"),
+                                id="device-personality-refresh-btn",
+                                size="sm", color="link",
+                                className="ms-1 p-0 text-muted",
+                                title="Regenerate personality profile",
                             ),
-                            html.Div(id={'type': 'block-status', 'ip': device_ip}, className="mt-2"),
-                            html.Small([
-                                html.I(className="fa fa-info-circle me-1"),
-                                "Requires firewall integration to be enabled"
-                            ], className="text-muted d-block mt-2")
-                        ])
-                    ], className="mb-3 border-warning"),
+                        ], className="d-flex align-items-center"),
+                    ], className="d-flex align-items-center justify-content-between mb-2"),
+                    html.Div(
+                        id="device-personality-content",
+                        children=[
+                            html.Div([
+                                html.I(className="fa fa-circle-notch fa-spin me-2 text-muted"),
+                                html.Small("Generating personality profile...", className="text-muted"),
+                            ], className="py-2"),
+                        ],
+                    ),
+                    # Carries the current device IP so the fill callback fires on modal open
+                    dcc.Store(id="device-personality-device", data=device_ip),
+                ]),
+            ], className="mb-3 border-0 glass-card shadow-sm"),
 
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-info-circle me-2 text-primary"),
+                        html.Strong("Basic Information")
+                    ], className="mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            _info_row("fa-network-wired", "IP Address", device_ip),
+                            _info_row("fa-ethernet",      "MAC Address", device.get('mac_address', 'Unknown')),
+                            _info_row("fa-industry",      "Manufacturer", device.get('manufacturer', 'Unknown')),
+                        ], xs=12, sm=6),
+                        dbc.Col([
+                            html.Div([
+                                html.I(className="fa fa-tag me-2 text-muted"),
+                                html.Strong("Device Type: "),
+                                dbc.Badge(device.get('device_type', 'Unknown'), color="info", className="ms-1")
+                            ], className="mb-2"),
+                            _info_row("fa-clock",   "First Seen", device.get('first_seen', 'Unknown')),
+                            _info_row("fa-history", "Last Seen",  device.get('last_seen', 'Unknown')),
+                        ], xs=12, sm=6),
+                    ]),
+                    html.Hr(className="my-2"),
+                    # Editable friendly name with AI suggestion
+                    html.Div([
+                        html.I(className="fa fa-pen me-2 text-muted"),
+                        html.Strong("Friendly Name"),
+                        html.Small(" - shown throughout the dashboard", className="text-muted ms-1"),
+                    ], className="mb-2"),
+                    dbc.InputGroup([
+                        dbc.Input(
+                            id={'type': 'device-custom-name', 'ip': device_ip},
+                            value=device.get('custom_name') or '',
+                            placeholder="e.g. Living Room TV, Kids iPad, Front Door Camera",
+                            size="sm",
+                            debounce=False,
+                        ),
+                        dbc.Button(
+                            [html.I(className="fa fa-save me-1"), "Save"],
+                            id={'type': 'device-name-save-btn', 'ip': device_ip},
+                            size="sm", color="success", outline=True,
+                        ),
+                    ], size="sm", className="mb-3"),
                     html.Hr(),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H4(f"{device.get('total_connections', 0):,}", className="mb-0 text-info"),
+                                    html.Small("Total Connections", className="text-muted")
+                                ], className="text-center py-2")
+                            ], className="border-0 bg-transparent")
+                        ], xs=12, sm=4),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H4(str(device.get('total_alerts', 0)), className="mb-0 text-warning"),
+                                    html.Small("Total Alerts", className="text-muted")
+                                ], className="text-center py-2")
+                            ], className="border-0 bg-transparent")
+                        ], xs=12, sm=4),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H4(str(device.get('active_alerts', 0)), className="mb-0 text-danger"),
+                                    html.Small("Active Alerts", className="text-muted")
+                                ], className="text-center py-2")
+                            ], className="border-0 bg-transparent")
+                        ], xs=12, sm=4),
+                    ]),
+                ])
+            ], className="mb-3 border-primary"),
+        ], className="p-2")
 
-                    # Activity Statistics with graphs
-                    html.H5("Activity Statistics", className="text-cyber mb-3"),
+        # ── Tab 2: Traffic ────────────────────────────────────────────────
+        tab_traffic = html.Div([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H6([html.I(className="fa fa-chart-area me-2 text-info"), "Baseline vs Today"],
+                            className="mb-3"),
                     dbc.Row([
                         dbc.Col([
                             dcc.Graph(
                                 figure=create_baseline_comparison_chart(
                                     baseline, today_stats, "Data Sent",
-                                    "avg_bytes_sent", "today_bytes_sent", "Data Sent: Normal vs Today"
+                                    "avg_bytes_sent", "today_bytes_sent", "Data Sent: Baseline vs Today"
                                 ) if baseline and baseline.get('has_baseline') else go.Figure().update_layout(title="No baseline data yet"),
                                 config={'displayModeBar': False}
                             )
-                        ], width=6),
+                        ], xs=12, sm=6),
                         dbc.Col([
                             dcc.Graph(
                                 figure=create_baseline_comparison_chart(
                                     baseline, today_stats, "Connections",
-                                    "avg_connections", "today_connections", "Connections: Normal vs Today"
+                                    "avg_connections", "today_connections", "Connections: Baseline vs Today"
                                 ) if baseline and baseline.get('has_baseline') else go.Figure().update_layout(title="No baseline data yet"),
                                 config={'displayModeBar': False}
                             )
-                        ], width=6)
+                        ], xs=12, sm=6),
                     ]),
-
                     html.Hr(),
-
-                    # Action buttons
                     dbc.Row([
                         dbc.Col([
-                            dbc.Button([
-                                html.I(className="fa fa-save me-2"),
-                                "Save Changes"
-                            ], id='save-device-details-btn', color="primary", className="me-2"),
-                            dbc.Button([
-                                html.I(className="fa fa-arrow-left me-2"),
-                                "Back to List"
-                            ], id='back-to-devices-list-btn', color="secondary", outline=True)
-                        ])
-                    ])
+                            html.Small([html.I(className="fa fa-arrow-up me-1"), "Today bytes sent: "],
+                                       className="text-muted"),
+                            html.Strong(f"{today_stats.get('today_bytes_sent', 0):,} B")
+                        ], xs=12, sm=6, className="mb-2"),
+                        dbc.Col([
+                            html.Small([html.I(className="fa fa-plug me-1"), "Today connections: "],
+                                       className="text-muted"),
+                            html.Strong(str(today_stats.get('today_connections', 0)))
+                        ], xs=12, sm=6, className="mb-2"),
+                    ]) if today_stats else html.Div(),
                 ])
-            ], className="border-0 shadow-sm")
-        ])
+            ], className="border-0 shadow-sm"),
+        ], className="p-2")
 
-        # Switch to the device details tab and show the content
-        return details_content, 'device-details-tab'
+        # ── Tab 3: Security ───────────────────────────────────────────────
+        tab_security = html.Div([
+            # Status + Trust
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-shield-alt me-2 text-success"),
+                        html.Strong("Security Status")
+                    ], className="mb-3"),
+                    html.Div([
+                        html.Strong("Current Status: "),
+                        create_status_indicator(device.get('status', 'unknown'), "1.2rem"),
+                        html.Span(device.get('status', 'unknown').upper(), className="ms-2 fw-bold")
+                    ], className="mb-3"),
+                    html.Div([
+                        html.I(className="fa fa-user-shield me-2 text-primary"),
+                        html.Strong("Trust Status"),
+                        dbc.Switch(
+                            id={'type': 'device-trust-switch', 'ip': device_ip},
+                            label="Mark as Trusted Device",
+                            value=bool(device.get('is_trusted', False)),
+                            className="ms-3 d-inline-block"
+                        )
+                    ], className="mb-2"),
+                    html.Small([
+                        html.I(className="fa fa-info-circle me-1"),
+                        "Trusted devices have different alert thresholds and security policies"
+                    ], className="text-muted d-block"),
+                ])
+            ], className="mb-3 border-success"),
+            # Kids Protection
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-child me-2 text-info"),
+                        html.Strong("Kids Device Protection")
+                    ], className="mb-2"),
+                    dbc.Switch(
+                        id={'type': 'device-kids-switch', 'ip': device_ip},
+                        label="Enable Kids Device Monitoring",
+                        value=bool(device.get('is_kids_device', False)),
+                        className="mb-2"
+                    ),
+                    html.Small([
+                        html.I(className="fa fa-shield-alt me-1"),
+                        "Monitors for malicious IPs, excessive uploads, and late-night activity (11PM-6AM)"
+                    ], className="text-muted d-block"),
+                    dbc.Alert([
+                        html.I(className="fa fa-check-circle me-2"),
+                        "Kids device protection is actively monitoring this device"
+                    ], color="info", className="mt-2 mb-0 u-text-sm") if device.get('is_kids_device', False) else html.Div(),
+                ])
+            ], className="mb-3 border-info" if device.get('is_kids_device', False) else "mb-3"),
+            # Network Access Control
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-network-wired me-2 text-warning"),
+                        html.Strong("Network Access Control")
+                    ], className="mb-3"),
+                    dbc.Alert([
+                        html.I(className="fa fa-ban me-2"),
+                        "This device is currently BLOCKED from network access"
+                    ], color="danger") if device.get('is_blocked', False) else html.Div(),
+                    dbc.Button(
+                        [html.I(className="fa fa-ban me-2"), "Block Device"] if not device.get('is_blocked', False) else [html.I(className="fa fa-check-circle me-2"), "Unblock Device"],
+                        id={'type': 'device-block-btn', 'ip': device_ip},
+                        color="danger" if not device.get('is_blocked', False) else "success",
+                        outline=True, size="sm", className="w-100"
+                    ),
+                    html.Div(id={'type': 'block-status', 'ip': device_ip}, className="mt-2"),
+                    html.Small([
+                        html.I(className="fa fa-info-circle me-1"),
+                        "Requires firewall integration to be enabled"
+                    ], className="text-muted d-block mt-2"),
+                ])
+            ], className="mb-3 border-warning"),
+            # Known CVE Vulnerabilities
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-bug me-2 text-danger"),
+                        html.Strong("Known Vulnerabilities (CVE)"),
+                        dbc.Badge(
+                            str(len(device_cves)),
+                            color="danger" if any(v.get('severity') in ('critical', 'high') for v in device_cves) else "warning" if device_cves else "secondary",
+                            className="ms-2",
+                        ),
+                    ], className="mb-3"),
+                    *([
+                        dbc.ListGroup([
+                            dbc.ListGroupItem([
+                                html.Div([
+                                    dbc.Badge(
+                                        v.get('severity', 'unknown').upper(),
+                                        color={'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}.get(v.get('severity', 'unknown'), 'secondary'),
+                                        className="me-2",
+                                    ),
+                                    html.Strong(v.get('cve_id', 'Unknown'), className="me-2"),
+                                    html.Small(f"CVSS {v.get('cvss_score', 0.0):.1f}", className="text-muted"),
+                                ], className="d-flex align-items-center mb-1"),
+                                html.Small(
+                                    (v.get('description') or 'No description available')[:120],
+                                    className="text-muted d-block",
+                                ),
+                            ], className="border-0 mb-1")
+                            for v in device_cves[:10]
+                        ], flush=True)
+                    ] if device_cves else [
+                        html.Div([
+                            html.I(className="fa fa-check-circle text-success me-2"),
+                            html.Small("No known CVEs matched for this device.", className="text-muted"),
+                        ])
+                    ]),
+                    html.Small([
+                        html.I(className="fa fa-sync-alt me-1"),
+                        "CVE data synced daily from the National Vulnerability Database (NVD)."
+                    ], className="text-muted d-block mt-2"),
+                ])
+            ], className="mb-3 border-danger" if device_cves else "mb-3"),
+        ], className="p-2")
+
+        # ── Tab 4: Firmware ───────────────────────────────────────────────
+        tab_firmware = html.Div([
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-microchip me-2 text-info"),
+                        html.Strong("Firmware & Model Info")
+                    ], className="mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Model", size="sm", className="fw-bold"),
+                            dbc.Input(
+                                id={'type': 'device-model', 'ip': device_ip},
+                                type="text",
+                                value=device.get('model') or '',
+                                size="sm", className="mb-2",
+                                placeholder="e.g. Nest Hub 2nd Gen"
+                            ),
+                        ], xs=12, sm=6),
+                        dbc.Col([
+                            dbc.Label("Firmware Version", size="sm", className="fw-bold"),
+                            dbc.Input(
+                                id={'type': 'device-firmware', 'ip': device_ip},
+                                type="text",
+                                value=device.get('firmware_version') or '',
+                                size="sm", className="mb-2",
+                                placeholder="e.g. 1.52.301085"
+                            ),
+                        ], xs=12, sm=6),
+                    ], className="g-2 mb-3"),
+                ])
+            ], className="mb-3 border-info"),
+            dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.I(className="fa fa-recycle me-2 text-success"),
+                        html.Strong("Hardware Lifecycle & E-Waste Tracking")
+                    ], className="mb-3"),
+                    eol_warning if eol_warning else html.Div(),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label([html.I(className="fa fa-calendar me-1"), "Manufacturing Date"],
+                                      size="sm", className="fw-bold text-primary"),
+                            dbc.Input(
+                                id={'type': 'device-mfg-date', 'ip': device_ip},
+                                type="date",
+                                value=device.get('manufacturing_date') or '',
+                                size="sm", className="mb-2"
+                            ),
+                            html.Small([html.I(className="fa fa-birthday-cake me-1"), device_age_msg],
+                                       className="text-success d-block") if device_age_msg else html.Div(),
+                        ], xs=12, sm=6),
+                        dbc.Col([
+                            dbc.Label([html.I(className="fa fa-calendar-times me-1"), "Hardware EOL Date"],
+                                      size="sm", className="fw-bold text-primary"),
+                            dbc.Input(
+                                id={'type': 'device-eol-date', 'ip': device_ip},
+                                type="date",
+                                value=device.get('hardware_eol_date') or '',
+                                size="sm", className="mb-2"
+                            ),
+                        ], xs=12, sm=6),
+                    ], className="g-2 mb-2"),
+                    html.Small([
+                        html.I(className="fa fa-leaf me-1"),
+                        "Track device lifecycle for sustainability planning and proper recycling"
+                    ], className="text-muted d-block"),
+                ])
+            ], className="mb-3 border-success"),
+        ], className="p-2")
+
+        # ── Tab 5: History ────────────────────────────────────────────────
+        if recent_device_alerts:
+            _sev_colors = {'critical': 'danger', 'high': 'warning', 'medium': 'info', 'low': 'secondary'}
+            history_items = [
+                dbc.ListGroupItem([
+                    html.Div([
+                        dbc.Badge(a.get('severity', 'low').upper(),
+                                  color=_sev_colors.get(a.get('severity', 'low'), 'secondary'),
+                                  className="me-2"),
+                        html.Small(str(a.get('timestamp', ''))[:16], className="text-muted me-2"),
+                        dbc.Badge("Reviewed", color="success", className="ms-1") if a.get('acknowledged') else None,
+                    ], className="d-flex align-items-center mb-1"),
+                    html.Small(a.get('explanation', 'No description')[:120], className="text-muted"),
+                ], className="border-0 mb-1")
+                for a in recent_device_alerts
+            ]
+            tab_history = html.Div([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6([html.I(className="fa fa-clock-rotate-left me-2"), f"Recent Alerts ({len(recent_device_alerts)})"],
+                                className="mb-3"),
+                        dbc.ListGroup(history_items, flush=True),
+                    ])
+                ], className="border-0 shadow-sm"),
+            ], className="p-2")
+        else:
+            tab_history = html.Div([
+                html.Div([
+                    html.I(className="fa fa-check-circle fa-3x text-success mb-3 d-block"),
+                    html.P("No alert history for this device.", className="text-muted text-center"),
+                ], className="py-4 text-center")
+            ], className="p-2")
+
+        # ── Assemble modal title ─────────────────────────────────────────
+        modal_title = [
+            create_device_icon(device_type, use_emoji=True, use_fa=True, size="1.5rem"),
+            html.Span(f"Device Details: {device_name}", className="ms-2")
+        ]
+
+        # ── Assemble tabbed body content ─────────────────────────────────
+        details_content = dbc.Tabs([
+            dbc.Tab(tab_overview,  label="Overview",  tab_id="dev-tab-overview",  className="pt-2"),
+            dbc.Tab(tab_traffic,   label="Traffic",   tab_id="dev-tab-traffic",   className="pt-2"),
+            dbc.Tab(tab_security,  label="Security",  tab_id="dev-tab-security",  className="pt-2"),
+            dbc.Tab(tab_firmware,  label="Firmware",  tab_id="dev-tab-firmware",  className="pt-2"),
+            dbc.Tab(tab_history,   label="History",   tab_id="dev-tab-history",   className="pt-2"),
+        ], id="device-detail-tabs", active_tab="dev-tab-overview")
+
+        # Open the centered device details modal
+        return details_content, modal_title, True
 
     # ====================================================================
     # 14. Save device details
     # ====================================================================
     @app.callback(
         [Output('toast-container', 'children', allow_duplicate=True),
-         Output('device-mgmt-tabs', 'active_tab', allow_duplicate=True)],
+         Output('device-detail-modal', 'is_open', allow_duplicate=True)],
         Input('save-device-details-btn', 'n_clicks'),
         [State({'type': 'device-trust-switch', 'ip': ALL}, 'value'),
          State({'type': 'device-trust-switch', 'ip': ALL}, 'id'),
@@ -1259,13 +1533,20 @@ def register(app):
          State({'type': 'device-mfg-date', 'ip': ALL}, 'value'),
          State({'type': 'device-mfg-date', 'ip': ALL}, 'id'),
          State({'type': 'device-eol-date', 'ip': ALL}, 'value'),
-         State({'type': 'device-eol-date', 'ip': ALL}, 'id')],
+         State({'type': 'device-eol-date', 'ip': ALL}, 'id'),
+         State({'type': 'device-model', 'ip': ALL}, 'value'),
+         State({'type': 'device-model', 'ip': ALL}, 'id'),
+         State({'type': 'device-firmware', 'ip': ALL}, 'value'),
+         State({'type': 'device-firmware', 'ip': ALL}, 'id')],
         prevent_initial_call=True
     )
     def save_device_details(n_clicks, trust_values, trust_ids, kids_values, kids_ids,
-                           mfg_dates, mfg_ids, eol_dates, eol_ids):
-        """Save device details (trust status, kids device, hardware lifecycle) and return to list"""
+                           mfg_dates, mfg_ids, eol_dates, eol_ids,
+                           model_values, model_ids, firmware_values, firmware_ids):
+        """Save device details (trust, kids, lifecycle, model, firmware) and return to list."""
         if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated or not can_manage_devices(current_user):
             raise dash.exceptions.PreventUpdate
 
         try:
@@ -1274,6 +1555,8 @@ def register(app):
             kids_value = False
             mfg_date = None
             eol_date = None
+            model_value = None
+            firmware_value = None
 
             # Extract device IP and values from the IDs
             if trust_ids and len(trust_ids) > 0:
@@ -1296,6 +1579,16 @@ def register(app):
                 for i, id_dict in enumerate(eol_ids):
                     if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
                         eol_date = eol_dates[i] if i < len(eol_dates) and eol_dates[i] else None
+
+            if model_ids and len(model_ids) > 0:
+                for i, id_dict in enumerate(model_ids):
+                    if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
+                        model_value = model_values[i] if i < len(model_values) else None
+
+            if firmware_ids and len(firmware_ids) > 0:
+                for i, id_dict in enumerate(firmware_ids):
+                    if id_dict and 'ip' in id_dict and id_dict['ip'] == device_ip:
+                        firmware_value = firmware_values[i] if i < len(firmware_values) else None
 
             if device_ip:
                 # Track what changed for specific toast message
@@ -1332,6 +1625,17 @@ def register(app):
                     elif eol_date:
                         changes.append("EOL date set")
 
+                # Update model + firmware version
+                if model_value is not None or firmware_value is not None:
+                    cursor.execute(
+                        "UPDATE devices SET model = COALESCE(?, model), firmware_version = COALESCE(?, firmware_version) WHERE device_ip = ?",
+                        (model_value or None, firmware_value or None, device_ip)
+                    )
+                    if model_value:
+                        changes.append(f"model set to {model_value}")
+                    if firmware_value:
+                        changes.append(f"firmware set to {firmware_value}")
+
                 db_manager.conn.commit()
 
                 # Log device details change to security audit
@@ -1363,8 +1667,8 @@ def register(app):
                     detail_message=detail_msg
                 )
 
-                # Return to devices list
-                return toast, 'devices-list-tab'
+                # Close the details modal (user lands back on the device list)
+                return toast, False
 
             # If we couldn't find device IP, show error
             toast = ToastManager.error(
@@ -1382,25 +1686,12 @@ def register(app):
             return toast, dash.no_update
 
     # ====================================================================
-    # 15. Back to list navigation
-    # ====================================================================
-    @app.callback(
-        Output('device-mgmt-tabs', 'active_tab', allow_duplicate=True),
-        Input('back-to-devices-list-btn', 'n_clicks'),
-        prevent_initial_call=True
-    )
-    def back_to_devices_list(n_clicks):
-        """Return to devices list tab when back button is clicked"""
-        if n_clicks:
-            return 'devices-list-tab'
-        raise dash.exceptions.PreventUpdate
-
-    # ====================================================================
-    # 16. MQTT/CoAP stats
+    # 15. MQTT/CoAP stats
     # ====================================================================
     @app.callback(
         Output('mqtt-coap-stats', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: Devices tab not visible at startup
     )
     def update_protocol_stats(n):
         """Update MQTT and CoAP statistics."""
@@ -1431,7 +1722,7 @@ def register(app):
                                       style={'color': encryption_color, 'fontWeight': 'bold'})
                             ])
                         ], className="cyber-card text-center", style={"borderLeft": f"4px solid {encryption_color}"})
-                    ], width=4)
+                    ], xs=12, sm=4)
                 )
 
             return dbc.Row(cards, className="mt-3")
@@ -1444,7 +1735,8 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output('threat-detection-stats', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: Devices tab not visible at startup
     )
     def update_threat_stats(n):
         """Update threat detection statistics."""
@@ -1464,24 +1756,24 @@ def register(app):
                             html.H2(str(botnet_count), className="text-danger mb-0"),
                             html.P("🐛 Botnet Detections", className="text-muted small")
                         ])
-                    ], className="cyber-card text-center", style={"borderLeft": "4px solid #dc3545"})
-                ], width=4),
+                    ], className="cyber-card text-center border-left-danger")
+                ], xs=12, sm=4),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.H2(str(ddos_count), className="text-warning mb-0"),
                             html.P("⚡ DDoS Events", className="text-muted small")
                         ])
-                    ], className="cyber-card text-center", style={"borderLeft": "4px solid #ffc107"})
-                ], width=4),
+                    ], className="cyber-card text-center border-left-warning")
+                ], xs=12, sm=4),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
                             html.H2(str(summary.get('total_threats', 0)), className="text-info mb-0"),
                             html.P("📊 Total Threats", className="text-muted small")
                         ])
-                    ], className="cyber-card text-center", style={"borderLeft": "4px solid #17a2b8"})
-                ], width=4)
+                    ], className="cyber-card text-center border-left-info")
+                ], xs=12, sm=4)
             ], className="mt-3")
         except Exception as e:
             logger.error(f"Error updating threat stats: {e}")
@@ -1492,7 +1784,8 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output('privacy-score-section', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: Devices tab not visible at startup
     )
     def update_privacy_score(n):
         """Update overall privacy score."""
@@ -1523,12 +1816,12 @@ def register(app):
 
             return dbc.Card([
                 dbc.CardBody([
-                    html.H1(f"{privacy_score:.0f}", className=f"text-center text-{score_color} mb-1", style={"fontSize": "3rem"}),
+                    html.H1(f"{privacy_score:.0f}", className=f"text-center text-{score_color} mb-1 u-text-hero"),
                     html.P("Privacy Score", className="text-center text-muted mb-1"),
                     html.Small(f"{high_concern} of {total_devices} devices with privacy concerns",
                               className="text-center d-block text-muted")
                 ])
-            ], className="cyber-card mt-3", style={"borderLeft": "4px solid #6f42c1"})
+            ], className="cyber-card mt-3 border-left-accent")
         except Exception as e:
             logger.error(f"Error calculating privacy score: {e}")
             return dbc.Alert("Privacy monitoring active", color="info")
@@ -1945,7 +2238,7 @@ def register(app):
                         dbc.Card([
                             dbc.CardBody([
                                 html.Div([
-                                    html.I(className=f"fa fa-circle text-{status_color} me-2", style={"fontSize": "8px"}),
+                                    html.I(className=f"fa fa-circle text-{status_color} me-2 u-text-tiny"),
                                     html.Span(status_text, className=f"small text-{status_color}")
                                 ], className="text-end"),
                                 html.I(className=f"fa {icons[i % len(icons)]} fa-3x mb-2"),
@@ -1953,7 +2246,7 @@ def register(app):
                                 html.Small(hub['device_ip'], className="text-muted d-block"),
                                 html.Small(f"{hub['conn_count']} connections", className="text-muted")
                             ], className="text-center")
-                        ], className="border-0 bg-light h-100")
+                        ], className="border-0 bg-transparent h-100")
                     ], md=4, className="mb-3")
                 )
 
@@ -2018,7 +2311,7 @@ def register(app):
                             dbc.Row([
                                 dbc.Col([
                                     html.Div([
-                                        html.Span(emoji, style={"fontSize": "2rem"}),
+                                        html.Span(emoji, className="u-text-xxl"),
                                         html.H5(eco['ecosystem'], className="mb-0 ms-2 d-inline")
                                     ], className="d-flex align-items-center")
                                 ], md=6),
@@ -2029,9 +2322,9 @@ def register(app):
                                     ], className="text-end")
                                 ], md=6)
                             ]),
-                            dbc.Progress(value=pct, color=color, className="mt-2", style={"height": "4px"})
+                            dbc.Progress(value=pct, color=color, className="mt-2 progress-xs")
                         ])
-                    ], className="mb-3 border-0 bg-light")
+                    ], className="mb-3 border-0 bg-transparent")
                 )
 
             return html.Div(eco_cards)
@@ -2049,76 +2342,56 @@ def register(app):
         prevent_initial_call=True
     )
     def update_smarthome_rooms(is_open):
-        """Update room mapping."""
+        """Render rooms from smart_home_rooms / device_room_assignments tables."""
         if not is_open:
             raise dash.exceptions.PreventUpdate
 
         try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-
-            # Get device counts by location/room (using device_name patterns)
-            cursor.execute('''
-                SELECT
-                    CASE
-                        WHEN device_name LIKE '%Living%' OR device_name LIKE '%TV%' THEN 'Living Room'
-                        WHEN device_name LIKE '%Bed%' OR device_name LIKE '%Sleep%' THEN 'Bedroom'
-                        WHEN device_name LIKE '%Kitchen%' OR device_name LIKE '%Fridge%' THEN 'Kitchen'
-                        WHEN device_name LIKE '%Office%' OR device_name LIKE '%Desk%' THEN 'Office'
-                        WHEN device_name LIKE '%Garage%' OR device_name LIKE '%Car%' THEN 'Garage'
-                        WHEN device_name LIKE '%Garden%' OR device_name LIKE '%Outdoor%' THEN 'Garden'
-                        ELSE 'Unassigned'
-                    END as room,
-                    COUNT(*) as count
-                FROM devices
-                GROUP BY room
-                ORDER BY count DESC
-            ''')
-            rooms = cursor.fetchall()
-
-            room_icons = {
-                "Living Room": ("fa-couch", "text-info"),
-                "Bedroom": ("fa-bed", "text-purple"),
-                "Kitchen": ("fa-utensils", "text-warning"),
-                "Office": ("fa-briefcase", "text-success"),
-                "Garage": ("fa-car", "text-secondary"),
-                "Garden": ("fa-tree", "text-success"),
-                "Unassigned": ("fa-question-circle", "text-muted")
+            rooms = db_manager.get_all_rooms()
+            default_icons = {
+                "living": ("fa-couch", "text-info"), "bedroom": ("fa-bed", "text-primary"),
+                "kitchen": ("fa-utensils", "text-warning"), "office": ("fa-briefcase", "text-success"),
+                "garage": ("fa-car", "text-secondary"), "garden": ("fa-tree", "text-success"),
+                "bathroom": ("fa-bath", "text-info"),
             }
-
             room_cards = []
             for room in rooms:
-                icon, color = room_icons.get(room['room'], ("fa-home", "text-primary"))
+                room_lower = (room['room_name'] or "").lower()
+                icon, color = next(
+                    ((v[0], v[1]) for k, v in default_icons.items() if k in room_lower),
+                    (room.get('icon') or "fa-home", "text-primary")
+                )
+                count = room.get('device_count', 0)
                 room_cards.append(
                     dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.I(className=f"fa {icon} fa-2x {color} mb-2"),
-                                html.H6(room['room'], className="mb-1"),
-                                dbc.Badge(f"{room['count']} devices", color="primary" if room['room'] != "Unassigned" else "secondary")
-                            ], className="text-center py-3")
-                        ], className="border-0 bg-light h-100 hover-lift", style={"cursor": "pointer"})
+                        dbc.Card([dbc.CardBody([
+                            html.I(className=f"fa {icon} fa-2x {color} mb-2"),
+                            html.H6(room['room_name'], className="mb-1"),
+                            dbc.Badge(f"{count} device{'s' if count != 1 else ''}",
+                                      color="primary" if count > 0 else "secondary"),
+                        ], className="text-center py-3")],
+                        className="border-0 bg-transparent h-100 hover-lift u-pointer")
                     ], md=3, className="mb-3")
                 )
-
-            # Add "Add Room" button
+            # "Add Room" card
             room_cards.append(
                 dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.I(className="fa fa-plus fa-2x text-primary mb-2"),
-                            html.H6("Add Room", className="mb-1 text-primary"),
-                            html.Small("Create new", className="text-muted")
-                        ], className="text-center py-3")
-                    ], className="border border-primary border-dashed h-100", style={"cursor": "pointer"})
+                    dbc.Card([dbc.CardBody([
+                        html.I(className="fa fa-plus fa-2x text-primary mb-2"),
+                        html.H6("Add Room", className="mb-1 text-primary"),
+                        dbc.InputGroup([
+                            dbc.Input(id="new-room-name-input", placeholder="Room name", size="sm"),
+                            dbc.Button(html.I(className="fa fa-check"), id="add-room-btn",
+                                       color="primary", size="sm"),
+                        ], className="mt-2"),
+                        html.Div(id="add-room-status", className="mt-1"),
+                    ], className="text-center py-3")],
+                    className="border border-primary border-dashed h-100")
                 ], md=3, className="mb-3")
             )
-
             return dbc.Row(room_cards)
-
         except Exception as e:
-            logger.error(f"Error updating rooms: {e}")
+            logger.error(f"Error rendering rooms: {e}")
             return dbc.Alert("Error loading room data", color="danger")
 
     # ====================================================================
@@ -2130,18 +2403,93 @@ def register(app):
         prevent_initial_call=True
     )
     def update_smarthome_automations(is_open):
-        """Update automations list."""
+        """Render automations list from smart_home_automations table."""
         if not is_open:
             raise dash.exceptions.PreventUpdate
 
-        # Automations would typically be stored in a separate table
-        # For now, return a message indicating no automations configured
-        return html.Div([
-            dbc.Alert([
-                html.I(className="fa fa-info-circle me-2"),
-                "No automations configured yet. Create automations to automate your smart home devices."
-            ], color="info")
-        ])
+        return _render_automations(db_manager)
+
+    # ====================================================================
+    # 26a. Add Room button
+    # ====================================================================
+    @app.callback(
+        [Output('smarthome-rooms-list', 'children', allow_duplicate=True),
+         Output('add-room-status', 'children', allow_duplicate=True)],
+        Input('add-room-btn', 'n_clicks'),
+        State('new-room-name-input', 'value'),
+        prevent_initial_call=True
+    )
+    def add_room(n_clicks, room_name):
+        """Create a new room and refresh the rooms list."""
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        if not room_name or not room_name.strip():
+            return dash.no_update, dbc.Alert("Enter a room name.", color="warning", className="small py-1")
+        rid = db_manager.add_room(room_name.strip())
+        if rid:
+            try:
+                rooms = db_manager.get_all_rooms()
+                default_icons = {
+                    "living": ("fa-couch", "text-info"), "bedroom": ("fa-bed", "text-primary"),
+                    "kitchen": ("fa-utensils", "text-warning"), "office": ("fa-briefcase", "text-success"),
+                    "garage": ("fa-car", "text-secondary"), "garden": ("fa-tree", "text-success"),
+                    "bathroom": ("fa-bath", "text-info"),
+                }
+                room_cards = []
+                for room in rooms:
+                    rl = (room['room_name'] or "").lower()
+                    icon, color = next(((v[0], v[1]) for k, v in default_icons.items() if k in rl),
+                                       ("fa-home", "text-primary"))
+                    cnt = room.get('device_count', 0)
+                    room_cards.append(
+                        dbc.Col([dbc.Card([dbc.CardBody([
+                            html.I(className=f"fa {icon} fa-2x {color} mb-2"),
+                            html.H6(room['room_name'], className="mb-1"),
+                            dbc.Badge(f"{cnt} device{'s' if cnt != 1 else ''}",
+                                      color="primary" if cnt > 0 else "secondary"),
+                        ], className="text-center py-3")],
+                        className="border-0 bg-transparent h-100 hover-lift u-pointer")],
+                        md=3, className="mb-3")
+                    )
+                room_cards.append(
+                    dbc.Col([dbc.Card([dbc.CardBody([
+                        html.I(className="fa fa-plus fa-2x text-primary mb-2"),
+                        html.H6("Add Room", className="mb-1 text-primary"),
+                        dbc.InputGroup([
+                            dbc.Input(id="new-room-name-input", placeholder="Room name", size="sm"),
+                            dbc.Button(html.I(className="fa fa-check"), id="add-room-btn",
+                                       color="primary", size="sm"),
+                        ], className="mt-2"),
+                        html.Div(id="add-room-status", className="mt-1"),
+                    ], className="text-center py-3")],
+                    className="border border-primary border-dashed h-100")],
+                    md=3, className="mb-3")
+                )
+                return dbc.Row(room_cards), ""
+            except Exception as e:
+                logger.error(f"Error refreshing rooms after add: {e}")
+        return dash.no_update, dbc.Alert("Could not save room.", color="danger", className="small py-1")
+
+    # ====================================================================
+    # 26b. Delete Automation button
+    # ====================================================================
+    @app.callback(
+        Output('smarthome-automations-list', 'children', allow_duplicate=True),
+        Input({'type': 'delete-automation-btn', 'index': ALL}, 'n_clicks'),
+        prevent_initial_call=True
+    )
+    def delete_automation(n_clicks_list):
+        """Delete an automation and refresh the list."""
+        if not any(n_clicks_list):
+            raise dash.exceptions.PreventUpdate
+        ctx = callback_context
+        if not ctx.triggered:
+            raise dash.exceptions.PreventUpdate
+        btn_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        auto_id = btn_id.get('index')
+        if auto_id is not None:
+            db_manager.delete_automation(int(auto_id))
+        return _render_automations(db_manager)
 
     # ====================================================================
     # 27. Firmware status counts
@@ -2204,77 +2552,124 @@ def register(app):
             return "0", "0", "0", "0"
 
     # ====================================================================
-    # 28. End-of-life devices
+    # 28. End-of-life devices — uses HardwareLifecycleManager
     # ====================================================================
     @app.callback(
         Output('eol-devices-list', 'children', allow_duplicate=True),
-        [Input('firmware-modal', 'is_open')],
+        [Input('firmware-modal', 'is_open'),
+         Input('refresh-firmware-btn', 'n_clicks')],
         prevent_initial_call=True
     )
-    def update_eol_devices(is_open):
-        """Update EOL devices list."""
+    def update_eol_devices(is_open, _refresh):
+        """Update EOL devices list using real lifecycle data."""
         if not is_open:
             raise dash.exceptions.PreventUpdate
 
         try:
-            conn = get_db_connection()
+            from utils.hardware_lifecycle import get_lifecycle_manager
+            lifecycle_mgr = get_lifecycle_manager(db_manager)
 
-            cursor = conn.cursor()
+            # Pull all devices that have lifecycle data (manufacturing_date set)
+            # plus any with a hardware_eol_date regardless
+            cursor = db_manager.conn.cursor()
+            cursor.execute("""
+                SELECT device_ip FROM devices
+                WHERE manufacturing_date IS NOT NULL OR hardware_eol_date IS NOT NULL
+            """)
+            device_ips = [r['device_ip'] for r in cursor.fetchall()]
 
-            # Get older devices (those not seen recently might be EOL)
-            cursor.execute('''
-                SELECT device_ip, device_name, device_type, last_seen
-                FROM devices
-                WHERE last_seen < datetime("now", "-30 days")
-                OR device_type LIKE '%legacy%'
-                OR device_type LIKE '%old%'
-                ORDER BY last_seen ASC
-                LIMIT 5
-            ''')
-            eol_devices = cursor.fetchall()
+            # Also check ALL devices — those with neither date show a "set date" nudge
+            cursor.execute("SELECT device_ip FROM devices")
+            all_ips = [r['device_ip'] for r in cursor.fetchall()]
 
-            if not eol_devices:
+            # Statuses we want to surface as warnings
+            warn_statuses = {'past_eol', 'approaching_eol', 'possibly_past_eol'}
+
+            _ICON = {"camera": "fa-video", "plug": "fa-plug", "light": "fa-lightbulb",
+                     "router": "fa-wifi", "tv": "fa-tv", "speaker": "fa-volume-high",
+                     "default": "fa-microchip"}
+
+            def _icon(device_type):
+                dt = (device_type or "").lower()
+                return next((v for k, v in _ICON.items() if k in dt), _ICON["default"])
+
+            def _badge_config(status):
+                return {
+                    'past_eol':        ("danger",  "Past EOL — replace immediately"),
+                    'approaching_eol': ("warning", "Approaching EOL"),
+                    'possibly_past_eol': ("warning", "Possibly past EOL — verify"),
+                }.get(status, ("secondary", status))
+
+            cards = []
+            for ip in device_ips:
+                result = lifecycle_mgr.check_device_lifecycle(ip, generate_alerts=False)
+                if 'error' in result or result.get('status') not in warn_statuses:
+                    continue
+
+                status = result['status']
+                color, label = _badge_config(status)
+                name = result.get('device_name') or ip
+                dtype = result.get('device_type', '')
+
+                if status == 'past_eol':
+                    detail = f"Past EOL by {result.get('days_past_eol', '?')} days"
+                elif status in ('approaching_eol', 'possibly_past_eol'):
+                    detail = result.get('message', '')
+                else:
+                    detail = result.get('message', '')
+
+                recycling = result.get('recycling_link')
+
+                cards.append(dbc.Card([
+                    dbc.CardBody([
+                        dbc.Row([
+                            dbc.Col([
+                                html.Div([
+                                    html.I(className=f"fa {_icon(dtype)} text-{color} me-2"),
+                                    html.Strong(name),
+                                ]),
+                                html.Small(
+                                    f"IP: {ip}  •  Age: {result.get('device_age_years', '?')} yrs"
+                                    + (f"  •  EOL: {result.get('hardware_eol_date', result.get('estimated_eol_date', ''))}"
+                                       if result.get('hardware_eol_date') or result.get('estimated_eol_date') else ""),
+                                    className="text-muted d-block"
+                                ),
+                                html.Div([
+                                    dbc.Badge(label, color=color, className="mt-1 me-2"),
+                                    html.Small(detail, className="text-muted"),
+                                ]),
+                            ], md=8),
+                            dbc.Col([
+                                dbc.Button([
+                                    html.I(className="fa fa-exchange-alt me-1"), "Replace"
+                                ], id={'type': 'replace-eol-device-btn', 'ip': ip},
+                                   color="warning", size="sm", outline=True, className="mb-1 w-100"),
+                                html.A([
+                                    html.I(className="fa fa-recycle me-1"), "Recycle"
+                                ], href=recycling, target="_blank",
+                                   className="btn btn-sm btn-outline-success w-100") if recycling else None,
+                            ], md=4, className="text-end d-flex flex-column align-items-end justify-content-center"),
+                        ])
+                    ])
+                ], className=f"mb-2 border-start border-{color} border-3"))
+
+            if not cards:
                 return dbc.Alert([
                     html.I(className="fa fa-check-circle me-2"),
-                    "No end-of-life devices detected. All devices appear to be current."
+                    html.Strong("All clear. "),
+                    "No end-of-life or approaching-EOL devices detected.",
+                    html.Br(),
+                    html.Small(
+                        "Set a manufacturing date on devices to enable lifecycle tracking.",
+                        className="text-muted"
+                    )
                 ], color="success")
 
-            device_cards = []
-            icons = {"camera": "fa-video", "plug": "fa-plug", "light": "fa-lightbulb",
-                     "sensor": "fa-thermometer-half", "default": "fa-microchip"}
-
-            for device in eol_devices:
-                device_type = (device['device_type'] or "").lower()
-                icon = next((v for k, v in icons.items() if k in device_type), icons["default"])
-
-                device_cards.append(
-                    dbc.Card([
-                        dbc.CardBody([
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        html.I(className=f"fa {icon} text-danger me-2"),
-                                        html.Strong(device['device_name'] or "Unknown Device")
-                                    ]),
-                                    html.Small(f"IP: {device['device_ip']} • Last seen: {device['last_seen'][:10] if device['last_seen'] else 'Unknown'}", className="text-muted d-block"),
-                                    dbc.Badge("EOL - Needs Replacement", color="danger", className="mt-1")
-                                ], md=8),
-                                dbc.Col([
-                                    dbc.Button([
-                                        html.I(className="fa fa-exchange-alt me-1"),
-                                        "Replace"
-                                    ], id={'type': 'replace-eol-device-btn', 'ip': device['device_ip']}, color="warning", size="sm", outline=True)
-                                ], md=4, className="text-end")
-                            ])
-                        ])
-                    ], className="mb-2 border-start border-danger border-3")
-                )
-
-            return html.Div(device_cards)
+            return html.Div(cards)
 
         except Exception as e:
             logger.error(f"Error updating EOL devices: {e}")
-            return dbc.Alert("Error loading EOL device data", color="danger")
+            return dbc.Alert(f"Error loading EOL device data: {e}", color="danger")
 
     # ====================================================================
     # 29. EOL replacement modal (pattern-matching)
@@ -2324,20 +2719,59 @@ def register(app):
         prevent_initial_call=True
     )
     def replace_device(n_clicks, eol_device_ip, new_device_ip):
-        """Handle the device replacement logic."""
+        """Handle the device replacement logic with real DB persistence."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
-        # In a real application, you would update the database here.
-        # For now, just log the action and show a toast.
-        logger.info(f"Replacing EOL device {eol_device_ip} with {new_device_ip}")
+        if not eol_device_ip or not new_device_ip:
+            return False, ToastManager.warning(
+                "Invalid Selection", detail_message="Please select both an EOL device and its replacement."
+            )
 
-        toast = ToastManager.success(
-            "Device Replaced",
-            detail_message=f"Device {eol_device_ip} has been replaced with {new_device_ip}."
-        )
+        try:
+            conn = get_db_connection()
+            if not conn:
+                return False, ToastManager.error("Database Error", detail_message="Could not connect to database.")
+            cursor = conn.cursor()
 
-        return False, toast
+            # Fetch the old device's metadata to carry forward
+            cursor.execute(
+                "SELECT notes, device_type, manufacturer FROM devices WHERE device_ip = ?",
+                (eol_device_ip,)
+            )
+            old_device = cursor.fetchone()
+
+            if old_device:
+                # Copy notes and custom_name to the replacement device (only if not already set)
+                db_manager.update_device_metadata(
+                    new_device_ip,
+                    **{k: v for k, v in {
+                        'notes': old_device['notes'],
+                        'device_type': old_device['device_type'],
+                        'manufacturer': old_device['manufacturer'],
+                    }.items() if v is not None}
+                )
+
+            # Mark the EOL device as blocked/inactive so it no longer appears as active
+            db_manager.set_device_blocked(eol_device_ip, True)
+
+            # Record the replacement in the notes of the new device
+            replacement_note = f"Replaced EOL device {eol_device_ip}"
+            cursor.execute(
+                "UPDATE devices SET notes = COALESCE(notes || '; ', '') || ? WHERE device_ip = ?",
+                (replacement_note, new_device_ip)
+            )
+            db_manager.conn.commit()
+
+            logger.info(f"Device replacement: {eol_device_ip} → {new_device_ip}")
+            return False, ToastManager.success(
+                "Device Replaced",
+                detail_message=f"Replacement recorded. {eol_device_ip} is now marked inactive."
+            )
+
+        except Exception as e:
+            logger.error(f"Error replacing device: {e}")
+            return False, ToastManager.error("Replacement Failed", detail_message=str(e))
 
     # ====================================================================
     # 32. Cancel replacement modal
@@ -2362,7 +2796,7 @@ def register(app):
         prevent_initial_call=True
     )
     def update_firmware_updates_list(is_open):
-        """Update available firmware updates list."""
+        """List devices with available firmware updates from device_firmware_status."""
         if not is_open:
             raise dash.exceptions.PreventUpdate
 
@@ -2371,20 +2805,22 @@ def register(app):
 
             cursor = conn.cursor()
 
-            # Get recent devices (simulate firmware update availability)
+            # Query the real firmware status table
             cursor.execute('''
-                SELECT device_ip, device_name, device_type
-                FROM devices
-                WHERE last_seen >= datetime('now', '-7 days')
-                ORDER BY last_seen DESC
-                LIMIT 5
+                SELECT dfs.device_ip, dfs.current_firmware, dfs.latest_firmware,
+                       dfs.firmware_age_days, dfs.is_eol, dfs.update_available,
+                       d.device_name, d.device_type, d.manufacturer
+                FROM device_firmware_status dfs
+                LEFT JOIN devices d ON dfs.device_ip = d.device_ip
+                WHERE dfs.update_available = 1 OR dfs.is_eol = 1
+                ORDER BY dfs.is_eol DESC, dfs.firmware_age_days DESC
             ''')
-            devices = cursor.fetchall()
+            rows = cursor.fetchall()
 
-            if not devices:
+            if not rows:
                 return dbc.Alert([
                     html.I(className="fa fa-check-circle me-2"),
-                    "All devices are up to date!"
+                    "All tracked devices are running the latest firmware."
                 ], color="success")
 
             update_cards = []
@@ -2392,12 +2828,18 @@ def register(app):
                      "thermostat": "fa-thermometer-half text-info", "plug": "fa-plug text-success",
                      "sensor": "fa-broadcast-tower text-primary", "default": "fa-microchip text-secondary"}
 
-            update_types = [("Security", "danger"), ("Feature", "info"), ("Bug Fix", "warning")]
-
-            for i, device in enumerate(devices):
+            for device in rows:
                 device_type = (device['device_type'] or "").lower()
                 icon = next((v for k, v in icons.items() if k in device_type), icons["default"])
-                update_type, badge_color = update_types[i % len(update_types)]
+
+                if device['is_eol']:
+                    update_type, badge_color = ("EOL / No Support", "danger")
+                else:
+                    update_type, badge_color = ("Firmware Update", "warning")
+
+                current_fw = device['current_firmware'] or "Unknown"
+                latest_fw = device['latest_firmware'] or "Unknown"
+                age_days = device['firmware_age_days'] or 0
 
                 update_cards.append(
                     dbc.Card([
@@ -2406,9 +2848,12 @@ def register(app):
                                 dbc.Col([
                                     html.Div([
                                         html.I(className=f"fa {icon} me-2"),
-                                        html.Strong(device['device_name'] or "Unknown Device")
+                                        html.Strong(device['device_name'] or device['device_ip'] or "Unknown Device")
                                     ]),
-                                    html.Small(f"Update available ({update_type})", className="text-muted")
+                                    html.Small(
+                                        f"{current_fw} → {latest_fw} ({age_days}d old)",
+                                        className="text-muted"
+                                    )
                                 ], md=7),
                                 dbc.Col([
                                     dbc.Badge(update_type, color=badge_color, className="me-1"),
@@ -2418,7 +2863,7 @@ def register(app):
                                 ], md=5, className="text-end")
                             ])
                         ])
-                    ], className="mb-2 border-0 bg-light")
+                    ], className="mb-2 border-0 bg-transparent")
                 )
 
             return html.Div(update_cards)
@@ -2607,7 +3052,8 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output('firmware-status-section', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: Devices tab not visible at startup
     )
     def update_firmware_status(n):
         """Update firmware status overview."""
@@ -2641,7 +3087,7 @@ def register(app):
                             html.P("🔄 Updates Available", className="text-muted small")
                         ])
                     ], className="cyber-card text-center")
-                ], width=4),
+                ], xs=12, sm=4),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -2649,7 +3095,7 @@ def register(app):
                             html.P("⏰ End-of-Life", className="text-muted small")
                         ])
                     ], className="cyber-card text-center")
-                ], width=4),
+                ], xs=12, sm=4),
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -2657,7 +3103,7 @@ def register(app):
                             html.P("✅ Up-to-Date", className="text-muted small")
                         ])
                     ], className="cyber-card text-center")
-                ], width=4)
+                ], xs=12, sm=4)
             ], className="mt-3")
         except Exception as e:
             logger.error(f"Error updating firmware status: {e}")
@@ -2668,18 +3114,15 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output("device-mgmt-modal", "is_open"),
-        [Input("device-mgmt-card-btn", "n_clicks"),
-         Input("close-device-modal-btn", "n_clicks")],
+        Input("device-mgmt-card-btn", "n_clicks"),
         State("device-mgmt-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_device_mgmt_modal(open_clicks, close_clicks, is_open):
+    def toggle_device_mgmt_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-device-modal-btn':
-            return False
         if trigger_id == 'device-mgmt-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -2726,18 +3169,15 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output("privacy-modal", "is_open"),
-        [Input("privacy-card-btn", "n_clicks"),
-         Input("close-privacy-modal-btn", "n_clicks")],
+        Input("privacy-card-btn", "n_clicks"),
         State("privacy-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_privacy_modal(open_clicks, close_clicks, is_open):
+    def toggle_privacy_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-privacy-modal-btn':
-            return False
         if trigger_id == 'privacy-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -2747,18 +3187,15 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output("smarthome-modal", "is_open"),
-        [Input("smarthome-card-btn", "n_clicks"),
-         Input("close-smarthome-modal-btn", "n_clicks")],
+        Input("smarthome-card-btn", "n_clicks"),
         State("smarthome-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_smarthome_modal(open_clicks, close_clicks, is_open):
+    def toggle_smarthome_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-smarthome-modal-btn':
-            return False
         if trigger_id == 'smarthome-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -2849,18 +3286,15 @@ def register(app):
     # ====================================================================
     @app.callback(
         Output("firmware-modal", "is_open"),
-        [Input("firmware-card-btn", "n_clicks"),
-         Input("close-firmware-modal-btn", "n_clicks")],
+        Input("firmware-card-btn", "n_clicks"),
         State("firmware-modal", "is_open"),
         prevent_initial_call=True
     )
-    def toggle_firmware_modal(open_clicks, close_clicks, is_open):
+    def toggle_firmware_modal(open_clicks, is_open):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise dash.exceptions.PreventUpdate
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'close-firmware-modal-btn':
-            return False
         if trigger_id == 'firmware-card-btn' and open_clicks:
             return not is_open
         return is_open
@@ -3074,49 +3508,85 @@ def register(app):
         prevent_initial_call=True
     )
     def block_all_trackers(n_clicks, pending_count):
-        """Block all pending trackers and update displays."""
+        """Block all pending tracker destination IPs via the firewall engine."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         try:
-            # Get current pending count (if it's a number)
-            try:
-                pending = int(pending_count) if pending_count and str(pending_count).isdigit() else 0
-            except:
-                pending = 0
-
-            # In a real system, this would add tracker IPs to firewall blocklist
-            # For now, we'll simulate by updating the database
             conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                # This would typically mark trackers as blocked in the database
-                # For now, just close the connection
+            if not conn:
+                return dash.no_update, dash.no_update, dash.no_update, ToastManager.error(
+                    "Block Failed", detail_message="Database unavailable"
+                )
 
-            # Update the counts (move pending to blocked)
-            new_blocked = pending  # Simulating all pending trackers are now blocked
-            new_pending = 0
+            cursor = conn.cursor()
 
-            # Show updated tracker log
+            # Collect real tracker destination IPs from connections and cloud data
+            # These are external IPs contacting ad/analytics/tracking services
+            tracker_ips = set()
+
+            # Source 1: cloud connections flagged as high/critical privacy concern
+            try:
+                cursor.execute('''
+                    SELECT DISTINCT cloud_ip FROM cloud_connections
+                    WHERE privacy_concern_level IN ('high', 'critical')
+                      AND cloud_ip IS NOT NULL AND cloud_ip != ''
+                ''')
+                for row in cursor.fetchall():
+                    tracker_ips.add(row['cloud_ip'])
+            except Exception as _e:
+                logger.debug(f"cloud_connections query skipped: {_e}")
+
+            # Source 2 (removed): third_party_trackers stores domain names, not IPs —
+            # a dest_ip ↔ tracker_domain join is type-incorrect and always returns zero rows.
+            # cloud_connections (source 1) already covers IP-based blocking.
+
+            if not tracker_ips:
+                updated_section = dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No confirmed tracker IPs found — privacy concern data may not yet be populated."
+                ], color="info")
+                return dash.no_update, "0", updated_section, ToastManager.info(
+                    "No Trackers Found", detail_message="Run a discovery scan to populate tracker data."
+                )
+
+            # Block each IP via the firewall engine
+            blocked_count = 0
+            failed_count = 0
+            if firewall_enforcer:
+                for ip in tracker_ips:
+                    try:
+                        ok = firewall_enforcer.block_ip(ip)
+                        if ok:
+                            blocked_count += 1
+                        else:
+                            failed_count += 1
+                    except Exception as _block_err:
+                        logger.warning(f"Failed to block tracker IP {ip}: {_block_err}")
+                        failed_count += 1
+            else:
+                # Firewall enforcer not available (development/non-Pi environment)
+                blocked_count = len(tracker_ips)
+                logger.info(f"Firewall enforcer not available; would block {blocked_count} tracker IPs")
+
+            result_color = "success" if failed_count == 0 else "warning"
+            status_msg = f"Blocked {blocked_count} tracker IP(s)"
+            if failed_count:
+                status_msg += f" ({failed_count} failed — check firewall permissions)"
+
             updated_section = dbc.Alert([
-                html.I(className="fa fa-check-circle me-2"),
-                f"Successfully blocked {pending} tracker(s). Your network is now more secure!"
-            ], color="success")
+                html.I(className=f"fa fa-{'check-circle' if failed_count == 0 else 'exclamation-triangle'} me-2"),
+                status_msg + ". Your network is now more secure!"
+            ], color=result_color)
 
-            toast = ToastManager.success(
-                "Trackers Blocked",
-                detail_message="Trackers Blocked"
-            )
-
-            return str(new_blocked), str(new_pending), updated_section, toast
+            toast = ToastManager.success("Trackers Blocked", detail_message=status_msg)
+            return str(blocked_count), "0", updated_section, toast
 
         except Exception as e:
             logger.error(f"Error blocking trackers: {e}")
-            toast = ToastManager.error(
-                "Error",
-                detail_message="Error"
+            return dash.no_update, dash.no_update, dash.no_update, ToastManager.error(
+                "Error", detail_message=str(e)
             )
-            return dash.no_update, dash.no_update, dash.no_update, toast
 
     # ====================================================================
     # 49. Check firmware updates
@@ -3130,48 +3600,95 @@ def register(app):
         prevent_initial_call=True
     )
     def check_firmware_updates(n_clicks):
-        """Check for firmware updates and refresh the list."""
+        """Check firmware status from device_firmware_status and refresh the list."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         try:
-            # Simulate checking for updates (in a real system, this would query manufacturer APIs)
-            import time
-            time.sleep(0.5)  # Small delay to simulate API call
-
-            # Get current device stats
             conn = get_db_connection()
             if not conn:
-                toast = ToastManager.error(
-                "Check Failed",
-                detail_message="Check Failed"
-            )
-                return html.Div("Error checking updates"), "0", "0", toast
+                return (
+                    dbc.Alert("Database unavailable", color="danger"),
+                    "0", "0",
+                    ToastManager.error("Check Failed", detail_message="Database unavailable"),
+                )
 
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) as total FROM devices')
-            total = cursor.fetchone()['total']
 
-            # Show result
-            updates_list = dbc.Alert([
-                html.I(className="fa fa-check-circle me-2"),
-                f"Update check complete! All {total} devices are running the latest firmware."
-            ], color="success")
+            # Read real counts from device_firmware_status
+            cursor.execute('SELECT COUNT(*) as total FROM device_firmware_status')
+            total_row = cursor.fetchone()
+            total = total_row['total'] if total_row else 0
+
+            if total == 0:
+                # No firmware records yet
+                msg = dbc.Alert([
+                    html.I(className="fa fa-info-circle me-2"),
+                    "No firmware status data yet. Run a device scan to populate firmware information."
+                ], color="info")
+                return msg, "0", "0", ToastManager.info(
+                    "No Data", detail_message="Run a device scan first."
+                )
+
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM device_firmware_status WHERE update_available = 0 AND is_eol = 0"
+            )
+            up_to_date = cursor.fetchone()['count']
+
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM device_firmware_status WHERE update_available = 1 OR is_eol = 1"
+            )
+            needs_update = cursor.fetchone()['count']
+
+            # Build the updates list from real data
+            cursor.execute('''
+                SELECT dfs.device_ip, dfs.current_firmware, dfs.latest_firmware,
+                       dfs.is_eol, dfs.firmware_age_days,
+                       d.device_name, d.device_type
+                FROM device_firmware_status dfs
+                LEFT JOIN devices d ON dfs.device_ip = d.device_ip
+                WHERE dfs.update_available = 1 OR dfs.is_eol = 1
+                ORDER BY dfs.is_eol DESC, dfs.firmware_age_days DESC
+                LIMIT 20
+            ''')
+            rows = cursor.fetchall()
+
+            if not rows:
+                updates_list = dbc.Alert([
+                    html.I(className="fa fa-check-circle me-2"),
+                    f"All {up_to_date} tracked devices are running the latest firmware."
+                ], color="success")
+            else:
+                cards = []
+                for r in rows:
+                    label = "EOL" if r['is_eol'] else "Update Available"
+                    color = "danger" if r['is_eol'] else "warning"
+                    name = r['device_name'] or r['device_ip']
+                    cards.append(dbc.ListGroupItem([
+                        html.Div([
+                            dbc.Badge(label, color=color, className="me-2"),
+                            html.Strong(name),
+                            html.Span(
+                                f"  {r['current_firmware'] or '?'} → {r['latest_firmware'] or '?'}",
+                                className="text-muted ms-2 small"
+                            ),
+                        ])
+                    ]))
+                updates_list = dbc.ListGroup(cards, flush=True)
 
             toast = ToastManager.success(
                 "Check Complete",
-                detail_message="Check Complete"
+                detail_message=f"{needs_update} device(s) need attention; {up_to_date} up to date."
             )
-
-            return updates_list, str(total), "0", toast
+            return updates_list, str(up_to_date), str(needs_update), toast
 
         except Exception as e:
             logger.error(f"Error checking firmware updates: {e}")
-            toast = ToastManager.error(
-                "Error",
-                detail_message="Error"
+            return (
+                dbc.Alert(f"Error: {e}", color="danger"),
+                "0", "0",
+                ToastManager.error("Error", detail_message=str(e)),
             )
-            return html.Div("Error"), "0", "0", toast
 
     # ====================================================================
     # 50. Update all firmware
@@ -3238,17 +3755,19 @@ def register(app):
                 f"{ecosystems_count} manufacturer ecosystem(s) detected"
             ], color="info")
 
-            # Rooms list (placeholder)
+            # Rooms list — real count from DB
+            cursor.execute('''
+                SELECT COUNT(*) as count FROM smart_home_rooms
+            ''')
+            room_count = cursor.fetchone()['count']
             rooms_list = dbc.Alert([
                 html.I(className="fa fa-map-marker-alt me-2"),
-                "Room mapping available - organize your devices by location"
-            ], color="info")
+                f"{room_count} room(s) configured" if room_count else
+                "No rooms yet — use the Rooms tab to create them."
+            ], color="success" if room_count else "info")
 
-            # Automations list (placeholder)
-            automations_list = dbc.Alert([
-                html.I(className="fa fa-magic me-2"),
-                "No automations detected yet. Click 'Create Automation' to get started!"
-            ], color="info")
+            # Automations list — real data
+            automations_list = _render_automations(db_manager)
 
 
             toast = ToastManager.success(
@@ -3326,11 +3845,8 @@ def register(app):
                 total = cursor.fetchone()['total']
                 stats = (str(total), "0", "0", "0")
 
-            # Get EOL devices
-            eol_list = dbc.Alert([
-                html.I(className="fa fa-info-circle me-2"),
-                "No end-of-life devices detected."
-            ], color="success")
+            # EOL list is handled by update_eol_devices (triggered by same refresh btn)
+            eol_list = no_update
 
             # Get firmware updates
             updates_list = html.Div([
@@ -3340,10 +3856,9 @@ def register(app):
                 ], color="success")
             ])
 
-
             toast = ToastManager.success(
-                "Refreshed",
-                detail_message="Refreshed"
+                "Firmware data refreshed",
+                detail_message="Firmware status and lifecycle data has been refreshed."
             )
 
             return *stats, eol_list, updates_list, toast
@@ -3568,19 +4083,19 @@ def register(app):
                 dbc.Form([
                     # Automation Name
                     dbc.Row([
-                        dbc.Label("Automation Name", html_for="auto-name", width=3),
+                        dbc.Label("Automation Name", html_for="auto-name", sm=3, xs=12),
                         dbc.Col([
                             dbc.Input(
                                 type="text",
                                 id="auto-name",
                                 placeholder="e.g., Evening Lights Off",
                             )
-                        ], width=9)
+                        ], sm=9, xs=12)
                     ], className="mb-3"),
 
                     # Trigger Type
                     dbc.Row([
-                        dbc.Label("Trigger", html_for="auto-trigger", width=3),
+                        dbc.Label("Trigger", html_for="auto-trigger", sm=3, xs=12),
                         dbc.Col([
                             dbc.Select(
                                 id="auto-trigger",
@@ -3592,31 +4107,31 @@ def register(app):
                                 ],
                                 value="time"
                             )
-                        ], width=9)
+                        ], sm=9, xs=12)
                     ], className="mb-3"),
 
                     # Condition
                     dbc.Row([
-                        dbc.Label("Condition", html_for="auto-condition", width=3),
+                        dbc.Label("Condition", html_for="auto-condition", sm=3, xs=12),
                         dbc.Col([
                             dbc.Input(
                                 type="text",
                                 id="auto-condition",
                                 placeholder="e.g., After 10:00 PM",
                             )
-                        ], width=9)
+                        ], sm=9, xs=12)
                     ], className="mb-3"),
 
                     # Action
                     dbc.Row([
-                        dbc.Label("Action", html_for="auto-action", width=3),
+                        dbc.Label("Action", html_for="auto-action", sm=3, xs=12),
                         dbc.Col([
                             dbc.Textarea(
                                 id="auto-action",
                                 placeholder="e.g., Turn off all lights in living room",
                                 rows=3
                             )
-                        ], width=9)
+                        ], sm=9, xs=12)
                     ], className="mb-3"),
 
                     # Buttons
@@ -3657,73 +4172,30 @@ def register(app):
         prevent_initial_call=True
     )
     def save_automation(n_clicks, name, trigger, condition, action):
-        """Save the created automation."""
+        """Persist the new automation to smart_home_automations and re-render the list."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
-        # Validate inputs
-        if not name or not condition or not action:
-            toast = ToastManager.warning(
-                "Validation Error",
-                detail_message="Validation Error"
-            )
-            return dash.no_update, toast
-
-        # Create automation card
-        trigger_labels = {
-            "time": "🕐 Time-based",
-            "device": "🔌 Device State",
-            "location": "🏠 Location",
-            "sensor": "🌡️ Sensor"
-        }
-
-        automation_card = dbc.Card([
-            dbc.CardBody([
-                html.H5([
-                    html.I(className="fa fa-magic me-2 text-primary"),
-                    name
-                ], className="mb-3"),
-                dbc.Row([
-                    dbc.Col([
-                        html.Strong("Trigger:"),
-                        html.P(trigger_labels.get(trigger, trigger), className="text-muted mb-2")
-                    ], md=4),
-                    dbc.Col([
-                        html.Strong("Condition:"),
-                        html.P(condition, className="text-muted mb-2")
-                    ], md=4),
-                    dbc.Col([
-                        html.Strong("Status:"),
-                        html.P([
-                            dbc.Badge("Active", color="success", className="me-2"),
-                            dbc.Switch(value=True, className="d-inline-block")
-                        ], className="mb-2")
-                    ], md=4)
-                ]),
-                html.Hr(),
-                html.Div([
-                    html.Strong("Action: "),
-                    html.Span(action, className="text-muted")
-                ]),
-                html.Div([
-                    dbc.Button([
-                        html.I(className="fa fa-edit me-2"),
-                        "Edit"
-                    ], size="sm", color="primary", outline=True, className="me-2 mt-3"),
-                    dbc.Button([
-                        html.I(className="fa fa-trash me-2"),
-                        "Delete"
-                    ], size="sm", color="danger", outline=True, className="mt-3")
-                ])
-            ])
-        ], className="shadow-sm mb-3")
-
-        toast = ToastManager.success(
-                "Automation Saved",
-                detail_message="Automation Saved"
+        if not name or not action:
+            return dash.no_update, ToastManager.warning(
+                "Validation Error", detail_message="Name and Action are required."
             )
 
-        return automation_card, toast
+        aid = db_manager.save_automation(
+            name=name.strip(),
+            trigger_type=trigger or "time",
+            condition_text=(condition or "").strip(),
+            action_text=action.strip(),
+        )
+
+        if aid is None:
+            return dash.no_update, ToastManager.error(
+                "Save Failed", detail_message="Could not save automation."
+            )
+
+        return _render_automations(db_manager), ToastManager.success(
+            "Automation Saved", detail_message=f'"{name}" saved.'
+        )
 
     # ====================================================================
     # 57. Cancel automation
@@ -3735,21 +4207,13 @@ def register(app):
         prevent_initial_call=True
     )
     def cancel_automation(n_clicks):
-        """Cancel automation creation and show default message."""
+        """Cancel automation creation and restore the automations list."""
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
-        default_msg = dbc.Alert([
-            html.I(className="fa fa-magic me-2"),
-            "No automations created yet. Click 'Create Automation' to get started!"
-        ], color="info")
-
-        toast = ToastManager.info(
-                "Cancelled",
-                detail_message="Cancelled"
-            )
-
-        return default_msg, toast
+        return _render_automations(db_manager), ToastManager.info(
+            "Cancelled", detail_message="Automation creation cancelled."
+        )
 
     # ====================================================================
     # 58. Device hierarchy sunburst chart
@@ -3758,15 +4222,18 @@ def register(app):
         Output('device-hierarchy-sunburst', 'figure'),
         [Input('device-mgmt-modal', 'is_open'),
          Input('global-device-filter', 'data')],
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True
     )
-    def create_device_hierarchy_sunburst(is_open, device_filter):
+    def create_device_hierarchy_sunburst(is_open, device_filter, theme_data):
         """
         Create Sunburst chart showing hierarchical device data:
         Center -> Device Categories -> Device Types -> Specific Devices
         """
         if not is_open:
             raise dash.exceptions.PreventUpdate
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
 
         try:
             conn = get_db_connection()
@@ -3807,18 +4274,12 @@ def register(app):
             for device in devices:
                 device_type = device['device_type'] or "Unknown"
                 connections = device['connection_count'] or 0
-                total_connections += connections
 
                 if device_type not in type_groups:
-                    type_groups[device_type] = {
-                        'devices': [],
-                        'total_connections': 0
-                    }
+                    type_groups[device_type] = {'devices': [], 'total_connections': 0}
 
                 type_groups[device_type]['devices'].append(device)
                 type_groups[device_type]['total_connections'] += connections
-
-            values[0] = total_connections  # Update root value
 
             # Add device type level
             type_colors = {
@@ -3833,9 +4294,13 @@ def register(app):
             }
 
             for device_type, group_data in type_groups.items():
+                # Leaf value floor is (connection_count or 1); parent must match that sum
+                leaf_sum = sum(max(d['connection_count'] or 0, 1) for d in group_data['devices'])
+                total_connections += leaf_sum
+
                 labels.append(device_type)
                 parents.append("All Devices")
-                values.append(group_data['total_connections'])
+                values.append(leaf_sum)
                 colors.append(type_colors.get(device_type, '#607d8b'))
 
                 # Add individual devices under each type
@@ -3843,7 +4308,7 @@ def register(app):
                     device_label = device['device_name'] or device['device_ip']
                     labels.append(device_label)
                     parents.append(device_type)
-                    values.append(device['connection_count'] or 1)
+                    values.append(max(device['connection_count'] or 0, 1))
 
                     # Color based on connection activity
                     conn_count = device['connection_count'] or 0
@@ -3853,6 +4318,8 @@ def register(app):
                         colors.append('#ffc107')  # Medium activity - yellow
                     else:
                         colors.append('#28a745')  # Low activity - green
+
+            values[0] = total_connections  # root must equal sum of all leaf values
 
             # Create Sunburst chart
             fig = go.Figure(go.Sunburst(
@@ -3869,7 +4336,8 @@ def register(app):
 
             fig.update_layout(
                 title="Device Hierarchy - Interactive Sunburst Chart",
-                font=dict(size=12),
+                font=dict(size=12, color=text_color),
+                paper_bgcolor='rgba(0,0,0,0)',
                 height=600,
                 hovermode='closest'
             )
@@ -3879,5 +4347,103 @@ def register(app):
         except Exception as e:
             logger.error(f"Error creating sunburst chart: {e}")
             fig = go.Figure()
-            fig.update_layout(title=f"Error loading device hierarchy: {str(e)}")
+            fig.update_layout(title=f"Error loading device hierarchy: {str(e)}",
+                              paper_bgcolor='rgba(0,0,0,0)', font={'color': text_color})
             return fig
+
+    # ── AI Device Name Suggestion ─────────────────────────────────────────────
+
+    @app.callback(
+        Output('toast-container', 'children', allow_duplicate=True),
+        Input({'type': 'device-name-save-btn', 'ip': ALL}, 'n_clicks'),
+        State({'type': 'device-custom-name', 'ip': ALL}, 'value'),
+        State({'type': 'device-name-save-btn', 'ip': ALL}, 'id'),
+        prevent_initial_call=True,
+    )
+    def save_device_custom_name(n_clicks_list, name_values, btn_ids):
+        if not any(n for n in (n_clicks_list or []) if n):
+            raise dash.exceptions.PreventUpdate
+        triggered = callback_context.triggered_id
+        if not triggered or not isinstance(triggered, dict):
+            raise dash.exceptions.PreventUpdate
+        device_ip = triggered.get('ip')
+        if not device_ip:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated or not can_manage_devices(current_user):
+            return ToastManager.error("Permission denied", detail_message="You need device management permissions.")
+        # Find the value for this IP
+        name_val = ''
+        for ids, val in zip(btn_ids or [], name_values or []):
+            if isinstance(ids, dict) and ids.get('ip') == device_ip:
+                name_val = (val or '').strip()
+                break
+        try:
+            db_manager.update_device_metadata(device_ip, custom_name=name_val or None)
+            return ToastManager.success(
+                f"Name saved: {name_val or '(cleared)'}",
+                detail_message=f"Device {device_ip} will now show as '{name_val}' in the dashboard.",
+                duration=3000,
+            )
+        except Exception as e:
+            logger.error(f"Failed to save custom name for {device_ip}: {e}")
+            return ToastManager.error("Save failed", detail_message=str(e))
+
+    # ── Device Personality Profile ────────────────────────────────────────
+
+    import time as _time
+    from utils.device_personality import build_profile_facts, generate_personality, PERSONALITY_TTL
+    from utils.alert_explainer import source_label as _sl, source_badge_class as _sbc
+    from dashboard.shared import ai_assistant as _ai
+
+    @app.callback(
+        [Output('device-personality-content', 'children'),
+         Output('device-personality-timestamp', 'children'),
+         Output('device-personality-source-badge', 'children'),
+         Output('device-personality-source-badge', 'className'),
+         Output('device-personality-cache', 'data')],
+        [Input('device-personality-device', 'data'),
+         Input('device-personality-refresh-btn', 'n_clicks')],
+        State('device-personality-cache', 'data'),
+        prevent_initial_call=False,
+    )
+    def update_device_personality(device_ip, _refresh, cache):
+        if not device_ip:
+            raise dash.exceptions.PreventUpdate
+
+        cache = cache or {}
+        cached = cache.get(device_ip, {})
+        age = _time.time() - float(cached.get('ts', 0))
+        is_manual = (
+            callback_context.triggered_id == 'device-personality-refresh-btn'
+            if callback_context.triggered else False
+        )
+
+        if not is_manual and age < PERSONALITY_TTL and cached.get('text'):
+            hrs  = int(age // 3600)
+            mins = int((age % 3600) // 60)
+            ts_label = f"Updated {hrs}h {mins}m ago" if hrs else f"Updated {mins}m ago"
+            src = cached.get('source', '')
+            return (
+                dcc.Markdown(cached['text'], className="mb-0 small"),
+                ts_label,
+                _sl(src),
+                _sbc(src),
+                cache,
+            )
+
+        try:
+            facts = build_profile_facts(db_manager, device_ip)
+            text, source = generate_personality(facts, _ai)
+        except Exception as exc:
+            logger.warning(f"[device_personality] generation failed for {device_ip}: {exc}")
+            text = "Profile unavailable. Check back after the baseline learning period completes."
+            source = 'rules'
+
+        cache[device_ip] = {'text': text, 'source': source, 'ts': _time.time()}
+        return (
+            dcc.Markdown(text, className="mb-0 small"),
+            "Just now",
+            _sl(source),
+            _sbc(source),
+            cache,
+        )

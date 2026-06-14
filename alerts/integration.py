@@ -76,6 +76,10 @@ class AlertingSystem:
             from .alert_service import AlertService
             from .notification_dispatcher import NotificationDispatcher
             from .email_notifier import EmailNotifier
+            from .push_notifiers import (
+                NtfyNotifier, TelegramNotifier, DiscordNotifier, WebhookNotifier
+            )
+            from .integration_hub_adapter import IntegrationHubNotifier
             from .report_scheduler import ReportScheduler
 
             # Create notification dispatcher
@@ -88,6 +92,18 @@ class AlertingSystem:
                 logger.info("Email notifications enabled")
             else:
                 logger.info("Email notifications disabled (not configured)")
+
+            # Register push-notification handlers; each self-gates via is_enabled()
+            for _push in [
+                NtfyNotifier(self.config),
+                TelegramNotifier(self.config),
+                DiscordNotifier(self.config),
+                WebhookNotifier(self.config),
+            ]:
+                self._dispatcher.register_handler(_push)
+
+            # Register Integration Hub adapter (encrypted DB channels: Slack, Pushover, etc.)
+            self._dispatcher.register_handler(IntegrationHubNotifier(self.db))
 
             # Create alert service
             self._alert_service = AlertService(self.db, self.config)
@@ -265,6 +281,7 @@ class AlertingSystem:
             logger.error(f"Error sending test email: {e}")
             return False
 
+    @property
     @property
     def is_enabled(self) -> bool:
         """Check if alerting system is enabled."""

@@ -7,7 +7,6 @@ Tracks who did what, when, and from where.
 """
 
 import logging
-from datetime import datetime
 from flask_login import current_user
 from flask import request
 
