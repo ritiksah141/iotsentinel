@@ -30,8 +30,7 @@ from capture.zeek_log_parser import ZeekLogParser
 from ml.inference_engine import InferenceEngine
 from database.db_manager import DatabaseManager
 from config.init_database import init_database as init_db
-from services.hardware_monitor import HardwareMonitor, IS_RPI
-from utils.arp_scanner import ARPScanner, SCAPY_AVAILABLE
+from utils.arp_scanner import ARPScanner
 
 # Import IoT-specific feature modules
 from utils.iot_device_intelligence import get_intelligence
@@ -54,10 +53,17 @@ from utils.mdns_listener import get_mdns_manager
 from utils.upnp_scanner import get_upnp_scanner
 from utils.active_scanner import get_active_scanner
 from utils.vulnerability_sync import get_vulnerability_sync
+from utils.domain_blocklist_sync import get_domain_blocklist_sync
 from utils.network_security_scorer import get_security_scorer
 
 # Import API Integration Hub
 from alerts.integration_system import IntegrationManager
+
+# Import AI Agent
+from agents.security_agent import SecurityAgent, AGENT_INTERVAL
+from utils.ai_assistant import HybridAIAssistant
+from utils.alert_explainer import rewrite_alert, persist as persist_plain
+from ml.smart_recommender import SmartRecommender
 
 import os
 from dotenv import load_dotenv
@@ -86,8 +92,7 @@ class IoTSentinelOrchestrator:
     - Thread 2: ML inference pipeline
     - Thread 3: Daily database cleanup
     - Thread 4: System health watchdog
-    - Thread 5: Hardware monitor (Pi only)
-    - Thread 6: ARP network scanner (if available)
+    - Thread 5: ARP network scanner (if available)
     - Thread 7: IoT threat detection (every 10 minutes)
     - Thread 8: IoT vulnerability scanning (daily)
     - Thread 9: IoT firmware checking (weekly)
@@ -110,6 +115,13 @@ class IoTSentinelOrchestrator:
         # Core database connection
         self.db = DatabaseManager(config.get('database', 'path'))
 
+        # Ensure all performance indexes exist at runtime (idempotent; safe to
+        # call on every start — uses CREATE INDEX IF NOT EXISTS internally).
+        try:
+            self.db.create_indexes()
+        except Exception as e:
+            logger.warning(f"Index creation at startup failed (non-fatal): {e}")
+
         # Initialize alerting system
         self.alerting = self._init_alerting_system()
 
@@ -119,18 +131,13 @@ class IoTSentinelOrchestrator:
         # Initialize inference engine with alerting
         self.inference_engine = InferenceEngine(alerting_system=self.alerting)
 
-        # Initialize ARP scanner if available
+        # Initialize ARP scanner (no sudo / no scapy required)
         self.arp_scanner = None
-        if SCAPY_AVAILABLE:
-            try:
-                self.arp_scanner = ARPScanner()
-                logger.info("ARP scanner initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize ARP scanner: {e}")
-                self.arp_scanner = None
-        else:
-            logger.warning("ARP scanner disabled (scapy not available)")
-            logger.info("Install scapy for device discovery: pip install scapy")
+        try:
+            self.arp_scanner = ARPScanner()
+            logger.info("ARP scanner initialised (privilege-free mode)")
+        except Exception as e:
+            logger.error(f"Failed to initialise ARP scanner: {e}")
 
         # Initialize IoT-specific feature modules
         try:
@@ -166,6 +173,7 @@ class IoTSentinelOrchestrator:
         self.upnp_scanner = None
         self.active_scanner = None
         self.vuln_sync = None
+        self.domain_blocklist_sync = None
         self.security_scorer = None
         self.integration_manager = None
 
@@ -194,6 +202,17 @@ class IoTSentinelOrchestrator:
                     nvd_api_key=nvd_api_key if nvd_api_key else None
                 )
                 logger.info(f"NVD vulnerability sync initialized (API key: {'provided' if nvd_api_key else 'not provided'})")
+
+            # Initialize domain blocklist sync (URLhaus, no API key required)
+            try:
+                self.domain_blocklist_sync = get_domain_blocklist_sync(db_manager=self.db)
+                stats = self.domain_blocklist_sync.get_stats()
+                logger.info(
+                    "Domain blocklist sync initialized (%d domains in DB, last sync: %s)",
+                    stats.get('total_domains', 0), stats.get('last_sync', 'never'),
+                )
+            except Exception as _dbl_err:
+                logger.warning("Domain blocklist sync init failed: %s", _dbl_err)
 
             # Initialize discovery features based on mode
             discovery_mode = config.get('discovery', {}).get('mode', 'passive')
@@ -226,7 +245,19 @@ class IoTSentinelOrchestrator:
         # Threading control
         self.running = False
         self.threads = []
-        self.hardware_monitor = None
+
+        # Initialize AI Security Agent
+        try:
+            _agent_ai = HybridAIAssistant.from_config(config)
+            self.security_agent = SecurityAgent(
+                db=self.db,
+                ai_assistant=_agent_ai,
+                alerting=self.alerting,
+            )
+            logger.info("AI Security Agent initialized")
+        except Exception as e:
+            logger.warning(f"AI Security Agent unavailable: {e}")
+            self.security_agent = None
 
         logger.info("IoTSentinel orchestrator initialized")
 
@@ -272,6 +303,10 @@ class IoTSentinelOrchestrator:
         logger.info("Starting IoTSentinel components...")
 
         self.running = True
+
+        # Ensure Zeek is pointed at the monitored interface and deployed before we
+        # start parsing its logs — otherwise the capture pipeline has no input.
+        self._ensure_zeek_configured()
 
         # Start alerting system (for scheduled reports)
         if self.alerting:
@@ -327,20 +362,6 @@ class IoTSentinelOrchestrator:
         else:
             logger.info("ARP scanner disabled (not available).")
 
-        # Start hardware monitor thread (only on Pi)
-        if IS_RPI:
-            self.hardware_monitor = HardwareMonitor()
-            hardware_thread = threading.Thread(
-                target=self.hardware_monitor.monitor_loop,
-                name="HardwareMonitorThread",
-                daemon=True
-            )
-            hardware_thread.start()
-            self.threads.append(hardware_thread)
-            logger.info("Hardware monitor started.")
-        else:
-            logger.info("Hardware monitor disabled (not running on Pi).")
-
         # Start IoT threat detection loop (if available)
         if self.threat_detector:
             threat_thread = threading.Thread(
@@ -362,6 +383,17 @@ class IoTSentinelOrchestrator:
             vuln_thread.start()
             self.threads.append(vuln_thread)
             logger.info("IoT vulnerability scanning started (daily scans).")
+
+        # Start device baseline learning loop (if available)
+        if self.intelligence:
+            baseline_thread = threading.Thread(
+                target=self._device_baseline_learning_loop,
+                name="DeviceBaselineLearningThread",
+                daemon=True
+            )
+            baseline_thread.start()
+            self.threads.append(baseline_thread)
+            logger.info("Device baseline learning started (every 8 hours).")
 
         # Start IoT firmware check loop (if available)
         if self.firmware_manager:
@@ -418,6 +450,17 @@ class IoTSentinelOrchestrator:
             self.threads.append(nvd_sync_thread)
             logger.info("NVD vulnerability sync started (daily updates).")
 
+        # Start Domain Blocklist Sync Thread (every 12 hours)
+        if self.domain_blocklist_sync:
+            domain_sync_thread = threading.Thread(
+                target=self._domain_blocklist_loop,
+                name="DomainBlocklistThread",
+                daemon=True,
+            )
+            domain_sync_thread.start()
+            self.threads.append(domain_sync_thread)
+            logger.info("Domain blocklist sync started (URLhaus, every 12 hours).")
+
         # Start Security Score Logging Thread (hourly)
         if self.security_scorer:
             score_logging_thread = threading.Thread(
@@ -461,6 +504,27 @@ class IoTSentinelOrchestrator:
             active_scan_thread.start()
             self.threads.append(active_scan_thread)
             logger.info("Active network scanning started.")
+
+        # Start AI Security Agent loop
+        if self.security_agent:
+            agent_thread = threading.Thread(
+                target=self._agent_loop,
+                name="SecurityAgentThread",
+                daemon=True
+            )
+            agent_thread.start()
+            self.threads.append(agent_thread)
+            logger.info(f"AI Security Agent started (scanning every {AGENT_INTERVAL}s).")
+
+        # Start plain-English background rewrite worker (runs always — not gated by agent toggle)
+        plain_english_thread = threading.Thread(
+            target=self._plain_english_loop,
+            name="PlainEnglishRewriteThread",
+            daemon=True
+        )
+        plain_english_thread.start()
+        self.threads.append(plain_english_thread)
+        logger.info("Plain-English alert rewrite worker started (every 120s).")
 
         logger.info("All components started. Orchestrator is running.")
         self._print_status()
@@ -541,17 +605,186 @@ class IoTSentinelOrchestrator:
             logger.error(f"Error in inference loop: {e}", exc_info=True)
         logger.info("ML inference loop stopped.")
 
+    def _agent_loop(self):
+        """AI Security Agent — runs every AGENT_INTERVAL seconds."""
+        logger.info("AI Security Agent loop started.")
+
+        # Clear any circuit-breaker suspension left over from the previous run.
+        # A restart is implicit human acknowledgement that normal operation should resume.
+        try:
+            self.db.set_setting('auto_block_suspended', '0')
+            logger.info("[agent] Circuit breaker cleared on startup.")
+        except Exception:
+            pass
+
+        try:
+            while self.running:
+                # Honour the dashboard start/stop toggle (persisted in system_settings)
+                agent_enabled = self.db.get_setting('agent_enabled', 'true')
+                if str(agent_enabled).lower() not in ('false', '0', 'no'):
+                    try:
+                        self.security_agent.run_cycle()
+                    except Exception as e:
+                        logger.error(f"Error in agent cycle: {e}", exc_info=True)
+                else:
+                    logger.debug("AI Security Agent is paused (agent_enabled=false)")
+
+                for _ in range(AGENT_INTERVAL):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+        except Exception as e:
+            logger.error(f"Agent loop fatal error: {e}", exc_info=True)
+        logger.info("AI Security Agent loop stopped.")
+
+    def _plain_english_loop(self):
+        """Background worker — rewrites alert plain_explanation via LLM proactively.
+
+        Picks up newly-created alerts that still have template/MITRE text
+        (plain_explanation_ai = 0) and rewrites them using the HybridAIAssistant,
+        so alert cards show genuine AI plain-English without the user needing to
+        open each alert's modal first.
+
+        Runs every 120 seconds. Processes at most 3 alerts per cycle to stay
+        well inside Groq's free-tier quota (14,400 req/day). Skips silently when
+        no real LLM provider is configured (Groq/OpenAI/Ollama), leaving the MITRE
+        templates in place rather than overwriting them with rule-based canned text.
+        """
+        logger.info("Plain-English rewrite worker started.")
+
+        REWRITE_INTERVAL = 120   # seconds between cycles
+        BATCH_SIZE = 3           # alerts per cycle (quota-friendly)
+        INTER_ITEM_SLEEP = 1.0   # seconds between LLM calls within a cycle
+
+        # Each background thread gets its own AI assistant and recommender so
+        # there is no shared-state conflict with the security agent's assistant.
+        try:
+            _ai = HybridAIAssistant.from_config(config)
+            _recommender = SmartRecommender(self.db)
+        except Exception as exc:
+            logger.warning(f"Plain-English worker could not initialise: {exc}")
+            return
+
+        try:
+            while self.running:
+                try:
+                    # Skip entirely when no real LLM provider is reachable.
+                    if not _ai.has_llm_provider():
+                        logger.debug("PlainEnglishRewrite: no LLM provider — skipping cycle.")
+                    else:
+                        # Fetch a small batch of un-rewritten alerts, newest critical/high first.
+                        cursor = self.db.conn.cursor()
+                        cursor.execute(
+                            """
+                            SELECT a.id, a.device_ip, d.device_name,
+                                   a.severity, a.explanation, a.plain_explanation
+                            FROM alerts a
+                            LEFT JOIN devices d ON a.device_ip = d.device_ip
+                            WHERE a.plain_explanation_ai = 0
+                            ORDER BY
+                                CASE a.severity
+                                    WHEN 'critical' THEN 1
+                                    WHEN 'high'     THEN 2
+                                    WHEN 'medium'   THEN 3
+                                    ELSE 4
+                                END,
+                                a.timestamp DESC
+                            LIMIT ?
+                            """,
+                            (BATCH_SIZE,),
+                        )
+                        rows = cursor.fetchall()
+
+                        for row in rows:
+                            if not self.running:
+                                break
+                            alert_id, device_ip, device_name, severity, explanation, plain_exp = row
+                            alert_row = {
+                                'id': alert_id,
+                                'device_ip': device_ip,
+                                'device_name': device_name or device_ip,
+                                'severity': severity,
+                                'explanation': explanation,
+                                'plain_explanation': plain_exp,
+                            }
+
+                            # Count today's alerts for this device (urgency context).
+                            try:
+                                c2 = self.db.conn.cursor()
+                                c2.execute(
+                                    "SELECT COUNT(*) FROM alerts WHERE device_ip=? "
+                                    "AND timestamp >= date('now')",
+                                    (device_ip,),
+                                )
+                                today_count = c2.fetchone()[0]
+                            except Exception:
+                                today_count = 1
+
+                            # Get recommender context (read-only DB calls).
+                            try:
+                                recs = _recommender.recommend_for_alert(alert_id)
+                            except Exception:
+                                recs = []
+
+                            sections = rewrite_alert(alert_row, today_count, recs, _ai)
+                            if sections:
+                                plain_text = sections.get('what_happened', '')
+                                _src = sections.get('_source', '')
+                                if plain_text:
+                                    ok = persist_plain(self.db, alert_id, plain_text, source=_src)
+                                    if ok:
+                                        logger.info(
+                                            f"[PlainEnglish] alert {alert_id} rewritten "
+                                            f"via {_src or '?'}."
+                                        )
+                                        # Record activity timestamp so the live pulse badge
+                                        # in the dashboard knows AI is actively working.
+                                        try:
+                                            import time as _t
+                                            self.db.set_setting(
+                                                'last_ai_activity',
+                                                str(int(_t.time()))
+                                            )
+                                        except Exception:
+                                            pass
+
+                            time.sleep(INTER_ITEM_SLEEP)
+
+                except Exception as exc:
+                    logger.debug(f"PlainEnglishRewrite cycle error: {exc}")
+
+                # Sleep in 1-second chunks for clean shutdown.
+                for _ in range(REWRITE_INTERVAL):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+        except Exception as exc:
+            logger.error(f"Plain-English rewrite worker fatal error: {exc}", exc_info=True)
+
+        logger.info("Plain-English rewrite worker stopped.")
+
     def _cleanup_loop(self):
-        """Periodically cleans up old database records."""
+        """Periodically cleans up old database records (daily) and optimises the
+        database (weekly: ANALYZE + WAL checkpoint + size-guarded VACUUM)."""
         logger.info("Database cleanup loop started.")
         try:
-            # Run once a day
             cleanup_interval = 24 * 60 * 60  # 24 hours in seconds
             retention_days = config.get('database', 'retention_days', default=30)
+            _days_since_optimize = 0  # count daily cycles; optimize every 7th
 
             while self.running:
                 logger.info(f"Running daily database cleanup (retention: {retention_days} days)...")
                 self.db.cleanup_old_data(days=retention_days)
+
+                _days_since_optimize += 1
+                if _days_since_optimize >= 7:
+                    logger.info("Running weekly database optimization (ANALYZE + WAL checkpoint)...")
+                    try:
+                        self.db.optimize_database()
+                    except Exception as e:
+                        logger.error(f"Weekly database optimization failed: {e}")
+                    _days_since_optimize = 0
 
                 # Sleep for 24 hours, but check for shutdown every second
                 for _ in range(cleanup_interval):
@@ -619,6 +852,32 @@ class IoTSentinelOrchestrator:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
         return False
+
+    def _ensure_zeek_configured(self):
+        """Point Zeek at the configured interface and deploy it (idempotent).
+
+        Delegates to config/configure_zeek.sh, which writes node.cfg and runs
+        `zeekctl deploy` only when the interface changes. Best-effort and never
+        fatal: on a dev machine (no Zeek / no sudo) this is expected to no-op so
+        the rest of the system still starts.
+        """
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              'config', 'configure_zeek.sh')
+        if not os.path.isfile(script):
+            logger.warning("configure_zeek.sh missing — skipping Zeek deploy.")
+            return
+        interface = config.get('network', 'interface', default='') or ''
+        try:
+            subprocess.run(
+                ["sudo", "bash", script] + ([interface] if interface else []),
+                check=False, capture_output=True, text=True, timeout=60,
+            )
+            logger.info("Zeek configuration applied (interface=%s).",
+                        interface or "auto")
+        except subprocess.TimeoutExpired:
+            logger.error("configure_zeek.sh timed out.")
+        except Exception as e:
+            logger.error("Could not configure Zeek: %s", e)
 
     def _health_check_loop(self):
         """Periodically checks the health of critical system components."""
@@ -811,6 +1070,62 @@ class IoTSentinelOrchestrator:
             vuln_count += len(vulnerabilities)
 
         return vuln_count
+
+    def _device_baseline_learning_loop(self):
+        """
+        Periodically learn behavioral baselines for every known device.
+
+        Runs every 8 hours.  Uses the IoTDeviceIntelligence singleton that is
+        already initialized as self.intelligence.  Each call to learn_baseline()
+        self-guards: devices with fewer than 100 connections are skipped and
+        return {'status': 'insufficient_data'} — nothing is stored, so fresh
+        installs degrade gracefully to the "No baseline data yet" UI state.
+        """
+        if not self.intelligence:
+            logger.warning("IoT intelligence module not available, baseline learning loop exiting")
+            return
+
+        logger.info("Device baseline learning loop started.")
+        interval = 8 * 3600  # 8 hours
+
+        # First pass after a short delay to let other threads settle.
+        time.sleep(120)
+        if not self.running:
+            return
+
+        try:
+            while self.running:
+                try:
+                    cursor = self.db.conn.cursor()
+                    cursor.execute("SELECT device_ip FROM devices")
+                    devices = cursor.fetchall()
+
+                    learned = 0
+                    for device in devices:
+                        if not self.running:
+                            break
+                        result = self.intelligence.learn_baseline(device['device_ip'])
+                        if result.get('status') == 'success':
+                            learned += 1
+
+                    if learned:
+                        logger.info(f"Device baseline learning complete: updated baselines for {learned} device(s).")
+                    else:
+                        logger.debug("Device baseline learning: no devices had sufficient data yet.")
+
+                except Exception as e:
+                    logger.error(f"Error during device baseline learning pass: {e}")
+
+                # Wait for next cycle, checking running flag each second.
+                for _ in range(interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+        except Exception as e:
+            logger.error(f"Error in device baseline learning loop: {e}", exc_info=True)
+
+        logger.info("Device baseline learning loop stopped.")
 
     def _iot_firmware_check_loop(self):
         """Periodically check for firmware updates on all devices."""
@@ -1078,6 +1393,28 @@ class IoTSentinelOrchestrator:
 
             time.sleep(interval)
 
+    def _domain_blocklist_loop(self):
+        """Background loop for domain blocklist sync (every 12 hours)."""
+        interval = 12 * 3600  # 12 hours
+        initial_delay = 120   # 2 minutes — let the system finish startup first
+
+        logger.info("Domain blocklist sync loop started (interval: 12h)")
+        time.sleep(initial_delay)
+
+        while self.running:
+            try:
+                if self.domain_blocklist_sync:
+                    logger.info("Starting domain blocklist sync (URLhaus)...")
+                    stats = self.domain_blocklist_sync.sync_blocklist()
+                    logger.info(
+                        "Domain blocklist sync complete: +%d domains added, %d total",
+                        stats.get('added', 0), stats.get('total', 0),
+                    )
+            except Exception as e:
+                logger.error("Error in domain blocklist sync: %s", e)
+
+            time.sleep(interval)
+
     def _security_score_logging_loop(self):
         """Background loop for security score logging (hourly)."""
         interval = 3600  # 1 hour
@@ -1180,13 +1517,6 @@ class IoTSentinelOrchestrator:
                 logger.info("Alerting system stopped")
             except Exception as e:
                 logger.error(f"Error stopping alerting system: {e}")
-
-        # Stop hardware monitor if it exists
-        if self.hardware_monitor:
-            try:
-                self.hardware_monitor.stop()
-            except Exception as e:
-                logger.error(f"Error stopping hardware monitor: {e}")
 
         # Stop discovery managers
         if self.mdns_manager:

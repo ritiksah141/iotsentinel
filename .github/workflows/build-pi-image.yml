@@ -1,0 +1,75 @@
+name: Build Raspberry Pi Image
+
+# Triggered on version tag push (e.g., v1.0.0) or manually from GitHub Actions UI
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to embed in the image filename (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0-dev'
+
+# Allow read access to contents and write access to release uploads
+permissions:
+  contents: write
+
+jobs:
+  # Gate: the image is only built if the full test suite passes on the tagged commit.
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build-pi-image:
+    name: Build ARM64 .img.xz
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout IoTSentinel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed so git describe can find the tag
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-user-static binfmt-support git curl \
+            coreutils xz-utils zip
+
+      - name: Register ARM64 binfmt handler
+        run: |
+          sudo update-binfmts --enable
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      - name: Clone pi-gen
+        run: |
+          git clone --depth 1 https://github.com/RPi-Distro/pi-gen.git ../pi-gen
+
+      - name: Build image
+        env:
+          TAG: ${{ github.ref_name != 'refs/heads/main' && github.ref_name || inputs.tag }}
+          PIGEN_DIR: ${{ github.workspace }}/../pi-gen
+        run: |
+          bash scripts/build_pi_image.sh --tag="${TAG}" --pigen-dir="${PIGEN_DIR}"
+
+      - name: Upload image to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name != 'refs/heads/main' && github.ref_name || inputs.tag }}"
+          IMGFILE="deploy/IoTSentinel-${TAG}.img.xz"
+          SHAFILE="${IMGFILE}.sha256"
+          gh release upload "${TAG}" "${IMGFILE}" "${SHAFILE}" \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-image-build-log
+          path: deploy/build.log
+          if-no-files-found: ignore

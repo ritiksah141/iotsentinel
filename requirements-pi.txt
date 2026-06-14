@@ -8,7 +8,9 @@ river==0.21.0  # Lightweight, incremental ML (~10-20MB RAM)
 scikit-learn  # Keep for compatibility with existing code
 
 # AI Assistant - Hybrid cloud/local LLM
-groq==0.4.1  # Free cloud API (optional, 0MB RAM on Pi)
+groq>=0.13.0  # Free cloud API (optional, 0MB RAM on Pi); older pins break with httpx>=0.28
+openai>=1.0.0  # Optional: OpenAI cloud API (business tier)
+anthropic>=0.40.0  # Optional: Claude cloud API (paid)
 
 # Network Analysis - Scapy for ARP scanning (device discovery)
 scapy==2.5.0  # Lightweight packet crafting and network scanning
@@ -19,6 +21,7 @@ dash-bootstrap-components
 dash-cytoscape
 plotly
 Flask-SocketIO
+flask-sock
 eventlet
 dash-extensions
 Flask-Compress  # Gzip compression for better performance
@@ -42,6 +45,7 @@ python-dotenv
 apscheduler
 manuf
 requests
+paramiko         # SSH-based firewall enforcement (OpenWrt router via firewall_enforcer.py)
 RPi.GPIO
 
 # IoT Discovery & Vulnerability Management

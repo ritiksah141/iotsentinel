@@ -12,7 +12,6 @@ Calculates environmental impact metrics including:
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +23,9 @@ class SustainabilityCalculator:
         self.db = db_manager
 
         # Energy conversion factors
-        self.ENERGY_PER_GB = 0.06  # kWh per GB of data transferred (industry average)
-        self.CARBON_PER_KWH = 0.5  # kg CO2 per kWh (US average grid mix)
+        self.ENERGY_PER_GB = 0.06        # kWh per GB of data transferred (industry average)
+        self.CARBON_PER_KWH = 0.207      # kg CO₂ per kWh — UK grid (DESNZ 2024)
+        self.ELECTRICITY_RATE_GBP = 0.245 # £/kWh — Ofgem 2024 average unit rate
 
         # Device power consumption estimates (watts) - industry averages
         self.device_power_estimates = {
@@ -94,8 +94,8 @@ class SustainabilityCalculator:
                 'daily_carbon_kg': round(daily_carbon, 3),
                 'monthly_carbon_kg': round(monthly_carbon, 2),
                 'yearly_carbon_kg': round(yearly_carbon, 1),
-                'equivalent_trees': round(yearly_carbon / 21, 1),  # Trees needed to offset (1 tree absorbs ~21kg CO2/year)
-                'equivalent_miles_driven': round(yearly_carbon / 0.404, 1),  # Car miles equivalent (0.404 kg CO2/mile)
+                'equivalent_trees': round(yearly_carbon / 21, 1),        # 1 tree absorbs ~21 kg CO₂/year
+                'equivalent_miles_driven': round(yearly_carbon / 0.299, 1),  # UK avg car: ~186 g CO₂/km = 299 g/mile
                 'timestamp': datetime.now().isoformat()
             }
 
@@ -224,15 +224,15 @@ class SustainabilityCalculator:
                     total_carbon += energy_data['carbon_kg']
                     device_breakdown.append(energy_data)
 
-            # Calculate cost (assuming $0.13/kWh average US rate)
-            energy_cost = total_energy * 0.13
+            # Calculate cost at UK Ofgem 2024 unit rate
+            energy_cost = total_energy * self.ELECTRICITY_RATE_GBP
 
             return {
                 'date': date,
                 'total_devices': len(devices),
                 'total_energy_kwh': round(total_energy, 2),
                 'total_carbon_kg': round(total_carbon, 2),
-                'estimated_cost_usd': round(energy_cost, 2),
+                'estimated_cost_gbp': round(energy_cost, 2),
                 'monthly_estimate_kwh': round(total_energy * 30, 1),
                 'monthly_estimate_cost': round(energy_cost * 30, 2),
                 'yearly_estimate_kwh': round(total_energy * 365, 1),

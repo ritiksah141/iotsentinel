@@ -7,16 +7,17 @@ and charts directly from database data.
 """
 
 import io
-import sqlite3
 import logging
+import sqlite3
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Optional
+
+from utils.report_datasets import devices_dataset, alerts_dataset, connections_dataset
 
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.chart import BarChart, PieChart, Reference
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
@@ -113,27 +114,7 @@ class ExcelExporter:
             Excel file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT
-                    device_ip,
-                    device_name,
-                    device_type,
-                    mac_address,
-                    manufacturer,
-                    first_seen,
-                    last_seen,
-                    is_trusted,
-                    is_blocked
-                FROM devices
-                ORDER BY last_seen DESC
-            """)
-
-            devices = cursor.fetchall()
+            devices = devices_dataset(self.db_manager)
 
             # Create workbook
             wb = Workbook()
@@ -246,30 +227,7 @@ class ExcelExporter:
             Excel file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            cursor.execute("""
-                SELECT
-                    a.id,
-                    a.timestamp,
-                    a.device_ip,
-                    d.device_name,
-                    a.severity,
-                    a.anomaly_score,
-                    a.explanation,
-                    a.acknowledged
-                FROM alerts a
-                LEFT JOIN devices d ON a.device_ip = d.device_ip
-                WHERE a.timestamp > ?
-                ORDER BY a.timestamp DESC
-            """, (cutoff_date.isoformat(),))
-
-            alerts = cursor.fetchall()
+            alerts = alerts_dataset(self.db_manager, days=days)
 
             # Create workbook
             wb = Workbook()
@@ -386,53 +344,12 @@ class ExcelExporter:
             Excel file content as bytes
         """
         try:
-            # Query database
-            conn = self.db_manager.conn
-
-            cursor = conn.cursor()
-
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-
-            if device_ip:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        bytes_sent,
-                        bytes_received,
-                        packets_sent,
-                        packets_received,
-                        conn_state
-                    FROM connections
-                    WHERE device_ip = ? AND timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 5000
-                """, (device_ip, cutoff_time.isoformat()))
-            else:
-                cursor.execute("""
-                    SELECT
-                        timestamp,
-                        device_ip,
-                        dest_ip,
-                        dest_port,
-                        protocol,
-                        service,
-                        bytes_sent,
-                        bytes_received,
-                        packets_sent,
-                        packets_received,
-                        conn_state
-                    FROM connections
-                    WHERE timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 5000
-                """, (cutoff_time.isoformat(),))
-
-            connections = cursor.fetchall()
+            connections = connections_dataset(
+                self.db_manager,
+                device_ip=device_ip,
+                hours=hours,
+                limit=5000,  # Sensible cap for Excel workbook size
+            )
 
             # Create workbook
             wb = Workbook()

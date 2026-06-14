@@ -11,11 +11,9 @@ Automatically provisions newly discovered devices through the complete workflow:
 """
 
 import logging
-import sqlite3
 import json
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -204,46 +202,25 @@ class AutoProvisioner:
             except Exception as e:
                 logger.warning(f"Error classifying device: {e}")
 
-        # Add device to database
-        conn = self.db_manager.conn
-        cursor = conn.cursor()
-
+        # Add device to database via the standard upsert path
         try:
-            cursor.execute('''
-                INSERT INTO devices
-                (ip_address, mac_address, hostname, device_name, vendor,
-                 device_type, manufacturer, icon, category, first_seen, last_seen,
-                 model, firmware_version, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                ip_address,
-                mac_address,
-                hostname,
-                hostname,  # Use hostname as device_name initially
-                vendor or manufacturer,
-                device_type,
-                manufacturer,
-                icon,
-                category,
-                datetime.now().isoformat(),
-                datetime.now().isoformat(),
-                device_info.get('model', ''),
-                device_info.get('firmware_version', ''),
-                f"Auto-discovered via {discovery_method}"
-            ))
-
-            conn.commit()
-            logger.info(f"Added device {ip_address} to database")
-
-        except sqlite3.IntegrityError:
-            logger.info(f"Device {ip_address} already exists, updating last_seen")
-            cursor.execute(
-                "UPDATE devices SET last_seen = ? WHERE ip_address = ?",
-                (datetime.now().isoformat(), ip_address)
+            self.db_manager.add_device(
+                device_ip=ip_address,
+                device_name=hostname or None,
+                mac_address=mac_address or None,
+                manufacturer=manufacturer or None,
+                device_type=device_type or None,
+                icon=icon or None,
+                category=category or None,
             )
-            conn.commit()
+            self.db_manager.update_device_metadata(
+                ip_address,
+                notes=f"Auto-discovered via {discovery_method}",
+            )
+            logger.info(f"Added/updated device {ip_address} to database")
 
-        finally:
+        except Exception as e:
+            logger.error(f"Error persisting device {ip_address}: {e}")
 
     def _schedule_baseline_learning(self, device_ip: str):
         """

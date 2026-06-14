@@ -5,8 +5,8 @@ Tracks event sequences (Port Scan → SSH Fail → Brute Force) and predicts att
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from typing import (Dict, List, Optional)
+from datetime import datetime
 from pathlib import Path
 import json
 from collections import deque, defaultdict

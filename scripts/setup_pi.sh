@@ -1,70 +1,362 @@
 #!/bin/bash
-# Complete setup script for Raspberry Pi
+# IoTSentinel — End-to-End Raspberry Pi Setup
+#
+# Installs everything on a freshly-flashed Raspberry Pi OS Lite (64-bit, Bookworm).
+# Safe to run multiple times (idempotent).
+#
+# Usage (fresh Pi, no repo yet):
+#   bash <(curl -fsSL https://raw.githubusercontent.com/ritiksah141/iotsentinel/main/scripts/setup_pi.sh)
+#
+# Usage (already cloned):
+#   bash scripts/setup_pi.sh [--non-interactive] [--skip-ollama] [--tag=v1.0.0]
+#
+# Flags:
+#   --non-interactive   Skip all prompts (used by build_pi_image.sh)
+#   --skip-ollama       Do not install Ollama / phi3.5:mini
+#   --tag=TAG           Git tag to clone (default: latest main)
 
-set -e
+set -euo pipefail
 
-echo "================================================="
-echo "   IoTSentinel Setup for Raspberry Pi"
-echo "================================================="
+# ── Argument parsing ─────────────────────────────────────────────────────────
+NON_INTERACTIVE=false
+SKIP_OLLAMA=false
+TAG=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --non-interactive) NON_INTERACTIVE=true ;;
+    --skip-ollama)     SKIP_OLLAMA=true ;;
+    --tag=*)           TAG="${arg#*=}" ;;
+  esac
+done
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+
+step() { echo -e "\n${BLUE}▶  $*${NC}"; }
+ok()   { echo -e "   ${GREEN}✓${NC}  $*"; }
+warn() { echo -e "   ${YELLOW}⚠${NC}  $*"; }
+die()  { echo -e "\n${RED}✗  $*${NC}"; exit 1; }
+
+prompt() {
+    $NON_INTERACTIVE && return 0
+    read -rp "   $* [y/N] " _r
+    [[ "$_r" =~ ^[Yy]$ ]]
+}
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BLUE}  IoTSentinel — Raspberry Pi Setup${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Check if running as root
-if [ "$EUID" -eq 0 ]; then 
-    echo "Please do NOT run as root"
-    exit 1
+# ── Do not run as root ────────────────────────────────────────────────────────
+[ "$EUID" -eq 0 ] && die "Run as a regular user with sudo rights, not root."
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "1/9  System pre-flight checks"
+# ─────────────────────────────────────────────────────────────────────────────
+
+ARCH=$(uname -m)
+if [[ "$ARCH" == "aarch64" || "$ARCH" == "armv7l" ]]; then
+    ok "Architecture: $ARCH"
+else
+    warn "Architecture: $ARCH (not ARM — continuing for dev/testing)"
 fi
+
+TOTAL_RAM=$(free -m | awk 'NR==2{print $2}')
+if [ "$TOTAL_RAM" -ge 3500 ]; then
+    ok "RAM: ${TOTAL_RAM} MB"
+else
+    warn "RAM: ${TOTAL_RAM} MB (< 4 GB — Ollama will be disabled)"
+    SKIP_OLLAMA=true
+fi
+
+DISK_FREE=$(df -BG / | awk 'NR==2{print $4}' | sed 's/G//')
+if [ "$DISK_FREE" -ge 8 ]; then
+    ok "Disk free: ${DISK_FREE} GB"
+else
+    die "Disk free: ${DISK_FREE} GB — need at least 8 GB"
+fi
+
+if python3 -c "import sys; exit(0 if sys.version_info >= (3,9) else 1)" 2>/dev/null; then
+    ok "Python: $(python3 --version 2>&1 | awk '{print $2}')"
+else
+    die "Python 3.9+ required. Install it first: sudo apt install python3 python3-venv"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "2/9  Configure Raspberry Pi"
+# ─────────────────────────────────────────────────────────────────────────────
+
+if command -v raspi-config &>/dev/null; then
+    sudo raspi-config nonint do_expand_rootfs 2>/dev/null \
+        && ok "Filesystem expanded" \
+        || warn "Filesystem expand skipped (may already be full size)"
+    sudo raspi-config nonint do_hostname iotsentinel 2>/dev/null \
+        && ok "Hostname set to 'iotsentinel'" || true
+    sudo raspi-config nonint do_ssh 0 2>/dev/null \
+        && ok "SSH enabled" || true
+else
+    warn "raspi-config not found — skipping Pi configuration"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "3/9  Install system packages"
+# ─────────────────────────────────────────────────────────────────────────────
+
+sudo apt-get update -qq
+sudo apt-get install -y --no-install-recommends \
+    curl git python3 python3-venv python3-pip \
+    build-essential libssl-dev gnupg2 libpcap-dev \
+    tcpdump net-tools iputils-ping \
+    network-manager avahi-daemon iptables
+ok "System packages installed"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Install Tailscale (optional remote-access — wizard enables Funnel later)
+# ─────────────────────────────────────────────────────────────────────────────
+if command -v tailscale &>/dev/null; then
+    ok "Tailscale already installed: $(tailscale version 2>/dev/null | head -1 || true)"
+else
+    echo "   Installing Tailscale…"
+    curl -fsSL https://tailscale.com/install.sh | sh
+    ok "Tailscale installed (sign-in happens inside the setup wizard)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "4/9  Install Zeek (network monitor)"
+# ─────────────────────────────────────────────────────────────────────────────
+
+if command -v /opt/zeek/bin/zeek &>/dev/null; then
+    ok "Zeek already installed: $(/opt/zeek/bin/zeek --version 2>&1 | head -1)"
+else
+    echo "   Adding Zeek repository (Debian Bookworm / Pi OS)..."
+    echo 'deb http://download.opensuse.org/repositories/security:/zeek/Debian_12/ /' \
+        | sudo tee /etc/apt/sources.list.d/security:zeek.list > /dev/null
+    curl -fsSL https://download.opensuse.org/repositories/security:/zeek/Debian_12/Release.key \
+        | gpg --dearmor \
+        | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y zeek
+    ok "Zeek installed: $(/opt/zeek/bin/zeek --version 2>&1 | head -1)"
+fi
+
+# Persist Zeek on PATH
+if ! grep -qF '/opt/zeek/bin' "$HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="/opt/zeek/bin:$PATH"' >> "$HOME/.bashrc"
+fi
+export PATH="/opt/zeek/bin:$PATH"
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "5/9  Clone / update IoTSentinel"
+# ─────────────────────────────────────────────────────────────────────────────
 
 PROJECT_DIR="$HOME/iotsentinel"
+REPO_URL="https://github.com/ritiksah141/iotsentinel.git"
 
-# 1. Create directory structure
-echo "Creating directories..."
-mkdir -p $PROJECT_DIR/data/{baseline,models,database,logs}
-mkdir -p $PROJECT_DIR/{capture,ml,database,dashboard,config,scripts,services}
-
-cd $PROJECT_DIR
-
-# 2. Check Zeek
-echo "Checking Zeek installation..."
-if ! command -v /opt/zeek/bin/zeek &> /dev/null; then
-    echo "❌ Zeek not found!"
-    echo "Install Zeek first: https://zeek.org/get-zeek/"
-    exit 1
+if [ -d "$PROJECT_DIR/.git" ]; then
+    ok "Repo already present at $PROJECT_DIR"
+    if prompt "Pull latest changes?"; then
+        git -C "$PROJECT_DIR" pull --ff-only \
+            && ok "Updated to latest" \
+            || warn "Could not pull — continuing with existing code"
+    fi
+else
+    # If this script is running from inside a cloned repo, copy it in place
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./scripts/setup_pi.sh}")/.." 2>/dev/null && pwd || echo "")"
+    if [ -f "$SCRIPT_DIR/dashboard/app.py" ] && [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
+        cp -r "$SCRIPT_DIR/." "$PROJECT_DIR"
+        ok "Copied repo to $PROJECT_DIR"
+    elif [ -f "$PROJECT_DIR/dashboard/app.py" ]; then
+        ok "Repo already at $PROJECT_DIR"
+    else
+        echo "   Cloning from $REPO_URL..."
+        if [ -n "$TAG" ]; then
+            git clone --branch "$TAG" --depth 1 "$REPO_URL" "$PROJECT_DIR"
+        else
+            git clone --depth 1 "$REPO_URL" "$PROJECT_DIR"
+        fi
+        ok "Cloned to $PROJECT_DIR"
+    fi
 fi
-echo "✓ Zeek found: $(/opt/zeek/bin/zeek --version | head -1)"
 
-# 3. Create virtual environment
-if [ ! -d "venv" ]; then
-    echo "Creating Python virtual environment..."
-    python3 -m venv venv
+mkdir -p \
+    "$PROJECT_DIR/data/baseline" \
+    "$PROJECT_DIR/data/models" \
+    "$PROJECT_DIR/data/database" \
+    "$PROJECT_DIR/data/logs"
+
+cd "$PROJECT_DIR"
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "6/9  Python environment & IoTSentinel dependencies"
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ ! -d "$PROJECT_DIR/venv" ]; then
+    python3 -m venv "$PROJECT_DIR/venv"
+    ok "Virtual environment created"
+else
+    ok "Virtual environment already exists"
 fi
 
-# 4. Install dependencies
-echo "Installing Python packages..."
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements-pi.txt
+source "$PROJECT_DIR/venv/bin/activate"
+pip install --upgrade pip -q
 
-# 5. Initialize database
-echo "Initializing database..."
-python3 config/init_database.py
+REQ_FILE="$PROJECT_DIR/requirements-pi.txt"
+[ -f "$REQ_FILE" ] || REQ_FILE="$PROJECT_DIR/requirements.txt"
+pip install -r "$REQ_FILE" -q
+ok "Python packages installed from $(basename "$REQ_FILE")"
 
-# 6. System optimizations
-echo "Applying system optimizations..."
-sudo bash config/optimize_pi.sh 2>/dev/null || echo "⚠️  Could not apply optimizations"
+python3 config/init_database.py </dev/null \
+    && ok "Database initialised" \
+    || warn "DB init reported an error — check logs/init.log"
 
-# 7. Install cron jobs
-echo "Setting up monitoring cron jobs..."
-(crontab -l 2>/dev/null; echo "*/5 * * * * $PROJECT_DIR/config/zeek_monitor.sh") | crontab - 2>/dev/null || true
-(crontab -l 2>/dev/null; echo "0 3 * * * $PROJECT_DIR/config/zeek_cleanup.sh") | crontab - 2>/dev/null || true
+# Ensure a stable FLASK_SECRET_KEY exists before first boot
+ENV_FILE="$PROJECT_DIR/.env"
+if ! grep -qF "FLASK_SECRET_KEY" "$ENV_FILE" 2>/dev/null; then
+    SK=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "FLASK_SECRET_KEY=$SK" >> "$ENV_FILE"
+    ok "Flask secret key generated and persisted"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "7/9  Optimisations, cron jobs & systemd services"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pi system optimisations (swappiness, GPU memory split, etc.)
+if [ -f "$PROJECT_DIR/config/optimize_pi.sh" ]; then
+    sudo bash "$PROJECT_DIR/config/optimize_pi.sh" 2>/dev/null \
+        && ok "Pi optimisations applied" \
+        || warn "Optimisations skipped (non-fatal)"
+fi
+
+# Cron jobs — idempotent, only added once
+CRON_MONITOR="*/5 * * * * $PROJECT_DIR/config/zeek_monitor.sh"
+CRON_CLEANUP="0 3 * * * $PROJECT_DIR/config/zeek_cleanup.sh"
+if [ -f "$PROJECT_DIR/config/zeek_monitor.sh" ]; then
+    (crontab -l 2>/dev/null | grep -qF "zeek_monitor.sh") || \
+        { crontab -l 2>/dev/null; echo "$CRON_MONITOR"; } | crontab - 2>/dev/null || true
+fi
+if [ -f "$PROJECT_DIR/config/zeek_cleanup.sh" ]; then
+    (crontab -l 2>/dev/null | grep -qF "zeek_cleanup.sh") || \
+        { crontab -l 2>/dev/null; echo "$CRON_CLEANUP"; } | crontab - 2>/dev/null || true
+fi
+ok "Cron jobs configured"
+
+# DB maintenance cron (daily backup + weekly optimize + backup rotation)
+if bash "$PROJECT_DIR/scripts/setup_db_automation.sh" 2>/dev/null; then
+    ok "DB maintenance cron jobs registered"
+else
+    warn "Could not register DB maintenance cron — run 'bash scripts/setup_db_automation.sh' manually"
+fi
+
+# Allow current user to run specific nmcli commands without sudo (for wizard WiFi connect)
+CURRENT_USER="$(whoami)"
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *"
+if ! grep -qF "nmcli dev wifi connect" /etc/sudoers.d/iotsentinel 2>/dev/null; then
+    echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
+    sudo chmod 440 /etc/sudoers.d/iotsentinel
+    ok "nmcli sudoers rule added for $CURRENT_USER"
+fi
+
+# Systemd services — substitute actual username and home dir into service files
+SERVICES_SRC="$PROJECT_DIR/services"
+if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
+    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision; do
+        sed "s|/home/sentinel|$HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
+            "$SERVICES_SRC/${svc}.service" \
+            | sudo tee /etc/systemd/system/${svc}.service > /dev/null
+    done
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now iotsentinel-provision iotsentinel-backend iotsentinel-dashboard 2>/dev/null || true
+    ok "Systemd services installed and enabled (autostart on boot)"
+else
+    warn "Service files not found in $SERVICES_SRC — skipping systemd"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "8/9  Ollama AI — phi3.5:mini (optimised for Pi 5 4 GB)"
+# ─────────────────────────────────────────────────────────────────────────────
+
+if $SKIP_OLLAMA; then
+    warn "Ollama skipped (< 4 GB RAM or --skip-ollama)"
+else
+    if command -v ollama &>/dev/null; then
+        ok "Ollama already installed: $(ollama --version 2>/dev/null | head -1 || true)"
+    else
+        echo "   Downloading and installing Ollama..."
+        curl -fsSL https://ollama.com/install.sh | sh
+        ok "Ollama installed"
+    fi
+
+    # Start the service
+    sudo systemctl enable --now ollama 2>/dev/null \
+        || sudo systemctl start ollama 2>/dev/null \
+        || true
+
+    # Wait for Ollama API (up to 20 s)
+    echo "   Waiting for Ollama API to be ready..."
+    _OLLAMA_READY=false
+    for _i in $(seq 1 10); do
+        if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+            _OLLAMA_READY=true
+            break
+        fi
+        sleep 2
+    done
+
+    if $_OLLAMA_READY; then
+        if ollama list 2>/dev/null | grep -q "phi3.5:mini"; then
+            ok "phi3.5:mini already downloaded"
+        else
+            echo "   Pulling phi3.5:mini (~2.2 GB — may take 10–20 min on a slow SD card)..."
+            ollama pull phi3.5:mini && ok "phi3.5:mini ready"
+        fi
+    else
+        warn "Ollama API did not respond — model pull skipped. Retry: ollama pull phi3.5:mini"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+step "9/9  Quick validation"
+# ─────────────────────────────────────────────────────────────────────────────
+
+PASS=0; SKIP=0
+
+_chk() {
+    if eval "$2" &>/dev/null; then
+        ok "$1"; PASS=$((PASS+1))
+    else
+        warn "Not yet: $1"; SKIP=$((SKIP+1))
+    fi
+}
+
+_chk "Zeek binary"                      "command -v /opt/zeek/bin/zeek"
+_chk "Python venv"                      "[ -f '$PROJECT_DIR/venv/bin/python3' ]"
+_chk "Python packages (dash)"           "'$PROJECT_DIR/venv/bin/python3' -c 'import dash'"
+_chk "Database file"                    "find '$PROJECT_DIR' -name 'iotsentinel.db' -maxdepth 4 | grep -q ."
+_chk "systemd service installed"        "[ -f '/etc/systemd/system/iotsentinel-dashboard.service' ]"
+_chk "systemd service enabled"          "systemctl is-enabled --quiet iotsentinel-dashboard 2>/dev/null"
+
+if ! $SKIP_OLLAMA; then
+    _chk "Ollama binary"                "command -v ollama"
+    _chk "phi3.5:mini model"            "ollama list 2>/dev/null | grep -q 'phi3.5:mini'"
+fi
 
 echo ""
-echo "================================================="
-echo "   ✓ Setup Complete!"
-echo "================================================="
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${GREEN}  Setup complete — ${PASS} checks passed, ${SKIP} pending${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "Next steps:"
-echo "  1. Start baseline: python3 scripts/baseline_collector.py start"
-echo "  2. After 7 days: python3 scripts/baseline_collector.py stop"
-echo "  3. Train models: python3 ml/train_autoencoder.py"
-echo "  4. Start monitoring: python3 ml/inference_engine.py --continuous"
+PI_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo "  Open your browser on the same network and go to:"
+echo ""
+echo -e "     ${BLUE}http://${PI_IP:-<pi-ip>}:8050/setup${NC}"
+echo ""
+echo "  Complete the 4-step wizard to finish configuration."
+echo "  The dashboard autostarts on every reboot."
+if ! $SKIP_OLLAMA; then
+    echo "  AI explanations: powered by phi3.5:mini running locally on the Pi."
+fi
 echo ""

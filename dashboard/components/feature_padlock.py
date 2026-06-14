@@ -38,8 +38,7 @@ def padlock_overlay(child, feature_id: str, plain_desc: str):
                     html.I(className="fa fa-lock fa-xl mb-1"),
                     html.P(
                         "Click to set up",
-                        className="mb-0 fw-semibold",
-                        style={"fontSize": "0.72rem"},
+                        className="mb-0 fw-semibold u-text-xxs",
                     ),
                 ],
                 id={"type": "padlock-overlay", "feature": feature_id},
@@ -47,6 +46,5 @@ def padlock_overlay(child, feature_id: str, plain_desc: str):
                 title=plain_desc,
                 style=_OVERLAY_BASE_STYLE.copy(),
             ),
-        ],
-        style={"position": "relative"},
+        ], className="position-relative",
     )

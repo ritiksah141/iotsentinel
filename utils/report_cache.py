@@ -6,11 +6,9 @@ Provides intelligent caching for frequently generated reports to improve
 performance and reduce database load.
 """
 
-import os
 import json
 import logging
 import hashlib
-import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
@@ -86,7 +84,7 @@ class ReportCache:
         config_str = f"{template_name}:{format_type}:{param_str}"
 
         # Generate hash
-        cache_key = hashlib.md5(config_str.encode()).hexdigest()
+        cache_key = hashlib.md5(config_str.encode(), usedforsecurity=False).hexdigest()
         return cache_key
 
     def _get_cache_metadata_path(self, cache_key: str) -> Path:

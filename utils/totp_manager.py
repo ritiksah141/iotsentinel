@@ -12,7 +12,7 @@ import io
 import base64
 import secrets
 import logging
-from typing import Tuple, List, Optional
+from typing import (Tuple, List)
 
 logger = logging.getLogger(__name__)
 

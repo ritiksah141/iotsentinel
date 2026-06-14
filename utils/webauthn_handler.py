@@ -6,12 +6,11 @@ Supports Touch ID, Face ID, Windows Hello, and hardware security keys
 """
 
 import os
-import sqlite3
 import secrets
 import json
 import base64
 from datetime import datetime
-from typing import Optional, Dict, List, Tuple
+from typing import (Optional, Dict, List)
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -30,6 +29,27 @@ from webauthn.helpers.cose import COSEAlgorithmIdentifier
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _effective_rp_id() -> str:
+    """Return the WebAuthn RP ID, deriving from IOTSENTINEL_PUBLIC_URL when not set explicitly."""
+    explicit = os.getenv('WEBAUTHN_RP_ID', '')
+    if explicit:
+        return explicit
+    public_url = os.getenv('IOTSENTINEL_PUBLIC_URL', '').rstrip('/')
+    if public_url:
+        from urllib.parse import urlparse
+        return urlparse(public_url).hostname or 'localhost'
+    return 'localhost'
+
+
+def _effective_origin() -> str:
+    """Return the WebAuthn expected origin, deriving from IOTSENTINEL_PUBLIC_URL when not set explicitly."""
+    explicit = os.getenv('WEBAUTHN_ORIGIN', '')
+    if explicit:
+        return explicit
+    public_url = os.getenv('IOTSENTINEL_PUBLIC_URL', '').rstrip('/')
+    return public_url or 'http://localhost:8050'
 
 
 class WebAuthnHandler:
@@ -51,15 +71,23 @@ class WebAuthnHandler:
             self.db_path = db_path or 'data/database/iotsentinel.db'
             self.db_manager = DatabaseManager(db_path=self.db_path)
 
-        # Get configuration from environment
-        self.rp_id = os.getenv('WEBAUTHN_RP_ID', 'localhost')
+        # rp_name is stable; rp_id and origin are properties that re-read env on every
+        # call so they pick up IOTSENTINEL_PUBLIC_URL written by the setup wizard without
+        # requiring a server restart.
         self.rp_name = os.getenv('WEBAUTHN_RP_NAME', 'IoTSentinel')
-        self.origin = os.getenv('WEBAUTHN_ORIGIN', 'http://localhost:8050')
 
         # In-memory challenge storage (use Redis in production)
         self.challenges = {}
 
         logger.info(f"WebAuthn handler initialized (RP ID: {self.rp_id}, Origin: {self.origin})")
+
+    @property
+    def rp_id(self) -> str:
+        return _effective_rp_id()
+
+    @property
+    def origin(self) -> str:
+        return _effective_origin()
 
     def generate_registration_options(self, user_id: int, username: str, email: str) -> Dict:
         """
@@ -454,7 +482,6 @@ class WebAuthnHandler:
 
 # Helper function to check if WebAuthn is supported
 def is_webauthn_available() -> bool:
-    """Check if WebAuthn can be used"""
-    # WebAuthn works on localhost and HTTPS
-    origin = os.getenv('WEBAUTHN_ORIGIN', 'http://localhost:8050')
+    """Check if WebAuthn can be used (requires HTTPS or localhost)."""
+    origin = _effective_origin()
     return origin.startswith('https://') or 'localhost' in origin

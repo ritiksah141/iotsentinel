@@ -2,7 +2,6 @@
 Global fixtures for the IoTSentinel test suite.
 """
 import pytest
-import sqlite3
 from pathlib import Path
 import sys
 

@@ -15,8 +15,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import dash
+from dash import dcc
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, callback_context, html, ALL
+from dash import Input, Output, State, callback_context, html, ALL, no_update
 
 from flask import request
 from flask_login import login_required, login_user, logout_user, current_user
@@ -28,6 +29,7 @@ from dashboard.shared import (
     audit_logger,
     security_audit_logger,
     login_rate_limiter,
+    login_ip_rate_limiter,
     webauthn_handler,
     config,
     ToastManager,
@@ -44,6 +46,22 @@ logger = logging.getLogger(__name__)
 
 # Email verification storage (in production, use Redis or database)
 verification_codes = {}
+
+
+def _admin_exists() -> bool:
+    """Return True if at least one active admin user is in the DB.
+
+    Used by display_page to enforce HA-style first-run onboarding on every
+    platform before the login page is reachable.
+    """
+    try:
+        cursor = db_manager.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+        )
+        return cursor.fetchone()[0] > 0
+    except Exception:
+        return False
 
 
 def send_verification_email(email, code):
@@ -179,7 +197,7 @@ def send_password_reset_email(email: str, reset_link: str, token: str):
         <div class="container">
             <div class="header">
                 <div class="logo">🛡️ IoTSentinel</div>
-                <p style="color: #666; margin-top: 10px;">AI-Powered Network Security</p>
+                <p style="color: #666; margin-top: 10px;">AI-Powered Edge Network Guardian</p>
             </div>
 
             <div class="content">
@@ -254,6 +272,43 @@ def send_password_reset_email(email: str, reset_link: str, token: str):
 
 
 # ---------------------------------------------------------------------------
+# Force-change-password page layout
+# ---------------------------------------------------------------------------
+
+force_change_password_layout = dbc.Container([
+    html.Div([
+        html.Div([
+            html.Div([
+                html.I(className="fa fa-shield-alt fa-3x text-warning mb-3"),
+                html.H4("Security Notice", className="fw-bold mb-2"),
+                html.P(
+                    "Your account is using a default password. "
+                    "Please set a new password before continuing.",
+                    className="text-muted mb-4"
+                ),
+                dbc.Label("New Password", className="fw-bold"),
+                dbc.InputGroup([
+                    dbc.InputGroupText(html.I(className="fa fa-lock")),
+                    dbc.Input(id='force-change-new-password', type='password',
+                              placeholder="Enter new password (min. 8 characters)"),
+                ], className="mb-3"),
+                dbc.Label("Confirm Password", className="fw-bold"),
+                dbc.InputGroup([
+                    dbc.InputGroupText(html.I(className="fa fa-check-circle")),
+                    dbc.Input(id='force-change-confirm-password', type='password',
+                              placeholder="Confirm your new password"),
+                ], className="mb-3"),
+                html.Div(id='force-change-status', className="mb-3"),
+                dbc.Button([
+                    html.I(className="fa fa-key me-2"),
+                    "Set New Password"
+                ], id='force-change-btn', color="warning", className="w-100"),
+            ], className="p-4 text-center"),
+        ], className="glass-card border-0 shadow-lg mx-auto", style={"maxWidth": "420px"}),
+    ], className="d-flex align-items-center justify-content-center min-vh-100"),
+], fluid=True)
+
+# ---------------------------------------------------------------------------
 # Callback registration
 # ---------------------------------------------------------------------------
 
@@ -287,6 +342,30 @@ def register(app, login_layout, dashboard_layout):
         Input('url', 'pathname')
     )
 
+    app.clientside_callback(
+        """
+        function(n, cur) {
+            if (n > 0) return !cur;
+            return cur;
+        }
+        """,
+        Output('remember-me-checkbox', 'value'),
+        Input('remember-me-btn', 'n_clicks'),
+        State('remember-me-checkbox', 'value'),
+        prevent_initial_call=True
+    )
+
+    @app.callback(
+        [Output('remember-me-btn', 'children'),
+         Output('remember-me-btn', 'outline'),
+         Output('remember-me-btn', 'color')],
+        Input('remember-me-checkbox', 'value'),
+    )
+    def _remember_me_btn_state(val):
+        if val:
+            return [html.I(className="fa fa-check me-1"), "Remember Me"], False, 'success'
+        return [html.I(className="fa fa-clock me-1"), "Remember Me"], True, 'success'
+
     # ------------------------------------------------------------------
     # URL routing / page display
     # ------------------------------------------------------------------
@@ -298,19 +377,24 @@ def register(app, login_layout, dashboard_layout):
     )
     def display_page(pathname):
         """Route to login or dashboard based on authentication"""
-        # Gate: if no .env exists yet, show first-run setup wizard
-        from pathlib import Path
-        from dashboard.layouts import setup_wizard_layout
-        env_path = Path(__file__).parent.parent.parent / '.env'
-        if not env_path.exists():
-            return setup_wizard_layout, dash.no_update
+        import sys
+        from dashboard.layouts import setup_wizard_layout, account_setup_layout
+
+        # HA-style first-run gate (all platforms): if no admin exists yet,
+        # force onboarding before the login page is reachable.
+        if not _admin_exists():
+            if sys.platform.startswith("linux"):
+                # Full 6-step wizard (WiFi, Tailscale, etc.) for Pi / Ubuntu
+                return setup_wizard_layout, dash.no_update
+            else:
+                # Minimal account-creation screen for macOS / Windows dev machines
+                return account_setup_layout, dash.no_update
 
         # Check if user is authenticated
         if current_user.is_authenticated:
             # User is logged in
             if pathname == '/logout':
                 # Log logout to security audit
-                from flask import request
                 user_ip = request.remote_addr or 'Unknown'
                 security_audit_logger.log(
                     event_type='logout',
@@ -324,6 +408,9 @@ def register(app, login_layout, dashboard_layout):
                 # Only set notification store, do not immediately redirect or clear
                 logout_user()
                 return login_layout, {"type": "logout_success"}
+            # Block dashboard until the default password has been changed
+            if getattr(current_user, 'must_change_password', False):
+                return force_change_password_layout, dash.no_update
             # Show dashboard for any other path when authenticated
             # IMPORTANT: Always return dash.no_update for auth-notification-store on dashboard navigation
             # to prevent triggering login toasts on page refresh
@@ -331,6 +418,108 @@ def register(app, login_layout, dashboard_layout):
         else:
             # User not logged in, show login page
             return login_layout, dash.no_update
+
+    # ------------------------------------------------------------------
+    # Forced first-login password change
+    # ------------------------------------------------------------------
+    @app.callback(
+        [Output('force-change-status', 'children'),
+         Output('auth-notification-store', 'data', allow_duplicate=True)],
+        Input('force-change-btn', 'n_clicks'),
+        [State('force-change-new-password', 'value'),
+         State('force-change-confirm-password', 'value')],
+        prevent_initial_call=True
+    )
+    def handle_force_change_password(n_clicks, new_password, confirm_password):
+        """Handle forced password change for accounts with default credentials."""
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+        if not current_user.is_authenticated:
+            raise dash.exceptions.PreventUpdate
+
+        if not new_password or not confirm_password:
+            return dbc.Alert("Please fill in both password fields.", color="warning"), dash.no_update
+        if new_password != confirm_password:
+            return dbc.Alert("Passwords do not match.", color="danger"), dash.no_update
+        if not auth_manager.is_password_strong_enough(new_password):
+            return dbc.Alert(
+                "Password must be at least 8 characters and include upper, lower, "
+                "a digit, and a special character (e.g. @, !, #).",
+                color="warning"
+            ), dash.no_update
+
+        success = auth_manager.change_password(current_user.id, new_password)
+        if success:
+            # Redirect to dashboard; display_page will reload the user and see
+            # must_change_password=False now that auth_manager cleared it in the DB.
+            return (
+                dbc.Alert("Password updated — redirecting...", color="success"),
+                {"type": "login_success"},
+            )
+        return dbc.Alert("Failed to update password. Please try again.", color="danger"), dash.no_update
+
+    # ------------------------------------------------------------------
+    # Non-Linux first-run account creation
+    # ------------------------------------------------------------------
+    @app.callback(
+        [Output('account-setup-feedback', 'children'),
+         Output('account-setup-url', 'pathname')],
+        Input('account-setup-submit-btn', 'n_clicks'),
+        [State('account-setup-username', 'value'),
+         State('account-setup-password', 'value'),
+         State('account-setup-password-confirm', 'value'),
+         State('account-setup-autoblock', 'value')],
+        prevent_initial_call=True,
+    )
+    def handle_account_setup(n_clicks, username, password, confirm, auto_block=True):
+        """Create the first admin account on non-Linux (macOS / Windows) installs."""
+        if not n_clicks:
+            raise dash.exceptions.PreventUpdate
+
+        username = (username or "").strip()
+        if not username:
+            return dbc.Alert("Please enter a username.", color="warning"), dash.no_update
+
+        if not password or not confirm:
+            return dbc.Alert("Please fill in both password fields.", color="warning"), dash.no_update
+
+        if password != confirm:
+            return dbc.Alert("Passwords do not match.", color="danger"), dash.no_update
+
+        if not auth_manager.is_password_strong_enough(password):
+            return dbc.Alert(
+                "Password must be at least 8 characters and include upper, lower, "
+                "a digit, and a special character (e.g. @, !, #).",
+                color="warning"
+            ), dash.no_update
+
+        if _admin_exists():
+            # Race condition guard — someone already created an admin
+            return dbc.Alert(
+                "An admin account already exists. Please log in.",
+                color="info"
+            ), "/"
+
+        ok = auth_manager.create_admin(username, password)
+        if ok:
+            logger.info(f"First-run admin account created: {username}")
+            # Persist the auto-block consent and mark the install configured so the
+            # dev/non-Linux path matches the Pi wizard's privacy behaviour.
+            try:
+                ab = dict(config.get("agent", "auto_block", default={}) or {})
+                ab["enabled"] = bool(auto_block)
+                config.update("agent", "auto_block", ab)
+                config.update("system", "is_configured", True)
+            except Exception as e:
+                logger.warning(f"Could not persist setup preferences: {e}")
+            return (
+                dbc.Alert("Account created! Redirecting to login...", color="success"),
+                "/",
+            )
+        return dbc.Alert(
+            "That username is already taken. Please choose another.",
+            color="danger"
+        ), dash.no_update
 
     # ------------------------------------------------------------------
     # Redirect after auth toast
@@ -398,27 +587,19 @@ def register(app, login_layout, dashboard_layout):
         notification_type = notification_data.get('type')
 
         if notification_type == 'login_success':
-            username = notification_data.get('username', 'User')
-            first_login = notification_data.get('first_login', False)
-
-            if first_login:
-                # First time login
-                welcome_body = f"Welcome, {username}! This is your first login."
-                detail_info = f"First Login:\n• Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n• Status: Active\n\nWelcome to IoTSentinel! This is your first time logging in."
-            else:
-                # Returning user with last login info
-                welcome_body = f"Welcome back, {username}!"
-                last_login_time = notification_data.get('last_login_time', 'recently')
-                last_login_ip = notification_data.get('last_login_ip', 'Unknown')
-                detail_info = f"Last Login Details:\n• Time: {last_login_time}\n• IP Address: {last_login_ip}\n• Login Method: Password\n\nYou now have full access to the IoTSentinel dashboard."
+            # handle_login passes pre-built strings; fall back to simple format otherwise
+            welcome_body = notification_data.get('welcome_body') or \
+                f"Welcome back, {notification_data.get('username', 'User')}!"
+            detail_msg = notification_data.get('detail_msg') or \
+                "You now have full access to the IoTSentinel dashboard."
 
             toast = ToastManager.success(
                 welcome_body,
                 header="Login Successful",
                 duration="long",
-                detail_message=detail_info
+                detail_message=detail_msg
             )
-            # Clear the notification store immediately to prevent any duplicate triggers
+            # Clear the notification store immediately to prevent duplicate triggers
             return toast, None
 
         elif notification_type == 'logout_success':
@@ -474,6 +655,19 @@ def register(app, login_layout, dashboard_layout):
                 header="Validation Error",
                 duration="short",
                 detail_message=detail_msg
+            )
+            return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
+
+        # Check per-IP lockout first (brute-force across many usernames)
+        client_ip = request.remote_addr or 'unknown'
+        is_ip_locked, ip_remaining = login_ip_rate_limiter.is_locked_out(client_ip)
+        if is_ip_locked:
+            ip_minutes = ip_remaining // 60
+            ip_seconds = ip_remaining % 60
+            toast = ToastManager.error(
+                f"Too many failed attempts from your network. Try again in {ip_minutes}m {ip_seconds}s.",
+                header="Access Temporarily Blocked",
+                duration="long",
             )
             return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
@@ -569,12 +763,15 @@ def register(app, login_layout, dashboard_layout):
             logger.info(f"User '{username}' logged in successfully (2FA: {totp_enabled}, remember_me={remember_me})")
 
             # Enhanced Welcome Experience: Get login history and record current login
-            from flask import request
-            from datetime import datetime
-
             # Get user's IP and user agent
             user_ip = request.remote_addr or 'Unknown'
             user_agent = request.headers.get('User-Agent', 'Unknown')
+
+            # Persist admin's current IP so the firewall guard never auto-blocks it
+            try:
+                db_manager.set_setting('protected_admin_ip', user_ip)
+            except Exception:
+                pass
 
             # Log successful login to security audit
             security_audit_logger.log(
@@ -678,18 +875,23 @@ def register(app, login_layout, dashboard_layout):
                 detail_msg += f"  • Enable 2FA if available\n"
                 detail_msg += f"  • Review login history regularly"
 
-            toast = ToastManager.success(
-                welcome_body,
-                header="Login Successful",
-                duration="long",
-                detail_message=detail_msg
-            )
-            # Return toast directly - don't use auth-notification-store to avoid duplicate toasts
-            return toast, "/", None, {'display': 'none'}, None
+            # Route through auth-notification-store so the toast fires in the same
+            # Dash batch as display_page (which swaps page-content to dashboard).
+            # Returning the toast directly here would show it over the login page
+            # because page-content hasn't transitioned yet.
+            notification_data = {
+                'type': 'login_success',
+                'welcome_body': welcome_body,
+                'detail_msg': detail_msg,
+            }
+            return no_update, "/", notification_data, {'display': 'none'}, None
         else:
-            # Check if login failed due to unverified email (except for admin user)
-            user_data = auth_manager.get_user_by_username(username)
-            if user_data and not user_data.get('email_verified') and username.lower() != 'admin':
+            # Only show the email-verification toast when the password is actually
+            # correct — verify_user returns None before checking the password when
+            # email is unverified, so we must confirm the password independently.
+            password_ok = auth_manager.verify_password_only(username, password)
+            user_data = auth_manager.get_user_by_username(username) if password_ok else None
+            if user_data and password_ok and not user_data.get('email_verified') and username.lower() != 'admin':
                 # User exists but email is not verified
                 logger.warning(f"Login attempt with unverified email: {username}")
 
@@ -714,11 +916,11 @@ def register(app, login_layout, dashboard_layout):
                 )
                 return toast, dash.no_update, dash.no_update, {'display': 'none'}, None
 
-            # Login failed - record failed attempt
+            # Login failed - record failed attempt (per-username and per-IP)
             is_now_locked, remaining_attempts = login_rate_limiter.record_failed_attempt(username)
+            login_ip_rate_limiter.record_failed_attempt(client_ip)
 
             # Log failed login attempt to security audit
-            from flask import request
             user_ip = request.remote_addr or 'Unknown'
             security_audit_logger.log(
                 event_type='login_failure',
@@ -853,7 +1055,7 @@ def register(app, login_layout, dashboard_layout):
             secret, qr_code, backup_codes = totp_manager.setup_totp(current_user.id, current_user.username)
 
             # Display QR code
-            qr_img = html.Img(src=qr_code, style={'maxWidth': '250px', 'height': 'auto'})
+            qr_img = html.Img(src=qr_code, className='qr-code-img')
 
             # Display backup codes
             codes_display = html.Div([
@@ -1060,7 +1262,7 @@ def register(app, login_layout, dashboard_layout):
     # Download backup codes
     # ------------------------------------------------------------------
     @app.callback(
-        Output('download-backup-codes-btn', 'n_clicks'),
+        Output('download-backup-codes', 'data'),
         [Input('download-backup-codes-btn', 'n_clicks')],
         [State('totp-setup-data', 'data')],
         prevent_initial_call=True
@@ -1073,8 +1275,7 @@ def register(app, login_layout, dashboard_layout):
         try:
             backup_codes = setup_data.get('backup_codes', [])
 
-            # Create backup codes file content
-            content = f"IoTSentinel 2FA Backup Codes\n"
+            content = "IoTSentinel 2FA Backup Codes\n"
             content += f"Username: {current_user.username}\n"
             content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             content += f"\n{'='*50}\n\n"
@@ -1087,17 +1288,13 @@ def register(app, login_layout, dashboard_layout):
             content += "IMPORTANT: Store these codes in a safe place!\n"
             content += "Each code can only be used once.\n"
 
-            # Create download
             filename = f"iotsentinel_backup_codes_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.txt"
-
-            # Note: In a real implementation, you would use dcc.Download component
-            # For now, just log it
-            logger.info(f"Backup codes download requested for user {current_user.username}")
+            logger.info(f"Backup codes downloaded by user {current_user.username}")
+            return dcc.send_string(content, filename)
 
         except Exception as e:
             logger.error(f"Error downloading backup codes: {e}")
-
-        return 0  # Reset clicks
+            raise dash.exceptions.PreventUpdate
 
     # ------------------------------------------------------------------
     # Forgot password modal
@@ -1164,7 +1361,6 @@ def register(app, login_layout, dashboard_layout):
             )
 
         # Send email with reset link
-        from flask import request
         reset_link = f"{request.host_url}reset-password?token={reset_token}"
 
         try:
@@ -1315,7 +1511,7 @@ def register(app, login_layout, dashboard_layout):
 
                 success_style = {**base_style, "borderColor": "var(--success-color)", "boxShadow": "0 0 0 0.2rem rgba(16, 185, 129, 0.25)"}
                 return html.Div([
-                    html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+                    html.I(className="fa fa-check-circle validation-success me-1 u-text-success"),
                     html.Small("Valid email", className="text-success")
                 ]), success_style
 
@@ -1330,7 +1526,7 @@ def register(app, login_layout, dashboard_layout):
             # If email-validator not installed, do basic validation
             if '@' in email and '.' in email.split('@')[-1]:
                 return html.Div([
-                    html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+                    html.I(className="fa fa-check-circle validation-success me-1 u-text-success"),
                     html.Small("Valid email", className="text-success")
                 ]), base_style
             else:
@@ -1386,7 +1582,7 @@ def register(app, login_layout, dashboard_layout):
 
         success_style = {**base_style, "borderColor": "var(--success-color)", "boxShadow": "0 0 0 0.2rem rgba(16, 185, 129, 0.25)"}
         return html.Div([
-            html.I(className="fa fa-check-circle validation-success me-1", style={"color": "var(--success-color)"}),
+            html.I(className="fa fa-check-circle validation-success me-1 u-text-success"),
             html.Small(f"'{username}' is available", className="text-success")
         ]), success_style
 
@@ -1564,7 +1760,7 @@ def register(app, login_layout, dashboard_layout):
     @app.callback(
         [Output('verification-code', 'value'),
          Output('verification-code-container', 'style', allow_duplicate=True),
-         Output('tabs', 'active_tab', allow_duplicate=True)],
+         Output('auth-tabs', 'active_tab', allow_duplicate=True)],
         Input('url', 'search'),
         prevent_initial_call=True
     )
@@ -1917,9 +2113,9 @@ def register(app, login_layout, dashboard_layout):
             if not credentials:
                 device_list = html.Div([
                     html.P([
-                        html.I(className="fa fa-info-circle me-2", style={"color": "var(--info-color)"}),
+                        html.I(className="fa fa-info-circle me-2 u-text-info"),
                         "No biometric credentials registered yet."
-                    ], className="text-secondary", style={"fontSize": "0.85rem"})
+                    ], className="text-secondary")
                 ])
             else:
                 device_items = []
@@ -1932,7 +2128,7 @@ def register(app, login_layout, dashboard_layout):
                             dbc.CardBody([
                                 dbc.Row([
                                     dbc.Col([
-                                        html.I(className="fa fa-fingerprint me-2", style={"color": "var(--accent-color)"}),
+                                        html.I(className="fa fa-fingerprint me-2 u-text-primary"),
                                         html.Strong(device_name)
                                     ], md=9),
                                     dbc.Col([
@@ -1942,7 +2138,7 @@ def register(app, login_layout, dashboard_layout):
                                     ], md=3, className="d-flex justify-content-end")
                                 ])
                             ])
-                        ], className="mb-2", style={"background": "rgba(255, 255, 255, 0.05)", "border": "1px solid rgba(255, 255, 255, 0.1)"})
+                        ], className="mb-2 glass-subtle border border-white border-opacity-10")
                     )
                 device_list = html.Div(device_items)
 

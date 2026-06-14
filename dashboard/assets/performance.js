@@ -118,6 +118,15 @@ window.addEventListener("load", function () {
       const pageLoadTime = perfData.loadEventEnd - perfData.navigationStart;
       const networkTime = perfData.responseEnd - perfData.fetchStart;
       const renderTime = perfData.domComplete - perfData.domLoading;
+      const interactiveTime = perfData.domInteractive - perfData.navigationStart;
+      // First Contentful Paint — when the user actually sees content.
+      // domComplete also waits for async work (e.g. the plotly chunk), so FCP
+      // is the honest "how fast does the page appear" number.
+      let fcp = null;
+      const fcpEntries = performance.getEntriesByType("paint");
+      for (const e of fcpEntries) {
+        if (e.name === "first-contentful-paint") fcp = Math.round(e.startTime);
+      }
 
       // Calculate percentages
       const networkPercent = ((networkTime / pageLoadTime) * 100).toFixed(1);
@@ -155,6 +164,26 @@ window.addEventListener("load", function () {
         "color: #f18963",
         "color: " + networkColor + "; font-weight: bold",
         "color: #94a3b8",
+        "color: #f18963",
+      );
+
+      // First paint + interactive — the user-perceived speed
+      if (fcp !== null) {
+        const fcpColor =
+          fcp < 100 ? "#10b981" : fcp < 300 ? "#f59e0b" : "#ef4444";
+        console.log(
+          "%c║ 🖼️ First Paint:%c   " + fcp + "ms%c ║",
+          "color: #f18963",
+          "color: " + fcpColor + "; font-weight: bold",
+          "color: #f18963",
+        );
+      }
+      console.log(
+        "%c║ 🖱️ Interactive:%c   " + interactiveTime + "ms%c ║",
+        "color: #f18963",
+        "color: " +
+          (interactiveTime < 150 ? "#10b981" : "#f59e0b") +
+          "; font-weight: bold",
         "color: #f18963",
       );
 
@@ -211,8 +240,8 @@ window.addEventListener("load", function () {
             "ms) - Check DOM complexity",
         );
       }
-      if (pageLoadTime < 500) {
-        console.log("✅ Excellent performance! Page loaded in under 500ms");
+      if (pageLoadTime < 250) {
+        console.log("✅ Excellent performance! Page loaded in under 250ms");
       }
 
       // Store metrics globally for inspection
@@ -220,6 +249,8 @@ window.addEventListener("load", function () {
         network: networkTime,
         render: renderTime,
         total: pageLoadTime,
+        firstPaint: fcp,
+        interactive: interactiveTime,
         networkPercent: parseFloat(networkPercent),
         renderPercent: parseFloat(renderPercent),
       };
@@ -312,13 +343,11 @@ try {
 // Add passive listeners to scroll and touch events
 const passiveIfSupported = supportsPassive ? { passive: true } : false;
 
-document.addEventListener(
-  "scroll",
-  function () {
-    // Scroll handler
-  },
-  passiveIfSupported,
-);
+// NOTE: the body.is-scrolling toggle was removed along with its CSS hooks.
+// Toggling a body class on scroll start/stop invalidated styles for the whole
+// document and re-applied glass effects to every card at once — the cause of
+// the post-scroll repaint lag. In-flow content no longer uses backdrop-filter,
+// so there is nothing left to disable during scroll.
 
 document.addEventListener(
   "touchstart",
@@ -386,29 +415,10 @@ if ("requestIdleCallback" in window) {
   });
 }
 
-// Preconnect to external resources
-const preconnectLinks = [
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-];
-
-preconnectLinks.forEach(function (url) {
-  const link = document.createElement("link");
-  link.rel = "preconnect";
-  link.href = url;
-  link.crossOrigin = "anonymous";
-  document.head.appendChild(link);
-});
-
-// Force hardware acceleration on interactive elements
-document.addEventListener("DOMContentLoaded", function () {
-  const interactiveElements = document.querySelectorAll(
-    "button, a, .card, .dropdown-item",
-  );
-  interactiveElements.forEach(function (el) {
-    el.style.transform = "translateZ(0)";
-  });
-});
+// NOTE: no font preconnects — all fonts are self-hosted (assets/webfonts/).
+// NOTE: no blanket translateZ(0) promotion — W15 measured that promoting every
+// button/card to its own GPU layer exhausts the Pi 4's Mali GPU; layers are
+// created on-demand via .glass-card:hover in custom.css instead.
 
 // Optimize Dash callbacks
 window.dash_clientside = Object.assign({}, window.dash_clientside, {

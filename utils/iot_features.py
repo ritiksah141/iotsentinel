@@ -11,10 +11,7 @@ Combines multiple IoT-specific capabilities:
 
 import json
 import logging
-import ipaddress
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import socket
 
 logger = logging.getLogger(__name__)
 
@@ -357,15 +354,12 @@ class PrivacyMonitor:
                                     explanation: str, indicators: Dict):
         """Generate privacy alert for kids' devices."""
         try:
-            from alerts.alert_manager import alert_manager
-
-            alert_manager.create_alert(
+            self.db.create_alert(
                 device_ip=device_ip,
                 severity=severity,
                 anomaly_score=0.0,
                 explanation=f"[Kids' Device Privacy] {explanation}",
                 top_features=json.dumps(indicators),
-                category='privacy'
             )
             logger.warning(f"Kids device alert generated for {device_ip}: {explanation}")
 

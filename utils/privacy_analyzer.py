@@ -7,8 +7,7 @@ Provides unified view of device data collection patterns for privacy transparenc
 """
 
 import logging
-import sqlite3
-from typing import Dict, Any, List, Optional
+from typing import (Dict, Any, List)
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -199,7 +198,7 @@ class PrivacyAnalyzer:
 
             service_info = {
                 'provider': provider.capitalize(),
-                'service': services,
+                'service': provider.capitalize(),
                 'connections': count,
                 'category': privacy_info['category'],
                 'potential_data_types': privacy_info['data_types'],

@@ -1,0 +1,22 @@
+[Unit]
+Description=IoTSentinel Local AI Provisioning (Ollama + on-device model)
+# Runs after the network is genuinely online; never blocks the dashboard.
+Wants=network-online.target
+After=network-online.target iotsentinel-dashboard.service
+# Skip entirely once provisioned
+ConditionPathExists=!/var/lib/iotsentinel/local-ai-ready
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# The model pull is ~1.6 GB; allow up to an hour on slow connections.
+TimeoutStartSec=3600
+# Keep first-boot interactive performance snappy — lowest CPU/IO priority.
+Nice=19
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+ExecStart=/bin/bash /home/sentinel/iotsentinel/scripts/setup_local_ai.sh
+
+[Install]
+WantedBy=multi-user.target

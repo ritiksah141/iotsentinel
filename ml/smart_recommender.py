@@ -11,11 +11,8 @@ Perfect for Raspberry Pi - only 5-10MB RAM.
 
 import sys
 import logging
-import json
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from collections import Counter
+from typing import (List, Optional)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database.db_manager import DatabaseManager
@@ -41,24 +38,6 @@ class SmartRecommender:
             db_manager: Database manager instance
         """
         self.db = db_manager
-
-        # Load recommendation rules
-        self.rules = self._load_recommendation_rules()
-
-        # Statistics
-        self.stats = {
-            "recommendations_generated": 0,
-            "avg_confidence": 0.0,
-            "most_common_actions": Counter()
-        }
-
-    def get_recommendation_stats(self) -> dict:
-        """Get recommendation statistics."""
-        return {
-            'total_recommendations': self.stats['recommendations_generated'],
-            'avg_confidence': self.stats['avg_confidence'],
-            'status': 'active'
-        }
 
     def recommend_for_alert(self, alert_id: int) -> List[dict]:
         """
@@ -252,19 +231,6 @@ class SmartRecommender:
         # Take top 3
         top_3 = recommendations[:3]
 
-        # Update statistics
-        self.stats["recommendations_generated"] += len(top_3)
-        for rec in top_3:
-            self.stats["most_common_actions"][rec['action']] += 1
-
-        if top_3:
-            avg_conf = sum(r['confidence'] for r in top_3) / len(top_3)
-            # Running average
-            total = self.stats["recommendations_generated"]
-            self.stats["avg_confidence"] = (
-                (self.stats["avg_confidence"] * (total - len(top_3)) + avg_conf * len(top_3)) / total
-            )
-
         return top_3
 
     def _get_alert(self, alert_id: int) -> Optional[dict]:
@@ -437,26 +403,3 @@ class SmartRecommender:
         })
 
         return recommendations
-
-    def _load_recommendation_rules(self) -> dict:
-        """
-        Load recommendation rules from file (future enhancement).
-
-        Currently uses hardcoded rules above.
-        Could load from JSON file for easier customization.
-        """
-        # Placeholder for future JSON-based rules
-        return {}
-
-    def get_stats(self) -> dict:
-        """Get recommender statistics."""
-        top_actions = self.stats["most_common_actions"].most_common(5)
-
-        return {
-            "total_recommendations": self.stats["recommendations_generated"],
-            "average_confidence": round(self.stats["avg_confidence"], 3),
-            "top_actions": [
-                {"action": action, "count": count}
-                for action, count in top_actions
-            ]
-        }

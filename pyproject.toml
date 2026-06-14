@@ -1,0 +1,22 @@
+# Tool configuration only — IoTSentinel is run from source, not pip-installed,
+# so this file intentionally has no [build-system] / packaging metadata.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["venv", ".venv", ".git", "build", "dist", "__pycache__"]
+
+[tool.ruff.lint]
+# Gate on the high-signal correctness rules only (syntax errors, undefined names,
+# broken f-strings, invalid comparisons). The wider style ruleset is left advisory
+# so CI stays meaningful on a large existing codebase without churn.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.bandit]
+# Security scanner: skip tests and the virtualenv.
+exclude_dirs = ["tests", "venv", ".venv", ".git"]
+
+[tool.coverage.run]
+omit = ["tests/*", "venv/*", ".venv/*", "*/__pycache__/*"]
+
+# Note: pytest configuration lives in pytest.ini (not duplicated here).

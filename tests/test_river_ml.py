@@ -18,7 +18,6 @@ Run: pytest tests/test_river_ml.py -v --cov=ml.river_engine
 
 import pytest
 import numpy as np
-import pandas as pd
 from pathlib import Path
 import sys
 import tempfile

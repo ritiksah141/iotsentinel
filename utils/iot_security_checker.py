@@ -4,7 +4,7 @@ Analyzes IoT devices for common vulnerabilities and security issues
 """
 
 import logging
-from typing import Dict, List, Tuple
+from typing import (Dict, List)
 from utils.device_classifier import classifier
 
 logger = logging.getLogger(__name__)

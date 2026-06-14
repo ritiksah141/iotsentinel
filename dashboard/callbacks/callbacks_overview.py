@@ -6,7 +6,9 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from utils.alert_explainer import source_label as _source_label, source_badge_class as _source_badge_class
 
 import dash
 import dash_bootstrap_components as dbc
@@ -17,6 +19,8 @@ from dash import Input, Output, State, callback_context, html, ALL, no_update
 
 from flask_login import current_user
 
+import time
+
 from dashboard.shared import (
     db_manager,
     chart_factory,
@@ -25,10 +29,13 @@ from dashboard.shared import (
     iot_protocol_analyzer,
     iot_threat_detector,
     logger as _shared_logger,
+    ai_assistant,
     get_db_connection,
     get_bandwidth_stats,
     get_threats_blocked,
     get_latest_alerts_content,
+    get_devices_with_status,
+    get_latest_alerts,
     create_status_indicator,
     create_device_icon,
     create_device_skeleton,
@@ -66,6 +73,27 @@ def _format_time_ago(timestamp_str):
 
 
 # ---------------------------------------------------------------------------
+# Security-score memo — shared between update_security_summary_report and
+# update_iot_security_widget so both callbacks reuse one computation per tick.
+# TTL matches the WS cycle (10 s gives safe overlap with the 3 s interval).
+# ---------------------------------------------------------------------------
+_SCORE_MEMO_TTL = 10  # seconds
+_score_memo: dict = {'ts': 0.0, 'devices': None, 'summary': None}
+
+
+def _get_security_summary_cached():
+    """Return (devices, security_summary) reusing the cached result within TTL."""
+    now = time.time()
+    if now - _score_memo['ts'] < _SCORE_MEMO_TTL and _score_memo['summary'] is not None:
+        return _score_memo['devices'], _score_memo['summary']
+    from utils.iot_security_checker import security_checker
+    devices = db_manager.get_all_devices()
+    summary = security_checker.get_network_security_score(devices) if devices else None
+    _score_memo.update({'ts': now, 'devices': devices, 'summary': summary})
+    return devices, summary
+
+
+# ---------------------------------------------------------------------------
 # register() – called from app.py to wire up all overview callbacks
 # ---------------------------------------------------------------------------
 
@@ -91,9 +119,10 @@ def register(app):
          Output('toast-container', 'children', allow_duplicate=True)],
         [Input('security-score-interval', 'n_intervals'),
          Input('security-score-refresh-btn', 'n_clicks')],
-        prevent_initial_call=True
+        [State('resolved-theme-store', 'data')],
+        prevent_initial_call='initial_duplicate'
     )
-    def update_security_score_dashboard(n_intervals, refresh_clicks):
+    def update_security_score_dashboard(n_intervals, refresh_clicks, theme_data):
         """Update the security score dashboard with current scores and historical data."""
 
         # Determine if this was triggered by refresh button
@@ -140,12 +169,14 @@ def register(app):
             dimensions = score_data.get('dimensions', {})
 
             # Create gauge chart using ChartFactory
+            is_dark = (theme_data or {}).get('theme') == 'dark'
             gauge_fig = chart_factory.create_gauge_chart(
                 value=overall_score,
                 max_value=100,
                 title=f"Network Security Score: {grade}",
                 thresholds=[50, 80, 100],  # Red 0-49, Yellow 50-79, Green 80-100
-                colors=['#dc3545', '#ffc107', '#28a745']
+                colors=['#dc3545', '#ffc107', '#28a745'],
+                dark_mode=is_dark
             )
 
             # Extract dimensional data
@@ -165,7 +196,11 @@ def register(app):
 
             encryption_score = f"{encryption.get('score', 0):.0f}/100"
             secure_ratio = encryption.get('secure_ratio', 0)
-            encryption_detail = f"{secure_ratio:.0f}% secure protocols"
+            insecure_conns = encryption.get('insecure_connections', 0)
+            if insecure_conns == 0 and secure_ratio == 0:
+                encryption_detail = "No insecure protocols detected"
+            else:
+                encryption_detail = f"{secure_ratio:.0f}% identified as secure"
 
             segmentation_score = f"{segmentation.get('score', 0):.0f}/100"
             subnet_count = segmentation.get('subnet_count', 0)
@@ -200,8 +235,11 @@ def register(app):
                     fillcolor='rgba(16, 185, 129, 0.1)'
                 ))
 
+                text_color = '#e4e4e7' if is_dark else '#333333'
                 history_fig.update_layout(
-                    template='plotly_white',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font={'color': text_color},
                     margin=dict(l=40, r=20, t=20, b=40),
                     xaxis=dict(title='Time', showgrid=True),
                     yaxis=dict(title='Score', range=[0, 100], showgrid=True),
@@ -210,14 +248,17 @@ def register(app):
             else:
                 # No historical data available
                 history_fig = go.Figure()
+                text_color = '#e4e4e7' if is_dark else '#333333'
                 history_fig.add_annotation(
                     text="No historical data available yet",
                     xref="paper", yref="paper",
                     x=0.5, y=0.5, showarrow=False,
-                    font=dict(size=14, color="gray")
+                    font=dict(size=14, color=text_color)
                 )
                 history_fig.update_layout(
-                    template='plotly_white',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font={'color': text_color},
                     margin=dict(l=40, r=20, t=20, b=40),
                     xaxis=dict(visible=False),
                     yaxis=dict(visible=False)
@@ -291,7 +332,7 @@ def register(app):
     def update_system_metrics(ws_message):
         """Update CPU and RAM metrics from websocket data."""
         if ws_message is None:
-            return "—", "—"
+            return "-", "-"
 
         cpu = ws_message.get('cpu_percent', 0)
         ram = ws_message.get('ram_percent', 0)
@@ -312,7 +353,7 @@ def register(app):
     def update_header_stats(ws_message):
         """Update header stats using cached queries for performance"""
         if ws_message is None:
-            return "—", "—", "—"
+            return "-", "-", "-"
 
         # Use cached queries (30s TTL) - much faster than direct DB access
         try:
@@ -323,7 +364,7 @@ def register(app):
             return bandwidth_stats['formatted'], str(threats_count), str(connection_count)
         except Exception as e:
             logger.error(f"Error calculating bandwidth/threats: {e}")
-            return "—", "—", "—"
+            return "-", "-", "-"
 
     # ========================================================================
     # 2D NETWORK GRAPH
@@ -363,10 +404,13 @@ def register(app):
     @app.callback(
         Output('network-graph-3d', 'figure'),
         Input('ws', 'message'),
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load 3D graph only when data arrives
     )
-    def update_network_graph_3d(ws_message):
+    def update_network_graph_3d(ws_message, theme_data):
         """Enhanced 3D graph with force-directed layout and better visuals"""
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
         if ws_message is None:
             # Return empty figure during initial load
             return go.Figure()
@@ -384,7 +428,7 @@ def register(app):
         node_colors, node_sizes, node_text, node_symbols = [], [], [], []
 
         for d in devices:
-            node_text.append(f"{d.get('device_name') or d.get('device_ip')}<br>" +
+            node_text.append(f"{d.get('custom_name') or d.get('device_name') or d.get('device_ip')}<br>" +
                             f"Status: {d.get('status', 'unknown')}<br>" +
                             f"Connections: {d.get('recent_connections', 0)}")
             node_x.append(d.get('x', 0))
@@ -485,32 +529,21 @@ def register(app):
             textfont=dict(size=12, family='Arial Black')
         )
 
-        # Layout with dark background
+        # Layout — transparent so glass card shows through, text adapts to theme
         layout = go.Layout(
             title=dict(
                 text='3D Network Topology - Force-Directed Layout',
-                font=dict(size=16)
+                font=dict(size=16, color=text_color)
             ),
+            paper_bgcolor='rgba(0,0,0,0)',
             showlegend=False,
+            font=dict(color=text_color),
             scene=dict(
-                xaxis=dict(
-                    showbackground=False,
-                    showticklabels=False,
-                    title=''
-                ),
-                yaxis=dict(
-                    showbackground=False,
-                    showticklabels=False,
-                    title=''
-                ),
-                zaxis=dict(
-                    showbackground=False,
-                    showticklabels=False,
-                    title=''
-                ),
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=1.5)
-                )
+                bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showbackground=False, showticklabels=False, title=''),
+                yaxis=dict(showbackground=False, showticklabels=False, title=''),
+                zaxis=dict(showbackground=False, showticklabels=False, title=''),
+                camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
             ),
             margin=dict(l=0, r=0, b=0, t=40),
             hovermode='closest'
@@ -525,22 +558,30 @@ def register(app):
     @app.callback(
         Output('traffic-timeline', 'figure'),
         Input('ws', 'message'),
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load traffic timeline
     )
-    def update_traffic_timeline(ws_message):
+    def update_traffic_timeline(ws_message, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         if ws_message is None:
             # Return empty figure during initial load
             fig = go.Figure()
-            fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            fig.update_layout(**base_layout)
             return fig
         traffic_data = ws_message.get('traffic_timeline', [])
         if not traffic_data:
             fig = go.Figure()
-            fig.update_layout(title="No traffic data available", xaxis_title="Hour", yaxis_title="Bytes", template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            fig.update_layout(title="No traffic data available", xaxis_title="Hour",
+                              yaxis_title="Bytes", **base_layout)
             return fig
         df = pd.DataFrame(traffic_data)
-        fig = px.area(df, x='hour', y='total_bytes', title="Network Traffic by Hour", color_discrete_sequence=['#007bff'])
-        fig.update_layout(xaxis_title="Hour", yaxis_title="Total Bytes", showlegend=False, template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        fig = px.area(df, x='hour', y='total_bytes', title="Network Traffic by Hour",
+                      color_discrete_sequence=['#007bff'])
+        fig.update_layout(xaxis_title="Hour", yaxis_title="Total Bytes",
+                          showlegend=False, **base_layout)
         fig.update_traces(fill='tozeroy')
         return fig
 
@@ -552,15 +593,20 @@ def register(app):
         Output('protocol-pie', 'figure'),
         [Input('ws', 'message'),
          Input('global-device-filter', 'data')],
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load protocol chart
     )
-    def update_protocol_pie(ws_message, device_filter):
+    def update_protocol_pie(ws_message, device_filter, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
         if ws_message is None:
             raise dash.exceptions.PreventUpdate
         protocol_data = ws_message.get('protocol_distribution', [])
         if not protocol_data:
             fig = go.Figure()
-            fig.update_layout(title="No protocol data available", template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            fig.update_layout(title="No protocol data available",
+                              plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                              font={'color': text_color})
             return fig
 
         df = pd.DataFrame(protocol_data)
@@ -583,9 +629,9 @@ def register(app):
         )
 
         fig.update_layout(
-            template='plotly_dark',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
+            font={'color': text_color},
             hovermode='closest'
         )
 
@@ -605,11 +651,11 @@ def register(app):
             return create_device_skeleton(count=8)
         devices = ws_message.get('all_devices_with_status', [])[:8]
         if not devices:
-            return dbc.Alert("No devices found.", color="info", className="compact-alert")
+            return dbc.Alert([html.I(className="fa fa-satellite-dish me-2"), "No devices found."], color="info", className="compact-alert")
         cards = []
         for device in devices:
             status = device.get('status', 'normal')
-            device_name = device.get('device_name') or device['device_ip'].split('.')[-1]
+            device_name = device.get('custom_name') or device.get('device_name') or device['device_ip']
             device_ip = device['device_ip']
             device_type = device.get('device_type')
 
@@ -633,8 +679,7 @@ def register(app):
                         [iot_protocol.upper(), " ", protocol_icon],
                         color="success" if protocol_encrypted else "warning",
                         pill=True,
-                        className="protocol-badge-sm ms-1",
-                        style={"fontSize": "0.65rem"}
+                        className="protocol-badge-sm ms-1 u-text-badge"
                     )
                 )
 
@@ -675,12 +720,12 @@ def register(app):
             return create_device_list_skeleton(count=10)
         devices = ws_message.get('all_devices_with_status', [])
         if not devices:
-            return dbc.Alert("No active devices.", color="info", className="compact-alert")
+            return dbc.Alert([html.I(className="fa fa-network-wired me-2"), "No active devices."], color="info", className="compact-alert")
         items = []
         for device in devices:
             status = device.get('status', 'normal')
             status_text = device.get('status_text', 'Unknown')
-            device_name = device.get('device_name') or device['device_ip']
+            device_name = device.get('custom_name') or device.get('device_name') or device['device_ip']
             device_ip = device['device_ip']
             device_type = device.get('device_type')
             badge_color = 'danger' if status == 'alert' else ('warning' if status == 'warning' else 'success')
@@ -751,18 +796,23 @@ def register(app):
         Output('alert-timeline', 'figure'),
         [Input('ws', 'message'),
          Input('global-severity-filter', 'data')],
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True
     )
-    def update_alert_timeline(ws_message, severity_filter):
+    def update_alert_timeline(ws_message, severity_filter, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         if ws_message is None:
             # Return empty figure during initial load
             fig = go.Figure()
-            fig.update_layout()
+            fig.update_layout(**base_layout)
             return fig
         alert_timeline_data = ws_message.get('alert_timeline', [])
         if not alert_timeline_data:
             fig = go.Figure()
-            fig.update_layout(title="No alerts in the last 7 days")
+            fig.update_layout(title="No alerts in the last 7 days", **base_layout)
             return fig
 
         df = pd.DataFrame(alert_timeline_data)
@@ -790,9 +840,10 @@ def register(app):
             yaxis_title="Number of Alerts",
             barmode='stack',
             hovermode='closest',
-            dragmode='zoom',  # Enable zoom by default
+            dragmode='zoom',
             modebar={'orientation': 'v'},
-            modebar_add=['pan2d', 'select2d', 'lasso2d', 'resetScale2d']
+            modebar_add=['pan2d', 'select2d', 'lasso2d', 'resetScale2d'],
+            **base_layout
         )
 
         return fig
@@ -803,19 +854,26 @@ def register(app):
 
     @app.callback(
         Output('anomaly-distribution', 'figure'),
-        Input('ws', 'message')
+        Input('ws', 'message'),
+        State('resolved-theme-store', 'data'),
+        prevent_initial_call=True  # W15: skip page-load spike; WS data arrives shortly after
     )
-    def update_anomaly_distribution(ws_message):
+    def update_anomaly_distribution(ws_message, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         if ws_message is None:
             raise dash.exceptions.PreventUpdate
         anomaly_data = ws_message.get('anomaly_distribution', [])
         if not anomaly_data:
             fig = go.Figure()
-            fig.update_layout(title="No anomaly data available")
+            fig.update_layout(title="No anomaly data available", **base_layout)
             return fig
         df = pd.DataFrame(anomaly_data)
-        fig = px.histogram(df, x="anomaly_score", title="Anomaly Score Distribution", color_discrete_sequence=['#007bff'], nbins=30)
-        fig.update_layout(xaxis_title="Anomaly Score", yaxis_title="Frequency")
+        fig = px.histogram(df, x="anomaly_score", title="Anomaly Score Distribution",
+                           color_discrete_sequence=['#007bff'], nbins=30)
+        fig.update_layout(xaxis_title="Anomaly Score", yaxis_title="Frequency", **base_layout)
         fig.add_vline(x=-0.5, line_dash="dash", line_color="red", annotation_text="Anomaly Threshold")
         return fig
 
@@ -825,19 +883,27 @@ def register(app):
 
     @app.callback(
         Output('bandwidth-chart', 'figure'),
-        Input('ws', 'message')
+        Input('ws', 'message'),
+        State('resolved-theme-store', 'data'),
+        prevent_initial_call=True  # W15: skip page-load spike
     )
-    def update_bandwidth_chart(ws_message):
+    def update_bandwidth_chart(ws_message, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         if ws_message is None:
             raise dash.exceptions.PreventUpdate
         bandwidth_data = ws_message.get('bandwidth_chart', [])
         if not bandwidth_data:
             fig = go.Figure()
-            fig.update_layout(title="No Bandwidth Data Available", template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            fig.update_layout(title="No Bandwidth Data Available", **base_layout)
             return fig
         df = pd.DataFrame(bandwidth_data)
-        fig = px.bar(df, x='device_ip', y='total_bytes', title="Top 10 Devices by Bandwidth Usage", color_discrete_sequence=['#28a745'])
-        fig.update_layout(xaxis_title="Device IP", yaxis_title="Total Bytes", template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        fig = px.bar(df, x='device_ip', y='total_bytes',
+                     title="Top 10 Devices by Bandwidth Usage",
+                     color_discrete_sequence=['#28a745'])
+        fig.update_layout(xaxis_title="Device IP", yaxis_title="Total Bytes", **base_layout)
         return fig
 
     # ========================================================================
@@ -848,15 +914,20 @@ def register(app):
         Output('device-heatmap', 'figure'),
         [Input('ws', 'message'),
          Input('global-device-filter', 'data')],
+        State('resolved-theme-store', 'data'),
         prevent_initial_call=True
     )
-    def update_device_heatmap(ws_message, device_filter):
+    def update_device_heatmap(ws_message, device_filter, theme_data):
+        is_dark = (theme_data or {}).get('theme') == 'dark'
+        text_color = '#e4e4e7' if is_dark else '#333333'
+        base_layout = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                           font={'color': text_color})
         if ws_message is None:
             raise dash.exceptions.PreventUpdate
         heatmap_data = ws_message.get('device_activity_heatmap', [])
         if not heatmap_data:
             fig = go.Figure()
-            fig.update_layout(title="No activity data available")
+            fig.update_layout(title="No activity data available", **base_layout)
             return fig
 
         df = pd.DataFrame(heatmap_data)
@@ -866,10 +937,11 @@ def register(app):
             df = df[df['device_ip'] == device_filter]
 
         # Create enhanced heatmap with custom hover data
+        cs = 'Blues' if not is_dark else 'Viridis'
         fig = px.density_heatmap(
             df, x="hour", y="device_ip", z="count",
             title="Device Activity by Hour (Click device to filter)",
-            color_continuous_scale="Blues",
+            color_continuous_scale=cs,
             labels={'hour': 'Hour of Day', 'device_ip': 'Device IP', 'count': 'Connections'}
         )
 
@@ -888,7 +960,8 @@ def register(app):
             yaxis_title="Device IP",
             hovermode='closest',
             dragmode='zoom',
-            modebar_add=['pan2d', 'zoomIn2d', 'zoomOut2d', 'resetScale2d']
+            modebar_add=['pan2d', 'zoomIn2d', 'zoomOut2d', 'resetScale2d'],
+            **base_layout
         )
 
         return fig
@@ -904,14 +977,10 @@ def register(app):
     def update_security_summary_report(ws_message):
         """Generate comprehensive Security Summary Report with real data"""
         try:
-            from utils.iot_security_checker import security_checker
             from datetime import datetime
 
-            # Get all devices
-            devices = db_manager.get_all_devices()
-
-            # Get security assessment
-            security_summary = security_checker.get_network_security_score(devices) if devices else None
+            # Get devices + security assessment (shared memo — avoids duplicate compute)
+            devices, security_summary = _get_security_summary_cached()
 
             # Query database for alert statistics
             conn = db_manager.conn
@@ -1003,12 +1072,11 @@ def register(app):
                                     dbc.Col([
                                         html.Div([
                                             html.H2(security_summary['security_score'] if security_summary else 'N/A',
-                                                   className=f"text-{risk_color} mb-0",
-                                                   style={'fontSize': '3.5rem', 'fontWeight': 'bold'}),
+                                                   className=f"text-{risk_color} mb-0 u-text-display"),
                                             html.P("Overall Security Score", className="text-muted"),
                                             dbc.Badge(f"{risk_level.upper()} RISK", color=risk_color, className="mt-2")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H4(security_summary['total_devices'] if security_summary else len(devices),
@@ -1020,7 +1088,7 @@ def register(app):
                                                    className="text-info mb-1"),
                                             html.Small("IoT Devices", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H4(security_summary['vulnerable_count'] if security_summary else 0,
@@ -1031,7 +1099,7 @@ def register(app):
                                             html.H4(blocked_devices, className="text-warning mb-1"),
                                             html.Small("Blocked Devices", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H4(total_alerts, className="text-secondary mb-1"),
@@ -1041,7 +1109,7 @@ def register(app):
                                             html.H4(unacknowledged_alerts, className="text-danger mb-1"),
                                             html.Small("Unacknowledged Alerts", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3)
+                                    ], xs=6, sm=3)
                                 ], className="align-items-center")
                             ])
                         ], className="mb-4 shadow-sm")
@@ -1053,9 +1121,9 @@ def register(app):
                     dbc.Col([
                         dbc.Card([
                             dbc.CardHeader([
-                                html.I(className="fa fa-exclamation-triangle me-2"),
+                                html.I(className="fa fa-exclamation-triangle me-2 text-danger"),
                                 html.Strong("Alert Statistics")
-                            ], className="bg-danger text-white"),
+                            ], className="glass-card-header"),
                             dbc.CardBody([
                                 html.H6("Last 24 Hours", className="mb-3"),
                                 dbc.Row([
@@ -1064,25 +1132,25 @@ def register(app):
                                             html.H5(alerts_24h.get('critical', 0), className="text-danger mb-0"),
                                             html.Small("Critical", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_24h.get('high', 0), className="text-warning mb-0"),
                                             html.Small("High", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_24h.get('medium', 0), className="text-info mb-0"),
                                             html.Small("Medium", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_24h.get('low', 0), className="text-secondary mb-0"),
                                             html.Small("Low", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3)
+                                    ], xs=6, sm=3)
                                 ], className="mb-3"),
                                 html.Hr(),
                                 html.H6("Last 7 Days", className="mb-3"),
@@ -1092,29 +1160,29 @@ def register(app):
                                             html.H5(alerts_7d.get('critical', 0), className="text-danger mb-0"),
                                             html.Small("Critical", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_7d.get('high', 0), className="text-warning mb-0"),
                                             html.Small("High", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_7d.get('medium', 0), className="text-info mb-0"),
                                             html.Small("Medium", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3),
+                                    ], xs=6, sm=3),
                                     dbc.Col([
                                         html.Div([
                                             html.H5(alerts_7d.get('low', 0), className="text-secondary mb-0"),
                                             html.Small("Low", className="text-muted")
                                         ], className="text-center")
-                                    ], width=3)
+                                    ], xs=6, sm=3)
                                 ])
                             ])
                         ], className="mb-4 shadow-sm")
-                    ], width=6),
+                    ], xs=12, md=6),
 
                     dbc.Col([
                         dbc.Card([
@@ -1130,14 +1198,14 @@ def register(app):
                                             html.H4(trusted_devices, className="mb-0"),
                                             html.Small("Trusted Devices", className="text-muted")
                                         ], className="text-center")
-                                    ], width=6),
+                                    ], xs=12, md=6),
                                     dbc.Col([
                                         html.Div([
                                             html.I(className="fa fa-ban fa-3x text-danger mb-2"),
                                             html.H4(blocked_devices, className="mb-0"),
                                             html.Small("Blocked Devices", className="text-muted")
                                         ], className="text-center")
-                                    ], width=6)
+                                    ], xs=12, md=6)
                                 ], className="mb-3"),
                                 html.Hr(),
                                 dbc.Progress([
@@ -1147,10 +1215,10 @@ def register(app):
                                         bar=True,
                                         label=f"{int((trusted_devices / len(devices) * 100) if devices else 0)}% Trusted"
                                     )
-                                ], style={"height": "30px"})
+                                ], className="progress-lg")
                             ])
                         ], className="mb-4 shadow-sm")
-                    ], width=6)
+                    ], xs=12, md=6)
                 ]),
 
                 # Top Alerting Devices
@@ -1165,7 +1233,7 @@ def register(app):
                                 dbc.Table([
                                     html.Thead([
                                         html.Tr([
-                                            html.Th("#", style={'width': '10%'}),
+                                            html.Th("#", className="u-col-w-sm"),
                                             html.Th("Device IP"),
                                             html.Th("Alert Count", className="text-end")
                                         ])
@@ -1179,18 +1247,18 @@ def register(app):
                                     ] if top_alerting_devices else [
                                         html.Tr([html.Td("No high-alert devices in the last 7 days", colSpan=3, className="text-center text-muted")])
                                     ])
-                                ], bordered=True, hover=True, dark=False, size="sm", className="table-adaptive")
+                                ], bordered=True, hover=True, dark=False, size="sm", responsive=True, className="table-adaptive")
                             ])
                         ], className="mb-4 shadow-sm")
-                    ], width=6),
+                    ], xs=12, md=6),
 
                     # Recommendations
                     dbc.Col([
                         dbc.Card([
                             dbc.CardHeader([
-                                html.I(className="fa fa-lightbulb me-2"),
+                                html.I(className="fa fa-lightbulb me-2 text-success"),
                                 html.Strong("Security Recommendations")
-                            ], className="bg-info text-white"),
+                            ], className="glass-card-header"),
                             dbc.CardBody([
                                 html.Ul([
                                     html.Li(rec, className="mb-2")
@@ -1199,10 +1267,10 @@ def register(app):
                                         "Configure trusted devices for better security posture",
                                         "Review and acknowledge pending alerts"
                                     ])
-                                ], style={'paddingLeft': '20px'})
+                                ], className="ps-4")
                             ])
                         ], className="mb-4 shadow-sm")
-                    ], width=6)
+                    ], xs=12, md=6)
                 ]),
 
                 # Export Section
@@ -1301,14 +1369,14 @@ def register(app):
                             dbc.Progress(value=cpu_usage, color="primary" if cpu_usage < 70 else "warning" if cpu_usage < 90 else "danger", className="mb-2"),
                             html.Small("✓ Plenty of headroom" if cpu_usage < 70 else "⚠️ High usage" if cpu_usage < 90 else "❌ Critical",
                                       className=f"text-{'success' if cpu_usage < 70 else 'warning' if cpu_usage < 90 else 'danger'}")
-                        ], width=6),
+                        ], xs=12, md=6),
                         dbc.Col([
                             html.H5(f"{ram_usage:.0f}%", className="text-primary mb-2"),
                             html.P("Memory Usage", className="small text-muted mb-2"),
                             dbc.Progress(value=ram_usage, color="primary" if ram_usage < 70 else "warning" if ram_usage < 90 else "danger", className="mb-2"),
                             html.Small("✓ Efficient operation" if ram_usage < 70 else "⚠️ High usage" if ram_usage < 90 else "❌ Critical",
                                       className=f"text-{'success' if ram_usage < 70 else 'warning' if ram_usage < 90 else 'danger'}")
-                        ], width=6)
+                        ], xs=12, md=6)
                     ], className="mb-3"),
 
                     html.Hr(),
@@ -1321,21 +1389,21 @@ def register(app):
                                 html.H6("Real-Time", className="mb-0"),
                                 html.Small("< 50ms detection", className="text-muted")
                             ], className="text-center")
-                        ], width=4),
+                        ], xs=12, sm=4),
                         dbc.Col([
                             html.Div([
                                 html.I(className="fa fa-network-wired fa-2x text-info mb-2"),
                                 html.H6(f"{total_connections:,}" if isinstance(total_connections, int) else "Active", className="mb-0"),
                                 html.Small("Connections tracked", className="text-muted")
                             ], className="text-center")
-                        ], width=4),
+                        ], xs=12, sm=4),
                         dbc.Col([
                             html.Div([
                                 html.I(className="fa fa-shield-alt fa-2x text-success mb-2"),
                                 html.H6("High", className="mb-0"),
                                 html.Small("Detection confidence", className="text-muted")
                             ], className="text-center")
-                        ], width=4)
+                        ], xs=12, sm=4)
                     ]),
 
                     html.Hr(className="my-3"),
@@ -1363,26 +1431,26 @@ def register(app):
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            html.H4(f"{pi_watts:.0f}W", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                            html.H4(f"{pi_watts:.0f}W", className="text-success mb-1 u-text-xl"),
                             html.P("Power Usage", className="small text-muted mb-0"),
-                            html.Small(f"vs {desktop_watts:.0f}W", className="text-muted", style={"fontSize": "0.7rem"})
+                            html.Small(f"vs {desktop_watts:.0f}W", className="text-muted u-text-xs")
                         ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
                         dbc.Col([
-                            html.H4(f"{co2_kg:.0f} kg", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                            html.H4(f"{co2_kg:.0f} kg", className="text-success mb-1 u-text-xl"),
                             html.P("CO₂ Saved/Year", className="small text-muted mb-0"),
-                            html.Small(f"{trees_equivalent:.0f} trees", className="text-muted", style={"fontSize": "0.7rem"})
+                            html.Small(f"{trees_equivalent:.0f} trees", className="text-muted u-text-xs")
                         ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
                         dbc.Col([
-                            html.H4(f"£{cost_saved_gbp:.0f}", className="text-success mb-1", style={"fontSize": "1.5rem"}),
+                            html.H4(f"£{cost_saved_gbp:.0f}", className="text-success mb-1 u-text-xl"),
                             html.P("Cost Saved/Year", className="small text-muted mb-0"),
-                            html.Small("at £0.30/kWh", className="text-muted", style={"fontSize": "0.7rem"})
+                            html.Small("at £0.30/kWh", className="text-muted u-text-xs")
                         ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0"),
                         dbc.Col([
-                            html.P("UN SDGs:", className="small mb-1 text-muted", style={"fontSize": "0.75rem"}),
+                            html.P("UN SDGs:", className="small mb-1 text-muted u-text-xs"),
                             html.Div([
-                                dbc.Badge("SDG 7", color="warning", className="me-1", title="Affordable & Clean Energy", style={"fontSize": "0.65rem"}),
-                                dbc.Badge("SDG 12", color="warning", className="me-1", title="Responsible Consumption", style={"fontSize": "0.65rem"}),
-                                dbc.Badge("SDG 13", color="warning", title="Climate Action", style={"fontSize": "0.65rem"})
+                                dbc.Badge("SDG 7", color="warning", className="me-1 u-text-badge", title="Affordable & Clean Energy"),
+                                dbc.Badge("SDG 12", color="warning", className="me-1 u-text-badge", title="Responsible Consumption"),
+                                dbc.Badge("SDG 13", color="warning", className="u-text-badge", title="Climate Action")
                             ])
                         ], xs=6, sm=6, md=3, className="text-center mb-2 mb-md-0")
                     ], className="g-2")
@@ -1395,7 +1463,7 @@ def register(app):
                 dbc.CardHeader([
                     html.Img(src="https://zeek.org/wp-content/uploads/2019/09/logo.png", height="25px", className="me-2"),
                     html.Strong("Powered by Zeek - Enterprise-Grade Analysis")
-                ], className="bg-info text-white"),
+                ], className="glass-card-header"),
                 dbc.CardBody([
                     html.P([
                         html.Strong("Why Zeek? "),
@@ -1409,19 +1477,19 @@ def register(app):
                         dbc.Col([
                             html.H5("8+", className="text-primary mb-1"),
                             html.P("Protocols Analyzed", className="small text-muted mb-0")
-                        ], width=3, className="text-center"),
+                        ], xs=6, sm=3, className="text-center"),
                         dbc.Col([
                             html.H5("12", className="text-primary mb-1"),
                             html.P("Log Types Generated", className="small text-muted mb-0")
-                        ], width=3, className="text-center"),
+                        ], xs=6, sm=3, className="text-center"),
                         dbc.Col([
                             html.H5("20+ years", className="text-primary mb-1"),
                             html.P("Battle-Tested", className="small text-muted mb-0")
-                        ], width=3, className="text-center"),
+                        ], xs=6, sm=3, className="text-center"),
                         dbc.Col([
                             html.H5("2.3ms", className="text-primary mb-1"),
                             html.P("Parse Speed", className="small text-muted mb-0")
-                        ], width=3, className="text-center")
+                        ], xs=6, sm=3, className="text-center")
                     ], className="mb-3"),
                     html.Hr(),
                     dbc.Alert([
@@ -1448,68 +1516,8 @@ def register(app):
             raise dash.exceptions.PreventUpdate
         models = ws_message.get('model_info', [])
         if not models:
-            return dbc.Alert("No trained models found.", color="warning")
+            return dbc.Alert([html.I(className="fa fa-brain me-2"), "No trained models found."], color="warning")
         return [html.Ul([html.Li([html.Strong(m['name']), f" - Size: {m['size']}, Updated: {m['modified']}"]) for m in models])]
-
-    # ========================================================================
-    # RIVER MODEL COMPARISON
-    # ========================================================================
-
-    @app.callback(
-        Output('model-comparison', 'children'),
-        Input('ws', 'message')
-    )
-    def update_model_comparison(ws_message):
-        """Display River model performance metrics."""
-        if ws_message is None:
-            raise dash.exceptions.PreventUpdate
-
-        # River models - show current performance stats
-        from ml.river_engine import RiverEngine
-
-        try:
-            stats = {
-                "HalfSpaceTrees": {
-                    "Type": "Anomaly Detection",
-                    "Learning": "Incremental",
-                    "Status": "Active"
-                },
-                "HoeffdingAdaptive": {
-                    "Type": "Attack Classification",
-                    "Learning": "Incremental",
-                    "Status": "Active"
-                },
-                "SNARIMAX": {
-                    "Type": "Traffic Forecasting",
-                    "Learning": "Incremental",
-                    "Status": "Active"
-                }
-            }
-
-            table_header = [html.Thead(html.Tr([html.Th("Model"), html.Th("Type"), html.Th("Learning"), html.Th("Status")]))]
-            table_body = [html.Tbody([
-                html.Tr([
-                    html.Td(model),
-                    html.Td(metrics.get('Type', 'N/A')),
-                    html.Td(dbc.Badge(metrics.get('Learning', 'N/A'), color="success")),
-                    html.Td(dbc.Badge(metrics.get('Status', 'N/A'), color="success"))
-                ]) for model, metrics in stats.items()
-            ])]
-
-            table = dbc.Table(table_header + table_body, bordered=True, hover=True, dark=False, size="sm", className="table-adaptive")
-
-            return html.Div([
-                html.H6("River ML Models", className="mb-3"),
-                dbc.Alert([
-                    html.I(className="fa fa-info-circle me-2"),
-                    "River models learn incrementally from streaming data - no batch comparison needed!"
-                ], color="info", className="mb-3"),
-                table
-            ])
-
-        except Exception as e:
-            logger.error(f"Error displaying model stats: {e}")
-            return dbc.Alert("Unable to load model information.", color="warning")
 
     # ========================================================================
     # IOT SECURITY STATUS
@@ -1521,16 +1529,11 @@ def register(app):
     )
     def update_iot_security_widget(ws_message):
         """Update IoT Security Status widget"""
-        from utils.iot_security_checker import security_checker
-
-        # Get all devices
-        devices = db_manager.get_all_devices()
+        # Get devices + security assessment (shared memo — avoids duplicate compute)
+        devices, security_summary = _get_security_summary_cached()
 
         if not devices:
-            return dbc.Alert("No devices to analyze", color="info")
-
-        # Get security assessment
-        security_summary = security_checker.get_network_security_score(devices)
+            return dbc.Alert([html.I(className="fa fa-chart-bar me-2"), "No devices to analyze"], color="info")
 
         # Determine color based on risk level
         risk_level = security_summary['risk_level']
@@ -1552,12 +1555,11 @@ def register(app):
                 # Security Score
                 dbc.Col([
                     html.Div([
-                        html.H2(f"{security_summary['security_score']}", className=f"text-{score_color} mb-0",
-                               style={'fontSize': '3rem', 'fontWeight': 'bold'}),
+                        html.H2(f"{security_summary['security_score']}", className=f"text-{score_color} mb-0 u-text-hero fw-bold"),
                         html.P("Security Score", className="text-muted mb-2"),
                         dbc.Badge(f"{risk_level.upper()} RISK", color=badge_color, className="mt-1")
                     ], className="text-center")
-                ], width=3),
+                ], xs=6, sm=3),
 
                 # Metrics
                 dbc.Col([
@@ -1567,19 +1569,19 @@ def register(app):
                                 html.H4(security_summary['iot_devices_count'], className="text-primary mb-0"),
                                 html.Small("IoT Devices", className="text-muted")
                             ], className="text-center")
-                        ], width=4),
+                        ], xs=12, sm=4),
                         dbc.Col([
                             html.Div([
                                 html.H4(security_summary['vulnerable_count'], className="text-danger mb-0"),
                                 html.Small("Vulnerable", className="text-muted")
                             ], className="text-center")
-                        ], width=4),
+                        ], xs=12, sm=4),
                         dbc.Col([
                             html.Div([
                                 html.H4(security_summary['total_devices'], className="text-info mb-0"),
                                 html.Small("Total Devices", className="text-muted")
                             ], className="text-center")
-                        ], width=4)
+                        ], xs=12, sm=4)
                     ])
                 ], width=5),
 
@@ -1589,67 +1591,455 @@ def register(app):
                         html.H6([html.I(className="fa fa-lightbulb me-2"), "Top Recommendations"], className="mb-2"),
                         html.Ul([
                             html.Li(rec, className="small") for rec in security_summary['top_recommendations'][:3]
-                        ], className="mb-0", style={'paddingLeft': '20px'})
+                        ], className="mb-0 ps-4")
                     ])
-                ], width=4)
+                ], xs=12, sm=4)
             ], className="align-items-center")
         ])
 
     # ========================================================================
-    # NETWORK HEALTH
+    # OVERVIEW STATS — BATCHED (W15)
+    # Replaced 8 separate interval callbacks with one: single DB connection,
+    # deduplicated queries, and one React render per tick instead of 8.
     # ========================================================================
 
     @app.callback(
         [Output('network-health', 'children'),
-         Output('network-icon', 'className')],
-        [Input('refresh-interval', 'n_intervals')]
+         Output('network-icon', 'className'),
+         Output('attack-surface-list', 'children'),
+         Output('device-count-stat', 'children'),
+         Output('bandwidth-stat', 'children'),
+         Output('security-score', 'children'),
+         Output('last-scan-time', 'children'),
+         Output('recent-activity-list', 'children'),
+         Output('recommendations-list', 'children'),
+         Output('live-threat-feed', 'children'),
+         Output('threat-forecast-content', 'children')],
+        Input('refresh-interval', 'n_intervals')
     )
-    def update_network_health(n):
-        """Update network health status based on activity and alerts."""
+    def update_overview_stats(n):
+        """Batch all overview stat-card DB work into a single connection."""
+        _err = ("-", "fa fa-wifi fa-2x mb-2 text-muted",
+                html.P("Loading...", className="text-muted small"),
+                "-", "-", "-", "-",
+                html.P("Loading...", className="text-muted small"),
+                [html.P("Loading...", className="text-muted small")],
+                html.P("Loading...", className="text-muted small"),
+                html.P("Loading...", className="text-muted small"))
         try:
             conn = get_db_connection()
+            cur = conn.cursor()
 
-            cursor = conn.cursor()
+            # ── shared counters (reused across multiple sections) ─────────
+            cur.execute('SELECT COUNT(DISTINCT device_ip) as count FROM devices WHERE last_seen >= datetime("now", "-1 hour")')
+            active_devices = cur.fetchone()['count']
 
-            # Get active devices in last hour
-            cursor.execute('SELECT COUNT(DISTINCT device_ip) as count FROM devices WHERE last_seen >= datetime("now", "-1 hour")')
-            active_devices = cursor.fetchone()['count']
+            cur.execute('SELECT COUNT(*) as count FROM connections WHERE timestamp >= datetime("now", "-1 hour")')
+            conn_count = cur.fetchone()['count']
 
-            # Get connection count in last hour
-            cursor.execute('SELECT COUNT(*) as count FROM connections WHERE timestamp >= datetime("now", "-1 hour")')
-            connections = cursor.fetchone()['count']
+            cur.execute('''SELECT COUNT(*) as count FROM alerts
+                WHERE severity IN ("critical","high") AND timestamp >= datetime("now", "-1 hour")''')
+            critical_1h = cur.fetchone()['count']
 
-            # Get recent critical/high alerts
-            cursor.execute('''
-                SELECT COUNT(*) as count FROM alerts
-                WHERE severity IN ('critical', 'high')
-                AND timestamp >= datetime("now", "-1 hour")
-            ''')
-            critical_alerts = cursor.fetchone()['count']
+            cur.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 0 AND is_blocked = 0')
+            untrusted = cur.fetchone()['count']
 
+            cur.execute('SELECT MAX(timestamp) as last_scan FROM connections')
+            _row = cur.fetchone()
+            last_scan_ts = _row['last_scan'] if _row else None
 
-            # Determine health status
-            if critical_alerts > 5:
-                health = "Poor"
-                icon_class = "fa fa-wifi fa-2x mb-2 text-danger"
-            elif critical_alerts > 2:
-                health = "Fair"
-                icon_class = "fa fa-wifi fa-2x mb-2 text-warning"
-            elif active_devices > 5 and connections > 100:
-                health = "Excellent"
-                icon_class = "fa fa-wifi fa-2x mb-2 text-success"
-            elif active_devices > 0 or connections > 0:
-                health = "Good"
-                icon_class = "fa fa-wifi fa-2x mb-2 text-info"
+            cur.execute('''SELECT COUNT(*) as count FROM alerts
+                WHERE severity = "critical" AND timestamp >= datetime("now", "-24 hours")''')
+            critical_24h = cur.fetchone()['count']
+
+            # ── network-health ────────────────────────────────────────────
+            if critical_1h > 5:
+                health, icon_class = "Poor", "fa fa-wifi fa-2x mb-2 text-danger"
+            elif critical_1h > 2:
+                health, icon_class = "Fair", "fa fa-wifi fa-2x mb-2 text-warning"
+            elif active_devices > 5 and conn_count > 100:
+                health, icon_class = "Excellent", "fa fa-wifi fa-2x mb-2 text-success"
+            elif active_devices > 0 or conn_count > 0:
+                health, icon_class = "Good", "fa fa-wifi fa-2x mb-2 text-info"
             else:
-                health = "Idle"
-                icon_class = "fa fa-wifi fa-2x mb-2 text-secondary"
+                health, icon_class = "Idle", "fa fa-wifi fa-2x mb-2 text-secondary"
 
-            return health, icon_class
+            # ── attack-surface-list ───────────────────────────────────────
+            vulns = []
+            if untrusted > 0:
+                vulns.append(dbc.Card([dbc.CardBody([html.Div([
+                    html.I(className="fa fa-exclamation-triangle text-warning me-2 u-text-xl"),
+                    html.Div([html.H6(f"{untrusted} Untrusted Devices", className="mb-1"),
+                              html.P("Unverified devices can be exploited as entry points",
+                                     className="mb-0 small text-muted"),
+                              dbc.Badge("MEDIUM RISK", color="warning", className="mt-2")])
+                ], className="d-flex")])], className="mb-3 border-warning"))
+
+            cur.execute('''SELECT COUNT(DISTINCT device_ip) as count FROM alerts
+                WHERE severity = "critical" AND timestamp >= datetime("now", "-24 hours")''')
+            critical_devices = cur.fetchone()['count']
+            if critical_devices > 0:
+                vulns.append(dbc.Card([dbc.CardBody([html.Div([
+                    html.I(className="fa fa-skull-crossbones text-danger me-2 u-text-xl"),
+                    html.Div([html.H6(f"{critical_devices} Devices Under Attack", className="mb-1"),
+                              html.P("Devices with active critical alerts are vulnerable",
+                                     className="mb-0 small text-muted"),
+                              dbc.Badge("HIGH RISK", color="danger", className="mt-2")])
+                ], className="d-flex")])], className="mb-3 border-danger"))
+
+            # Devices with elevated ML anomaly rate (≥20% of connections flagged, min 5 preds)
+            cur.execute('''
+                SELECT COUNT(DISTINCT c.device_ip) as count
+                FROM (
+                    SELECT c.device_ip,
+                           COUNT(*) AS total_preds,
+                           SUM(p.is_anomaly) AS anomaly_count
+                    FROM ml_predictions p
+                    JOIN connections c ON p.connection_id = c.id
+                    WHERE p.timestamp >= datetime("now", "-1 hour")
+                    GROUP BY c.device_ip
+                    HAVING total_preds >= 5
+                       AND (100.0 * anomaly_count / total_preds) >= 20.0
+                ) c
+            ''')
+            _har = cur.fetchone()
+            high_anomaly_devices = _har['count'] if _har else 0
+            if high_anomaly_devices > 0:
+                vulns.append(dbc.Card([dbc.CardBody([html.Div([
+                    html.I(className="fa fa-exclamation-circle text-info me-2 u-text-xl"),
+                    html.Div([html.H6(f"{high_anomaly_devices} Devices with Elevated Anomaly Rate",
+                                      className="mb-1"),
+                              html.P("River ML flagged ≥20% of recent connections as anomalous",
+                                     className="mb-0 small text-muted"),
+                              dbc.Badge("MEDIUM RISK", color="info", className="mt-2")])
+                ], className="d-flex")])], className="mb-3 border-info"))
+
+            attack_surface = html.Div([
+                html.H5([html.I(className="fa fa-exclamation-circle me-2"), "Identified Entry Points"],
+                        className="mb-3"),
+                *vulns,
+                dbc.Alert([html.I(className="fa fa-lightbulb me-2"),
+                           "Recommendation: Review and address these vulnerabilities to reduce attack surface."],
+                          color="warning", className="mt-3")
+            ]) if vulns else dbc.Alert([
+                html.I(className="fa fa-shield-alt me-2"),
+                html.Strong("No Major Vulnerabilities Detected"),
+                html.P("Your network appears secure with minimal attack surface.", className="mb-0 mt-2")
+            ], color="success")
+
+            # ── device-count-stat + bandwidth-stat ────────────────────────
+            bandwidth = f"{conn_count // 1000}K" if conn_count >= 1000 else str(conn_count)
+
+            # ── security-score + last-scan-time ──────────────────────────
+            # ML component: average anomaly score over last 24 h (contributes 0–60 pts)
+            cur.execute('''
+                SELECT ROUND(AVG(anomaly_score), 4) AS avg_score,
+                       COUNT(*) AS total_preds
+                FROM ml_predictions
+                WHERE timestamp >= datetime("now", "-24 hours")
+            ''')
+            _ml_sc = cur.fetchone()
+            _sc_ml_avg   = float(_ml_sc['avg_score']  or 0) if _ml_sc else 0.0
+            _sc_ml_total = int(_ml_sc['total_preds']  or 0) if _ml_sc else 0
+            _ml_penalty  = round(_sc_ml_avg * 60) if _sc_ml_total >= 10 else 0
+
+            # Alert component: recalibrated weights, capped at 40 pts
+            cur.execute('''SELECT SUM(CASE WHEN severity = "critical" THEN 8
+                                          WHEN severity = "high"     THEN 4
+                                          WHEN severity = "medium"   THEN 2
+                                          WHEN severity = "low"      THEN 1
+                                          ELSE 0 END) as alert_pts
+                FROM alerts WHERE timestamp >= datetime("now", "-24 hours")''')
+            _ap = cur.fetchone()
+            _alert_penalty = min(40, int(_ap['alert_pts'] or 0)) if _ap else 0
+
+            score_text = f"{max(0, 100 - _ml_penalty - _alert_penalty)}/100"
+
+            if last_scan_ts:
+                diff = datetime.now() - datetime.strptime(last_scan_ts, '%Y-%m-%d %H:%M:%S')
+                if diff.seconds < 60:
+                    time_text = "Just now"
+                elif diff.seconds < 3600:
+                    time_text = f"{diff.seconds // 60}m ago"
+                else:
+                    time_text = f"{diff.seconds // 3600}h ago"
+            else:
+                time_text = "Never"
+
+            # ── recent-activity-list ──────────────────────────────────────
+            activities = []
+            cur.execute('SELECT device_ip, last_seen FROM devices ORDER BY last_seen DESC LIMIT 1')
+            row = cur.fetchone()
+            if row:
+                activities.append(html.Div([
+                    html.I(className="fa fa-laptop text-primary me-2 u-text-sm"),
+                    html.Span(f"Device {row['device_ip']}", className="fw-bold"),
+                    html.Span(f" connected {_format_time_ago(row['last_seen'])}", className="text-muted")
+                ], className="mb-2"))
+
+            cur.execute('SELECT severity, explanation, timestamp FROM alerts ORDER BY timestamp DESC LIMIT 1')
+            row = cur.fetchone()
+            if row:
+                sev_icon = "fa-skull-crossbones" if row['severity'] == 'critical' else "fa-exclamation-triangle"
+                activities.append(html.Div([
+                    html.I(className=f"fa {sev_icon} text-danger me-2 u-text-sm"),
+                    html.Span(f"{row['severity'].title()} alert", className="fw-bold"),
+                    html.Span(f" {_format_time_ago(row['timestamp'])}", className="text-muted")
+                ], className="mb-2"))
+
+            if last_scan_ts:
+                activities.append(html.Div([
+                    html.I(className="fa fa-search text-success me-2 u-text-sm"),
+                    html.Span("Network scan", className="fw-bold"),
+                    html.Span(f" completed {_format_time_ago(last_scan_ts)}", className="text-muted")
+                ], className="mb-0"))
+
+            recent_activity = activities or html.P("No recent activity", className="text-muted text-center mb-0")
+
+            # ── recommendations-list ──────────────────────────────────────
+            recs = []
+            if critical_24h > 0:
+                recs.append(html.Div([
+                    html.I(className="fa fa-exclamation-circle text-danger me-2"),
+                    html.Span(f"Address {critical_24h} critical alert(s) immediately", className="small")
+                ], className="mb-2"))
+            if untrusted > 0:
+                recs.append(html.Div([
+                    html.I(className="fa fa-shield-alt text-warning me-2"),
+                    html.Span(f"Review {untrusted} unverified device(s)", className="small")
+                ], className="mb-2"))
+            if not recs:
+                recs.append(html.Div([
+                    html.I(className="fa fa-check-circle text-success me-2"),
+                    html.Span("System is secure. Keep monitoring active.", className="small")
+                ], className="mb-0"))
+
+            # ── live-threat-feed ──────────────────────────────────────────
+            # Real alerts + River ML-flagged anomalous connections (score ≥ 0.60)
+            cur.execute('''
+                SELECT timestamp, severity, device_ip, explanation
+                FROM alerts
+                WHERE timestamp >= datetime("now", "-1 hour")
+                UNION ALL
+                SELECT p.timestamp,
+                       CASE WHEN p.anomaly_score >= 0.75 THEN "high"
+                            WHEN p.anomaly_score >= 0.60 THEN "medium"
+                            ELSE "low" END,
+                       c.device_ip,
+                       COALESCE(d.custom_name, d.device_name, c.device_ip)
+                           || " → " || c.dest_ip || ":" || CAST(c.dest_port AS TEXT)
+                           || " (anomaly " || CAST(ROUND(p.anomaly_score * 100) AS INTEGER) || "%)"
+                FROM ml_predictions p
+                JOIN connections c  ON p.connection_id = c.id
+                LEFT JOIN devices d ON c.device_ip = d.device_ip
+                WHERE p.timestamp >= datetime("now", "-1 hour")
+                  AND p.is_anomaly = 1
+                  AND p.anomaly_score >= 0.60
+                ORDER BY timestamp DESC LIMIT 15''')
+            threats = cur.fetchall()
+
+            _sev = {
+                'critical': ('fa-skull-crossbones',     '#ef4444', 'rgba(239,68,68,0.1)'),
+                'high':     ('fa-exclamation-triangle', '#f59e0b', 'rgba(245,158,11,0.1)'),
+                'medium':   ('fa-exclamation-circle',   '#3b82f6', 'rgba(59,130,246,0.1)'),
+                'low':      ('fa-info-circle',           '#6b7280', 'rgba(107,114,128,0.1)'),
+            }
+            if threats:
+                feed_items = []
+                for t in threats:
+                    icon, color, bg = _sev.get(t['severity'], _sev['low'])
+                    feed_items.append(html.Div([
+                        html.Div([
+                            html.I(className=f"fa {icon} me-2 u-text-sm", style={"color": color}),
+                            html.Div([
+                                html.Div([html.Span(t['device_ip'], className="fw-bold threat-feed-meta"),
+                                          html.Span(f" • {_format_time_ago(t['timestamp'])}",
+                                                    className="text-muted ms-1 threat-feed-time")]),
+                                html.P(t['explanation'], className="mb-0 text-muted threat-feed-text")
+                            ], className="flex-grow-1")
+                        ], className="d-flex align-items-start")
+                    ], className="threat-feed-item",
+                       style={"backgroundColor": bg, "borderLeft": f"3px solid {color}"}))
+                threat_feed = feed_items
+            else:
+                threat_feed = html.P("No threats detected",
+                                     className="text-success text-center mb-0 py-3 small")
+
+            # ── threat-forecast-content (River ML anomaly forecast) ──────
+            # Query 1: anomaly momentum — last 6 h vs previous 6 h window
+            cur.execute('''
+                SELECT
+                    ROUND(AVG(CASE WHEN p.timestamp >= datetime("now", "-6 hours")
+                                   THEN p.anomaly_score END), 4) AS recent_avg,
+                    ROUND(AVG(CASE WHEN p.timestamp <  datetime("now", "-6 hours")
+                                   THEN p.anomaly_score END), 4) AS prior_avg,
+                    COUNT(*)                                       AS total_preds,
+                    MAX(p.anomaly_score)                           AS peak_score,
+                    SUM(CASE WHEN p.is_anomaly = 1
+                                  AND p.timestamp >= datetime("now", "-6 hours")
+                             THEN 1 ELSE 0 END)                   AS recent_anomalies
+                FROM ml_predictions p
+                WHERE p.timestamp >= datetime("now", "-12 hours")
+            ''')
+            ml_row = cur.fetchone()
+
+            _recent_avg      = float(ml_row['recent_avg']      or 0)
+            _prior_avg       = float(ml_row['prior_avg']       or 0)
+            _total_preds     = int(ml_row['total_preds']       or 0)
+            _peak_score      = float(ml_row['peak_score']      or 0)
+            _recent_anomalies = int(ml_row['recent_anomalies'] or 0)
+
+            # Query 2: top anomalous devices (last 12 h, min 3 predictions each)
+            cur.execute('''
+                SELECT
+                    COALESCE(d.custom_name, d.device_name, c.device_ip) AS label,
+                    ROUND(AVG(p.anomaly_score), 3)                       AS avg_score,
+                    COUNT(*)                                              AS total_preds
+                FROM ml_predictions p
+                JOIN connections c  ON p.connection_id = c.id
+                LEFT JOIN devices d ON c.device_ip = d.device_ip
+                WHERE p.timestamp >= datetime("now", "-12 hours")
+                GROUP BY c.device_ip
+                HAVING total_preds >= 3
+                ORDER BY avg_score DESC
+                LIMIT 2
+            ''')
+            _top_devices = cur.fetchall()
+
+            # ── build forecast component ──────────────────────────────────
+            _MIN_PREDS = 5   # minimum predictions to trust the output
+
+            if _total_preds == 0:
+                # Monitoring not started or no connections scored yet — static, no spinner
+                forecast = html.Div([
+                    html.I(className="fa fa-brain fa-2x text-muted mb-2"),
+                    html.Br(),
+                    html.Span("Waiting for traffic",
+                              className="text-muted small fw-semibold d-block"),
+                    html.Small(
+                        "Forecast activates once the IoTSentinel service "
+                        "starts scoring network connections.",
+                        className="text-muted"
+                    )
+                ], className="text-center py-3")
+            elif _total_preds < _MIN_PREDS:
+                # Data is flowing — actively building baseline, show progress
+                forecast = html.Div([
+                    html.I(className="fa fa-circle-notch fa-spin me-2 text-muted"),
+                    html.Span("Building baseline",
+                              className="text-muted small fw-semibold"),
+                    html.Br(),
+                    html.Small(
+                        f"{_total_preds}/{_MIN_PREDS} predictions collected.",
+                        className="text-muted"
+                    )
+                ], className="text-center py-3")
+            else:
+                # Proportional momentum between the two 6-hour windows
+                _momentum = ((_recent_avg - _prior_avg) / _prior_avg
+                             if _prior_avg > 0 else 0.0)
+
+                # Risk level
+                if _recent_avg >= 0.75 or _peak_score >= 0.90:
+                    _risk_label, _risk_color, _risk_icon = (
+                        "Critical", "danger", "fa-exclamation-circle")
+                elif _recent_avg >= 0.55 or (_momentum > 0.4 and _recent_avg >= 0.35):
+                    _risk_label, _risk_color, _risk_icon = (
+                        "High", "warning", "fa-exclamation-triangle")
+                elif _recent_avg >= 0.30 or _momentum > 0.2:
+                    _risk_label, _risk_color, _risk_icon = (
+                        "Moderate", "info", "fa-shield-alt")
+                else:
+                    _risk_label, _risk_color, _risk_icon = (
+                        "Low", "success", "fa-check-circle")
+
+                # Trend direction
+                if _momentum > 0.25:
+                    _trend_label, _trend_icon, _trend_cls = (
+                        "Rising", "fa-arrow-up", "text-danger")
+                elif _momentum < -0.25:
+                    _trend_label, _trend_icon, _trend_cls = (
+                        "Easing", "fa-arrow-down", "text-success")
+                else:
+                    _trend_label, _trend_icon, _trend_cls = (
+                        "Stable", "fa-minus", "text-warning")
+
+                # Confidence label from sample count
+                _conf = ("High" if _total_preds >= 200 else
+                         "Medium" if _total_preds >= 50 else "Low")
+
+                # Per-device anomaly bars (only surface devices above 0.30)
+                _dev_rows = []
+                for _dev in _top_devices:
+                    if (_dev['avg_score'] or 0) >= 0.30:
+                        _bc = ("danger"  if _dev['avg_score'] >= 0.75 else
+                               "warning" if _dev['avg_score'] >= 0.55 else "info")
+                        _dev_rows.append(html.Div([
+                            html.Span(
+                                str(_dev['label']),
+                                className="small text-truncate me-2",
+                                style={"maxWidth": "110px", "display": "inline-block",
+                                       "verticalAlign": "middle"}
+                            ),
+                            dbc.Progress(
+                                value=int(_dev['avg_score'] * 100),
+                                color=_bc,
+                                style={"height": "5px", "flex": "1"}
+                            ),
+                            html.Span(f" {_dev['avg_score']:.2f}",
+                                      className=f"small ms-1 text-{_bc}"),
+                        ], className="d-flex align-items-center mb-1"))
+
+                forecast = html.Div([
+                    # Row 1: horizon label + risk badge
+                    html.Div([
+                        html.Span("Next 24h", className="text-muted small me-2"),
+                        dbc.Badge(
+                            [html.I(className=f"fa {_risk_icon} me-1"), _risk_label],
+                            color=_risk_color, className="u-text-badge"
+                        ),
+                    ], className="d-flex align-items-center mb-2"),
+
+                    # Row 2: trend arrow + momentum %
+                    html.Div([
+                        html.I(className=f"fa {_trend_icon} me-2 {_trend_cls}"),
+                        html.Span(_trend_label,
+                                  className=f"small fw-semibold {_trend_cls}"),
+                        html.Span(f"  {_momentum:+.0%}",
+                                  className="small text-muted ms-1")
+                        if _prior_avg > 0 else "",
+                    ], className="mb-2"),
+
+                    # Row 3: anomaly-index mini progress bar
+                    html.Div([
+                        html.Span("Anomaly index",
+                                  className="small text-muted me-2",
+                                  style={"whiteSpace": "nowrap"}),
+                        dbc.Progress(
+                            value=int(_recent_avg * 100),
+                            color=_risk_color,
+                            style={"height": "5px", "flex": "1"}
+                        ),
+                        html.Span(f" {_recent_avg:.2f}",
+                                  className=f"small ms-1 text-{_risk_color}"),
+                    ], className="d-flex align-items-center mb-2"),
+
+                    # Row 4: at-risk device breakdown (conditional)
+                    html.Div(_dev_rows, className="mb-2") if _dev_rows else None,
+
+                    # Footer: attribution + confidence
+                    html.Small([
+                        html.I(className="fa fa-brain me-1"),
+                        f"River ML · {_total_preds:,} predictions · {_conf} confidence"
+                    ], className="text-muted"),
+                ])
+
+            return (health, icon_class, attack_surface, str(active_devices), bandwidth,
+                    score_text, time_text, recent_activity, recs, threat_feed, forecast)
 
         except Exception as e:
-            logger.error(f"Error calculating network health: {e}")
-            return "—", "fa fa-wifi fa-2x mb-2 text-muted"
+            logger.error(f"Error in overview stats batch: {e}")
+            return _err
 
     # ========================================================================
     # SANKEY TRAFFIC FLOW DIAGRAM
@@ -1657,7 +2047,8 @@ def register(app):
 
     @app.callback(
         Output('traffic-flow-sankey', 'figure'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Input('refresh-interval', 'n_intervals')],
+        prevent_initial_call=True  # W15: skip n_intervals=0 DB query on page load
     )
     def update_traffic_flow_sankey(n):
         """Update Sankey diagram showing network traffic flow."""
@@ -1685,7 +2076,8 @@ def register(app):
 
             if not flows:
                 fig = go.Figure()
-                fig.update_layout(title="No Traffic Data Available", height=500)
+                fig.update_layout(title="No Traffic Data Available", height=500,
+                                  paper_bgcolor='rgba(0,0,0,0)')
                 return fig
 
             # Build Sankey nodes and links
@@ -1747,11 +2139,9 @@ def register(app):
             )])
 
             fig.update_layout(
-                title=dict(
-                    text="Network Traffic Flow - Last Hour",
-                    x=0.5,
-                    xanchor='center'
-                ),
+                title=dict(text="Network Traffic Flow - Last Hour", x=0.5, xanchor='center'),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(size=10),
                 height=500,
                 margin=dict(l=20, r=20, t=40, b=20)
@@ -1762,408 +2152,15 @@ def register(app):
         except Exception as e:
             logger.error(f"Error updating traffic flow sankey: {e}")
             fig = go.Figure()
-            fig.update_layout(title=f"Error: {str(e)}", height=500)
+            fig.update_layout(title=f"Error: {str(e)}", height=500,
+                              paper_bgcolor='rgba(0,0,0,0)')
             return fig
 
-    # ========================================================================
-    # ATTACK SURFACE LIST (OVERVIEW)
-    # ========================================================================
+    # attack-surface-list, device-count-stat, bandwidth-stat, security-score,
+    # last-scan-time, recent-activity-list, recommendations-list, live-threat-feed
+    # → all merged into update_overview_stats above (W15 batch).
 
-    @app.callback(
-        Output('attack-surface-list', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_attack_surface(n):
-        """Analyze and display attack surface - potential entry points."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-            vulnerabilities = []
-
-            # 1. Check for untrusted devices
-            cursor.execute('SELECT COUNT(*) as count FROM devices WHERE is_trusted = 0 AND is_blocked = 0')
-            untrusted = cursor.fetchone()['count']
-            if untrusted > 0:
-                vulnerabilities.append(dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-exclamation-triangle text-warning me-2", style={"fontSize": "1.5rem"}),
-                            html.Div([
-                                html.H6(f"{untrusted} Untrusted Devices", className="mb-1"),
-                                html.P("Unverified devices can be exploited as entry points", className="mb-0 small text-muted"),
-                                dbc.Badge("MEDIUM RISK", color="warning", className="mt-2")
-                            ])
-                        ], className="d-flex")
-                    ])
-                ], className="mb-3 border-warning"))
-
-            # 2. Check for devices with critical alerts
-            cursor.execute('''
-                SELECT COUNT(DISTINCT device_ip) as count FROM alerts
-                WHERE severity = 'critical' AND timestamp >= datetime("now", "-24 hours")
-            ''')
-            critical_devices = cursor.fetchone()['count']
-            if critical_devices > 0:
-                vulnerabilities.append(dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-skull-crossbones text-danger me-2", style={"fontSize": "1.5rem"}),
-                            html.Div([
-                                html.H6(f"{critical_devices} Devices Under Attack", className="mb-1"),
-                                html.P("Devices with active critical alerts are vulnerable", className="mb-0 small text-muted"),
-                                dbc.Badge("HIGH RISK", color="danger", className="mt-2")
-                            ])
-                        ], className="d-flex")
-                    ])
-                ], className="mb-3 border-danger"))
-
-            # 3. Check for high-traffic devices (potential C2)
-            cursor.execute('''
-                SELECT COUNT(DISTINCT device_ip) as count FROM connections
-                WHERE timestamp >= datetime("now", "-1 hour")
-                GROUP BY device_ip
-                HAVING COUNT(*) > 500
-            ''')
-            high_traffic = len(cursor.fetchall())
-            if high_traffic > 0:
-                vulnerabilities.append(dbc.Card([
-                    dbc.CardBody([
-                        html.Div([
-                            html.I(className="fa fa-wifi text-info me-2", style={"fontSize": "1.5rem"}),
-                            html.Div([
-                                html.H6(f"{high_traffic} High-Activity Devices", className="mb-1"),
-                                html.P("Unusually high connection rates may indicate compromise", className="mb-0 small text-muted"),
-                                dbc.Badge("MEDIUM RISK", color="info", className="mt-2")
-                            ])
-                        ], className="d-flex")
-                    ])
-                ], className="mb-3 border-info"))
-
-
-            if not vulnerabilities:
-                return dbc.Alert([
-                    html.I(className="fa fa-shield-alt me-2"),
-                    html.Strong("No Major Vulnerabilities Detected"),
-                    html.P("Your network appears secure with minimal attack surface.", className="mb-0 mt-2")
-                ], color="success")
-
-            return html.Div([
-                html.H5([html.I(className="fa fa-exclamation-circle me-2"), "Identified Entry Points"], className="mb-3"),
-                *vulnerabilities,
-                dbc.Alert([
-                    html.I(className="fa fa-lightbulb me-2"),
-                    "Recommendation: Review and address these vulnerabilities to reduce attack surface."
-                ], color="warning", className="mt-3")
-            ])
-
-        except Exception as e:
-            logger.error(f"Error analyzing attack surface: {e}")
-            return html.P(f"Error: {str(e)}", className="text-danger")
-
-    # ========================================================================
-    # DEVICE COUNT + BANDWIDTH STAT CARDS
-    # ========================================================================
-
-    @app.callback(
-        [Output('device-count-stat', 'children'),
-         Output('bandwidth-stat', 'children')],
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_network_stats(n):
-        """Update network activity card with active devices and connection counts."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-
-            # Get device count
-            cursor.execute('SELECT COUNT(DISTINCT device_ip) as count FROM devices WHERE last_seen >= datetime("now", "-1 hour")')
-            device_count = cursor.fetchone()['count']
-
-            # Get total connections in last hour
-            cursor.execute('SELECT COUNT(*) as count FROM connections WHERE timestamp >= datetime("now", "-1 hour")')
-            connections = cursor.fetchone()['count']
-            bandwidth = f"{connections//1000}K" if connections >= 1000 else str(connections)
-
-            return str(device_count), bandwidth
-        except Exception as e:
-            logger.error(f"Error updating network stats: {e}")
-            return "—", "—"
-
-    # ========================================================================
-    # SECURITY SCORE + LAST SCAN TIME
-    # ========================================================================
-
-    @app.callback(
-        [Output('security-score', 'children'),
-         Output('last-scan-time', 'children')],
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_security_status(n):
-        """Update security status card."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-
-            # Calculate security score (100 - weighted alerts)
-            cursor.execute('''
-                SELECT
-                    SUM(CASE WHEN severity = 'critical' THEN 20
-                             WHEN severity = 'high' THEN 10
-                             WHEN severity = 'medium' THEN 5
-                             WHEN severity = 'low' THEN 2
-                             ELSE 0 END) as threat_points
-                FROM alerts
-                WHERE timestamp >= datetime("now", "-24 hours")
-            ''')
-            result = cursor.fetchone()
-            threat_points = result['threat_points'] if result['threat_points'] else 0
-            security_score = max(0, min(100, 100 - threat_points))
-
-            # Get last scan time
-            cursor.execute('SELECT MAX(timestamp) as last_scan FROM connections')
-            last_scan = cursor.fetchone()['last_scan']
-
-
-            # Format score
-            score_text = f"{security_score}/100"
-
-            # Format time
-            if last_scan:
-                last_scan_dt = datetime.strptime(last_scan, '%Y-%m-%d %H:%M:%S')
-                time_diff = datetime.now() - last_scan_dt
-                if time_diff.seconds < 60:
-                    time_text = "Just now"
-                elif time_diff.seconds < 3600:
-                    time_text = f"{time_diff.seconds // 60}m ago"
-                else:
-                    time_text = f"{time_diff.seconds // 3600}h ago"
-            else:
-                time_text = "Never"
-
-            return score_text, time_text
-        except Exception as e:
-            logger.error(f"Error updating security status: {e}")
-            return "—", "—"
-
-    # ========================================================================
-    # RECENT ACTIVITY LIST
-    # ========================================================================
-
-    @app.callback(
-        Output('recent-activity-list', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_recent_activity(n):
-        """Update recent activity list."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-            activities = []
-
-            # Get last device connected
-            cursor.execute('''
-                SELECT device_ip, last_seen
-                FROM devices
-                ORDER BY last_seen DESC
-                LIMIT 1
-            ''')
-            last_device = cursor.fetchone()
-            if last_device:
-                time_ago = _format_time_ago(last_device['last_seen'])
-                activities.append(html.Div([
-                    html.I(className="fa fa-laptop text-primary me-2", style={"fontSize": "0.9rem"}),
-                    html.Span(f"Device {last_device['device_ip']}", className="fw-bold"),
-                    html.Span(f" connected {time_ago}", className="text-muted")
-                ], className="mb-2"))
-
-            # Get last alert
-            cursor.execute('''
-                SELECT severity, explanation, timestamp
-                FROM alerts
-                ORDER BY timestamp DESC
-                LIMIT 1
-            ''')
-            last_alert = cursor.fetchone()
-            if last_alert:
-                time_ago = _format_time_ago(last_alert['timestamp'])
-                severity_icon = "fa-skull-crossbones" if last_alert['severity'] == 'critical' else "fa-exclamation-triangle"
-                activities.append(html.Div([
-                    html.I(className=f"fa {severity_icon} text-danger me-2", style={"fontSize": "0.9rem"}),
-                    html.Span(f"{last_alert['severity'].title()} alert", className="fw-bold"),
-                    html.Span(f" {time_ago}", className="text-muted")
-                ], className="mb-2"))
-
-            # Get last scan
-            cursor.execute('''
-                SELECT MAX(timestamp) as last_scan
-                FROM connections
-            ''')
-            last_scan = cursor.fetchone()
-            if last_scan and last_scan['last_scan']:
-                time_ago = _format_time_ago(last_scan['last_scan'])
-                activities.append(html.Div([
-                    html.I(className="fa fa-search text-success me-2", style={"fontSize": "0.9rem"}),
-                    html.Span("Network scan", className="fw-bold"),
-                    html.Span(f" completed {time_ago}", className="text-muted")
-                ], className="mb-0"))
-
-
-            return activities if activities else html.P("No recent activity", className="text-muted text-center mb-0")
-        except Exception as e:
-            logger.error(f"Error updating recent activity: {e}")
-            return html.P("Unable to load activity", className="text-muted text-center mb-0")
-
-    # ========================================================================
-    # SECURITY RECOMMENDATIONS LIST
-    # ========================================================================
-
-    @app.callback(
-        Output('recommendations-list', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_recommendations(n):
-        """Update security recommendations."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-            recommendations = []
-
-            # Check for critical alerts
-            cursor.execute('''
-                SELECT COUNT(*) as count
-                FROM alerts
-                WHERE severity = 'critical'
-                AND timestamp >= datetime("now", "-24 hours")
-            ''')
-            critical_count = cursor.fetchone()['count']
-            if critical_count > 0:
-                recommendations.append(html.Div([
-                    html.I(className="fa fa-exclamation-circle text-danger me-2"),
-                    html.Span(f"Address {critical_count} critical alert(s) immediately", className="small")
-                ], className="mb-2"))
-
-            # Check for unprotected devices
-            cursor.execute('''
-                SELECT COUNT(*) as count
-                FROM devices
-                WHERE is_trusted = 0 AND is_blocked = 0
-            ''')
-            unknown_devices = cursor.fetchone()['count']
-            if unknown_devices > 0:
-                recommendations.append(html.Div([
-                    html.I(className="fa fa-shield-alt text-warning me-2"),
-                    html.Span(f"Review {unknown_devices} unverified device(s)", className="small")
-                ], className="mb-2"))
-
-            # General recommendations
-            if not recommendations:
-                recommendations.append(html.Div([
-                    html.I(className="fa fa-check-circle text-success me-2"),
-                    html.Span("System is secure. Keep monitoring active.", className="small")
-                ], className="mb-0"))
-
-            return recommendations
-        except Exception as e:
-            logger.error(f"Error updating recommendations: {e}")
-            return html.P("Unable to load", className="text-muted text-center mb-0")
-
-    # ========================================================================
-    # LIVE THREAT FEED
-    # ========================================================================
-
-    @app.callback(
-        Output('live-threat-feed', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
-    )
-    def update_live_threat_feed(n):
-        """Update live threat feed with recent security events."""
-        try:
-            conn = get_db_connection()
-
-            cursor = conn.cursor()
-
-            # Get recent threats (alerts + suspicious connections)
-            cursor.execute('''
-                SELECT
-                    timestamp,
-                    severity,
-                    device_ip,
-                    explanation,
-                    'alert' as event_type
-                FROM alerts
-                WHERE timestamp >= datetime("now", "-1 hour")
-                UNION ALL
-                SELECT
-                    c.timestamp,
-                    'medium' as severity,
-                    c.device_ip,
-                    'Suspicious connection to ' || c.dest_ip || ':' || c.dest_port as explanation,
-                    'connection' as event_type
-                FROM connections c
-                WHERE c.timestamp >= datetime("now", "-1 hour")
-                AND (c.dest_port IN (22, 23, 3389, 445) OR c.bytes_sent > 10000000)
-                ORDER BY timestamp DESC
-                LIMIT 15
-            ''')
-
-            threats = cursor.fetchall()
-
-            if not threats:
-                return html.P("No threats detected", className="text-success text-center mb-0 py-3 small")
-
-            feed_items = []
-            for threat in threats:
-                time_ago = _format_time_ago(threat['timestamp'])
-                severity = threat['severity']
-
-                # Severity styling
-                severity_config = {
-                    'critical': {'icon': 'fa-skull-crossbones', 'color': '#ef4444', 'bg': 'rgba(239, 68, 68, 0.1)'},
-                    'high': {'icon': 'fa-exclamation-triangle', 'color': '#f59e0b', 'bg': 'rgba(245, 158, 11, 0.1)'},
-                    'medium': {'icon': 'fa-exclamation-circle', 'color': '#3b82f6', 'bg': 'rgba(59, 130, 246, 0.1)'},
-                    'low': {'icon': 'fa-info-circle', 'color': '#6b7280', 'bg': 'rgba(107, 114, 128, 0.1)'}
-                }
-
-                config_item = severity_config.get(severity, severity_config['low'])
-
-                feed_items.append(
-                    html.Div([
-                        html.Div([
-                            html.I(className=f"fa {config_item['icon']} me-2", style={"color": config_item['color'], "fontSize": "0.9rem"}),
-                            html.Div([
-                                html.Div([
-                                    html.Span(f"{threat['device_ip']}", className="fw-bold", style={"fontSize": "0.75rem"}),
-                                    html.Span(f" • {time_ago}", className="text-muted ms-1", style={"fontSize": "0.65rem"})
-                                ]),
-                                html.P(threat['explanation'], className="mb-0 text-muted", style={
-                                    "fontSize": "0.7rem",
-                                    "lineHeight": "1.3",
-                                    "marginTop": "2px"
-                                })
-                            ], className="flex-grow-1")
-                        ], className="d-flex align-items-start")
-                    ], className="threat-feed-item", style={
-                        "padding": "8px",
-                        "marginBottom": "6px",
-                        "borderRadius": "6px",
-                        "backgroundColor": config_item['bg'],
-                        "borderLeft": f"3px solid {config_item['color']}",
-                        "animation": "slideInRight 0.3s ease-out"
-                    })
-                )
-
-            return feed_items
-
-        except Exception as e:
-            logger.error(f"Error updating live threat feed: {e}")
-            return html.P("Unable to load threats", className="text-muted text-center mb-0 py-3 small")
-
-    # ========================================================================
+    # (dead function bodies removed — W15 batch merge)
     # USER ROLE STORE ON PAGE LOAD
     # ========================================================================
 
@@ -2179,98 +2176,398 @@ def register(app):
         return {'role': 'viewer'}
 
     # ========================================================================
-    # AI THREAT PREDICTIONS
-    # ========================================================================
+
+    # -------------------------------------------------------------------------
+    # Traffic-light badge: updates the badge in the security-score card header
+    # -------------------------------------------------------------------------
+    @app.callback(
+        Output('traffic-light-badge', 'children'),
+        Output('traffic-light-badge', 'className'),
+        Input('security-score-interval', 'n_intervals'),
+        Input('dashboard-template-store', 'data'),
+    )
+    def update_traffic_light_badge(n, template_data):
+        from dashboard.shared import TEMPLATE_ALIASES
+        raw = template_data if isinstance(template_data, str) else 'advanced'
+        template = TEMPLATE_ALIASES.get(raw, raw)
+        if template != 'simple':
+            return '', 'badge ms-2 d-none'
+        try:
+            result = network_security_scorer.calculate_network_score()
+            score = result.get('overall_score', 0)
+            if score >= 80:
+                return '● SECURE', 'tl-secure ms-2'
+            elif score >= 50:
+                return '● CAUTION', 'tl-caution ms-2'
+            return '● ALERT', 'tl-alert ms-2'
+        except Exception:
+            return '● UNKNOWN', 'badge bg-secondary ms-2'
+
+    # ── AI Network Briefing + Proactive Insights ──────────────────────────────
+    _BRIEFING_TTL = 900  # regenerate after 15 minutes
 
     @app.callback(
-        Output('threat-forecast-content', 'children'),
-        [Input('refresh-interval', 'n_intervals')]
+        [Output('ai-briefing-content', 'children'),
+         Output('ai-briefing-timestamp', 'children'),
+         Output('ai-briefing-source-badge', 'children'),
+         Output('ai-briefing-source-badge', 'className'),
+         Output('ai-insights-content', 'children'),
+         Output('ai-briefing-cache', 'data')],
+        [Input('ws', 'message'),
+         Input('ai-briefing-refresh-btn', 'n_clicks')],
+        State('ai-briefing-cache', 'data'),
+        prevent_initial_call=False,
     )
-    def update_threat_forecast(n):
-        """AI-powered threat predictions based on historical patterns."""
+    def update_ai_briefing_and_insights(ws_message, refresh_clicks, cache):
+        from dash import callback_context as ctx
+        cache = cache or {}
+        is_manual_refresh = ctx.triggered_id == 'ai-briefing-refresh-btn'
+        age = time.time() - cache.get('ts', 0)
+
+        # Invalidate cache when open alert count changes (e.g. alert addressed/created)
+        live_alert_count = None
+        if isinstance(ws_message, dict):
+            live_alert_count = ws_message.get('alert_count')
+        if (live_alert_count is not None
+                and cache.get('alert_count') is not None
+                and live_alert_count != cache.get('alert_count')):
+            age = _BRIEFING_TTL  # force regeneration
+
+        # Return cached content if still fresh and not a manual refresh
+        if not is_manual_refresh and age < _BRIEFING_TTL and cache.get('briefing'):
+            ts_label = f"Updated {int(age // 60)} min ago"
+            source = cache.get('source', '')
+            src_cls = _source_badge_class(source)
+            src_label = _source_label(source)
+            # Keep alert_count current so next change is detected immediately
+            updated_cache = {**cache, 'alert_count': live_alert_count if live_alert_count is not None else cache.get('alert_count')}
+            return (
+                _render_briefing(cache['briefing']),
+                ts_label,
+                src_label, src_cls,
+                _render_insights(cache.get('insights', [])),
+                updated_cache,
+            )
+
+        # --- Gather live context ---
         try:
-            conn = get_db_connection()
+            devices = get_devices_with_status()
+            total = len(devices)
+            # Count devices seen in the last 24 h — same window as the security scorer
+            # (get_devices_with_status never sets status='offline' so it can't be used here)
+            _cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+            _row = db_manager.conn.cursor().execute(
+                "SELECT COUNT(*) FROM devices WHERE last_seen > ?", (_cutoff,)
+            ).fetchone()
+            online = _row[0] if _row else 0
+            alerted = [d for d in devices if d.get('status') == 'alert']
+        except Exception:
+            devices, total, online, alerted = [], 0, 0, []
 
-            cursor = conn.cursor()
+        try:
+            alerts = get_latest_alerts(limit=10)
+            crit = sum(1 for a in alerts if a.get('severity') == 'critical')
+            high = sum(1 for a in alerts if a.get('severity') == 'high')
+            med  = sum(1 for a in alerts if a.get('severity') == 'medium')
+        except Exception:
+            alerts, crit, high, med = [], 0, 0, 0
 
-            # Analyze alert patterns from last 7 days
-            cursor.execute('''
-                SELECT
-                    DATE(timestamp) as date,
-                    severity,
-                    COUNT(*) as count
-                FROM alerts
-                WHERE timestamp >= datetime("now", "-7 days")
-                GROUP BY DATE(timestamp), severity
-                ORDER BY date DESC
-            ''')
-            patterns = cursor.fetchall()
+        try:
+            bw = get_bandwidth_stats()
+            bw_summary = bw.get('summary', 'normal')
+        except Exception:
+            bw_summary = 'unavailable'
 
-            # Get most common attack types
-            cursor.execute('''
-                SELECT explanation, COUNT(*) as frequency
-                FROM alerts
-                WHERE timestamp >= datetime("now", "-7 days")
-                GROUP BY explanation
-                ORDER BY frequency DESC
-                LIMIT 3
-            ''')
-            common_attacks = cursor.fetchall()
+        # New devices in last 48h
+        try:
+            cur = db_manager.conn.cursor()
+            cur.execute(
+                "SELECT device_ip, custom_name, device_name FROM devices "
+                "WHERE first_seen >= datetime('now','-48 hours') ORDER BY first_seen DESC LIMIT 3"
+            )
+            new_devices = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            new_devices = []
+
+        # Anomalous devices (today traffic vs baseline)
+        try:
+            cur.execute(
+                """SELECT d.device_ip, COALESCE(d.custom_name, d.device_name, d.device_ip) AS name,
+                          b.metric_value AS baseline_val,
+                          COALESCE(c.bytes_sent, 0) AS today_bytes
+                   FROM devices d
+                   JOIN device_behavior_baselines b ON d.device_ip = b.device_ip
+                        AND b.metric_name = 'bytes_sent_per_connection'
+                   LEFT JOIN (
+                       SELECT device_ip, SUM(bytes_sent) AS bytes_sent
+                       FROM connections WHERE timestamp >= date('now') GROUP BY device_ip
+                   ) c ON d.device_ip = c.device_ip
+                   WHERE b.metric_value > 0
+                     AND COALESCE(c.bytes_sent, 0) > b.metric_value * 2.5
+                   LIMIT 2"""
+            )
+            anomalous = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            anomalous = []
+
+        # --- Build single AI call for both briefing + insights ---
+        alert_summary = ""
+        if alerts:
+            top = next((a for a in alerts if not a.get('acknowledged')), None)
+            if top:
+                alert_summary = (
+                    f"Most recent: {top.get('plain_explanation') or top.get('explanation','')[:80]} "
+                    f"({top.get('device_name') or top.get('device_ip','?')}, {top.get('severity','')})"
+                )
+
+        insight_facts = []
+        if new_devices:
+            names = ", ".join(d.get('name') or d.get('device_ip', '?') for d in new_devices[:2])
+            insight_facts.append(f"New device(s) joined in the last 48h: {names}")
+        if anomalous:
+            for a in anomalous[:1]:
+                insight_facts.append(
+                    f"{a['name']} is sending {int(a['today_bytes'] / max(a['baseline_val'], 1)):.0f}× "
+                    "more data than its normal baseline today"
+                )
+        if crit + high == 0 and not new_devices:
+            insight_facts.append("No critical or high alerts in the last 24 hours")
+
+        facts_str = "\n".join(f"- {f}" for f in insight_facts) if insight_facts else "- No unusual activity detected"
+
+        prompt = (
+            f"You are the IoTSentinel AI. Write a response in exactly this format.\n"
+            f"Use plain sentences. No em dashes, no markdown bold, no bullet points.\n\n"
+            f"BRIEFING: [2-3 sentences, plain English, friendly, specific. Start with overall status. "
+            f"Mention the most important thing. Avoid jargon.]\n\n"
+            f"INSIGHT_1: [One sentence about the first fact below, friendly and specific]\n"
+            f"INSIGHT_2: [One sentence about the second fact, or 'Your network looks healthy today.' if no fact]\n\n"
+            f"Network state: {total} devices ({online} active), "
+            f"{len(alerts)} alerts (critical={crit}, high={high}, medium={med}). "
+            f"{alert_summary}\nBandwidth: {bw_summary}\n"
+            f"Key facts:\n{facts_str}"
+        )
+
+        # Only call the LLM on an explicit manual refresh. Auto (WS) triggers use
+        # the rules template so the card populates instantly without an HTTP round-trip.
+        # The refresh button upgrades to LLM quality and caches the result for 15 min.
+        if is_manual_refresh:
+            try:
+                raw, source = ai_assistant.get_response(
+                    prompt=prompt, max_tokens=220, temperature=0.5, prefer_local=False
+                )
+            except Exception:
+                raw, source = "", "rules"
+        else:
+            raw, source = "", "rules"
+
+        def _clean_overview(text):
+            return (text or '').replace('—', '-').replace('–', '-').replace('**', '')
+
+        # Parse BRIEFING / INSIGHT_N sections from response
+        briefing_text = ""
+        insight_texts = []
+        if raw:
+            for line in raw.splitlines():
+                if line.startswith("BRIEFING:"):
+                    briefing_text = _clean_overview(line[len("BRIEFING:"):].strip())
+                elif line.startswith("INSIGHT_1:"):
+                    insight_texts.append(_clean_overview(line[len("INSIGHT_1:"):].strip()))
+                elif line.startswith("INSIGHT_2:"):
+                    insight_texts.append(_clean_overview(line[len("INSIGHT_2:"):].strip()))
+
+        # Fallback to rule-based if parsing failed
+        if not briefing_text:
+            if crit + high > 0:
+                briefing_text = (
+                    f"Your network has {len(alerts)} open alert(s): "
+                    f"{crit} critical and {high} high severity. "
+                    "Check the Alerts tab for details and recommended actions."
+                )
+            else:
+                briefing_text = (
+                    f"Your network looks healthy. {online} of {total} device(s) are active "
+                    f"and there are no critical alerts right now."
+                )
+            source = "rules"
+
+        if not insight_texts:
+            insight_texts = [f[2:] for f in insight_facts[:2]] or ["No unusual activity detected."]
+
+        new_cache = {'briefing': briefing_text, 'insights': insight_texts, 'source': source, 'ts': time.time(),
+                     'alert_count': live_alert_count}
+        src_label = _source_label(source)
+        src_cls = _source_badge_class(source)
+
+        return (
+            _render_briefing(briefing_text),
+            "Just now",
+            src_label, src_cls,
+            _render_insights(insight_texts),
+            new_cache,
+        )
+
+    # ── Report-sent in-app notification ──────────────────────────────────────
+    # The report scheduler writes `last_report_sent` to settings after each
+    # successful send.  This callback detects a new stamp and shows a toast
+    # so the user knows without checking email.
+    @app.callback(
+        Output('toast-container', 'children', allow_duplicate=True),
+        Input('refresh-interval', 'n_intervals'),
+        State('ai-briefing-cache', 'data'),  # harmless state — just ensures unique signature
+        prevent_initial_call=True,
+    )
+    def notify_report_sent(_n, _cache):
+        import json as _j, time as _t
+        try:
+            raw = db_manager.get_setting('last_report_sent', '')
+            if not raw:
+                raise dash.exceptions.PreventUpdate
+            data = _j.loads(raw)
+            ts = int(data.get('ts', 0))
+            # Only show toast once — within the 60-second refresh window
+            if _t.time() - ts > 90:
+                raise dash.exceptions.PreventUpdate
+            report_type = data.get('type', 'report').title()
+            channels = data.get('channels', 0)
+            ch_text = f"Sent to {channels} channel{'s' if channels != 1 else ''}." if channels else ""
+            return ToastManager.success(
+                message=f"{ch_text} Check your email for the full report.",
+                header=f"{report_type} Security Report Ready",
+                duration=6000,
+            )
+        except dash.exceptions.PreventUpdate:
+            raise
+        except Exception:
+            raise dash.exceptions.PreventUpdate
+
+    # Register the weekly story callback
+    _register_weekly_story(app)
 
 
-            # Simple prediction logic based on trends
-            predictions = []
+def _prose_variant(text: str) -> str:
+    """Infer severity accent from text keywords — mirrors app severity language.
 
-            if patterns:
-                # Check if alerts are increasing
-                recent_count = sum(p['count'] for p in patterns[:2])  # Last 2 days
-                older_count = sum(p['count'] for p in patterns[2:4])  # Days 3-4
+    Success/negation patterns run first so 'no critical alerts' stays green,
+    not red — the 'critical' substring must not hijack negated phrases.
+    """
+    t = text.lower()
+    # Check negations / good-health phrases first
+    if any(w in t for w in ('healthy', 'all clear', 'no critical', 'no alert', 'no high',
+                             'looks good', 'protected', 'quiet', 'normal', 'safe',
+                             'resolved', 'handled', 'looks healthy')):
+        return 'success'
+    if any(w in t for w in ('critical', 'blocked', 'attack', 'breach', 'malware', 'intrusion')):
+        return 'danger'
+    if any(w in t for w in ('high', 'warning', 'anomal', 'unusual', 'spike', 'suspicious',
+                             'sending', '×', 'more data', 'new device', 'joined')):
+        return 'warning'
+    return 'info'
 
-                if recent_count > older_count * 1.5:
-                    predictions.append(html.Div([
-                        html.I(className="fa fa-arrow-up text-danger me-2"),
-                        html.Strong("Rising Threat Level", className="text-danger"),
-                        html.P("Alert frequency increased 50% - expect continued attacks",
-                               className="mb-0 mt-1 small text-muted")
-                    ], className="mb-3"))
 
-            # Predict likely attack types
-            if common_attacks:
-                top_attack = common_attacks[0]
-                predictions.append(html.Div([
-                    html.I(className="fa fa-crosshairs text-warning me-2"),
-                    html.Strong("Likely Attack Vector", className="text-warning"),
-                    html.P(f"High probability: {top_attack['explanation'][:50]}...",
-                           className="mb-0 mt-1 small text-muted")
-                ], className="mb-3"))
+def _render_prose(text, variant='auto'):
+    """Split AI text into paragraphs and render each as a severity-coloured prose line."""
+    from dash import html
+    lines = [p.strip() for p in (text or '').split('\n\n') if p.strip()]
+    if not lines:
+        lines = [text or '']
+    items = []
+    for line in lines:
+        v = _prose_variant(line) if variant == 'auto' else variant
+        items.append(html.Div(line, className=f"ai-prose-line ai-prose-line--{v}"))
+    return html.Div(items, className="mb-0")
 
-            # Time-based prediction
-            from datetime import datetime
-            hour = datetime.now().hour
-            if 0 <= hour < 6:
-                predictions.append(html.Div([
-                    html.I(className="fa fa-moon text-info me-2"),
-                    html.Strong("Off-Hours Activity", className="text-info"),
-                    html.P("Unusual activity during night hours may indicate automated attacks",
-                           className="mb-0 mt-1 small text-muted")
-                ], className="mb-3"))
 
-            if not predictions:
-                return html.Div([
-                    html.I(className="fa fa-shield-alt text-success me-2"),
-                    html.P("No immediate threats predicted", className="mb-0 small")
-                ], className="text-center py-3")
+def _render_briefing(text):
+    return _render_prose(text, variant='auto')
 
-            return html.Div([
-                html.H6([html.I(className="fa fa-crystal-ball me-2"), "Next 24h Forecast"],
-                        className="mb-3 text-muted", style={"fontSize": "0.85rem"}),
-                *predictions,
-                html.Small([
-                    html.I(className="fa fa-info-circle me-1"),
-                    "Based on 7-day pattern analysis"
-                ], className="text-muted")
-            ])
 
-        except Exception as e:
-            logger.error(f"Error generating threat forecast: {e}")
-            return html.P("Forecast unavailable", className="text-muted small")
+def _render_insights(insights):
+    from dash import html
+    items = []
+    for text in (insights or [])[:3]:
+        items.append(html.Div(text, className=f"ai-prose-line ai-prose-line--{_prose_variant(text)}"))
+    return html.Div(items) if items else html.Span("All clear.", className="text-muted small")
+
+
+# ---------------------------------------------------------------------------
+# Weekly story helpers (used by the callback registered inside register())
+# ---------------------------------------------------------------------------
+
+_STORY_TTL = 6 * 60 * 60  # 6 hours — refresh once or on manual click
+
+
+def _register_weekly_story(app):
+    """Register the 'This Week on Your Network' callback."""
+    import time as _time
+    from dash import (Input, Output, State, html, callback_context as _ctx, no_update)
+    import dash_bootstrap_components as dbc
+    from utils.weekly_story import build_facts, generate_story
+    from dashboard.shared import db_manager as _db, ai_assistant as _ai
+    from utils.alert_explainer import source_label as _sl, source_badge_class as _sbc
+
+    _story_logger = logging.getLogger(__name__)
+
+    @app.callback(
+        [Output('weekly-story-content', 'children'),
+         Output('weekly-story-timestamp', 'children'),
+         Output('weekly-story-source-badge', 'children'),
+         Output('weekly-story-source-badge', 'className'),
+         Output('weekly-story-cache', 'data'),
+         Output('toast-container', 'children', allow_duplicate=True)],
+        [Input('weekly-story-refresh-btn', 'n_clicks'),
+         Input('security-score-interval', 'n_intervals')],
+        State('weekly-story-cache', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_weekly_story(refresh_n, _interval, cache):
+        cache = cache or {}
+        age = _time.time() - float(cache.get('ts', 0))
+        is_manual = (
+            _ctx.triggered_id == 'weekly-story-refresh-btn'
+            if _ctx.triggered else False
+        )
+
+        # Return cached if still fresh and not a manual refresh
+        if not is_manual and age < _STORY_TTL and cache.get('story'):
+            hrs = int(age // 3600)
+            mins = int((age % 3600) // 60)
+            ts_label = f"Updated {hrs}h {mins}m ago" if hrs else f"Updated {mins}m ago"
+            src = cache.get('source', '')
+            return (
+                _render_prose(cache['story'], variant='auto'),
+                ts_label,
+                _sl(src),
+                _sbc(src),
+                cache,
+                no_update,
+            )
+
+        # Generate fresh story
+        try:
+            facts = build_facts(_db)
+            story, source = generate_story(facts, _ai)
+        except Exception as exc:
+            _story_logger.warning(f"[weekly_story] generation failed: {exc}")
+            story = "Your network is being monitored. Check back soon for your weekly summary."
+            source = 'rules'
+
+        new_cache = {'story': story, 'source': source, 'ts': _time.time()}
+        src_cls = _sbc(source)
+
+        toast = no_update
+        if is_manual:
+            toast = ToastManager.success(
+                message=f"Weekly story generated by {_sl(source)}.",
+                header="This Week on Your Network",
+                duration=3000,
+            )
+
+        return (
+            _render_prose(story, variant='auto'),
+            "Just now",
+            _sl(source),
+            src_cls,
+            new_cache,
+            toast,
+        )

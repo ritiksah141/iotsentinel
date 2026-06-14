@@ -11,9 +11,10 @@ Central service managing the complete alert lifecycle:
 This is the main entry point for alert management in the system.
 """
 
+import json
 import logging
 import hashlib
-import json
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, asdict
@@ -58,11 +59,26 @@ class Alert:
         """
         Generate a unique fingerprint for deduplication.
 
-        Alerts with the same device, severity, and similar explanation
-        within a time window are considered duplicates.
+        Alerts with the same device, severity, attack type, and similar
+        explanation within a time window are considered duplicates.
+
+        Every River explanation starts with the same long preamble, so a
+        short prefix slice would collide across distinct attack types; and
+        embedded anomaly scores (0.83 vs 0.84) would stop true repeats from
+        matching. The fingerprint therefore includes the predicted attack
+        type and a score-stripped, whitespace-normalized slice instead.
         """
-        content = f"{self.device_ip}:{self.severity}:{self.explanation[:50]}"
-        return hashlib.md5(content.encode()).hexdigest()
+        attack = ""
+        if self.top_features:
+            try:
+                attack = json.loads(self.top_features).get("predicted_attack", "") or ""
+            except Exception:
+                pass
+        norm = re.sub(r"\d+\.\d+", "", (self.explanation or "").lower())
+        norm = re.sub(r"\s+", " ", norm)[:160]
+        norm_hash = hashlib.md5(norm.encode(), usedforsecurity=False).hexdigest()
+        content = f"{self.device_ip}:{self.severity}:{attack}:{norm_hash}"
+        return hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
 
 
 class RateLimiter:

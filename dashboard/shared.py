@@ -16,38 +16,22 @@ have app.py import services from shared.py instead.
 import eventlet
 eventlet.monkey_patch()
 
-import base64
 import json
 import logging
 import sqlite3
-import math
 import time
-import threading
-import subprocess
-import smtplib
-import random
-import psutil
-import re
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
-import requests
 import os
-import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import sys
 from dotenv import load_dotenv
 
-import dash
+from dash import (dcc, html, Input, State)
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
 import dash_cytoscape as cyto
-from dash_extensions import WebSocket
-from flask_socketio import SocketIO
 
 # Setup paths
 project_root = Path(__file__).parent.parent
@@ -55,9 +39,9 @@ sys.path.insert(0, str(project_root))
 
 from config.config_manager import config
 from database.db_manager import DatabaseManager
+
+VERSION: str = config.get("system", "version", default="1.0.0")
 from utils.threat_intel import ThreatIntelligence
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask import request, redirect, session as flask_session, jsonify, send_file
 from utils.auth import AuthManager, User
 from utils.rate_limiter import LoginRateLimiter, RateLimiter
 from utils.audit_logger import (
@@ -86,10 +70,9 @@ from utils.iot_features import (
 
 # Import sustainability and lifecycle features
 from utils.sustainability_calculator import get_sustainability_calculator
-from utils.hardware_lifecycle import HardwareLifecycleManager
 
 # Import enhanced toast management system
-from utils.toast_manager import ToastManager, TOAST_POSITION_STYLE, TOAST_DURATIONS
+from utils.toast_manager import ToastManager, TOAST_DURATIONS
 
 # Import chart factory for centralized chart generation
 from utils.chart_factory import ChartFactory, SEVERITY_COLORS, RISK_COLORS
@@ -119,6 +102,8 @@ from alerts.report_scheduler import ReportScheduler
 from alerts.alert_service import AlertService
 from alerts.notification_dispatcher import NotificationDispatcher
 from alerts.email_notifier import EmailNotifier
+from alerts.push_notifiers import NtfyNotifier, TelegramNotifier, DiscordNotifier, WebhookNotifier
+from alerts.integration_hub_adapter import IntegrationHubNotifier
 
 # Import AI-Powered Intelligence components
 from utils.ai_assistant import HybridAIAssistant
@@ -181,14 +166,7 @@ alerts_handler = logging.FileHandler(os.path.join(log_dir, 'alerts.log'))
 alerts_handler.setFormatter(log_formatter)
 alerts_logger.addHandler(alerts_handler)
 
-# 5. Hardware logger (GPIO, LED, physical monitoring)
-hardware_logger = logging.getLogger('hardware')
-hardware_logger.setLevel(logging.INFO)
-hardware_handler = logging.FileHandler(os.path.join(log_dir, 'hardware.log'))
-hardware_handler.setFormatter(log_formatter)
-hardware_logger.addHandler(hardware_handler)
-
-# 6. Database logger (DB operations, maintenance, queries)
+# 5. Database logger (DB operations, maintenance, queries)
 db_logger = logging.getLogger('database')
 db_logger.setLevel(logging.INFO)
 db_handler = logging.FileHandler(os.path.join(log_dir, 'database.log'))
@@ -216,7 +194,7 @@ logger.info("=" * 70)
 logger.info("IoTSentinel Logging System Initialized")
 logger.info(f"Log Directory: {os.path.abspath(log_dir)}")
 logger.info("Active Logs: iotsentinel.log, audit.log, ml.log, alerts.log,")
-logger.info("             hardware.log, database.log, error.log, api.log")
+logger.info("             database.log, error.log, api.log")
 logger.info("=" * 70)
 
 # Import atexit for cleanup handlers
@@ -233,6 +211,12 @@ db_manager = DatabaseManager(DB_PATH)
 # Initialize Audit Logger and Rate Limiter for security
 audit_logger = AuditLogger(db_manager)
 rate_limiter = RateLimiter(db_manager)
+
+# Sync AI chat daily caps from config into RateLimiter.LIMITS
+_ai_cap_household = config.get('ai_assistant', 'daily_cap_household', 20)
+_ai_cap_business = config.get('ai_assistant', 'daily_cap_business', 100)
+RateLimiter.LIMITS['ai_chat_household'] = (int(_ai_cap_household), 1440)
+RateLimiter.LIMITS['ai_chat_business'] = (int(_ai_cap_business), 1440)
 
 # Initialize Security Audit Logger for RBAC and compliance
 security_audit_logger = get_audit_logger(db_manager)
@@ -275,6 +259,17 @@ except Exception as e:
     report_builder = None
     template_manager = None
     report_queue = None
+
+# Initialize AI Assistant early — needed by ReportScheduler below.
+# Read privacy_mode from system_settings (set via the Admin toggle); default off.
+_ai_privacy_mode = False
+try:
+    _pm_raw = db_manager.get_setting('ai_privacy_mode', '0')
+    _ai_privacy_mode = str(_pm_raw).lower() in ('1', 'true', 'yes')
+except Exception:
+    pass
+
+ai_assistant = HybridAIAssistant.from_config(config, privacy_mode=_ai_privacy_mode)
 
 # Initialize Alert and Notification Services
 try:
@@ -329,20 +324,37 @@ try:
         logger.warning("Email notifications disabled in config")
         email_notifier = None
 
+    # 3b. Register push-notification handlers (ntfy, Telegram, Discord, webhook).
+    # Each handler self-gates via is_enabled(); register_handler() silently
+    # skips disabled ones, so this is always safe to run.
+    for _push_handler in [
+        NtfyNotifier(config),
+        TelegramNotifier(config),
+        DiscordNotifier(config),
+        WebhookNotifier(config),
+    ]:
+        notification_dispatcher.register_handler(_push_handler)
+
+    # 3c. Register Integration Hub channels (encrypted DB credentials).
+    # Fires Slack/Pushover/ntfy/etc. configured via the API Hub page on real alerts.
+    notification_dispatcher.register_handler(IntegrationHubNotifier(db_manager))
+
     # 4. Set dispatcher on AlertService
     alert_service.set_dispatcher(notification_dispatcher)
 
-    # 5. Initialize ReportScheduler with all services
+    # 5. Initialize ReportScheduler with all services (including AI for narrative digest)
     report_scheduler = ReportScheduler(
         db_manager=db_manager,
         alert_service=alert_service,
         notification_dispatcher=notification_dispatcher,
         db_path=DB_PATH,
-        email_notifier=email_notifier  # Pass email_notifier directly
+        email_notifier=email_notifier,
+        ai_assistant=ai_assistant,  # AI narrative digest
     )
 
-    # 6. Start the scheduler (schedules will be active)
-    report_scheduler.start()
+    # 6. Start the scheduler in a daemon thread so it doesn't block app startup
+    import threading as _threading
+    _threading.Thread(target=report_scheduler.start, daemon=True, name="ReportScheduler").start()
 
     # 7. Register shutdown handler for graceful cleanup
     def shutdown_scheduler():
@@ -373,6 +385,7 @@ auth_manager = AuthManager(db_manager=db_manager)
 
 # Rate limiting for login attempts (5 attempts, 5-minute lockout)
 login_rate_limiter = LoginRateLimiter(max_attempts=5, lockout_duration=300)
+login_ip_rate_limiter = LoginRateLimiter(max_attempts=10, lockout_duration=900)
 
 # Google OAuth handler (will be initialized after Flask app is configured)
 oauth_handler = None
@@ -425,8 +438,18 @@ threat_intel = ThreatIntelligence(
 # AI ASSISTANT CONFIGURATION (HybridAI with 3-tier fallback)
 # ============================================================================
 
-# Initialize AI Assistant with Groq → Ollama → Rules fallback
-ai_assistant = HybridAIAssistant()
+# Initialize Firewall Enforcer (local iptables or router SSH)
+try:
+    from utils.firewall_enforcer import firewall_enforcer, set_protected_ip_provider
+    logger.info(f"✓ Firewall Enforcer: {firewall_enforcer.backend_name}")
+    # Wire the self-lockout guard: the enforcer will never auto-block the admin's current IP
+    set_protected_ip_provider(lambda: db_manager.get_setting('protected_admin_ip'))
+    logger.info("✓ Firewall self-lockout guard: protected_admin_ip provider registered")
+except Exception as _fe_err:
+    logger.warning(f"FirewallEnforcer unavailable: {_fe_err}")
+    firewall_enforcer = None
+
+# ai_assistant already initialized above (before alert services)
 
 # Initialize ML components (no alerting_system for dashboard)
 inference_engine = InferenceEngine()  # Uses config for db_path internally
@@ -435,14 +458,22 @@ smart_recommender = SmartRecommender(inference_engine.db)
 # Initialize Traffic Forecaster (24h bandwidth predictions)
 traffic_forecaster = TrafficForecaster(db_manager=db_manager)
 traffic_forecaster.load_model()
-traffic_forecaster.train_on_historical_data(hours=168)  # Train on 7 days
+# Train on historical data in a daemon thread so import doesn't block app startup.
+# The model is None until training finishes, which is safe — callers fall back to no forecast.
+import threading as _threading
+_threading.Thread(
+    target=traffic_forecaster.train_on_historical_data,
+    kwargs={'hours': 168},
+    daemon=True,
+    name="TrafficForecasterTraining",
+).start()
 
 # Initialize Attack Sequence Tracker (pattern-based prediction)
 attack_tracker = AttackSequenceTracker(db_manager=db_manager)
 attack_tracker.load_sequences()
 
 # Initialize NL to SQL Generator (natural language database queries)
-nl_to_sql = NLtoSQLGenerator(db_manager=db_manager)
+nl_to_sql = NLtoSQLGenerator(db_manager=db_manager, ai_assistant=ai_assistant)
 
 # Log initialization status
 ai_stats = ai_assistant.get_stats()
@@ -460,51 +491,6 @@ logger.info(f"✓ NL to SQL Generator: {len(nl_to_sql.QUERY_TEMPLATES)} query te
 # AI FALLBACK RESPONSE FUNCTION
 # ============================================================================
 
-def get_rule_based_response(message: str, device_count: int, alert_count: int, recent_alerts: List[Dict]) -> str:
-    """
-    Basic fallback responses (backup for HybridAI).
-    Note: HybridAI already has intelligent rules fallback built-in.
-    """
-    user_msg_lower = message.lower()
-
-    # Security-related queries
-    if any(word in user_msg_lower for word in ['safe', 'secure', 'protected', 'risk']):
-        if alert_count == 0:
-            return f"✅ Your network appears secure! All {device_count} devices are behaving normally with no active alerts. Keep monitoring enabled for continuous protection."
-        else:
-            return f"⚠️ I've detected {alert_count} security alert(s) requiring attention. Click on any alert in the right panel to see detailed explanations and recommended actions."
-
-    # Device queries
-    elif any(word in user_msg_lower for word in ['device', 'connected', 'what is']):
-        return f"📱 You have {device_count} devices currently connected to your network. You can click on any device in the left panel to see detailed information, activity statistics, and trust settings."
-
-    # Alert explanation queries
-    elif any(word in user_msg_lower for word in ['alert', 'warning', 'unusual', 'detected']):
-        if alert_count > 0 and recent_alerts:
-            alert = recent_alerts[0]
-            return f"🚨 Most recent alert: {alert.get('explanation', 'Unknown activity')} on device {alert.get('device_name') or alert.get('device_ip', 'Unknown')}. Click the 'Details' button to see educational breakdown with baseline comparisons."
-        else:
-            return "✅ No active alerts! Your network has been quiet. IoTSentinel uses River ML (HalfSpaceTrees + HoeffdingAdaptive) for real-time incremental learning and anomaly detection."
-
-    # How-to queries
-    elif any(word in user_msg_lower for word in ['how', 'what does', 'explain']):
-        return "📚 IoTSentinel monitors your network using Zeek for traffic analysis and dual ML models for anomaly detection. When unusual activity is detected, you'll see color-coded alerts with plain English explanations and visual baseline comparisons showing 'Normal vs Today'."
-
-    # Lockdown mode queries
-    elif any(word in user_msg_lower for word in ['lockdown', 'block', 'emergency']):
-        return "🔐 Lockdown Mode is available in Settings → Firewall Control. When enabled, it blocks ALL untrusted devices from accessing your network. Mark important devices as 'Trusted' first by clicking on them and toggling the trust switch."
-
-    # Voice alerts
-    elif any(word in user_msg_lower for word in ['voice', 'speak', 'audio', 'sound']):
-        return "🔊 Voice Alerts can be enabled using the toggle in the header. When turned on, critical and high-severity alerts will be announced using text-to-speech, so you'll hear about security issues even if you're not watching the dashboard."
-
-    # General greeting
-    elif any(word in user_msg_lower for word in ['hello', 'hi', 'hey']):
-        return f"👋 Hello! I'm your IoTSentinel AI Assistant. Your network has {device_count} active devices and {alert_count} alert(s). How can I help you today?"
-
-    # Default response
-    else:
-        return f"I can help you understand your network security! Try asking about:\n\n• Current security status\n• Device information\n• Alert explanations\n• How IoTSentinel works\n• Lockdown mode\n• Voice alerts\n\nYour network: {device_count} devices, {alert_count} active alert(s)."
 
 
 # ============================================================================
@@ -640,26 +626,18 @@ DEVICE_TYPE_ICONS = {
     'other': {'emoji': '📱', 'fa': 'fa-microchip', 'color': '#6c757d'},
 }
 
+# Maps legacy tier names to canonical Simple/Advanced values (one-release back-compat)
+TEMPLATE_ALIASES = {
+    'home_user': 'simple',
+    'security_admin': 'advanced',
+    'developer': 'advanced',
+}
+
 # Dashboard Templates for Role-Based Views
 DASHBOARD_TEMPLATES = {
-    'security_admin': {
-        'name': 'Security Admin',
-        'description': 'Optimized for security professionals monitoring threats',
-        'visible_features': [
-            'analytics-card-btn', 'threat-card-btn', 'firewall-card-btn',
-            'threat-map-card-btn', 'forensic-timeline-card-btn', 'attack-surface-card-btn',
-            'auto-response-card-btn', 'vuln-scanner-card-btn', 'device-mgmt-card-btn',
-            'timeline-card-btn', 'system-card-btn'
-        ],
-        'widget_prefs': {
-            'metrics': True,
-            'features': True,
-            'rightPanel': True
-        }
-    },
-    'home_user': {
-        'name': 'Home User',
-        'description': 'Simplified view for non-technical home users',
+    'simple': {
+        'name': 'Simple',
+        'description': 'Focused on what matters — device status, privacy, and home security',
         'visible_features': [
             'device-mgmt-card-btn', 'privacy-card-btn', 'system-card-btn',
             'smarthome-card-btn', 'threat-map-card-btn', 'analytics-card-btn',
@@ -671,10 +649,10 @@ DASHBOARD_TEMPLATES = {
             'rightPanel': True
         }
     },
-    'developer': {
-        'name': 'Developer/Auditor',
-        'description': 'Full access to all features and advanced analytics',
-        'visible_features': 'all',  # Show everything
+    'advanced': {
+        'name': 'Advanced',
+        'description': 'Full security console — threat intelligence, forensics, and all tools',
+        'visible_features': 'all',
         'widget_prefs': {
             'metrics': True,
             'features': True,
@@ -683,8 +661,8 @@ DASHBOARD_TEMPLATES = {
     },
     'custom': {
         'name': 'Custom',
-        'description': 'User-defined custom layout',
-        'visible_features': 'custom',  # Use widget-preferences store
+        'description': 'Your own customized layout',
+        'visible_features': 'custom',
         'widget_prefs': {
             'metrics': True,
             'features': True,
@@ -693,157 +671,11 @@ DASHBOARD_TEMPLATES = {
     }
 }
 
-# Onboarding Steps
-ONBOARDING_STEPS = [
-    {
-        "title": "Welcome to IoTSentinel! 🛡️",
-        "body": html.Div([
-            html.P("This quick tour will guide you through the main features of your network security dashboard."),
-            html.P("IoTSentinel monitors your home network and uses machine learning to detect unusual activity."),
-            html.Hr(),
-            html.H6("What makes IoTSentinel different?"),
-            html.Ul([
-                html.Li("🎓 Educational explanations - understand WHY alerts happen"),
-                html.Li("📊 Visual baselines - see what's normal vs unusual"),
-                html.Li("🔍 Real-time monitoring - powered by Zeek on Raspberry Pi 5"),
-                html.Li("🤖 River ML framework - Incremental learning (HalfSpaceTrees, HoeffdingAdaptive, SNARIMAX)")
-            ]),
-            html.P("Use the 'Next' and 'Previous' buttons to navigate.", className="text-muted small")
-        ])
-    },
-    {
-        "title": "Understanding Device Status 🚦",
-        "body": html.Div([
-            html.P("Each device on your network has a color-coded status indicator:"),
-            html.Div([
-                html.Div([
-                    html.Span("●", style={'color': '#28a745', 'fontSize': '1.5rem', 'marginRight': '10px'}),
-                    html.Strong("Green (Normal): "),
-                    html.Span("Device is behaving normally - no concerns")
-                ], className="mb-2"),
-                html.Div([
-                    html.Span("●", style={'color': '#ffc107', 'fontSize': '1.5rem', 'marginRight': '10px'}),
-                    html.Strong("Yellow (Warning): "),
-                    html.Span("Minor unusual activity detected - worth checking")
-                ], className="mb-2"),
-                html.Div([
-                    html.Span("●", style={'color': '#dc3545', 'fontSize': '1.5rem', 'marginRight': '10px'}),
-                    html.Strong("Red (Alert): "),
-                    html.Span("Significant security alerts - review recommended immediately")
-                ], className="mb-2")
-            ], className="p-3 border rounded"),
-            html.Hr(),
-            html.P("💡 Tip: Click on any device to see detailed information and set trust levels.", className="text-info")
-        ])
-    },
-    {
-        "title": "The Alerts System 🚨",
-        "body": html.Div([
-            html.P("When IoTSentinel detects unusual activity, it creates an alert with detailed context."),
-            html.H6("Click on any alert to see:", className="mt-3"),
-            html.Ul([
-                html.Li("📊 What was detected (in plain English)"),
-                html.Li("📈 Visual charts comparing to normal behavior"),
-                html.Li("🔍 Why it's unusual (with 7-day baseline)"),
-                html.Li("🛡️ Recommended actions you can take"),
-                html.Li("🔬 Technical details (MITRE ATT&CK mapping)")
-            ]),
-            html.Hr(),
-            html.Div([
-                html.Strong("Educational Transparency: "),
-                html.P("Unlike commercial products, IoTSentinel explains the 'why' behind every alert.", className="mb-0")
-            ], className="alert alert-info")
-        ])
-    },
-    {
-        "title": "Trust Management & Lockdown Mode 🔐",
-        "body": html.Div([
-            html.H6("Trust Management"),
-            html.P("Mark devices as 'Trusted' to reduce false positives and customize monitoring:"),
-            html.Ul([
-                html.Li("Click on a device → Toggle 'Trusted' switch"),
-                html.Li("Trusted devices get different alert thresholds"),
-                html.Li("Useful for known-safe IoT devices like printers")
-            ]),
-            html.Hr(),
-            html.H6("Lockdown Mode"),
-            html.P("Emergency security mode that blocks all untrusted devices:"),
-            html.Ul([
-                html.Li("Toggle the switch in Settings → Firewall Control"),
-                html.Li("Only trusted devices can access the network"),
-                html.Li("Useful during suspected security incidents")
-            ]),
-            html.Div([
-                html.I(className="fa fa-exclamation-triangle me-2"),
-                html.Strong("Warning: "),
-                html.Span("Lockdown mode can disrupt normal network activity!")
-            ], className="alert alert-warning")
-        ])
-    },
-    {
-        "title": "Initial Setup: River ML Training 📚",
-        "body": html.Div([
-            html.P("IoTSentinel uses River ML for continuous, incremental learning, adapting to your network's normal behavior in real-time."),
-            html.H6("How River ML learns:", className="mt-3"),
-            html.Ol([
-                html.Li("Start IoTSentinel: The system immediately begins learning and monitoring."),
-                html.Li("Continuous Adaptation: Models like HalfSpaceTrees and HoeffdingAdaptive constantly update as your network evolves."),
-                html.Li("Initial Learning Phase: Anomaly detection quality improves significantly within the first 24-48 hours of continuous operation."),
-                html.Li("No Manual Baseline: No specific 'baseline collection script' is needed; learning is automatic and ongoing.")
-            ]),
-            html.Hr(),
-            html.Div([
-                html.H6("What to expect:"),
-                html.Ul([
-                    html.Li("✅ Network monitoring is active from the start"),
-                    html.Li("✅ Device discovery works continuously"),
-                    html.Li("⚠️ Anomaly detection improves rapidly with initial data"),
-                    html.Li("📊 Detailed trend analytics become richer over time")
-                ])
-            ], className="alert alert-info")
-        ])
-    },
-    {
-        "title": "You're All Set! 🎉",
-        "body": html.Div([
-            html.H5("Dashboard Overview:", className="text-cyber"),
-            html.Ul([
-                html.Li("📱 Left Panel: Connected devices overview"),
-                html.Li("🌐 Center Panel: Real-time network traffic visualization"),
-                html.Li("🚨 Right Panel: Security alerts with educational insights"),
-                html.Li("📊 Analytics: Expandable section with detailed metrics")
-            ]),
-            html.Hr(),
-            html.H6("Keyboard Shortcuts:", className="mt-3"),
-            html.Div([
-                html.H6("Navigation:", className="small text-muted mt-2"),
-                html.Ul([
-                    html.Li([html.Kbd("N"), " - Toggle notification drawer"]),
-                    html.Li([html.Kbd("D"), " - Jump to devices section"]),
-                    html.Li([html.Kbd("A"), " - Jump to alerts section"])
-                ], className="mb-2"),
-                html.H6("Quick Actions:", className="small text-muted mt-2"),
-                html.Ul([
-                    html.Li([html.Kbd("P"), " - Open preferences"]),
-                    html.Li([html.Kbd("C"), " - Open AI chat assistant"]),
-                    html.Li([html.Kbd("S"), " - Open system info"]),
-                    html.Li([html.Kbd("F"), " - Open firewall settings"]),
-                    html.Li([html.Kbd("U"), " - Open user management"]),
-                    html.Li([html.Kbd("T"), " - Open timeline"]),
-                    html.Li([html.Kbd("H"), " or ", html.Kbd("?"), " - Restart tour/help"]),
-                    html.Li([html.Kbd("Esc"), " - Close any open modal"])
-                ])
-            ]),
-            html.Hr(),
-            html.Div([
-                html.H6("Need Help?"),
-                html.P("Click the 🤖 robot icon in the header to open the AI assistant.", className="mb-0")
-            ], className="alert alert-success"),
-            html.P("You can always restart this tour from Settings. Happy monitoring! 🛡️",
-                   className="text-center text-muted mt-3")
-        ])
-    }
-]
+# Onboarding steps were moved to dashboard/assets/tour.js (driver.js interactive tour).
+# The prose-modal onboarding was replaced by an element-highlighting tour in Phase 6.
+_ONBOARDING_STEPS_REMOVED = True  # sentinel so imports of this name fail loudly
+
+ONBOARDING_STEPS = []  # kept as empty list so any accidental import doesn't crash
 
 # Feature Card Categorization for Enhanced Masonry Layout
 FEATURE_CATEGORIES = {
@@ -914,29 +746,6 @@ def format_timestamp_relative(timestamp_str):
         return "Unknown"
 
 
-def generate_csv_content(headers, rows, filename_prefix="export"):
-    """Generate CSV content from headers and rows for download"""
-    try:
-        import csv
-        from io import StringIO
-
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow(headers)
-        for row in rows:
-            writer.writerow(row)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{filename_prefix}_{timestamp}.csv"
-
-        return {
-            'content': output.getvalue(),
-            'filename': filename,
-            'type': 'text/csv'
-        }
-    except Exception as e:
-        logger.error(f"Error generating CSV: {e}")
-        return None
 
 
 def create_timestamp_display(timestamp=None):
@@ -1060,19 +869,6 @@ def get_devices_with_status() -> List[Dict]:
         return []
 
 
-def load_model_comparison_data():
-    report_path = project_root / 'comparison_report.json'
-    image_path = project_root / 'model_comparison_visualization.png'
-    report_data, encoded_image = {}, None
-    if report_path.exists():
-        with open(report_path, 'r', encoding='utf-8') as f:
-            report_data = json.load(f)
-    if image_path.exists():
-        with open(image_path, 'rb') as f:
-            encoded_image = base64.b64encode(f.read()).decode()
-    return report_data, encoded_image
-
-
 def get_latest_alerts(limit=10):
     """Get recent alerts without caching"""
     conn = get_db_connection()
@@ -1091,8 +887,16 @@ def get_latest_alerts(limit=10):
         return []
 
 
+_bw_cache: dict = {'value': None, 'ts': 0.0}
+_BW_CACHE_TTL = 30  # seconds
+
+
 def get_bandwidth_stats():
-    """Get bandwidth statistics"""
+    """Get bandwidth statistics (cached for 30 s to avoid hammering SQLite)."""
+    import time as _time
+    now = _time.time()
+    if _bw_cache['value'] is not None and now - _bw_cache['ts'] < _BW_CACHE_TTL:
+        return _bw_cache['value']
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1101,9 +905,13 @@ def get_bandwidth_stats():
         total = row['total'] or 0
         for unit in ['B', 'KB', 'MB', 'GB']:
             if total < 1024:
-                return {'total': total, 'formatted': f"{total:.1f} {unit}"}
+                result = {'total': total, 'formatted': f"{total:.1f} {unit}"}
+                _bw_cache.update({'value': result, 'ts': now})
+                return result
             total /= 1024
-        return {'total': total * 1024**4, 'formatted': f"{total:.1f} TB"}
+        result = {'total': total * 1024**4, 'formatted': f"{total:.1f} TB"}
+        _bw_cache.update({'value': result, 'ts': now})
+        return result
     except Exception as e:
         logger.error(f"Error fetching bandwidth: {e}")
         return {'total': 0, 'formatted': '0 B'}
@@ -1143,8 +951,44 @@ def get_device_status(device_ip, hours=24):
 
 
 def get_device_baseline(device_ip):
-    """Get device baseline (placeholder)"""
-    return None
+    """
+    Read learned behavioral baselines for a device from the
+    device_behavior_baselines table.
+
+    Returns a dict with keys the baseline charts expect, or None when no
+    baseline rows exist (e.g. fresh install / insufficient connection history).
+    The baseline-learning thread in orchestrator.py populates the table every
+    8 hours once a device has ≥100 connections.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT metric_name, baseline_value
+            FROM device_behavior_baselines
+            WHERE device_ip = ?
+        """, (device_ip,))
+        rows = cursor.fetchall()
+        if not rows:
+            return None
+
+        # Map stored metric names → keys expected by create_baseline_comparison_chart
+        metric_map = {
+            'hourly_connections':           'avg_connections',
+            'bytes_sent_per_connection':    'avg_bytes_sent',
+            'bytes_received_per_connection':'avg_bytes_received',
+            'unique_destinations_per_hour': 'avg_unique_destinations',
+            'connection_duration_seconds':  'avg_connection_duration',
+        }
+        baseline = {'has_baseline': True}
+        for row in rows:
+            key = metric_map.get(row['metric_name'])
+            if key:
+                baseline[key] = row['baseline_value']
+        return baseline
+    except Exception as e:
+        logger.error(f"Error reading device baseline for {device_ip}: {e}")
+        return None
 
 
 def get_latest_alerts_content():
@@ -1152,7 +996,7 @@ def get_latest_alerts_content():
     recent_alerts_raw = get_latest_alerts(limit=10)
 
     if not recent_alerts_raw:
-        return [dbc.Alert("No new alerts.", color="info")]
+        return [dbc.Alert([html.I(className="fa fa-bell-slash me-2"), "No new alerts."], color="info")]
     else:
         drawer_content = []
         for alert in recent_alerts_raw:
@@ -1285,7 +1129,7 @@ def create_threat_intel_badge(reputation_data: Dict[str, Any]) -> html.Div:
     children = []
     children.append(
         html.Div([
-            html.Span(config_data['emoji'], style={'fontSize': '1.5rem', 'marginRight': '10px'}),
+            html.Span(config_data['emoji']),
             html.Strong(f"Threat Intelligence: {config_data['text']}", className="me-2"),
             dbc.Badge(f"Score: {score}/100", color=config_data['color'], className="ms-2")
         ], className="d-flex align-items-center mb-3")
@@ -1335,39 +1179,6 @@ def create_device_skeleton(count: int = 8) -> html.Div:
     return html.Div(skeletons, className="skeleton-container")
 
 
-def create_alert_skeleton(count: int = 5) -> html.Div:
-    """Create skeleton placeholders for alert cards"""
-    skeletons = []
-    for _ in range(count):
-        skeletons.append(
-            html.Div([
-                html.Div([
-                    html.Div(className="skeleton skeleton-alert-icon"),
-                    html.Div(className="skeleton skeleton-alert-title")
-                ], className="skeleton-alert-header"),
-                html.Div(className="skeleton skeleton-alert-description"),
-                html.Div(className="skeleton skeleton-alert-description", style={'width': '60%'}),
-                html.Div(className="skeleton skeleton-alert-metadata")
-            ], className="skeleton-alert-card")
-        )
-    return html.Div(skeletons, className="skeleton-container")
-
-
-def create_graph_skeleton() -> html.Div:
-    """Create skeleton placeholder for network graph"""
-    return html.Div([
-        html.Div([html.Div(className="skeleton skeleton-graph-inner")], className="skeleton-graph"),
-        html.P("Loading network visualization...", className="skeleton-loading-text")
-    ], className="skeleton-container")
-
-
-def create_stat_skeleton() -> html.Div:
-    """Create skeleton placeholder for stat card"""
-    return html.Div([
-        html.Div(className="skeleton skeleton-stat-icon"),
-        html.Div(className="skeleton skeleton-stat-number"),
-        html.Div(className="skeleton skeleton-stat-label")
-    ], className="skeleton-stat-card")
 
 
 def create_device_list_skeleton(count: int = 10) -> html.Div:
@@ -1475,9 +1286,9 @@ def create_educational_explanation(alert: Dict) -> html.Div:
         sections.append(
             dbc.Card([
                 dbc.CardHeader([
-                    html.I(className="fa fa-microscope me-2"),
+                    html.I(className="fa fa-microscope me-2 text-info"),
                     html.Strong("🔬 How IoTSentinel Detected This")
-                ], className="bg-primary text-white"),
+                ], className="glass-card-header"),
                 dbc.CardBody([
                     html.H6("Detection Methodology:", className="mb-3"),
                     html.Ol([
@@ -1501,16 +1312,16 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                                     html.Span(f"{alert.get('anomaly_score', 0):.3f}", className="text-danger fw-bold"),
                                     " (threshold: 0.350)",
                                     html.Span([
-                                        html.I(className="fa fa-question-circle ms-2 text-muted",
-                                               id="anomaly-score-help", style={"cursor": "pointer"})
+                                        html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                                               id="anomaly-score-help")
                                     ])
                                 ]),
                                 html.Li([
                                     html.Strong("Detection Models: "),
                                     alert.get('model_types', 'Dual ML Models'),
                                     html.Span([
-                                        html.I(className="fa fa-question-circle ms-2 text-muted",
-                                               id="ml-models-help", style={"cursor": "pointer"})
+                                        html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                                               id="ml-models-help")
                                     ])
                                 ])
                             ], className="mt-2")
@@ -1565,8 +1376,8 @@ def create_educational_explanation(alert: Dict) -> html.Div:
         sections.append(
             html.H5([
                 "📈 Comparison with Normal Behavior",
-                html.I(className="fa fa-question-circle ms-2 text-muted",
-                       id="baseline-comparison-help", style={"cursor": "pointer", "fontSize": "0.9rem"})
+                html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                       id="baseline-comparison-help")
             ], className="mt-4 mb-3")
         )
         sections.append(html.Div([
@@ -1792,8 +1603,8 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                 html.P([
                     html.Strong("MITRE ATT&CK Tactic: "),
                     mitre_info['tactic'],
-                    html.I(className="fa fa-question-circle ms-2 text-muted",
-                           id="mitre-attack-help", style={"cursor": "pointer"})
+                    html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                           id="mitre-attack-help")
                 ]),
                 html.P([
                     html.Strong("Technical Description: "),
@@ -1802,20 +1613,20 @@ def create_educational_explanation(alert: Dict) -> html.Div:
                 html.P([
                     html.Strong("Anomaly Score: "),
                     f"{alert.get('anomaly_score') or 0:.4f}",
-                    html.I(className="fa fa-question-circle ms-2 text-muted",
-                           id="anomaly-score-technical-help", style={"cursor": "pointer"})
+                    html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                           id="anomaly-score-technical-help")
                 ]),
                 html.P([
                     html.Strong("Detection Model: "),
                     alert.get('model_types') or 'N/A',
-                    html.I(className="fa fa-question-circle ms-2 text-muted",
-                           id="detection-model-help", style={"cursor": "pointer"})
+                    html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                           id="detection-model-help")
                 ]),
                 html.Hr(),
                 html.H6([
                     "Raw Feature Contributions:",
-                    html.I(className="fa fa-question-circle ms-2 text-muted",
-                           id="feature-contrib-help", style={"cursor": "pointer"})
+                    html.I(className="fa fa-question-circle ms-2 text-muted u-pointer",
+                           id="feature-contrib-help")
                 ]),
                 html.Pre(json.dumps(json.loads(alert.get('top_features') or '{}'), indent=2))
             ], title="🔬 Technical Details (Advanced)")
@@ -1856,3 +1667,215 @@ def create_educational_explanation(alert: Dict) -> html.Div:
     ], style={"display": "none"}))
 
     return html.Div(sections)
+
+
+def create_mobile_tabbar():
+    """Fixed bottom tab bar — visible only on mobile (≤767.98px via CSS)."""
+    primary = [
+        ("overview",  "fa fa-home",                "Home"),
+        ("alerts",    "fa fa-triangle-exclamation", "Alerts"),
+        ("devices",   "fa fa-mobile-screen",        "Devices"),
+        ("analytics", "fa fa-chart-pie",            "Analytics"),
+    ]
+    more_items = [
+        ("compliance",   "fa fa-shield-alt", "Compliance"),
+        ("admin",        "fa fa-gear",       "Settings"),
+    ]
+    return html.Div([
+        *[
+            html.Button(
+                [html.I(className=icon), html.Span(label)],
+                id=f"tabbar-btn-{key}",
+                className="tabbar-item" + (" tabbar-active" if key == "overview" else ""),
+                type="button",
+            )
+            for key, icon, label in primary
+        ],
+        html.Button(
+            [html.I(className="fa fa-ellipsis"), html.Span("More")],
+            id="tabbar-btn-more",
+            className="tabbar-item",
+            type="button",
+        ),
+        html.Div(id="tabbar-more-backdrop", className="tabbar-more-backdrop", n_clicks=0),
+        html.Div([
+            html.Div(className="tabbar-more-handle"),
+            html.Div("More", className="tabbar-more-title"),
+            html.Div([
+                html.Button(
+                    [html.I(className=icon), html.Span(label)],
+                    id=f"tabbar-btn-{key}",
+                    className="tabbar-more-item",
+                    type="button",
+                )
+                for key, icon, label in more_items
+            ], className="tabbar-more-grid"),
+        ], id="tabbar-more-sheet", className="tabbar-more-sheet"),
+    ], id="mobile-tabbar", className="mobile-tabbar")
+
+
+def create_sidebar():
+    """Fixed floating sidebar navigation — 6 icon buttons with tooltip labels."""
+    return html.Nav([
+        html.Button(html.I(className="fa fa-home"),
+            id="sidebar-btn-overview", className="sidebar-nav-item sidebar-nav-active",
+            type="button", **{"data-label": "Dashboard"}),
+        html.Button(html.I(className="fa fa-triangle-exclamation"),
+            id="sidebar-btn-alerts", className="sidebar-nav-item",
+            type="button", **{"data-label": "Alerts & Threats"}),
+        html.Button(html.I(className="fa fa-mobile-screen"),
+            id="sidebar-btn-devices", className="sidebar-nav-item",
+            type="button", **{"data-label": "Devices & IoT"}),
+        html.Button(html.I(className="fa fa-chart-pie"),
+            id="sidebar-btn-analytics", className="sidebar-nav-item",
+            type="button", **{"data-label": "Analytics"}),
+        html.Button(html.I(className="fa fa-shield-alt"),
+            id="sidebar-btn-compliance", className="sidebar-nav-item",
+            type="button", **{"data-label": "Compliance"}),
+        html.Button(html.I(className="fa fa-gear"),
+            id="sidebar-btn-admin", className="sidebar-nav-item",
+            type="button", **{"data-label": "Settings"}),
+    ], id="sidebar-nav", className="sidebar-nav")
+
+
+def create_header():
+    """Glass-card top header bar + button tooltips. Returns a list for unpacking into layout."""
+    card = dbc.Card([
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.Img(src="/assets/logo.png", className="me-3 logo-header"),
+                        html.Div([
+                            html.H1([
+                                html.Span("IoTSentinel", className="gradient-text fw-bold"),
+                            ], className="mb-1 u-text-display-sm"),
+                            html.P([
+                                html.I(className="fa fa-user-shield me-2 gradient-text"),
+                                "AI-Powered Edge Network Guardian",
+                            ], className="text-muted mb-0 u-text-md")
+                        ])
+                    ], className="d-flex align-items-center")
+                ], width=6, className="d-flex align-items-center"),
+                dbc.Col([
+                    html.Div([
+                        dbc.Button([
+                            html.I(className="fa fa-bell"),
+                            dbc.Badge(id="notification-badge", color="danger", className="position-absolute top-0 start-100 translate-middle u-text-badge")
+                        ], color="link", id="notification-bell-button", className="text-white position-relative px-2"),
+                        dbc.Button(html.I(className="fa fa-history"), color="link", id="toast-history-toggle-btn", className="text-white px-2", title="Toast History"),
+                        dbc.Button(html.I(className="fa fa-comments"), color="link", id="open-chat-button", className="text-white px-2"),
+                        html.Span([
+                            dbc.Button(
+                                html.I(className="fa fa-robot"),
+                                color="link", id="open-agent-button",
+                                className="text-white px-2 position-relative",
+                                title="AI Security Agent"
+                            ),
+                            dbc.Badge(
+                                "", id="agent-pending-badge", color="danger", pill=True,
+                                className="position-absolute top-0 start-100 translate-middle",
+                                style={"fontSize": "0.6rem", "display": "none"}
+                            ),
+                        ], className="position-relative"),
+                        dbc.Button(html.I(className="fa fa-pause", id="pause-icon"), color="link", id="pause-button", className="text-white px-2"),
+                        dbc.Button(html.I(className="fa fa-volume-up", id="voice-alert-icon"), color="link", id="voice-alert-toggle", className="text-white px-2", title="Toggle Voice Alerts"),
+                        dbc.Button(html.I(className="fa fa-paper-plane", id="email-alert-nav-icon"), color="link", id="email-alert-nav-toggle", className="text-white px-2", title="Notifications"),
+                        dbc.Button(html.I(className="fa fa-moon", id="dark-mode-icon"), color="link", id="dark-mode-toggle", className="text-white px-2", title="Toggle Dark Mode"),
+                        dbc.Button(html.I(className="fa fa-th"), color="link", id="customize-layout-button", className="text-white px-2", title="Customize Layout"),
+                        dbc.Button(html.I(className="fa fa-bolt"), color="link", id="quick-actions-button", className="text-white px-2", title="Quick Actions"),
+                        html.Div([
+                            dbc.Button(html.I(className="fa fa-house fa-sm"), id="view-mode-simple-btn", size="sm", outline=True,
+                                       color="success", className="mode-btn-pill", n_clicks=0, title="Simple Mode"),
+                            dbc.Button(html.I(className="fa fa-sliders fa-sm"), id="view-mode-advanced-btn", size="sm", outline=True,
+                                       color="info", className="mode-btn-pill", n_clicks=0, title="Advanced Mode"),
+                        ], id="view-mode-btngroup", className="mode-pill-group"),
+                        dbc.DropdownMenu([
+                            dbc.DropdownMenuItem(
+                                html.Div([
+                                    html.I(className="fa fa-user me-2"),
+                                    html.Span(id="current-user-display-dropdown", children="User")
+                                ], className="d-flex align-items-center"),
+                                header=True, className="u-text-md fw-semibold"),
+                            dbc.DropdownMenuItem(divider=True),
+                            dbc.DropdownMenuItem([
+                                html.I(className="fa fa-user-edit me-2"),
+                                "Edit Profile"
+                            ], id="edit-profile-btn"),
+                            dbc.DropdownMenuItem([
+                                html.I(className="fa fa-play-circle me-2"),
+                                "Restart Tour"
+                            ], id="restart-tour-button"),
+                            dbc.DropdownMenuItem(divider=True),
+                            dbc.DropdownMenuItem([
+                                html.I(className="fa fa-sign-out-alt me-2 text-danger"),
+                                "Logout"
+                            ], href="/logout")
+                        ], label=html.I(className="fa fa-user-circle fa-lg"),
+                           color="link",
+                           className="profile-dropdown ms-2",
+                           toggle_style={"padding": "0.5rem 0.75rem"})
+                    ], className="d-flex align-items-center ms-auto")
+                ], width=6, className="d-flex align-items-center justify-content-end")
+            ])
+        ], className="p-4")
+    ], id="dashboard-navbar", className="mb-3 glass-card border-0 shadow-lg")
+
+    tooltips = [
+        dbc.Tooltip(
+            "Notifications - View security alerts and system notifications. "
+            "Badge shows unread count. Click to open notification drawer.",
+            target="notification-bell-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Toast History - View all recent toast notifications. "
+            "Filter by category and type. Access complete notification history.",
+            target="toast-history-toggle-btn", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "AI Assistant - Open the intelligent chat assistant. "
+            "Ask questions about your network security, get recommendations, and troubleshoot issues.",
+            target="open-chat-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Pause/Resume - Pause or resume real-time dashboard updates. "
+            "Useful when analyzing specific data without auto-refresh.",
+            target="pause-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Voice Alerts - Toggle text-to-speech announcements for critical security alerts. "
+            "Get audio notifications even when not watching the dashboard.",
+            target="voice-alert-toggle", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Notifications - Open notification settings. "
+            "Configure push (ntfy, Telegram, Discord), email, and webhook alerts.",
+            target="email-alert-nav-toggle", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Theme Switcher - Cycle through Light → Dark → Auto modes. "
+            "Auto mode follows your system preference. Click to switch themes instantly.",
+            target="dark-mode-toggle", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Widget & Layout Customization - Control which widgets are visible, adjust display density, "
+            "configure refresh rates, manage notifications, and personalize your monitoring experience.",
+            target="customize-layout-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Quick Actions - Access 17 powerful tools to manage your dashboard, security, network, data, and system. "
+            "Instantly refresh data, scan network, export reports, block devices, backup data, and more!",
+            target="quick-actions-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Simple Mode - focused view showing only the most important security information. "
+            "Best for everyday monitoring.",
+            target="view-mode-simple-btn", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "Advanced Mode - full security console with all analytics, compliance, and forensic tools.",
+            target="view-mode-advanced-btn", placement="bottom"
+        ),
+    ]
+
+    return [card, *tooltips]

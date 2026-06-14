@@ -3,13 +3,13 @@ Security Audit Logger for IoTSentinel
 Logs all security-relevant events for compliance and forensics
 """
 
-import sqlite3
 import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-import os
+
+from utils.log_sanitizer import safe_log_data
 
 # Setup dedicated security audit logger
 logger = logging.getLogger(__name__)
@@ -99,30 +99,14 @@ class SecurityAuditLogger:
     @staticmethod
     def _sanitize_details(details: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
-        Remove sensitive information from details dict before logging
-
-        Args:
-            details: Dictionary that may contain sensitive data
-
-        Returns:
-            Sanitized dictionary with sensitive fields masked
+        Remove sensitive information from details dict before logging.
+        Delegates to log_sanitizer.safe_log_data for recursive, pattern-based
+        redaction (covers keys, URL credentials, inline API key strings, nested
+        dicts/lists) — stronger than the previous key-name-only check.
         """
         if not details:
             return details
-
-        sanitized = {}
-        for key, value in details.items():
-            key_lower = key.lower()
-
-            # Check if key contains any sensitive field name
-            is_sensitive = any(sensitive in key_lower for sensitive in SecurityAuditLogger.SENSITIVE_FIELDS)
-
-            if is_sensitive:
-                sanitized[key] = '[REDACTED]'
-            else:
-                sanitized[key] = value
-
-        return sanitized
+        return safe_log_data(details)
 
     def log(self,
             event_type: str,

@@ -11,7 +11,6 @@ import logging
 import re
 from datetime import datetime
 from typing import Optional, Dict, Any
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,11 @@ logger = logging.getLogger(__name__)
 class User:
     """User model for Flask-Login"""
 
-    def __init__(self, user_id: int, username: str, role: str):
+    def __init__(self, user_id: int, username: str, role: str, must_change_password: bool = False):
         self.id = user_id
         self.username = username
         self.role = role
+        self.must_change_password = must_change_password
         self.is_authenticated = True
         self.is_active = True
         self.is_anonymous = False
@@ -84,6 +84,47 @@ class AuthManager:
             return False
         return True
 
+    def create_admin(self, username: str, password: str) -> bool:
+        """
+        Create the initial admin account during first-run onboarding.
+
+        Unlike create_user(), this always sets email_verified=1 (so the admin
+        is never blocked by the email-verification gate in verify_user), and
+        must_change_password=0. Safe to call only when no admin exists yet.
+
+        Args:
+            username: Desired admin username (must be unique).
+            password: Plain-text password (caller should validate strength first).
+
+        Returns:
+            True if the admin was created, False if the username already exists
+            or a database error occurred.
+        """
+        try:
+            pw_hash = bcrypt.hashpw(
+                password.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8")
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO users
+                    (username, password_hash, role, email_verified,
+                     must_change_password, is_active)
+                VALUES (?, ?, 'admin', 1, 0, 1)
+                """,
+                (username, pw_hash),
+            )
+            conn.commit()
+            logger.info(f"Admin account created: {username}")
+            return True
+        except sqlite3.IntegrityError:
+            logger.warning(f"Admin creation failed — username already exists: {username}")
+            return False
+        except sqlite3.Error as e:
+            logger.error(f"DB error creating admin {username}: {e}")
+            return False
+
     def verify_user(self, username: str, password: str) -> Optional[User]:
         """
         Verify username and password.
@@ -100,7 +141,8 @@ class AuthManager:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT id, username, password_hash, role, is_active, email_verified
+                SELECT id, username, password_hash, role, is_active, email_verified,
+                       COALESCE(must_change_password, 0) as must_change_password
                 FROM users
                 WHERE username = ?
             """, (username,))
@@ -130,7 +172,8 @@ class AuthManager:
                 return User(
                     user_id=user_row['id'],
                     username=user_row['username'],
-                    role=user_row['role']
+                    role=user_row['role'],
+                    must_change_password=bool(user_row['must_change_password']),
                 )
             else:
                 logger.warning(f"Failed login attempt for user: {username}")
@@ -139,6 +182,23 @@ class AuthManager:
         except sqlite3.Error as e:
             logger.error(f"Database error during authentication: {e}")
             return None
+
+    def verify_password_only(self, username: str, password: str) -> bool:
+        """Check username + password without enforcing email verification.
+        Used to distinguish 'wrong password' from 'unverified email' on login failure."""
+        try:
+            conn = self.db_manager.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT password_hash FROM users WHERE username = ? AND is_active = 1",
+                (username,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            return bcrypt.checkpw(password.encode('utf-8'), row['password_hash'].encode('utf-8'))
+        except Exception:
+            return False
 
     def get_user_by_id(self, user_id: int) -> Optional[User]:
         """
@@ -155,7 +215,8 @@ class AuthManager:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT id, username, role, is_active
+                SELECT id, username, role, is_active,
+                       COALESCE(must_change_password, 0) as must_change_password
                 FROM users
                 WHERE id = ?
             """, (user_id,))
@@ -166,7 +227,8 @@ class AuthManager:
                 return User(
                     user_id=user_row['id'],
                     username=user_row['username'],
-                    role=user_row['role']
+                    role=user_row['role'],
+                    must_change_password=bool(user_row['must_change_password']),
                 )
             return None
 
@@ -281,12 +343,11 @@ class AuthManager:
 
             cursor.execute("""
                 UPDATE users
-                SET password_hash = ?
+                SET password_hash = ?, must_change_password = 0
                 WHERE id = ?
             """, (password_hash, user_id))
 
             conn.commit()
-
 
             logger.info(f"Password changed for user ID: {user_id}")
             return True

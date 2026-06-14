@@ -2,108 +2,243 @@
 """
 ARP Scanner for IoTSentinel
 
-Discovers devices on the local network using ARP scanning.
-This provides device discovery when DHCP logs are unavailable.
+Discovers devices on the local network using only privilege-free OS calls:
+  1. Parallel ping sweep (populates the kernel ARP cache — no sudo needed)
+  2. 'ip neigh show' (reads the kernel ARP/NDP table — no raw sockets)
+  3. /proc/net/arp fallback (pure file read, Linux only)
+  4. 'arp -a' fallback (macOS / BSD dev environments)
 
-Uses scapy for ARP requests and stores results in the database.
+No scapy, no nmap, no sudo, no CAP_NET_RAW required.
 """
 
 import logging
-import subprocess
 import re
+import subprocess
+import ipaddress
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional
 from pathlib import Path
 import sys
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.config_manager import config
 from database.db_manager import DatabaseManager
 from utils.mac_lookup import get_manufacturer
+from utils.name_resolver import resolve_name, is_synthetic
 
 logger = logging.getLogger(__name__)
 
-# Try to import scapy
-try:
-    from scapy.all import ARP, Ether, srp, conf
-    SCAPY_AVAILABLE = True
-    # Disable scapy verbose output
-    conf.verb = 0
-except ImportError:
-    SCAPY_AVAILABLE = False
-    logger.warning("Scapy not available. ARP scanning disabled.")
+# Always available — no privilege flag needed
+SCAPY_AVAILABLE = False  # kept for orchestrator import compatibility
 
 
 class ARPScanner:
     """
-    Network device scanner using ARP protocol.
+    Network device scanner.
 
-    This discovers devices by sending ARP requests and analyzing responses.
-    More reliable than DHCP logging for device discovery.
+    Uses a two-phase privilege-free strategy:
+      Phase 1 — parallel ping sweep to populate the kernel ARP cache.
+      Phase 2 — read the ARP table via 'ip neigh show' (or fallbacks).
+
+    No raw sockets, no scapy, no nmap, no sudo required.
     """
 
     def __init__(self):
         self.db = DatabaseManager(config.get('database', 'path'))
         self.network_range = config.get('network', 'local_subnet', default='192.168.1.0/24')
-        self.timeout = config.get('network', 'arp_timeout', default=2)
+        self.timeout = int(config.get('network', 'arp_timeout', default=2))
+        logger.info(f"ARP scanner initialised for {self.network_range} (no-sudo mode)")
 
-        if not SCAPY_AVAILABLE:
-            logger.error("Scapy is not installed. ARP scanning will not work.")
-            logger.info("Install with: pip install scapy")
+    # ── Phase 1: populate ARP cache ─────────────────────────────────────────
 
-        logger.info(f"ARP scanner initialized for network: {self.network_range}")
+    def _ping_host(self, ip: str) -> None:
+        """Send a single fast ping to populate the kernel ARP cache."""
+        try:
+            subprocess.run(
+                ['ping', '-c', '1', '-W', '1', ip],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            )
+        except Exception:
+            pass
+
+    def _ping_sweep(self) -> None:
+        """
+        Ping every host in the configured subnet in parallel.
+        Pings are fire-and-forget — we only care that the kernel sees the
+        replies and updates its ARP cache.  No sudo required.
+        """
+        try:
+            net = ipaddress.ip_network(self.network_range, strict=False)
+        except ValueError:
+            logger.warning(f"Invalid subnet '{self.network_range}', skipping ping sweep")
+            return
+
+        hosts = list(net.hosts())
+        logger.info(f"Ping sweep: {len(hosts)} hosts in {self.network_range}")
+
+        with ThreadPoolExecutor(max_workers=64) as pool:
+            futures = {pool.submit(self._ping_host, str(ip)): str(ip) for ip in hosts}
+            for _ in as_completed(futures):
+                pass  # fire-and-forget; result irrelevant
+
+    # ── Phase 2: read ARP table ──────────────────────────────────────────────
+
+    def _read_ip_neigh(self) -> List[Dict[str, str]]:
+        """
+        Read kernel ARP/NDP table via 'ip neigh show'.
+        Returns entries with status REACHABLE, STALE, DELAY, or PROBE
+        (all indicate a recently-seen host).
+        No privileges required.
+        """
+        devices: List[Dict[str, str]] = []
+        try:
+            result = subprocess.run(
+                ['ip', 'neigh', 'show'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                return devices
+
+            for line in result.stdout.splitlines():
+                # Format: 192.168.1.10 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
+                m = re.match(
+                    r'^(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\S+)',
+                    line, re.IGNORECASE
+                )
+                if not m:
+                    continue
+                ip, mac, state = m.group(1), m.group(2).lower(), m.group(3).upper()
+                if state in ('REACHABLE', 'STALE', 'DELAY', 'PROBE'):
+                    devices.append({
+                        'ip': ip,
+                        'mac': mac,
+                        'manufacturer': get_manufacturer(mac),
+                    })
+        except FileNotFoundError:
+            pass  # 'ip' command not available — fall through to next method
+        except Exception as e:
+            logger.debug(f"ip neigh show failed: {e}")
+
+        return devices
+
+    def _read_proc_arp(self) -> List[Dict[str, str]]:
+        """
+        Parse /proc/net/arp — available on all Linux kernels, no privileges.
+        Fallback when 'ip neigh' is unavailable.
+        """
+        devices: List[Dict[str, str]] = []
+        try:
+            with open('/proc/net/arp', 'r') as f:
+                for line in f.readlines()[1:]:  # skip header
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+                    ip, _, flags, mac = parts[0], parts[1], parts[2], parts[3]
+                    # flags 0x2 = ARP_COMPLETE (entry is valid)
+                    if int(flags, 16) & 0x2 and mac != '00:00:00:00:00:00':
+                        devices.append({
+                            'ip': ip,
+                            'mac': mac.lower(),
+                            'manufacturer': get_manufacturer(mac),
+                        })
+        except FileNotFoundError:
+            pass  # Not Linux — fall through
+        except Exception as e:
+            logger.debug(f"/proc/net/arp read failed: {e}")
+
+        return devices
+
+    def _read_arp_a(self) -> List[Dict[str, str]]:
+        """
+        Parse 'arp -a' output — macOS / BSD fallback for dev environments.
+        """
+        devices: List[Dict[str, str]] = []
+        try:
+            result = subprocess.run(
+                ['arp', '-a'], capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.splitlines():
+                # Format: hostname (192.168.1.1) at aa:bb:cc:dd:ee:ff on en0 ...
+                m = re.search(
+                    r'\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([0-9a-f:]{17})',
+                    line, re.IGNORECASE
+                )
+                if m:
+                    ip, mac = m.group(1), m.group(2).lower()
+                    devices.append({
+                        'ip': ip,
+                        'mac': mac,
+                        'manufacturer': get_manufacturer(mac),
+                    })
+        except Exception as e:
+            logger.debug(f"arp -a failed: {e}")
+
+        return devices
+
+    # ── Public API ───────────────────────────────────────────────────────────
+
+    def get_network_interface(self) -> Optional[str]:
+        """Detect the primary network interface from the default route."""
+        try:
+            result = subprocess.run(
+                ['ip', 'route', 'show', 'default'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                m = re.search(r'dev\s+(\S+)', result.stdout)
+                if m:
+                    iface = m.group(1)
+                    logger.info(f"Detected interface: {iface}")
+                    return iface
+        except Exception as e:
+            logger.debug(f"Interface detection failed: {e}")
+        return None
 
     def scan_network(self) -> List[Dict[str, str]]:
         """
-        Perform ARP scan of the local network.
+        Discover devices on the local network without any elevated privileges.
+
+        Strategy:
+          1. Ping sweep — forces the kernel to ARP-resolve every live host.
+          2. Read the kernel ARP table (ip neigh → /proc/net/arp → arp -a).
 
         Returns:
-            List of dictionaries with device info (ip, mac, manufacturer)
+            List of dicts: [{ip, mac, manufacturer}, ...]
         """
-        if not SCAPY_AVAILABLE:
-            logger.error("Cannot scan: Scapy not available")
-            return []
+        # Phase 1 — populate ARP cache
+        self._ping_sweep()
 
-        logger.info(f"Starting ARP scan of {self.network_range}...")
-        devices = []
+        # Phase 2 — read ARP table (try methods in order)
+        devices = self._read_ip_neigh()
 
-        try:
-            # Create ARP request packet
-            arp_request = ARP(pdst=self.network_range)
-            broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
-            arp_request_broadcast = broadcast / arp_request
+        if not devices:
+            logger.debug("ip neigh empty/unavailable, trying /proc/net/arp")
+            devices = self._read_proc_arp()
 
-            # Send packet and receive responses
-            answered_list = srp(arp_request_broadcast, timeout=self.timeout, verbose=False)[0]
+        if not devices:
+            logger.debug("/proc/net/arp empty/unavailable, trying arp -a")
+            devices = self._read_arp_a()
 
-            # Parse responses
-            for sent, received in answered_list:
-                device_info = {
-                    'ip': received.psrc,
-                    'mac': received.hwsrc,
-                    'manufacturer': get_manufacturer(received.hwsrc)
-                }
-                devices.append(device_info)
-                logger.debug(f"Found device: {device_info['ip']} ({device_info['mac']})")
+        # Deduplicate by IP (keep first occurrence)
+        seen: set = set()
+        unique: List[Dict[str, str]] = []
+        for d in devices:
+            if d['ip'] not in seen:
+                seen.add(d['ip'])
+                unique.append(d)
 
-            logger.info(f"✓ ARP scan complete: found {len(devices)} devices")
-            return devices
-
-        except PermissionError:
-            logger.error("Permission denied. ARP scanning requires root/sudo privileges.")
-            logger.info("Run with: sudo python3 -m utils.arp_scanner")
-            return []
-        except Exception as e:
-            logger.error(f"Error during ARP scan: {e}")
-            return []
+        logger.info(f"ARP scan complete: {len(unique)} devices found")
+        return unique
 
     def scan_and_update_database(self) -> int:
         """
-        Scan network and update database with discovered devices.
+        Scan the network and upsert discovered devices into the database.
 
         Returns:
-            Number of devices found and updated
+            Number of devices updated.
         """
         devices = self.scan_network()
 
@@ -112,133 +247,36 @@ class ARPScanner:
             return 0
 
         updated_count = 0
+        existing_by_ip = {d['device_ip']: d for d in self.db.get_all_devices()}
+
         for device in devices:
-            # Generate a friendly name
-            mac_suffix = device['mac'][-8:].replace(':', '').upper()
-            device_name = f"Device-{mac_suffix}"
+            existing = existing_by_ip.get(device['ip'])
+            existing_name = existing.get('device_name') if existing else None
 
-            # Check if we already have a custom name for this device
-            existing_devices = self.db.get_all_devices()
-            for existing in existing_devices:
-                if existing['device_ip'] == device['ip'] and existing['device_name']:
-                    # Keep existing custom name
-                    device_name = existing['device_name']
-                    break
+            if is_synthetic(existing_name):
+                resolved = resolve_name(
+                    device['ip'],
+                    mac=device.get('mac'),
+                    manufacturer=device.get('manufacturer'),
+                )
+                device_name = resolved or f"Device-{device['mac'][-8:].replace(':', '').upper()}"
+            else:
+                device_name = None  # preserve existing real name via COALESCE
 
-            # Update database
             success = self.db.add_device(
                 device_ip=device['ip'],
                 mac_address=device['mac'],
                 device_name=device_name,
-                manufacturer=device['manufacturer']
+                manufacturer=device['manufacturer'],
             )
 
             if success:
                 updated_count += 1
-                logger.info(f"Updated: {device['ip']} → {device['mac']} ({device['manufacturer']})")
+                label = device_name or existing_name or device['ip']
+                logger.info(f"Updated: {device['ip']} → {device['mac']} ({label})")
 
         logger.info(f"Database updated with {updated_count} devices")
         return updated_count
-
-    def get_network_interface(self) -> Optional[str]:
-        """
-        Try to detect the primary network interface.
-
-        Returns:
-            Interface name (e.g., 'eth0', 'wlan0') or None
-        """
-        try:
-            # Try to get default route interface
-            result = subprocess.run(
-                ['ip', 'route', 'show', 'default'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
-            if result.returncode == 0:
-                # Parse output: "default via 192.168.1.1 dev eth0 ..."
-                match = re.search(r'dev\s+(\S+)', result.stdout)
-                if match:
-                    interface = match.group(1)
-                    logger.info(f"Detected network interface: {interface}")
-                    return interface
-        except Exception as e:
-            logger.error(f"Error detecting network interface: {e}")
-
-        return None
-
-    def scan_with_nmap(self) -> List[Dict[str, str]]:
-        """
-        Alternative scanning method using nmap (if available).
-        This is a fallback when scapy doesn't work.
-
-        Returns:
-            List of dictionaries with device info
-        """
-        logger.info("Attempting scan with nmap...")
-        devices = []
-
-        try:
-            # Check if nmap is installed
-            result = subprocess.run(
-                ['which', 'nmap'],
-                capture_output=True,
-                timeout=5
-            )
-
-            if result.returncode != 0:
-                logger.warning("nmap not installed. Install with: sudo apt install nmap")
-                return []
-
-            # Run nmap scan
-            result = subprocess.run(
-                ['sudo', 'nmap', '-sn', '-oG', '-', self.network_range],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-
-            if result.returncode != 0:
-                logger.error("nmap scan failed")
-                return []
-
-            # Parse nmap output
-            for line in result.stdout.split('\n'):
-                if 'Host:' in line and 'Status: Up' in line:
-                    # Extract IP address
-                    ip_match = re.search(r'Host:\s+(\d+\.\d+\.\d+\.\d+)', line)
-                    if ip_match:
-                        ip = ip_match.group(1)
-
-                        # Try to get MAC address with another nmap scan
-                        mac_result = subprocess.run(
-                            ['sudo', 'nmap', '-sn', ip],
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-
-                        mac = None
-                        mac_match = re.search(r'MAC Address:\s+([0-9A-F:]+)', mac_result.stdout, re.IGNORECASE)
-                        if mac_match:
-                            mac = mac_match.group(1).lower()
-
-                        devices.append({
-                            'ip': ip,
-                            'mac': mac,
-                            'manufacturer': get_manufacturer(mac) if mac else 'Unknown'
-                        })
-
-            logger.info(f"✓ nmap scan complete: found {len(devices)} devices")
-            return devices
-
-        except subprocess.TimeoutExpired:
-            logger.error("nmap scan timed out")
-            return []
-        except Exception as e:
-            logger.error(f"Error during nmap scan: {e}")
-            return []
 
     def close(self):
         """Close database connection."""
@@ -247,17 +285,14 @@ class ARPScanner:
 
 
 def main():
-    """Command-line interface for ARP scanner."""
+    """Command-line interface for the ARP scanner."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='IoTSentinel ARP Network Scanner')
+    parser = argparse.ArgumentParser(description='IoTSentinel network scanner (no sudo)')
     parser.add_argument('--scan', action='store_true', help='Scan network once')
-    parser.add_argument('--nmap', action='store_true', help='Use nmap instead of scapy')
-    parser.add_argument('--network', type=str, help='Network range (e.g., 192.168.1.0/24)')
-
+    parser.add_argument('--network', type=str, help='Override subnet (e.g. 192.168.1.0/24)')
     args = parser.parse_args()
 
-    # Setup logging
     log_dir = Path(config.get('logging', 'log_dir'))
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -266,48 +301,29 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_dir / 'arp_scanner.log'),
-            logging.StreamHandler()
+            logging.StreamHandler(),
         ]
     )
 
-    # Initialize scanner
     scanner = ARPScanner()
 
-    # Override network range if provided
     if args.network:
         scanner.network_range = args.network
-        logger.info(f"Using custom network range: {args.network}")
 
-    # Perform scan
     if args.scan:
-        if args.nmap:
-            devices = scanner.scan_with_nmap()
-        else:
-            devices = scanner.scan_network()
-
+        devices = scanner.scan_network()
         if devices:
-            print("\n" + "=" * 70)
-            print("DISCOVERED DEVICES")
-            print("=" * 70)
-            print(f"{'IP Address':<15} {'MAC Address':<18} {'Manufacturer':<30}")
-            print("-" * 70)
-            for device in devices:
-                print(f"{device['ip']:<15} {device['mac'] or 'N/A':<18} {device['manufacturer']:<30}")
-            print("=" * 70)
-            print(f"\nTotal devices found: {len(devices)}")
-
-            # Update database
+            print(f"\n{'IP Address':<15} {'MAC Address':<18} {'Manufacturer'}")
+            print('-' * 65)
+            for d in devices:
+                print(f"{d['ip']:<15} {d['mac'] or 'N/A':<18} {d['manufacturer']}")
+            print(f"\nTotal: {len(devices)} devices")
             updated = scanner.scan_and_update_database()
-            print(f"Database updated with {updated} devices")
+            print(f"Database updated: {updated} devices")
         else:
-            print("No devices found or scan failed")
-            print("\nTroubleshooting:")
-            print("1. Make sure you're running with sudo/root privileges")
-            print("2. Check your network range in config.yaml")
-            print("3. Try with --nmap flag if scapy fails")
+            print("No devices found")
     else:
         print("Use --scan to perform a network scan")
-        print("Example: sudo python3 -m utils.arp_scanner --scan")
 
     scanner.close()
 

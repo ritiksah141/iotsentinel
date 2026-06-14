@@ -317,7 +317,6 @@ class ReportBuilder:
         parameters: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Get table data for a section."""
-        import sqlite3
 
         config = section.config
         conn = self.db_manager.conn
@@ -478,7 +477,7 @@ class ReportBuilder:
             from reportlab.lib.pagesizes import letter
             from reportlab.lib import colors
             from reportlab.lib.units import inch
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer)
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
             buffer = BytesIO()
@@ -580,7 +579,7 @@ class ReportBuilder:
         """Compile report as Excel."""
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill
+            from openpyxl.styles import Font
 
             wb = Workbook()
             wb.remove(wb.active)  # Remove default sheet

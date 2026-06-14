@@ -54,8 +54,11 @@ class FeatureExtractor:
         feature_names = []
 
         # 1. Duration features
+        # Zeek writes "-" for missing values, so the column can arrive as object
+        # dtype; coerce to numeric explicitly (non-numeric -> NaN -> 0) rather than
+        # relying on fillna's deprecated silent object->numeric downcast.
         if 'duration' in df.columns:
-            df['duration'] = df['duration'].fillna(0)
+            df['duration'] = pd.to_numeric(df['duration'], errors='coerce').fillna(0)
             features.append(df['duration'].values.reshape(-1, 1))
             feature_names.append('duration')
 
@@ -64,12 +67,12 @@ class FeatureExtractor:
         bytes_received_present = 'bytes_received' in df.columns
 
         if bytes_sent_present:
-            df['bytes_sent'] = df['bytes_sent'].fillna(0)
+            df['bytes_sent'] = pd.to_numeric(df['bytes_sent'], errors='coerce').fillna(0)
         else:
             df['bytes_sent'] = 0
 
         if bytes_received_present:
-            df['bytes_received'] = df['bytes_received'].fillna(0)
+            df['bytes_received'] = pd.to_numeric(df['bytes_received'], errors='coerce').fillna(0)
         else:
             df['bytes_received'] = 0
 

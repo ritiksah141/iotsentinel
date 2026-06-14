@@ -19,6 +19,8 @@ def register_all_callbacks(app, login_layout, dashboard_layout):
     from . import callbacks_global
     from . import callbacks_setup
     from . import callbacks_padlock
+    from . import callbacks_agent
+    from . import callbacks_firewall
 
     callbacks_auth.register(app, login_layout, dashboard_layout)
     callbacks_overview.register(app)
@@ -31,3 +33,5 @@ def register_all_callbacks(app, login_layout, dashboard_layout):
     callbacks_global.register(app)
     callbacks_setup.register(app)
     callbacks_padlock.register(app)
+    callbacks_agent.register(app)
+    callbacks_firewall.register(app)

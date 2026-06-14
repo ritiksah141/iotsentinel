@@ -13,12 +13,14 @@ Handles all database operations with:
 100% Compatible with init_database.py schema
 """
 
+import json
 import sqlite3
 import logging
 import re
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Union
+from typing import (List, Dict, Optional)
 from utils.device_classifier import classifier
 
 logger = logging.getLogger('database')  # Use dedicated database logger
@@ -85,17 +87,18 @@ class DatabaseManager:
         return sanitized[:max_length]
 
     _instances = {}  # Singleton instances per db_path
-    _lock = None  # Thread lock for singleton pattern
+    _singleton_lock = threading.Lock()  # Guards singleton creation
 
     def __new__(cls, db_path: str):
         """Implement singleton pattern - one instance per db_path."""
         # Normalize path for comparison
         normalized_path = str(Path(db_path).resolve())
 
-        if normalized_path not in cls._instances:
-            instance = super(DatabaseManager, cls).__new__(cls)
-            cls._instances[normalized_path] = instance
-            instance._initialized = False  # Track if __init__ was called
+        with cls._singleton_lock:
+            if normalized_path not in cls._instances:
+                instance = super(DatabaseManager, cls).__new__(cls)
+                cls._instances[normalized_path] = instance
+                instance._initialized = False  # Track if __init__ was called
 
         return cls._instances[normalized_path]
 
@@ -106,6 +109,10 @@ class DatabaseManager:
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Per-instance write lock — serialises all mutating operations across threads.
+        # Reads are left unlocked: WAL mode allows concurrent readers alongside writes.
+        self._write_lock = threading.RLock()
 
         self.conn = None
         self._connect()
@@ -137,28 +144,43 @@ class DatabaseManager:
             # Security: Prevent recursive triggers
             self.conn.execute("PRAGMA recursive_triggers = OFF")
 
+            # Checkpoint WAL automatically every 1000 pages (~4 MB).
+            # Without this the WAL file grows unbounded between manual checkpoints.
+            self.conn.execute("PRAGMA wal_autocheckpoint = 1000")
+
         except sqlite3.Error as e:
             logger.critical(f"Failed to connect to database: {e}")
             raise DatabaseError(f"Database connection failed: {e}")
 
     def transaction(self):
-        """Context manager for explicit transactions with automatic rollback on error."""
+        """Context manager for explicit transactions with automatic rollback on error.
+
+        Acquires the write lock for the duration of the transaction so that
+        concurrent threads cannot interleave BEGIN/COMMIT sequences on the
+        shared SQLite connection.
+        """
+        lock = self._write_lock
+
         class Transaction:
             def __init__(self, conn):
                 self.conn = conn
 
             def __enter__(self):
+                lock.acquire()
                 self.conn.execute("BEGIN")
                 return self.conn
 
             def __exit__(self, exc_type, exc_val, exc_tb):
-                if exc_type is not None:
-                    self.conn.rollback()
-                    logger.error(f"Transaction rolled back due to: {exc_val}")
-                    return False  # Re-raise exception
-                else:
-                    self.conn.commit()
-                    return True
+                try:
+                    if exc_type is not None:
+                        self.conn.rollback()
+                        logger.error(f"Transaction rolled back due to: {exc_val}")
+                        return False  # Re-raise exception
+                    else:
+                        self.conn.commit()
+                        return True
+                finally:
+                    lock.release()
 
         return Transaction(self.conn)
 
@@ -185,61 +207,58 @@ class DatabaseManager:
             raise ValidationError(f"Invalid MAC address: {mac_address}")
 
         try:
-            with self.transaction():
-                cursor = self.conn.cursor()
-
-            # Auto-classify device if we have MAC address
-            mac_address = kwargs.get('mac_address')
+            # Classification is CPU-bound — run it BEFORE acquiring the write lock
+            # so we don't hold the lock while waiting for network/OUI lookups.
             hostname = kwargs.get('device_name') or kwargs.get('hostname')
-
             device_type = kwargs.get('device_type')
             manufacturer = kwargs.get('manufacturer')
             icon = kwargs.get('icon')
             category = kwargs.get('category')
             confidence = kwargs.get('confidence')
 
-            # Automatically classify if not already classified
             if mac_address and (not device_type or device_type == 'unknown'):
                 classification = classifier.classify_device(
                     mac_address=mac_address,
                     hostname=hostname,
                     ip_address=device_ip
                 )
-
                 device_type = classification['device_type']
                 manufacturer = classification['manufacturer'] or manufacturer
                 icon = classification['icon']
                 category = classification['category']
                 confidence = classification['confidence']
 
-            cursor.execute("""
-                INSERT INTO devices (
-                    device_ip, device_name, mac_address, manufacturer,
-                    device_type, icon, category, confidence,
-                    first_seen, last_seen
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT(device_ip) DO UPDATE SET
-                    device_name = COALESCE(excluded.device_name, devices.device_name),
-                    mac_address = COALESCE(excluded.mac_address, devices.mac_address),
-                    manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer),
-                    device_type = COALESCE(excluded.device_type, devices.device_type),
-                    icon = COALESCE(excluded.icon, devices.icon),
-                    category = COALESCE(excluded.category, devices.category),
-                    confidence = COALESCE(excluded.confidence, devices.confidence),
-                    last_seen = CURRENT_TIMESTAMP
-            """, (
-                device_ip,
-                hostname,
-                mac_address,
-                manufacturer,
-                device_type,
-                icon,
-                category,
-                confidence
-            ))
-
-            self.conn.commit()
+            # Write section — serialised by RLock (re-entrant, so safe when
+            # called from inside add_connection's transaction() context).
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO devices (
+                        device_ip, device_name, mac_address, manufacturer,
+                        device_type, icon, category, confidence,
+                        first_seen, last_seen
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(device_ip) DO UPDATE SET
+                        device_name = COALESCE(excluded.device_name, devices.device_name),
+                        mac_address = COALESCE(excluded.mac_address, devices.mac_address),
+                        manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer),
+                        device_type = COALESCE(excluded.device_type, devices.device_type),
+                        icon = COALESCE(excluded.icon, devices.icon),
+                        category = COALESCE(excluded.category, devices.category),
+                        confidence = COALESCE(excluded.confidence, devices.confidence),
+                        last_seen = CURRENT_TIMESTAMP
+                """, (
+                    device_ip,
+                    hostname,
+                    mac_address,
+                    manufacturer,
+                    device_type,
+                    icon,
+                    category,
+                    confidence
+                ))
+                self.conn.commit()
             return True
 
         except sqlite3.Error as e:
@@ -349,14 +368,15 @@ class DatabaseManager:
             return
 
         try:
-            cursor = self.conn.cursor()
-            placeholders = ','.join(['?'] * len(connection_ids))
-            cursor.execute(f"""
-                UPDATE connections
-                SET processed = 1
-                WHERE id IN ({placeholders})
-            """, connection_ids)
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                placeholders = ','.join(['?'] * len(connection_ids))
+                cursor.execute(f"""
+                    UPDATE connections
+                    SET processed = 1
+                    WHERE id IN ({placeholders})
+                """, connection_ids)
+                self.conn.commit()
             logger.debug(f"Marked {len(connection_ids)} connections as processed")
         except sqlite3.Error as e:
             logger.error(f"Error marking connections processed: {e}")
@@ -373,13 +393,14 @@ class DatabaseManager:
             model_type: Model used (river/legacy)
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT INTO ml_predictions
-                (connection_id, is_anomaly, anomaly_score, model_type, model_version)
-                VALUES (?, ?, ?, ?, ?)
-            """, (connection_id, int(is_anomaly), anomaly_score, model_type, 'v1'))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO ml_predictions
+                    (connection_id, is_anomaly, anomaly_score, model_type, model_version)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (connection_id, int(is_anomaly), anomaly_score, model_type, 'v1'))
+                self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error storing prediction for connection {connection_id}: {e}")
 
@@ -400,17 +421,30 @@ class DatabaseManager:
         Returns:
             Alert ID if successful, None otherwise
         """
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT INTO alerts
-                (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation))
+        # Suppress-check: skip alert if device is currently muted
+        if self.is_alert_suppressed(device_ip):
+            logger.debug(f"Alert suppressed for {device_ip} — skipping insert")
+            return None
 
-            self.conn.commit()
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO alerts
+                    (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation))
+                self.conn.commit()
+            alert_id = cursor.lastrowid
             logger.info(f"Created {severity} alert for {device_ip}")
-            return cursor.lastrowid
+
+            # Correlate into an incident (best-effort — never blocks alert creation)
+            try:
+                self.correlate_alert_to_incident(alert_id, device_ip, severity)
+            except Exception:
+                pass
+
+            return alert_id
         except sqlite3.Error as e:
             logger.error(f"Error creating alert for {device_ip}: {e}")
             return None
@@ -517,13 +551,14 @@ class DatabaseManager:
     def update_device_name(self, device_ip: str, device_name: str) -> bool:
         """Update device friendly name."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                UPDATE devices
-                SET device_name = ?
-                WHERE device_ip = ?
-            """, (device_name, device_ip))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    UPDATE devices
+                    SET device_name = ?
+                    WHERE device_ip = ?
+                """, (device_name, device_ip))
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             logger.error(f"Error updating device name: {e}")
@@ -558,10 +593,11 @@ class DatabaseManager:
 
             values.append(device_ip)
 
-            cursor = self.conn.cursor()
-            query = f"UPDATE devices SET {', '.join(fields)} WHERE device_ip = ?"
-            cursor.execute(query, values)
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                query = f"UPDATE devices SET {', '.join(fields)} WHERE device_ip = ?"
+                cursor.execute(query, values)
+                self.conn.commit()
             return True
 
         except sqlite3.Error as e:
@@ -571,12 +607,13 @@ class DatabaseManager:
     def add_device_to_group(self, device_ip: str, group_id: int, added_by: int = None) -> bool:
         """Add device to a group."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT OR IGNORE INTO device_group_members (device_ip, group_id, added_by)
-                VALUES (?, ?, ?)
-            """, (device_ip, group_id, added_by))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO device_group_members (device_ip, group_id, added_by)
+                    VALUES (?, ?, ?)
+                """, (device_ip, group_id, added_by))
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             logger.error(f"Error adding device to group: {e}")
@@ -585,12 +622,13 @@ class DatabaseManager:
     def remove_device_from_group(self, device_ip: str, group_id: int) -> bool:
         """Remove device from a group."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                DELETE FROM device_group_members
-                WHERE device_ip = ? AND group_id = ?
-            """, (device_ip, group_id))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    DELETE FROM device_group_members
+                    WHERE device_ip = ? AND group_id = ?
+                """, (device_ip, group_id))
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             logger.error(f"Error removing device from group: {e}")
@@ -620,20 +658,243 @@ class DatabaseManager:
             logger.error(f"Error fetching all groups: {e}")
             return []
 
-    def acknowledge_alert(self, alert_id: int) -> bool:
-        """Mark alert as acknowledged."""
+    # ------------------------------------------------------------------
+    # Smart-home room CRUD
+    # ------------------------------------------------------------------
+
+    def get_all_rooms(self) -> List[Dict]:
+        """Return all smart-home rooms with their device count."""
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-                UPDATE alerts
-                SET acknowledged = 1, acknowledged_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (alert_id,))
-            self.conn.commit()
+                SELECT r.id, r.room_name, r.room_type, r.floor_level, r.icon, r.created_at,
+                       COUNT(a.device_ip) as device_count
+                FROM smart_home_rooms r
+                LEFT JOIN device_room_assignments a ON r.id = a.room_id
+                GROUP BY r.id
+                ORDER BY r.floor_level, r.room_name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching rooms: {e}")
+            return []
+
+    def add_room(self, room_name: str, room_type: str = None, icon: str = None,
+                 floor_level: int = 0) -> Optional[int]:
+        """Create a new smart-home room; returns new row id or None."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO smart_home_rooms (room_name, room_type, icon, floor_level)
+                    VALUES (?, ?, ?, ?)
+                """, (room_name, room_type, icon, floor_level))
+                self.conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"Error adding room: {e}")
+            return None
+
+    def delete_room(self, room_id: int) -> bool:
+        """Delete a room and its device assignments."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM device_room_assignments WHERE room_id = ?", (room_id,))
+                cursor.execute("DELETE FROM smart_home_rooms WHERE id = ?", (room_id,))
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting room: {e}")
+            return False
+
+    def add_device_to_room(self, device_ip: str, room_id: int) -> bool:
+        """Assign a device to a room."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO device_room_assignments (device_ip, room_id)
+                    VALUES (?, ?)
+                """, (device_ip, room_id))
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error adding device to room: {e}")
+            return False
+
+    def remove_device_from_room(self, device_ip: str, room_id: int) -> bool:
+        """Remove a device from a room."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    DELETE FROM device_room_assignments
+                    WHERE device_ip = ? AND room_id = ?
+                """, (device_ip, room_id))
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error removing device from room: {e}")
+            return False
+
+    def get_room_devices(self, room_id: int) -> List[Dict]:
+        """Return all devices assigned to a room."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT d.* FROM devices d
+                JOIN device_room_assignments a ON d.device_ip = a.device_ip
+                WHERE a.room_id = ?
+                ORDER BY d.device_name
+            """, (room_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching room devices: {e}")
+            return []
+
+    # ------------------------------------------------------------------
+    # Smart-home automation CRUD
+    # ------------------------------------------------------------------
+
+    def get_all_automations(self) -> List[Dict]:
+        """Return all smart-home automations."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM smart_home_automations ORDER BY created_at DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching automations: {e}")
+            return []
+
+    def save_automation(self, name: str, trigger_type: str, condition_text: str,
+                        action_text: str) -> Optional[int]:
+        """Persist a new automation; returns new row id or None."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO smart_home_automations
+                        (name, trigger_type, condition_text, action_text)
+                    VALUES (?, ?, ?, ?)
+                """, (name, trigger_type, condition_text, action_text))
+                self.conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"Error saving automation: {e}")
+            return None
+
+    def delete_automation(self, automation_id: int) -> bool:
+        """Delete an automation by id."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM smart_home_automations WHERE id = ?", (automation_id,))
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting automation: {e}")
+            return False
+
+    def toggle_automation(self, automation_id: int, enabled: bool) -> bool:
+        """Enable or disable an automation."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "UPDATE smart_home_automations SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (1 if enabled else 0, automation_id)
+                )
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error toggling automation: {e}")
+            return False
+
+    def acknowledge_alert(self, alert_id: int) -> bool:
+        """Mark alert as acknowledged."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    UPDATE alerts
+                    SET acknowledged = 1, acknowledged_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (alert_id,))
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             logger.error(f"Error acknowledging alert {alert_id}: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Alert suppression helpers
+    # ------------------------------------------------------------------
+
+    def suppress_device_alerts(self, device_ip: str, hours: Optional[int], created_by: str) -> bool:
+        """
+        Suppress future alerts for *device_ip* for *hours* hours.
+
+        Pass hours=None to suppress indefinitely.
+        Old suppressions for the same device are deleted first (one active rule per device).
+        """
+        try:
+            expires_at = None
+            if hours is not None:
+                expires_at = (datetime.now() + timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                # Remove any previous suppression for this device
+                cursor.execute("DELETE FROM alert_suppressions WHERE device_ip = ?", (device_ip,))
+                cursor.execute(
+                    "INSERT INTO alert_suppressions (device_ip, expires_at, created_by) VALUES (?, ?, ?)",
+                    (device_ip, expires_at, created_by),
+                )
+                self.conn.commit()
+            label = f"{hours}h" if hours else "indefinitely"
+            logger.info(f"Alert suppression set for {device_ip} ({label}) by {created_by}")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error setting suppression for {device_ip}: {e}")
+            return False
+
+    def is_alert_suppressed(self, device_ip: str) -> bool:
+        """Return True if there is an active (non-expired) suppression for device_ip."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT 1 FROM alert_suppressions
+                WHERE device_ip = ?
+                  AND (expires_at IS NULL OR expires_at > datetime('now'))
+                LIMIT 1
+                """,
+                (device_ip,),
+            )
+            return cursor.fetchone() is not None
+        except sqlite3.Error as e:
+            logger.error(f"Error checking suppression for {device_ip}: {e}")
+            return False
+
+    def get_active_suppressions(self) -> list:
+        """Return all active suppressions (unexpired or indefinite)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT s.*, d.device_name
+                FROM alert_suppressions s
+                LEFT JOIN devices d ON s.device_ip = d.device_ip
+                WHERE s.expires_at IS NULL OR s.expires_at > datetime('now')
+                ORDER BY s.created_at DESC
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching active suppressions: {e}")
+            return []
 
     def get_connection_count(self, hours: int = 24) -> int:
         """Get total connection count."""
@@ -662,13 +923,14 @@ class DatabaseManager:
             True if successful, False otherwise
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT INTO model_performance
-                (model_type, precision, recall, f1_score)
-                VALUES (?, ?, ?, ?)
-            """, (model_type, precision, recall, f1_score))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT INTO model_performance
+                    (model_type, precision, recall, f1_score)
+                    VALUES (?, ?, ?, ?)
+                """, (model_type, precision, recall, f1_score))
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             logger.error(f"Error storing model performance metric: {e}")
@@ -700,13 +962,14 @@ class DatabaseManager:
     def set_device_trust(self, device_ip: str, is_trusted: bool) -> bool:
         """Set the trust status for a device."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                UPDATE devices
-                SET is_trusted = ?
-                WHERE device_ip = ?
-            """, (int(is_trusted), device_ip))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    UPDATE devices
+                    SET is_trusted = ?
+                    WHERE device_ip = ?
+                """, (int(is_trusted), device_ip))
+                self.conn.commit()
             logger.info(f"Set device {device_ip} trust to {is_trusted}")
             return True
         except sqlite3.Error as e:
@@ -716,13 +979,14 @@ class DatabaseManager:
     def set_device_blocked(self, device_ip: str, is_blocked: bool) -> bool:
         """Set the blocked status for a device."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                UPDATE devices
-                SET is_blocked = ?
-                WHERE device_ip = ?
-            """, (int(is_blocked), device_ip))
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    UPDATE devices
+                    SET is_blocked = ?
+                    WHERE device_ip = ?
+                """, (int(is_blocked), device_ip))
+                self.conn.commit()
             logger.info(f"Set device {device_ip} blocked to {is_blocked}")
             return True
         except sqlite3.Error as e:
@@ -785,10 +1049,11 @@ class DatabaseManager:
             source: The source of the threat intelligence feed.
         """
         try:
-            cursor = self.conn.cursor()
             data = [(ip, source) for ip in ips]
-            cursor.executemany("INSERT OR IGNORE INTO malicious_ips (ip, source) VALUES (?, ?)", data)
-            self.conn.commit()
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.executemany("INSERT OR IGNORE INTO malicious_ips (ip, source) VALUES (?, ?)", data)
+                self.conn.commit()
             logger.info(f"Added {len(ips)} new malicious IPs from {source}")
         except sqlite3.Error as e:
             logger.error(f"Error adding malicious IPs: {e}")
@@ -933,64 +1198,140 @@ class DatabaseManager:
 
     def cleanup_old_data(self, days: int = 30):
         """
-        Delete data older than specified days and reclaim disk space.
+        Delete data older than per-table retention windows and reclaim WAL space.
 
-        Args:
-            days: Number of days to retain (default: 30)
+        Retention is read from config['database']['retention'] (a dict of
+        table → days).  The ``days`` parameter is used as the fallback for any
+        table not listed there, preserving backward-compatibility with callers
+        that pass an explicit value.
+
+        Tables pruned:
+          connections, ml_predictions, alerts, audit_log, security_audit_log,
+          agent_actions, rate_limit_log, api_integration_logs, toast_history,
+          discovery_events, security_score_history, sustainability_metrics,
+          device_energy_estimates, model_performance, model_drift_history,
+          dns_queries (7 days — prevents unbounded SD card growth),
+          alert_suppressions (expired rows only — no time-window needed)
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
-        logger.info(f"Cleaning up data older than {cutoff_date}...")
+        from config.config_manager import config as _cfg
+
+        # Per-table retention windows (days)
+        _defaults = {
+            'connections':              days,
+            'ml_predictions':           days,
+            'alerts':                   90,
+            'audit_log':               180,
+            'security_audit_log':      180,
+            'agent_actions':           180,
+            'rate_limit_log':            7,
+            'api_integration_logs':     30,
+            'toast_history':            30,
+            'discovery_events':         30,
+            'security_score_history':   90,
+            'sustainability_metrics':   90,
+            'device_energy_estimates':  90,
+            'model_performance':        90,
+            'model_drift_history':      90,
+            'dns_queries':               7,  # DNS logs: 7 days (Pi SD card protection)
+        }
+        retention_cfg = _cfg.get('database', 'retention', default={}) or {}
+        # Merge: config overrides defaults, keeping fallback = ``days`` param
+        retention = {t: retention_cfg.get(t, d) for t, d in _defaults.items()}
+
+        # (table, timestamp_column) pairs
+        _table_ts = [
+            ('connections',             'timestamp'),
+            ('ml_predictions',          'timestamp'),
+            ('alerts',                  'timestamp'),
+            ('audit_log',               'timestamp'),
+            ('security_audit_log',      'timestamp'),
+            ('agent_actions',           'created_at'),
+            ('rate_limit_log',          'timestamp'),
+            ('api_integration_logs',    'timestamp'),
+            ('toast_history',           'timestamp'),
+            ('discovery_events',        'timestamp'),
+            ('security_score_history',  'timestamp'),
+            ('sustainability_metrics',  'timestamp'),
+            ('device_energy_estimates', 'date'),
+            ('model_performance',       'timestamp'),
+            ('model_drift_history',     'timestamp'),
+            ('dns_queries',             'timestamp'),
+        ]
+
+        logger.info("Starting tiered database cleanup…")
+        total_deleted = 0
 
         try:
-            cursor = self.conn.cursor()
-
-            # Delete old ML predictions
-            cursor.execute(
-                "DELETE FROM ml_predictions WHERE timestamp < ?",
-                (cutoff_date,)
-            )
-            predictions_deleted = cursor.rowcount
-            logger.info(f"{predictions_deleted} ML predictions deleted.")
-
-            # Delete old connections
-            cursor.execute(
-                "DELETE FROM connections WHERE timestamp < ?",
-                (cutoff_date,)
-            )
-            connections_deleted = cursor.rowcount
-            logger.info(f"{connections_deleted} connections deleted.")
-
-            # Delete old alerts
-            cursor.execute(
-                "DELETE FROM alerts WHERE timestamp < ?",
-                (cutoff_date,)
-            )
-            alerts_deleted = cursor.rowcount
-            logger.info(f"{alerts_deleted} alerts deleted.")
-
-            self.conn.commit()
-            cursor.close()
-
-            # VACUUM must be run outside of a transaction
-            # Temporarily enable autocommit mode
-            logger.info("Reclaiming disk space (VACUUM)...")
-            old_isolation = self.conn.isolation_level
-            self.conn.isolation_level = None  # Enable autocommit mode
-
-            try:
+            with self._write_lock:
                 cursor = self.conn.cursor()
-                cursor.execute("VACUUM")
-                cursor.close()
-                logger.info("VACUUM completed successfully.")
-            finally:
-                # Restore original isolation level
-                self.conn.isolation_level = old_isolation
+                cursor.execute("BEGIN")
 
-            logger.info("Database cleanup completed successfully.")
+                for table, ts_col in _table_ts:
+                    keep_days = retention.get(table, days)
+                    cutoff = (datetime.now() - timedelta(days=keep_days)).strftime('%Y-%m-%d %H:%M:%S')
+                    try:
+                        cursor.execute(
+                            f"DELETE FROM {table} WHERE {ts_col} < ?",  # noqa: S608
+                            (cutoff,)
+                        )
+                        n = cursor.rowcount
+                        if n:
+                            logger.info(f"  {table}: deleted {n} rows older than {keep_days}d")
+                        total_deleted += n
+                    except sqlite3.OperationalError as e:
+                        # Table may not exist on older installs; log and continue
+                        logger.debug(f"  {table}: skipped ({e})")
+
+                # Remove expired suppressions (not time-window based — just past expiry)
+                cursor.execute(
+                    "DELETE FROM alert_suppressions "
+                    "WHERE expires_at IS NOT NULL AND expires_at < datetime('now')"
+                )
+                expired_sup = cursor.rowcount
+                if expired_sup:
+                    logger.info(f"  alert_suppressions: removed {expired_sup} expired rows")
+
+                self.conn.commit()
+
+            logger.info(f"Cleanup complete: {total_deleted} total rows removed.")
+
+            # WAL checkpoint — flush WAL frames back to the main DB file.
+            # This keeps the WAL from growing indefinitely between autocheckpoints.
+            with self._write_lock:
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.info("WAL checkpoint done.")
+
+            # VACUUM only when the DB is small enough that it won't block for
+            # a long time.  On a busy Pi the DB can exceed 100 MB within months;
+            # above that threshold we skip VACUUM (WAL checkpoint is sufficient
+            # to reclaim space from deleted rows in WAL mode).
+            vacuum_threshold_mb = _cfg.get('database', 'vacuum_threshold_mb', default=100)
+            try:
+                db_size_mb = self.db_path.stat().st_size / 1024 / 1024
+            except (FileNotFoundError, OSError):
+                db_size_mb = 0  # in-memory / missing file → allow VACUUM
+            if db_size_mb < vacuum_threshold_mb:
+                logger.info(f"Running VACUUM (DB {db_size_mb:.1f} MB < {vacuum_threshold_mb} MB)…")
+                with self._write_lock:
+                    old_isolation = self.conn.isolation_level
+                    self.conn.isolation_level = None
+                    try:
+                        self.conn.execute("VACUUM")
+                        logger.info("VACUUM complete.")
+                    finally:
+                        self.conn.isolation_level = old_isolation
+            else:
+                logger.info(
+                    f"Skipping VACUUM (DB {db_size_mb:.1f} MB ≥ {vacuum_threshold_mb} MB); "
+                    "WAL checkpoint is sufficient."
+                )
 
         except sqlite3.Error as e:
             logger.error(f"Database cleanup failed: {e}")
-            self.conn.rollback()
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
 
     def _ensure_connection(self):
         """Ensure database connection is alive, reconnect if needed."""
@@ -1096,7 +1437,6 @@ class DatabaseManager:
         Returns:
             Path to backup file if successful, None otherwise
         """
-        import shutil
 
         try:
             backup_path = Path(backup_dir)
@@ -1184,7 +1524,7 @@ class DatabaseManager:
         Returns:
             True if migrations successful or not needed, False on error
         """
-        CURRENT_SCHEMA_VERSION = 2  # Increment when you add migrations
+        CURRENT_SCHEMA_VERSION = 9  # Increment when you add migrations
 
         try:
             current_version = self.get_schema_version()
@@ -1208,6 +1548,42 @@ class DatabaseManager:
                 self._migrate_to_v2()
                 current_version = 2
 
+            # v2 → v3: agent_actions table for autonomous security agent
+            if current_version < 3:
+                self._migrate_to_v3()
+                current_version = 3
+
+            # v3 → v4: alert_suppressions + system_settings tables
+            if current_version < 4:
+                self._migrate_to_v4()
+                current_version = 4
+
+            # v4 → v5: must_change_password on users + smart_home_automations table
+            if current_version < 5:
+                self._migrate_to_v5()
+                current_version = 5
+
+            # v5 → v6: agent_actions.investigation for visible reasoning timeline
+            if current_version < 6:
+                self._migrate_to_v6()
+                current_version = 6
+
+            # v6 → v7: plain_explanation_ai flag — tracks which alerts have LLM-rewritten text
+            if current_version < 7:
+                self._migrate_to_v7()
+                current_version = 7
+
+            # v7 → v8: incidents table for correlated alert grouping
+            if current_version < 8:
+                self._migrate_to_v8()
+                current_version = 8
+
+            # v8 → v9: ai_source column on alerts + agent_actions — persists which
+            #           provider (groq/openai/ollama/rules) wrote each plain-English text
+            if current_version < 9:
+                self._migrate_to_v9()
+                current_version = 9
+
             return True
 
         except Exception as e:
@@ -1223,6 +1599,378 @@ class DatabaseManager:
             pass  # Column already exists — idempotent
         self.set_schema_version(2)
         logger.info("Migration v2 complete: alerts.plain_explanation added")
+
+    def _migrate_to_v3(self):
+        """Create agent_actions table for the autonomous security agent."""
+        self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS agent_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id INTEGER,
+                device_ip TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                params TEXT,
+                risk_level TEXT DEFAULT 'low',
+                rationale TEXT,
+                plain_report TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                resolved_by TEXT,
+                FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE SET NULL
+            )
+        ''')
+        self.conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_agent_actions_status '
+            'ON agent_actions(status, created_at DESC)'
+        )
+        self.conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_agent_actions_device '
+            'ON agent_actions(device_ip, created_at DESC)'
+        )
+        self.conn.commit()
+        self.set_schema_version(3)
+        logger.info("Migration v3 complete: agent_actions table created")
+
+    def _migrate_to_v4(self):
+        """Create alert_suppressions and system_settings tables."""
+        self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS alert_suppressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_ip TEXT NOT NULL,
+                expires_at TIMESTAMP,
+                created_by TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        self.conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_suppressions_device '
+            'ON alert_suppressions(device_ip, expires_at)'
+        )
+        self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        self.conn.commit()
+        self.set_schema_version(4)
+        logger.info("Migration v4 complete: alert_suppressions + system_settings created")
+
+    def _migrate_to_v5(self):
+        """
+        v5 migration — three additions:
+          1. users.must_change_password column
+          2. smart_home_rooms + device_room_assignments tables (rooms feature)
+          3. smart_home_automations table (new schema)
+
+        Every statement is idempotent (IF NOT EXISTS / try-except on ALTER TABLE).
+        """
+        # 1. users.must_change_password
+        try:
+            self.conn.execute(
+                "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # 2a. smart_home_rooms — needed by the room-assignment feature.
+        #     DBs created before this table existed (pre-smart-home) will get it here.
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS smart_home_rooms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_name TEXT UNIQUE NOT NULL,
+                room_type TEXT,
+                floor_level INTEGER,
+                icon TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 2b. device_room_assignments
+        #     Note: SQLite cannot ADD a foreign key to an existing table via ALTER,
+        #     so upgraded DBs that already have this table do not gain the CASCADE FK.
+        #     This is safe because delete_room() always manually deletes child rows
+        #     before deleting the parent room (db_manager.py delete_room).
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS device_room_assignments (
+                device_ip TEXT,
+                room_id INTEGER,
+                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (device_ip, room_id),
+                FOREIGN KEY (room_id) REFERENCES smart_home_rooms(id) ON DELETE CASCADE
+            )
+        """)
+
+        # 3. smart_home_automations — create with new schema.
+        #    An older version of this table had different columns (automation_name,
+        #    trigger_device_ip, …).  If that old table exists, drop and recreate it —
+        #    safe only because the old table was always empty.
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA table_info(smart_home_automations)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        if existing_cols and 'name' not in existing_cols:
+            self.conn.execute("DROP TABLE smart_home_automations")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS smart_home_automations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                condition_text TEXT,
+                action_text TEXT NOT NULL,
+                is_enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        self.conn.commit()
+        self.set_schema_version(5)
+        logger.info("Migration v5 complete: must_change_password + smart_home tables")
+
+    def _migrate_to_v6(self):
+        """
+        v6 migration — agent_actions.investigation TEXT (JSON steps for the
+        visible reasoning timeline). Fresh DBs already have this column via
+        init_database.py, so the ALTER is wrapped in a try/except.
+        """
+        try:
+            self.conn.execute(
+                "ALTER TABLE agent_actions ADD COLUMN investigation TEXT"
+            )
+        except Exception:
+            pass  # Column already exists
+        self.conn.commit()
+        self.set_schema_version(6)
+        logger.info("Migration v6 complete: agent_actions.investigation column added")
+
+    def _migrate_to_v7(self):
+        """
+        v7 migration — alerts.plain_explanation_ai INTEGER DEFAULT 0.
+
+        Tracks whether the plain_explanation was written by an LLM (1) or is
+        still the initial rule/MITRE template (0). The background plain-English
+        rewrite worker uses this flag to find alerts that still need rewrites.
+        Fresh DBs get the column in init_database.py so the ALTER is idempotent.
+        """
+        try:
+            self.conn.execute(
+                "ALTER TABLE alerts ADD COLUMN plain_explanation_ai INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass  # Column already exists
+        self.conn.commit()
+        self.set_schema_version(7)
+        logger.info("Migration v7 complete: alerts.plain_explanation_ai flag added")
+
+    def _migrate_to_v8(self):
+        """v8 migration — incidents table for correlated alert grouping."""
+        self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                device_ip TEXT NOT NULL,
+                title TEXT NOT NULL,
+                max_severity TEXT DEFAULT 'low',
+                status TEXT DEFAULT 'open',
+                alert_count INTEGER DEFAULT 1,
+                alert_ids TEXT NOT NULL,
+                FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
+            )
+        ''')
+        self.conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_incidents_device_status '
+            'ON incidents(device_ip, status, updated_at)'
+        )
+        self.conn.commit()
+        self.set_schema_version(8)
+        logger.info("Migration v8 complete: incidents table created")
+
+    def _migrate_to_v9(self):
+        """v9 migration — ai_source TEXT on alerts and agent_actions.
+
+        Records which AI provider (groq/openai/ollama/rules) wrote each
+        plain-English explanation so the UI can show 'Explained by Groq AI'
+        etc. on alert cards and agent action cards.
+        Fresh DBs get this column via init_database.py so ALTERs are idempotent.
+        """
+        for stmt in (
+            "ALTER TABLE alerts ADD COLUMN ai_source TEXT",
+            "ALTER TABLE agent_actions ADD COLUMN ai_source TEXT",
+        ):
+            try:
+                self.conn.execute(stmt)
+            except Exception:
+                pass  # Column already exists
+        self.conn.commit()
+        self.set_schema_version(9)
+        logger.info("Migration v9 complete: ai_source column added to alerts + agent_actions")
+
+    # ------------------------------------------------------------------
+    # Incident correlation
+    # ------------------------------------------------------------------
+
+    _INCIDENT_SEVERITY_RANK = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+
+    def _incident_title(self, max_severity: str, alert_count: int) -> str:
+        """Generate a human-readable incident title based on severity and alert count."""
+        if alert_count == 1:
+            return {
+                'critical': 'Critical threat detected',
+                'high': 'High-priority alert',
+                'medium': 'Suspicious activity detected',
+                'low': 'Unusual activity detected',
+            }.get(max_severity, 'Unusual activity detected')
+        if alert_count < 5:
+            return {
+                'critical': 'Critical: repeated threat activity',
+                'high': 'Repeated high-priority alerts',
+                'medium': 'Pattern of suspicious behaviour',
+                'low': 'Repeated unusual activity',
+            }.get(max_severity, 'Repeated unusual activity')
+        return {
+            'critical': 'Active critical incident',
+            'high': 'Ongoing security incident',
+            'medium': 'Ongoing suspicious behaviour',
+            'low': 'Ongoing unusual activity',
+        }.get(max_severity, 'Ongoing security incident')
+
+    def correlate_alert_to_incident(self, alert_id: int, device_ip: str, severity: str) -> int:
+        """Add alert_id to an open recent incident for device_ip, or create a new one.
+
+        An open incident is any incident for the same device with status='open'
+        and updated_at within the last 30 minutes.  Returns the incident ID.
+        """
+        try:
+            with self._write_lock:
+                cur = self.conn.cursor()
+
+                # Find most recent open incident for this device within 30 min
+                cur.execute(
+                    """SELECT id, alert_ids, max_severity, alert_count
+                       FROM incidents
+                       WHERE device_ip = ? AND status = 'open'
+                         AND updated_at >= datetime('now', '-30 minutes')
+                       ORDER BY updated_at DESC
+                       LIMIT 1""",
+                    (device_ip,)
+                )
+                row = cur.fetchone()
+
+                if row:
+                    inc_id, alert_ids_json, cur_max_sev, cur_count = row
+                    try:
+                        ids = json.loads(alert_ids_json)
+                    except Exception:
+                        ids = []
+                    if alert_id not in ids:
+                        ids.append(alert_id)
+
+                    new_count = len(ids)
+                    new_max = (
+                        severity
+                        if self._INCIDENT_SEVERITY_RANK.get(severity, 0)
+                        > self._INCIDENT_SEVERITY_RANK.get(cur_max_sev, 0)
+                        else cur_max_sev
+                    )
+                    new_title = self._incident_title(new_max, new_count)
+
+                    cur.execute(
+                        """UPDATE incidents
+                           SET alert_ids = ?, max_severity = ?, alert_count = ?,
+                               title = ?, updated_at = CURRENT_TIMESTAMP
+                           WHERE id = ?""",
+                        (json.dumps(ids), new_max, new_count, new_title, inc_id),
+                    )
+                    self.conn.commit()
+                    return inc_id
+
+                # No recent open incident — create a new one
+                new_title = self._incident_title(severity, 1)
+                cur.execute(
+                    """INSERT INTO incidents
+                       (device_ip, title, max_severity, status, alert_count, alert_ids)
+                       VALUES (?, ?, ?, 'open', 1, ?)""",
+                    (device_ip, new_title, severity, json.dumps([alert_id])),
+                )
+                self.conn.commit()
+                return cur.lastrowid
+
+        except Exception as exc:
+            logger.warning(f"Incident correlation failed for alert {alert_id}: {exc}")
+            return 0
+
+    def get_open_incidents(self, limit: int = 20) -> List[Dict]:
+        """Return open incidents ordered by severity then recency, joined with device name."""
+        try:
+            cur = self.conn.cursor()
+            cur.execute(
+                """SELECT i.id, i.created_at, i.updated_at, i.device_ip,
+                          COALESCE(d.device_name, i.device_ip) AS device_name,
+                          i.title, i.max_severity, i.status, i.alert_count, i.alert_ids
+                   FROM incidents i
+                   LEFT JOIN devices d ON i.device_ip = d.device_ip
+                   WHERE i.status = 'open'
+                   ORDER BY
+                       CASE i.max_severity
+                           WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+                           WHEN 'medium' THEN 3 ELSE 4
+                       END,
+                       i.updated_at DESC
+                   LIMIT ?""",
+                (limit,)
+            )
+            cols = ['id', 'created_at', 'updated_at', 'device_ip', 'device_name',
+                    'title', 'max_severity', 'status', 'alert_count', 'alert_ids']
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.warning(f"get_open_incidents failed: {exc}")
+            return []
+
+    def resolve_incident(self, incident_id: int) -> bool:
+        """Mark an incident as resolved."""
+        try:
+            with self._write_lock:
+                self.conn.execute(
+                    "UPDATE incidents SET status='resolved', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (incident_id,)
+                )
+                self.conn.commit()
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
+    # System settings KV store
+    # ------------------------------------------------------------------
+
+    def get_setting(self, key: str, default=None):
+        """Read a system setting by key; returns *default* if not found."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT value FROM system_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else default
+        except sqlite3.Error:
+            return default
+
+    def set_setting(self, key: str, value) -> bool:
+        """Upsert a system setting."""
+        try:
+            with self._write_lock:
+                self.conn.execute(
+                    """INSERT INTO system_settings (key, value, updated_at)
+                       VALUES (?, ?, datetime('now'))
+                       ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                                      updated_at = excluded.updated_at""",
+                    (key, str(value)),
+                )
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error setting '{key}': {e}")
+            return False
 
     def cleanup_old_backups(self, backup_dir: str = 'data/backups', keep_days: int = 7) -> int:
         """
@@ -1330,40 +2078,50 @@ class DatabaseManager:
 
         # STEP 2: Open transaction for MINIMAL time - only for writes
         inserted = 0
+        device_ips = set(row[0] for row in validated_data)
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("BEGIN")
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute("BEGIN")
 
-            # Get unique device IPs
-            device_ips = set(row[0] for row in validated_data)
+                # Insert new devices (no-op for known IPs)
+                cursor.executemany("""
+                    INSERT OR IGNORE INTO devices (device_ip, first_seen, last_seen)
+                    VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, [(ip,) for ip in device_ips])
 
-            # Batch insert devices
-            cursor.executemany("""
-                INSERT OR IGNORE INTO devices (device_ip, first_seen, last_seen)
-                VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """, [(ip,) for ip in device_ips])
+                # Bump last_seen for devices already in the table
+                placeholders = ','.join('?' * len(device_ips))
+                cursor.execute(
+                    f"UPDATE devices SET last_seen = CURRENT_TIMESTAMP "
+                    f"WHERE device_ip IN ({placeholders})",
+                    list(device_ips)
+                )
 
-            # Batch insert connections
-            cursor.executemany("""
-                INSERT INTO connections
-                (device_ip, dest_ip, dest_port, protocol, service, duration,
-                 bytes_sent, bytes_received, packets_sent, packets_received, conn_state)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, validated_data)
+                # Batch insert connections
+                cursor.executemany("""
+                    INSERT INTO connections
+                    (device_ip, dest_ip, dest_port, protocol, service, duration,
+                     bytes_sent, bytes_received, packets_sent, packets_received, conn_state)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, validated_data)
 
-            inserted = len(validated_data)
-            self.conn.commit()
+                inserted = len(validated_data)
+                self.conn.commit()
 
             if failed > 0:
                 logger.warning(f"Batch insert: {inserted} successful, {failed} failed")
             else:
-                logger.info(f"Batch insert: {inserted} connections added")
+                logger.debug(f"Batch insert: {inserted} connections added")
 
             return inserted
 
         except Exception as e:
             logger.error(f"Batch connection insert failed: {e}")
-            self.conn.rollback()
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
             return 0
 
     def create_indexes(self):
@@ -1397,20 +2155,21 @@ class DatabaseManager:
         ]
 
         try:
-            cursor = self.conn.cursor()
-            created = 0
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                created = 0
 
-            for index_name, table, column in indexes:
-                try:
-                    cursor.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {index_name}
-                        ON {table}({column})
-                    """)
-                    created += 1
-                except sqlite3.Error as e:
-                    logger.warning(f"Could not create index {index_name}: {e}")
+                for index_name, table, column in indexes:
+                    try:
+                        cursor.execute(f"""
+                            CREATE INDEX IF NOT EXISTS {index_name}
+                            ON {table}({column})
+                        """)
+                        created += 1
+                    except sqlite3.Error as e:
+                        logger.warning(f"Could not create index {index_name}: {e}")
 
-            self.conn.commit()
+                self.conn.commit()
             logger.info(f"✓ Created/verified {created} database indexes")
 
         except sqlite3.Error as e:
@@ -1424,29 +2183,30 @@ class DatabaseManager:
         try:
             logger.info("Starting database optimization...")
 
-            # Analyze tables to update query optimizer statistics
-            cursor = self.conn.cursor()
-            cursor.execute("ANALYZE")
-            logger.info("✓ Updated query statistics")
+            with self._write_lock:
+                # Analyze tables to update query optimizer statistics
+                self.conn.execute("ANALYZE")
+                logger.info("✓ Updated query statistics")
 
-            # Checkpoint WAL
-            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            logger.info("✓ Checkpointed WAL")
+                # Checkpoint WAL
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                logger.info("✓ Checkpointed WAL")
 
-            # Vacuum to reclaim space (if not too large)
-            db_size_mb = self.db_path.stat().st_size / 1024 / 1024
-            if db_size_mb < 100:  # Only vacuum if DB < 100MB
-                old_isolation = self.conn.isolation_level
-                self.conn.isolation_level = None
-                try:
-                    cursor.execute("VACUUM")
-                    logger.info("✓ Vacuumed database")
-                finally:
-                    self.conn.isolation_level = old_isolation
-            else:
-                logger.info("⊘ Skipped VACUUM (database too large)")
+                # Vacuum to reclaim space (if not too large)
+                db_size_mb = self.db_path.stat().st_size / 1024 / 1024
+                if db_size_mb < 100:  # Only vacuum if DB < 100 MB
+                    old_isolation = self.conn.isolation_level
+                    self.conn.isolation_level = None
+                    try:
+                        self.conn.execute("VACUUM")
+                        logger.info("✓ Vacuumed database")
+                    finally:
+                        self.conn.isolation_level = old_isolation
+                else:
+                    logger.info("⊘ Skipped VACUUM (database too large)")
 
-            self.conn.commit()
+                self.conn.commit()
+
             logger.info("✓ Database optimization complete")
 
         except sqlite3.Error as e:
@@ -1510,6 +2270,123 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Failed to get database stats: {e}")
             return {}
+
+    # -------------------------------------------------------------------------
+    # AI Agent Actions
+    # -------------------------------------------------------------------------
+
+    def create_agent_action(self, device_ip: str, action_type: str,
+                            risk_level: str = 'low', rationale: str = '',
+                            plain_report: str = '', status: str = 'pending',
+                            alert_id: Optional[int] = None,
+                            params: Optional[str] = None,
+                            investigation: Optional[str] = None,
+                            ai_source: Optional[str] = None) -> Optional[int]:
+        """Record an AI agent remediation decision."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO agent_actions
+                        (alert_id, device_ip, action_type, params, risk_level,
+                         rationale, plain_report, status, investigation, ai_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (alert_id, device_ip, action_type, params or '{}',
+                      risk_level, rationale, plain_report, status, investigation,
+                      ai_source))
+                self.conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"Error creating agent action: {e}")
+            return None
+
+    def get_new_devices(self, since_minutes: int = 10) -> list:
+        """Return devices first seen within the last `since_minutes` minutes."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """SELECT device_ip, device_name, device_type, manufacturer,
+                          mac_address, icon, category, confidence, first_seen
+                   FROM devices
+                   WHERE first_seen >= datetime('now', ?)
+                   ORDER BY first_seen DESC""",
+                (f"-{since_minutes} minutes",)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching new devices: {e}")
+            return []
+
+    def get_pending_agent_actions(self) -> List[Dict]:
+        """Return all agent actions that are awaiting user approval."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT aa.*, d.device_name, d.mac_address,
+                       a.severity, a.plain_explanation
+                FROM agent_actions aa
+                LEFT JOIN devices d ON aa.device_ip = d.device_ip
+                LEFT JOIN alerts a ON aa.alert_id = a.id
+                WHERE aa.status = 'pending'
+                ORDER BY aa.created_at DESC
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching pending agent actions: {e}")
+            return []
+
+    def get_agent_actions(self, limit: int = 50) -> List[Dict]:
+        """Return recent agent actions (all statuses)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT aa.*, d.device_name, d.mac_address,
+                       a.severity, a.plain_explanation
+                FROM agent_actions aa
+                LEFT JOIN devices d ON aa.device_ip = d.device_ip
+                LEFT JOIN alerts a ON aa.alert_id = a.id
+                ORDER BY aa.created_at DESC
+                LIMIT ?
+            ''', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching agent actions: {e}")
+            return []
+
+    def update_agent_action_status(self, action_id: int, status: str,
+                                   resolved_by: Optional[str] = None) -> bool:
+        """Update action status (approved / executed / rejected)."""
+        try:
+            with self._write_lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    UPDATE agent_actions
+                    SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ?
+                    WHERE id = ?
+                ''', (status, resolved_by or '', action_id))
+                self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Error updating agent action {action_id}: {e}")
+            return False
+
+    def action_already_queued(self, device_ip: str, action_type: str,
+                              hours: int = 24) -> bool:
+        """Return True if an identical action is already pending/executed within window."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(*) as cnt FROM agent_actions
+                WHERE device_ip = ?
+                  AND action_type = ?
+                  AND status IN ('pending','approved','executed','auto')
+                  AND created_at > datetime('now', ? || ' hours')
+            ''', (device_ip, action_type, f'-{hours}'))
+            row = cursor.fetchone()
+            return (row['cnt'] if row else 0) > 0
+        except sqlite3.Error as e:
+            logger.error(f"Error checking duplicate agent action: {e}")
+            return False
 
     def close(self):
         """Close database connection."""
