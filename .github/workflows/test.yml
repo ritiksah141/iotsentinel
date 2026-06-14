@@ -7,6 +7,12 @@ on:
     branches: [ main ]
   workflow_call:        # allow other workflows (e.g. the Pi image build) to gate on this
 
+# Cancel superseded runs on a PR branch when new commits arrive; never cancel
+# on main, where every commit must be validated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
     name: pytest on Python ${{ matrix.python-version }}
@@ -37,6 +43,29 @@ jobs:
         run: |
           pytest tests/ -q --tb=short \
             --cov=. --cov-report=term-missing --cov-report=xml
+
+      # Boots the real Dash app and confirms it serves /login. Unit tests pass
+      # even when a major UI-dependency bump (Dash/plotly/dbc) breaks rendering;
+      # this step fails loudly on that class of breakage.
+      - name: App boot smoke test
+        env:
+          IOTSENTINEL_DEBUG: "true"   # lets SocketIO use the Werkzeug dev server
+          IOTSENTINEL_PORT: "8050"
+        run: |
+          python dashboard/app.py > /tmp/app-boot.log 2>&1 &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8050/login >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$APP_PID" 2>/dev/null || true
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::App did not serve /login within 40s"
+            tail -40 /tmp/app-boot.log
+            exit 1
+          fi
+          echo "App booted and served /login (HTTP 200)."
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12'

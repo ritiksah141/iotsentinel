@@ -21,9 +21,13 @@ jobs:
   test:
     uses: ./.github/workflows/test.yml
 
+  # Gate: and only if the Pi requirement set installs cleanly on ARM64.
+  pi-deps:
+    uses: ./.github/workflows/pi-deps.yml
+
   build-pi-image:
     name: Build ARM64 .img.xz
-    needs: test
+    needs: [test, pi-deps]
     runs-on: ubuntu-latest
 
     steps:

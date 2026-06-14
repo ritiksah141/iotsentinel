@@ -1,0 +1,44 @@
+name: Pi Dependency Check
+
+# Proves the Raspberry Pi requirement set actually installs on ARM64 (aarch64).
+# The main test workflow only runs on x86_64, so a dependency that ships no
+# aarch64/piwheel (e.g. a numpy/pandas major bump) would pass CI yet break a
+# fresh Pi install. This job catches that class of failure.
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'requirements-pi.txt' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'requirements-pi.txt' ]
+  workflow_call:          # so build-pi-image can gate on it
+
+# Cancel superseded runs on a PR branch when new commits arrive; never cancel
+# on main, where every commit must be validated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  pi-deps:
+    name: pip install requirements-pi.txt on ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Register ARM64 binfmt handler
+        run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      # RPi.GPIO is Pi-hardware-only (touches /dev/mem) and is not import-tested
+      # in CI; drop just that line so the resolver check reflects installable deps.
+      - name: Install Pi requirements under emulated aarch64
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" arm64v8/python:3.11-bookworm \
+            bash -c '
+              set -e
+              python -m pip install --upgrade pip
+              grep -ivE "^RPi\.GPIO" /src/requirements-pi.txt > /tmp/req-pi.txt
+              pip install -r /tmp/req-pi.txt
+              python -c "import numpy, pandas, sklearn, river, scapy; print(\"ARM64 import OK:\", numpy.__version__, pandas.__version__, sklearn.__version__)"
+            '
