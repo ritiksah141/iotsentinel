@@ -1,20 +1,20 @@
 # Core Dependencies
 # Pinned to match requirements.txt: numpy must stay <2 or scikit-learn 1.3.x /
 # River 0.21 break their ABI on a fresh Pi install. piwheels ships all three for Bookworm.
-numpy==1.26.4
-pandas==2.3.2
-scikit-learn==1.3.2
+numpy==2.4.6
+pandas==3.0.3
+scikit-learn==1.9.0
 
 # Machine Learning - River for incremental learning (NO training needed!)
-river==0.21.0  # Lightweight, incremental ML (~10-20MB RAM)
+river==0.25.0  # Lightweight, incremental ML (~10-20MB RAM)
 
 # AI Assistant - Hybrid cloud/local LLM
-groq>=0.13.0  # Free cloud API (optional, 0MB RAM on Pi); older pins break with httpx>=0.28
-openai>=1.0.0  # Optional: OpenAI cloud API (business tier)
-anthropic>=0.40.0  # Optional: Claude cloud API (paid)
+groq>=1.4.0  # Free cloud API (optional, 0MB RAM on Pi); older pins break with httpx>=0.28
+openai>=2.41.1  # Optional: OpenAI cloud API (business tier)
+anthropic>=0.109.1  # Optional: Claude cloud API (paid)
 
 # Network Analysis - Scapy for ARP scanning (device discovery)
-scapy==2.5.0  # Lightweight packet crafting and network scanning
+scapy==2.7.0  # Lightweight packet crafting and network scanning
 
 # Web Dashboard
 dash
@@ -29,14 +29,14 @@ Flask-Compress  # Gzip compression for better performance
 
 # Authentication & Security
 Authlib
-webauthn==1.11.1
+webauthn==2.8.0
 zxcvbn
 email-validator
 PyJWT
 cryptography
 bcrypt
 Flask-Login
-pyotp==2.9.0                    # TOTP/2FA token generation
+pyotp==2.10.0                    # TOTP/2FA token generation
 qrcode[pil]==8.2                # QR code generation for 2FA
 
 # Utilities
@@ -50,12 +50,12 @@ paramiko         # SSH-based firewall enforcement (OpenWrt router via firewall_e
 RPi.GPIO
 
 # IoT Discovery & Vulnerability Management
-zeroconf>=0.112.0         # mDNS/Zeroconf service discovery
+zeroconf>=0.149.16         # mDNS/Zeroconf service discovery
 python-nmap>=0.7.1        # nmap integration for network scanning
 fuzzywuzzy>=0.18.0        # Fuzzy string matching for CVE matching
-python-Levenshtein>=0.21.0  # Fast fuzzy matching backend
+python-Levenshtein>=0.27.3  # Fast fuzzy matching backend
 
 # Export & Reporting
-reportlab==4.0.7          # PDF generation
-openpyxl==3.1.2           # Excel file generation
-Pillow==10.1.0            # Image processing for PDF charts
+reportlab==4.5.1          # PDF generation
+openpyxl==3.1.5           # Excel file generation
+Pillow==12.2.0            # Image processing for PDF charts
