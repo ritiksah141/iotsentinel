@@ -49,6 +49,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### CI safety net - branch protection, app-boot smoke, ARM gate (2026-06-15)
+
+- **Branch protection on `main`**: the test/lint/security checks (ruff, bandit, pip-audit, pytest 3.11 + 3.12) are now *required* and branches must be up to date before merge, so a red or stale PR can no longer land. A pull request is required (blocks direct pushes for non-admins); admins keep an emergency escape hatch.
+- **App-boot smoke test** added to the Tests workflow: it launches the real Dash app and asserts it serves `/login` (HTTP 200). Unit tests pass even when a major UI-dependency bump breaks rendering; this catches that class of breakage.
+- **Pi dependency check** (`pi-deps.yml`): installs `requirements-pi.txt` under emulated ARM64 so a dependency with no aarch64/piwheel fails CI instead of breaking a fresh Pi install. Runs when `requirements-pi.txt` changes and gates the image build (`build-pi-image` now `needs: [test, pi-deps]`).
+- **Dependabot** now ignores *major* bumps of the fragile UI/ML packages (dash, dash-bootstrap-components, dash-cytoscape, plotly, numpy, pandas, scikit-learn, webauthn); minor/patch updates still flow. Majors become a deliberate, tested decision.
+
 ### CI fix - scientific stack modernised for Python 3.12 (2026-06-14)
 
 - **Fixed the Tests workflow on Python 3.12.** `numpy==1.24.3` has no 3.12 wheel, so CI tried to build it from source and failed (`BackendUnavailable: Cannot import 'setuptools.build_meta'`). Bumped the core stack to versions that ship cp311 + cp312 manylinux wheels: `numpy==1.26.4`, `pandas==2.3.2`, `scikit-learn==1.3.2`. numpy stays `<2` so scikit-learn 1.3.x and River 0.21 keep their ABI. Full suite (997 passed / 9 skipped) re-verified on the new pins.

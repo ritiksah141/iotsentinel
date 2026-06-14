@@ -14,6 +14,26 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    # Major bumps of these packages carry breaking API/ABI changes (Dash 2->4,
+    # numpy 1->2, pandas 2->3, etc.) and must be done deliberately with full
+    # local + Pi testing, never auto-merged. Minor/patch updates still flow.
+    ignore:
+      - dependency-name: "dash"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dash-bootstrap-components"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dash-cytoscape"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "plotly"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "scikit-learn"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "webauthn"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions used by the CI / image-build workflows.
   # Grouped so all action bumps arrive as a single PR, not one per action.
