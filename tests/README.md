@@ -5,10 +5,10 @@
 | Metric | Value |
 |---|---|
 | Total tests | **997 passing**, 9 skipped, 0 failing |
-| Test files | 32 |
-| Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 86% - name_resolver 83% - email_notifier 73% - alert_service 75% - alert_explainer 100% - weekly_story 100% - device_personality 100% - ai_assistant 100% - ai_health 100% |
+| Test files | 36 |
+| Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
-| CI | `.github/workflows/test.yml` runs on every push to `main` |
+| CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
 
 Run the full suite:
 
@@ -104,14 +104,14 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_capture.py` - 22 tests
+#### `test_capture.py` - 11 tests
 **Covers:** `capture/zeek_log_parser.py` - Zeek conn.log parsing.
 
 **Why it exists:** Every byte of network data enters the system through this parser. An off-by-one on a field index or a silent failure on a malformed log line corrupts all downstream ML and alerting. Tests cover normal rows, missing optional fields, malformed timestamps, and empty files.
 
 ---
 
-#### `test_capture_coverage.py` - 26 tests
+#### `test_capture_coverage.py` - 25 tests
 **Covers:** `capture/zeek_log_parser.py` - protocol-specific log formats.
 
 **Why it exists:** Zeek emits separate log files for each protocol (DHCP, HTTP, DNS). Each has a different field layout. These tests verify the per-protocol parsers independently so a change to one doesn't silently break another.
@@ -196,7 +196,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Setup wizard
 
-#### `test_setup_wizard.py` - 102 tests
+#### `test_setup_wizard.py` - 110 tests
 **Covers:** `dashboard/layouts/setup_wizard.py`, `dashboard/callbacks/callbacks_setup.py`, `config/config_manager.py`.
 
 **Why it exists:** The wizard is the first thing every user sees on a fresh Pi install. A broken step-progression or a silent config-write failure would leave every new install broken. This is the most comprehensive callback test file - the `navigate_steps` logic was extracted to a module-level function specifically to make it testable without a running browser.
@@ -218,7 +218,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Dashboard features and UI
 
-#### `test_asset_build.py` - 22 tests
+#### `test_asset_build.py` - 25 tests
 **Covers:** Boot-time CSS minification (`dashboard/asset_build.py`).
 
 **Why it exists:** `app.py` serves `<name>.min.css` instead of the readable sources, so a minifier bug would silently break every page's styling. These tests pin the safety guarantees (string literals untouched, `calc()` and descendant-pseudo selector semantics preserved) and run the minifier over the real shipped stylesheets to assert brace-count parity.
@@ -300,7 +300,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_dashboard_api_integration.py` - 16 tests
+#### `test_dashboard_api_integration.py` - 15 tests
 **Covers:** `alerts/integration.py` - API integration hub configuration and connectivity.
 
 **Why it exists:** Third-party API integrations (AbuseIPDB, Shodan, PagerDuty) are the most likely source of runtime failures because they depend on external services. Tests verify configuration loading, credential handling, and that connectivity failures are surfaced as user-visible alerts rather than silent exceptions.
@@ -342,6 +342,19 @@ The test suite prioritises the paths where bugs have real consequences - default
 | `TestSendWithAttachmentDisabled` | attachment skipped when `REPORT_ATTACH=false` |
 | `TestSendWithRetryError` | SMTP timeout retried 3× then fails gracefully |
 | `TestSendReportWithAttachmentNotConfigured` | report sent without attachment when SMTP partially configured |
+
+---
+
+#### `test_push_notifiers.py` - 41 tests
+**Covers:** `alerts/push_notifiers.py` - the ntfy / Telegram / Discord / webhook notifiers, the dispatcher fan-out, and the weekly-report digest formatter.
+
+**Why it exists:** push notifications are the mobile alerting path that complements email. Each provider has a different request shape (ntfy headers, Telegram bot API, Discord embeds, generic webhook JSON), and a silent failure in any one would drop alerts for everyone using that channel. These tests stub the HTTP layer to pin each provider's payload, verify the dispatcher fans out to all enabled channels, and check that the weekly story / report text degrades to real stats rather than printing `?`.
+
+| Class | What it validates |
+|---|---|
+| `TestNtfyNotifier` / `TestTelegramNotifier` / `TestDiscordNotifier` / `TestWebhookNotifier` | each provider builds the correct request, handles disabled/missing-config, and surfaces HTTP errors without raising |
+| `TestDispatcherFanOut` | enabled channels all receive the alert; disabled channels skipped; one failing channel doesn't block the others |
+| `TestFormatReportText` | digest prefers the weekly story → AI narrative → real summary stats; truncated to fit Telegram/Discord caps |
 
 ---
 
@@ -424,7 +437,18 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_weekly_story.py` - 32 tests
+#### `test_device_baselines.py` - 8 tests
+**Covers:** `get_device_baseline()` in `dashboard/shared.py` - reading the `device_behavior_baselines` table.
+
+**Why it exists:** the baseline lookup feeds the cold-start sigma sentences and the device personality profiles. It must return `None` cleanly for a fresh device (no rows / insufficient data) and a correctly-mapped dict once rows exist - a wrong key mapping or an unhandled empty result would either crash the device view or invent baseline numbers.
+
+| Class | What it validates |
+|---|---|
+| `TestGetDeviceBaseline` | `None` when no baseline rows exist; dict with `has_baseline=True` and correctly mapped keys when rows exist |
+
+---
+
+#### `test_weekly_story.py` - 33 tests
 **Covers:** `utils/weekly_story.py` — `_facts_to_text`, `_template_fallback`, `generate_story`, `build_facts`.
 
 **Why it exists:** The weekly story is the highest-value AI differentiator cited in the visa/demo evidence. It had zero test coverage. Tests guard the mood-threshold logic, plural/singular grammar, bandwidth percentage maths, and the four LLM fallback paths — the last of which (source == 'rules' passthrough returning raw rule-based chat copy) was a subtle bug that tests would have caught immediately.
@@ -438,7 +462,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_device_personality.py` - 35 tests
+#### `test_device_personality.py` - 34 tests
 **Covers:** `utils/device_personality.py` — the new Device Personality Profiles AI feature (2026-06-10). `_facts_to_text`, `_template_fallback`, `generate_personality`, `build_profile_facts`, `PERSONALITY_TTL`.
 
 **Why it exists:** Device Personality Profiles is the v1.0.0 novel AI feature ("industry first"). The module follows the weekly-story pattern and has the same failure modes. Tests cover the complete fallback chain, em-dash/bold stripping, graceful DB degradation (missing baseline table, missing device row, no connections), and the TTL constant sanity check.
@@ -498,7 +522,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Integration and system tests
 
-#### `test_integeration.py` - 10 tests
+#### `test_integeration.py` - 9 tests
 **Covers:** End-to-end data pipeline - Zeek → DB → ML → alerts.
 
 **Why it exists:** Unit tests confirm each component works in isolation. Integration tests confirm they work together. The pipeline has three hand-offs where data format mismatches can occur silently: parser output → DB insert, DB record → feature extractor, prediction → alert creation.
@@ -514,7 +538,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_pi_integration.py` - 15 tests
+#### `test_pi_integration.py` - 14 tests
 **Covers:** Pi-specific dependencies and performance targets.
 
 **Why it exists:** The Pi is the target platform, but CI runs on x86. These tests verify Pi-specific assumptions - scapy packet handling, River ML memory usage, idle CPU target - so Pi-specific regressions surface in CI before reaching hardware.
@@ -553,19 +577,24 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ## Coverage notes
 
-The 17% overall coverage figure is misleading in isolation. The 11 Dash callback files (`dashboard/callbacks/callbacks_*.py`) account for ~10 000 lines and show 0% coverage - not because they're untested, but because they are Dash callback functions that register handlers at import time and execute only in response to browser events. They cannot be exercised by pytest without a running Dash server and browser automation.
+The 25% overall coverage figure is misleading in isolation. The 13 Dash callback files (`dashboard/callbacks/callbacks_*.py`) account for ~10,250 lines and show 0% coverage - not because they're untested, but because they are Dash callback functions that register handlers at import time and execute only in response to browser events. They cannot be exercised by pytest without a running Dash server and browser automation.
 
 The coverage that matters is on the importable, pure-Python modules:
 
 | Module | Coverage | Notes |
 |---|---|---|
-| `capture/zeek_log_parser.py` | **86%** | Uncovered lines: rare error paths in malformed binary headers |
+| `utils/alert_explainer.py` | **100%** | AI provider labels, prompt build, parse, persist, ask-why grounding |
+| `utils/ai_health.py` | **100%** | health-row builder behind the admin AI Engine Health card |
+| `utils/weekly_story.py` | **94%** | Uncovered: a couple of LLM-error branches |
+| `utils/device_personality.py` | **88%** | Uncovered: rare DB-degradation branches |
+| `utils/ai_assistant.py` | **83%** | Uncovered: live-network provider calls (all stubbed in tests) |
 | `ml/feature_extractor.py` | **81%** | Uncovered: Plotly figure helper (render-only, no logic) |
-| `utils/name_resolver.py` | **83%** | Uncovered: socket timeout edge cases on unusual OS configs |
-| `alerts/alert_service.py` | **75%** | Uncovered: LLM streaming path (requires live API key) |
+| `utils/name_resolver.py` | **79%** | Uncovered: socket timeout edge cases on unusual OS configs |
+| `alerts/alert_service.py` | **78%** | Uncovered: LLM streaming path (requires live API key) |
 | `alerts/email_notifier.py` | **73%** | Uncovered: full SMTP TLS session (requires live SMTP server) |
 | `database/db_manager.py` | **72%** | Uncovered: connection pool teardown, vacuum on very large DBs |
 | `config/config_manager.py` | **69%** | Uncovered: env-var fallback chain for absent `.env` |
+| `capture/zeek_log_parser.py` | **68%** | Uncovered lines: rare error paths in malformed binary headers |
 
 The Dash callbacks are verified through:
 1. **Layout structure tests** - required component IDs are present (prevents wiring bugs)
