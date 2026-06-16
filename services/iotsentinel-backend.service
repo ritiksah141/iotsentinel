@@ -1,6 +1,10 @@
 [Unit]
 Description=IoTSentinel Backend Orchestrator (Parser and ML Engine)
-After=network.target
+# Wait for NetworkManager so the home-Wi-Fi uplink and (gateway mode) the AP
+# interface exist before the orchestrator brings the access point up and points
+# Zeek at it.
+After=network-online.target NetworkManager.service
+Wants=network-online.target
 
 [Service]
 Type=simple

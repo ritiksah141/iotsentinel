@@ -1,8 +1,8 @@
 # IoTSentinel Setup Guide
 
-**Three ways to run IoTSentinel — pick the one that matches your situation.**
+**Three ways to run IoTSentinel - pick the one that matches your situation.**
 
-| | Path A — Raspberry Pi | Path B — Mac / Windows / Linux | Path C — Pi (manual) |
+| | Path A - Raspberry Pi | Path B - Mac / Windows / Linux | Path C - Pi (manual) |
 |---|---|---|---|
 | **Who** | Home users who want a dedicated always-on monitor | Anyone who wants to explore the dashboard on their laptop | Developers / advanced users |
 | **Effort** | Flash SD card → boot → browser wizard | One command | Terminal steps |
@@ -10,15 +10,15 @@
 
 ---
 
-## Path A — Raspberry Pi (recommended for home use)
+## Path A - Raspberry Pi (recommended for home use)
 
 ### What you need
 
 | Item | Notes |
 |---|---|
-| Raspberry Pi 5 — 4 GB RAM | Pi 4 (4 GB+) also works |
-| microSD card — 16 GB minimum | Class 10 / A2 speed rating recommended |
-| USB-C power supply — 5 V / 5 A | Official Pi 5 supply recommended; a phone charger may not provide enough power |
+| Raspberry Pi 5 - 4 GB RAM | Pi 4 (4 GB+) also works |
+| microSD card - 16 GB minimum | Class 10 / A2 speed rating recommended |
+| USB-C power supply - 5 V / 5 A | Official Pi 5 supply recommended; a phone charger may not provide enough power |
 | SD card reader | Built into most laptops or cheap USB adapter |
 | Your home Wi-Fi password | |
 
@@ -26,14 +26,14 @@
 
 ---
 
-### Step 1 — Download
+### Step 1 - Download
 
 Go to the [**latest release**](https://github.com/ritiksah141/iotsentinel/releases/latest) and download:
 
-- `IoTSentinel-<version>.img.xz` — the pre-built image (~2–3 GB compressed). The filename matches the release tag (e.g. `IoTSentinel-v1.2.0.img.xz`).
-- `IoTSentinel-<version>.img.xz.sha256` — optional checksum for verification
+- `IoTSentinel-<version>.img.xz` - the pre-built image (~2-3 GB compressed). The filename matches the release tag (e.g. `IoTSentinel-v1.2.0.img.xz`).
+- `IoTSentinel-<version>.img.xz.sha256` - optional checksum for verification
 
-**Optional — verify the download:**
+**Optional - verify the download:**
 
 ```bash
 # macOS / Linux
@@ -45,23 +45,23 @@ sha256sum -c IoTSentinel-<version>.img.xz.sha256
 
 ---
 
-### Step 2 — Flash with Raspberry Pi Imager
+### Step 2 - Flash with Raspberry Pi Imager
 
-1. Download **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** (free, works on Mac, Windows, and Linux — it's the official tool from the Pi Foundation)
+1. Download **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** (free, works on Mac, Windows, and Linux - it's the official tool from the Pi Foundation)
 2. Open Raspberry Pi Imager
 3. Under **Operating System**, click **"Use custom"** and select the `IoTSentinel-<version>.img.xz` file you downloaded
 4. Under **Storage**, select your SD card
 5. Click **Write** and wait ~5 minutes
 
-> No customisation screen is needed. The setup wizard on the Pi handles WiFi and passwords for you — just write the image as-is.
+> No customisation screen is needed. The setup wizard on the Pi handles WiFi and passwords for you - just write the image as-is.
 
 ---
 
-### Step 3 — Boot and connect
+### Step 3 - Boot and connect
 
 1. Insert the SD card into the Raspberry Pi and plug in the power cable
 2. Wait **90 seconds** for first-boot setup to complete
-3. A Wi-Fi network named **`IoTSentinel-Setup`** will appear on your phone or laptop — no password needed
+3. A Wi-Fi network named **`IoTSentinel-Setup`** will appear on your phone or laptop - no password needed
 4. Connect to `IoTSentinel-Setup`
 5. Open your browser and go to: **`http://10.42.0.1:8050/setup`**
 
@@ -69,38 +69,38 @@ sha256sum -c IoTSentinel-<version>.img.xz.sha256
 
 ---
 
-### Step 4 — Complete the 6-step wizard
+### Step 4 - Complete the 6-step wizard
 
 | Step | What you do |
 |---|---|
-| **1 — WiFi & Admin** | Click **Scan**, pick your home Wi-Fi, enter its password, tap **Connect to this WiFi**. Set your admin password. |
-| **2 — Who is this for?** | Choose **Household** (recommended for home) or **Small Business**. Household unlocks all home security features; Business adds enterprise integrations. |
-| **3 — Notifications & extras** | Pick your notification channels: **ntfy.sh** (zero setup — scan the QR on your phone), Telegram, Discord, webhook, or Email. Optionally add AI explanations (free Groq key) and threat intelligence (free AbuseIPDB key). Everything here is optional. |
-| **4 — Access from anywhere** | Enable remote access to reach the dashboard from any device, anywhere — not just your home Wi-Fi. Powered by Tailscale (free). |
-| **5 — Review & Launch** | Confirm your settings and click **Launch IoTSentinel →** |
-| **6 — You're all set!** | The Pi has joined your home network. Follow the on-screen instructions to access the dashboard. |
+| **1 - WiFi & Admin** | Click **Scan**, pick your home Wi-Fi, enter its password, tap **Connect to this WiFi**. Set your admin password. |
+| **2 - Who is this for?** | Choose **Household** (recommended for home) or **Small Business**. Household unlocks all home security features; Business adds enterprise integrations. |
+| **3 - Notifications & extras** | Pick your notification channels: **ntfy.sh** (zero setup - scan the QR on your phone), Telegram, Discord, webhook, or Email. Optionally add AI explanations (free Groq key) and threat intelligence (free AbuseIPDB key). Everything here is optional. |
+| **4 - Access from anywhere** | Enable remote access to reach the dashboard from any device, anywhere - not just your home Wi-Fi. Powered by Tailscale (free). |
+| **5 - Review & Launch** | Confirm your settings and click **Launch IoTSentinel →** |
+| **6 - You're all set!** | The Pi has joined your home network. Follow the on-screen instructions to access the dashboard. |
 
 After Step 1 completes, the Pi disconnects from the `IoTSentinel-Setup` hotspot and joins your home Wi-Fi. **Reconnect your laptop/phone to your home Wi-Fi** before continuing to Step 2.
 
 ---
 
-### Step 5 — Access the dashboard
+### Step 5 - Access the dashboard
 
 | Device | Address to use |
 |---|---|
 | macOS / Linux / iPhone | `http://iotsentinel.local:8050` |
-| Windows / Android | `http://<pi-ip>:8050` — find the Pi's IP in your router's admin page |
+| Windows / Android | `http://<pi-ip>:8050` - find the Pi's IP in your router's admin page |
 | Any device, any network | Your remote access URL (shown on wizard Step 6 if you enabled it in Step 4) |
 
 > **Windows note:** `iotsentinel.local` requires Bonjour, which ships with iTunes. Without it, use the Pi's IP address directly.
 
-> **Remote access:** If you enabled remote access in Step 4, you'll have a permanent `https://<name>.ts.net` URL — bookmark it and use it from anywhere.
+> **Remote access:** If you enabled remote access in Step 4, you'll have a permanent `https://<name>.ts.net` URL - bookmark it and use it from anywhere.
 
 ---
 
-## Path B — Mac / Windows / Linux (laptop or desktop)
+## Path B - Mac / Windows / Linux (laptop or desktop)
 
-The dashboard runs entirely on your laptop. Network capture is simulated — no Zeek, no Pi required. Useful for exploring the interface or developing new features.
+The dashboard runs entirely on your laptop. Network capture is simulated - no Zeek, no Pi required. Useful for exploring the interface or developing new features.
 
 **Prerequisite:** Python 3.9 or newer. Download from [python.org/downloads](https://www.python.org/downloads/).
 
@@ -131,11 +131,11 @@ install.bat
 
 Or double-click `install.bat` in File Explorer. It does the same steps as `install.sh`.
 
-The browser opens to **`http://localhost:8050/setup`** automatically. Complete the wizard — on a laptop, skip the WiFi step (you're already connected).
+The browser opens to **`http://localhost:8050/setup`** automatically. Complete the wizard - on a laptop, skip the WiFi step (you're already connected).
 
 ---
 
-## Path C — Manual Pi setup (advanced / developers)
+## Path C - Manual Pi setup (advanced / developers)
 
 Use this path if you already have Raspberry Pi OS Lite running and want to install IoTSentinel over SSH or directly on the Pi.
 
@@ -249,17 +249,17 @@ To change any window, edit `config/default_config.json → database → retentio
 
 ### Disk usage expectations
 
-On a typical home network (10–30 devices):
+On a typical home network (10-30 devices):
 
 | Time running | Approximate DB size |
 |---|---|
-| 1 month | 20–60 MB |
-| 6 months | 40–120 MB (with 30-day retention) |
-| 12 months | 50–150 MB (stable, rotation keeps it bounded) |
+| 1 month | 20-60 MB |
+| 6 months | 40-120 MB (with 30-day retention) |
+| 12 months | 50-150 MB (stable, rotation keeps it bounded) |
 
 VACUUM runs automatically when the DB is below 100 MB. Above that, a WAL
 checkpoint is used instead (lighter, non-blocking). The `data/backups/`
-directory will use an additional ~50–100 MB (7 daily + 4 weekly backups).
+directory will use an additional ~50-100 MB (7 daily + 4 weekly backups).
 
 ### Manual maintenance commands
 

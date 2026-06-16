@@ -116,6 +116,7 @@ def init_database():
             plain_explanation TEXT,
             plain_explanation_ai INTEGER DEFAULT 0,
             ai_source TEXT,
+            mitre_tactic TEXT,
             FOREIGN KEY (device_ip) REFERENCES devices(device_ip)
         )
     ''')

@@ -121,8 +121,8 @@ class ZeekLogParser:
                 cursor.execute(
                     """INSERT INTO alerts
                        (timestamp, device_ip, severity, anomaly_score,
-                        explanation, top_features, acknowledged, plain_explanation)
-                       VALUES (datetime('now'), ?, 'critical', 1.0, ?, '{}', 0, ?)""",
+                        explanation, top_features, acknowledged, plain_explanation, mitre_tactic)
+                       VALUES (datetime('now'), ?, 'critical', 1.0, ?, '{}', 0, ?, ?)""",
                     (
                         device_ip,
                         (f"MALICIOUS_IP_CONTACT: {device_ip} contacted known-malicious "
@@ -130,6 +130,7 @@ class ZeekLogParser:
                         (f"A device on your network ({device_ip}) sent traffic to a "
                          f"known malicious IP address ({dest_ip}). This threat was "
                          f"detected as soon as the connection was logged."),
+                        "Command and Control (TA0011)",
                     ),
                 )
 
@@ -445,8 +446,8 @@ class ZeekLogParser:
                     cursor.execute(
                         """INSERT INTO alerts
                            (timestamp, device_ip, severity, anomaly_score,
-                            explanation, top_features, acknowledged, plain_explanation)
-                           VALUES (datetime('now'), ?, 'critical', 1.0, ?, '{}', 0, ?)""",
+                            explanation, top_features, acknowledged, plain_explanation, mitre_tactic)
+                           VALUES (datetime('now'), ?, 'critical', 1.0, ?, '{}', 0, ?, ?)""",
                         (
                             device_ip,
                             (f"MALICIOUS_DOMAIN_QUERY: {device_ip} queried known-malicious "
@@ -455,6 +456,7 @@ class ZeekLogParser:
                             (f"A device ({device_ip}) on your network looked up a known malicious "
                              f"domain ({matched_domain}). Detected at DNS ingestion time. "
                              f"The device may be infected or contacting a command-and-control server."),
+                            "Command and Control (TA0011)",
                         ),
                     )
 

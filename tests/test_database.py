@@ -360,6 +360,38 @@ class TestAlertOperations:
         assert alert['severity'] == 'high'
         assert alert['acknowledged'] == 0
 
+    def test_create_alert_persists_mitre_tactic(self, db, sample_device):
+        """TC-DB-014b: mitre_tactic is stored and round-trips for the Attack Path Sankey."""
+        db.add_device(**sample_device)
+
+        alert_id = db.create_alert(
+            device_ip=sample_device['device_ip'],
+            severity='high',
+            anomaly_score=-0.9,
+            explanation='Large outbound transfer detected',
+            top_features='{}',
+            mitre_tactic='Exfiltration (TA0010) - Large outbound data transfer',
+        )
+
+        assert alert_id is not None
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT mitre_tactic FROM alerts WHERE id = ?", (alert_id,))
+        assert cursor.fetchone()['mitre_tactic'] == 'Exfiltration (TA0010) - Large outbound data transfer'
+
+    def test_create_alert_mitre_tactic_defaults_null(self, db, sample_device):
+        """TC-DB-014c: omitting mitre_tactic leaves it NULL (legacy/fallback path)."""
+        db.add_device(**sample_device)
+        alert_id = db.create_alert(
+            device_ip=sample_device['device_ip'],
+            severity='low',
+            anomaly_score=-0.2,
+            explanation='Minor anomaly',
+            top_features='{}',
+        )
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT mitre_tactic FROM alerts WHERE id = ?", (alert_id,))
+        assert cursor.fetchone()['mitre_tactic'] is None
+
     def test_create_alert_with_invalid_severity_fails(self, db, sample_device):
         """TC-DB-015: Verify severity constraint enforcement."""
         # Arrange

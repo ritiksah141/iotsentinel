@@ -103,6 +103,7 @@ def _navigate_steps_logic(
     auto_block=None, alert_sensitivity=None,
     firewall_enable=None, firewall_router_ip=None,
     firewall_router_user=None, firewall_key_path=None,
+    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
 ):
     """Pure navigation logic for the 6-step wizard; no Dash context dependency.
 
@@ -134,7 +135,9 @@ def _navigate_steps_logic(
         # Skip is only reachable from steps 2-5 (hidden on step 1).
         # The admin was already created when step 1 was completed.
         _save_config(cidr, interface, None, None, None, None, "household", None,
-                     None, None, None, None, None)
+                     None, None, None, None, None,
+                     capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
+                     ap_interface=ap_interface)
         return _ret(
             6, (), False, "Next →", "primary",
             _build_review(cidr, interface, None, None, None, "household", None,
@@ -206,6 +209,8 @@ def _navigate_steps_logic(
                 auto_block=auto_block, alert_sensitivity=alert_sensitivity,
                 firewall_enable=firewall_enable, firewall_router_ip=firewall_router_ip,
                 firewall_router_user=firewall_router_user, firewall_key_path=firewall_key_path,
+                capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
+                ap_interface=ap_interface,
             )
             if success:
                 return _ret(6, (), False, "Next →", "primary", status="",
@@ -400,15 +405,29 @@ def register(app):
         return html.Span(msg, className=color)
 
     # ------------------------------------------------------------------
+    # Show the access-point fields only when Gateway mode is selected, so the
+    # passive (plug-and-play) majority never see USB-adapter settings.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("setup-ap-fields", "style"),
+        Input("setup-capture-mode", "value"),
+    )
+    def _toggle_ap_fields(mode):
+        return {"display": "block"} if mode == "gateway" else {"display": "none"}
+
+    # ------------------------------------------------------------------
     # Populate network interface dropdown from psutil
     # ------------------------------------------------------------------
     @app.callback(
         Output("setup-interface", "options"),
         Output("setup-interface", "value"),
         Output("setup-network-cidr", "value"),
+        Output("setup-ap-interface", "options"),
+        Output("setup-ap-interface", "value"),
         Input("setup-step-store", "data"),
+        Input("setup-ap-rescan-btn", "n_clicks"),
     )
-    def populate_interface_options(_step_data):
+    def populate_interface_options(_step_data, _rescan):
         import ipaddress
         import socket
 
@@ -435,17 +454,31 @@ def register(app):
                 pass
             return None
 
+        def _ap_default(ifaces, home):
+            """Best guess for the USB Wi-Fi adapter that serves the IoT AP. Linux names
+            USB Wi-Fi dongles wlx<mac> or wlan1/wlan2; otherwise pick any interface
+            that isn't the home-Wi-Fi uplink."""
+            for i in ifaces:
+                n = i.lower()
+                if n.startswith('wlx') or n in ('wlan1', 'wlan2'):
+                    return i
+            for i in ifaces:
+                if i != home and not i.lower().startswith(('lo', 'loop')):
+                    return i
+            return 'wlan1'
+
         try:
             interfaces = list(psutil.net_if_addrs().keys())
             interfaces.sort(key=_rank)
             options = [{"label": iface, "value": iface} for iface in interfaces]
             default = interfaces[0] if interfaces else "wlan0"
             detected_cidr = _guess_cidr(default) or "192.168.1.0/24"
-            return options, default, detected_cidr
+            ap_default = _ap_default(interfaces, default)
+            return options, default, detected_cidr, options, ap_default
         except Exception:
-            return ([{"label": "wlan0", "value": "wlan0"},
-                     {"label": "eth0", "value": "eth0"}],
-                    "wlan0", "192.168.1.0/24")
+            fallback = [{"label": "wlan0", "value": "wlan0"},
+                        {"label": "wlan1", "value": "wlan1"}]
+            return fallback, "wlan0", "192.168.1.0/24", fallback, "wlan1"
 
     # ------------------------------------------------------------------
     # Show / hide step 6 (finale) based on step-store
@@ -532,6 +565,11 @@ def register(app):
             State("setup-firewall-router-ip", "value"),
             State("setup-firewall-router-user", "value"),
             State("setup-firewall-key-path", "value"),
+            # Capture mode (gateway/AP) — capture_mode + AP settings.
+            State("setup-capture-mode", "value"),
+            State("setup-ap-ssid", "value"),
+            State("setup-ap-password", "value"),
+            State("setup-ap-interface", "value"),
         ],
         prevent_initial_call=True,
     )
@@ -545,6 +583,7 @@ def register(app):
         ai_privacy_choice,
         auto_block, alert_sensitivity,
         firewall_enable, firewall_router_ip, firewall_router_user, firewall_key_path,
+        capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
     ):
         triggered = callback_context.triggered_id
         step = (step_data or {}).get("step", 1)
@@ -559,6 +598,8 @@ def register(app):
             auto_block=auto_block, alert_sensitivity=alert_sensitivity,
             firewall_enable=firewall_enable, firewall_router_ip=firewall_router_ip,
             firewall_router_user=firewall_router_user, firewall_key_path=firewall_key_path,
+            capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
+            ap_interface=ap_interface,
         )
 
     # ------------------------------------------------------------------
@@ -815,6 +856,7 @@ def _save_config(
     auto_block=None, alert_sensitivity=None,
     firewall_enable=None, firewall_router_ip=None,
     firewall_router_user=None, firewall_key_path=None,
+    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
 ) -> bool:
     """Write .env, update default_config.json. Admin account is created in Step 1."""
     if config.get("system", "is_configured", default=False):
@@ -824,6 +866,18 @@ def _save_config(
         # Network config (stored in JSON, not .env)
         config.update("network", "local_networks", [cidr or "192.168.1.0/24"])
         config.update("network", "interface", interface or "wlan0")
+
+        # Capture mode (Phase 1 persists the choice; the AP is brought up in Phase 2).
+        # Only switch to gateway when the user supplied an AP password, so an accidental
+        # selection can never leave Zeek pointed at a not-yet-present USB Wi-Fi adapter.
+        if capture_mode == "gateway" and ap_password:
+            config.update("network", "capture_mode", "gateway")
+            config.update("network", "ap_ssid", ap_ssid or "IoTSentinel")
+            config.update("network", "ap_password", ap_password)
+            if ap_interface:
+                config.update("network", "ap_interface", ap_interface)
+        else:
+            config.update("network", "capture_mode", "passive")
 
         # The backend points Zeek at network.interface on startup, so a changed
         # interface needs a backend restart to take effect. Only attempt this on a

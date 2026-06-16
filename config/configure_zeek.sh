@@ -23,14 +23,27 @@ LOG_FILE="$PROJECT_DIR/data/logs/zeek_configure.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE"; }
 
-# 1. Resolve the interface: CLI arg wins, else config, else a sensible default.
+# 1. Resolve the interface to monitor. Precedence:
+#    CLI arg  >  network.monitor_interface (explicit dedicated/mirror NIC)
+#             >  network.ap_interface      (when capture_mode == "gateway")
+#             >  network.interface         (passive default)
+#    >  first non-loopback NIC.
+# In gateway mode the Pi is the AP, so Zeek must sniff the AP interface (where all
+# IoT device traffic ingresses) rather than the home-Wi-Fi uplink interface.
 IFACE="${1:-}"
 if [ -z "$IFACE" ] && [ -f "$PROJECT_DIR/config/default_config.json" ]; then
     IFACE="$(python3 -c "
 import json
 try:
     c = json.load(open('$PROJECT_DIR/config/default_config.json'))
-    print(c.get('network', {}).get('interface') or '')
+    n = c.get('network', {})
+    mode = (n.get('capture_mode') or 'passive')
+    iface = n.get('monitor_interface') or ''
+    if not iface and mode == 'gateway':
+        iface = n.get('ap_interface') or ''
+    if not iface:
+        iface = n.get('interface') or ''
+    print(iface)
 except Exception:
     print('')
 " 2>/dev/null)"
@@ -38,6 +51,19 @@ fi
 if [ -z "$IFACE" ]; then
     # Fall back to the first non-loopback interface that is up.
     IFACE="$(ls /sys/class/net 2>/dev/null | grep -v '^lo$' | head -1)"
+fi
+# Defensive: if the resolved interface isn't present on this host (e.g. gateway mode
+# picked the AP interface but the USB Wi-Fi dongle isn't plugged in yet), fall back to
+# the passive monitor interface, then to the first real NIC — never point Zeek at a
+# missing device, which would silently blind capture.
+if [ -n "$IFACE" ] && [ ! -e "/sys/class/net/$IFACE" ]; then
+    log "Interface ${IFACE} not present — selecting a fallback."
+    PASSIVE="$(python3 -c "import json;print((json.load(open('$PROJECT_DIR/config/default_config.json')).get('network',{}).get('interface')) or '')" 2>/dev/null)"
+    if [ -n "$PASSIVE" ] && [ -e "/sys/class/net/$PASSIVE" ]; then
+        IFACE="$PASSIVE"
+    else
+        IFACE="$(ls /sys/class/net 2>/dev/null | grep -v '^lo$' | head -1)"
+    fi
 fi
 if [ -z "$IFACE" ]; then
     log "Could not determine an interface to monitor — skipping Zeek deploy."

@@ -49,6 +49,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### Gateway capture mode - full inline IDS/IPS (2026-06-15)
+
+- **New capture mode** (`network.capture_mode`): `passive` (default, plug-and-play) or `gateway`. In gateway mode the Pi serves a dedicated Wi-Fi network for IoT devices on a USB Wi-Fi adapter (NetworkManager shared mode: DHCP, DNS, NAT, forwarding), so Zeek sees all of their traffic and the firewall can block inline. The home Wi-Fi is never modified.
+- **Access-point manager** (`config/configure_ap.sh`, `utils/ap_manager.py`) brings the AP up and down idempotently; the orchestrator starts it before Zeek and verifies the uplink immediately, rolling back if the AP disrupts the internet.
+- **Connectivity watchdog with auto-rollback** (`utils/network_monitor.uplink_ok`, orchestrator health loop) returns the Pi to passive if the home uplink ever drops in gateway mode.
+- **Inline enforcement now works as a non-root service**: `firewall_enforcer` runs nft and iptables through a `sudo -n` wrapper, and the failsafe whitelist is gateway-aware so IoT devices stay blockable while the access-point gateway is protected.
+- **Wizard**: a Monitoring mode step (Passive or Gateway), a USB-adapter picker with a Rescan button, and an IoT network name and password; access-point fields appear only when Gateway is chosen.
+- **On-Pi validation** (`scripts/validate_gateway.sh`) checks the AP, DHCP/DNS/NAT, Zeek targeting, and the home uplink, then prints a manual end-to-end checklist.
+- Provisioning: `dnsmasq-base` added, sudoers extended for the AP and Zeek scripts and for nft/iptables/zeekctl, and the backend service is ordered after NetworkManager.
+
+### Dashboard bug fixes and shutdown speed-up (2026-06-15)
+
+- **Ctrl+C now stops the dashboard immediately** on macOS: the graceful handler hard-exits after cleanup so eventlet cannot swallow the signal.
+- **AI Insights no longer contradicts the Security Alert Card**: fixed a string slice that turned "No critical or high alerts" into its opposite, made the alert fact deterministic, and removed websocket-fallback cache staleness.
+- **Attack Path and Kill Chain Sankey** now groups alerts by a persisted `mitre_tactic` column (schema v10) with an explanation and severity fallback, instead of an always-missing keyword match.
+- **Global Threat Distribution** map gets a clear caption, a 24-hour window, and a friendly empty state.
+- **Orchestrator shutdown** dropped from about 28 seconds to about 4: worker loops now wait on an interruptible shutdown event instead of blocking out their full interval.
+
 ### CI safety net - branch protection, app-boot smoke, ARM gate (2026-06-15)
 
 - **Branch protection on `main`**: the test/lint/security checks (ruff, bandit, pip-audit, pytest 3.11 + 3.12) are now *required* and branches must be up to date before merge, so a red or stale PR can no longer land. A pull request is required (blocks direct pushes for non-admins); admins keep an emergency escape hatch.
@@ -68,7 +86,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - The dashboard is now installable as a PWA: home-screen icon, standalone window, no browser chrome. Open it once over the Tailscale Funnel HTTPS URL (or `localhost` on the Pi) and install.
 - New root-scoped routes `/sw.js` and `/manifest.webmanifest`; manifest, icons, service worker and an offline fallback page ship in `dashboard/assets/`.
-- Square app icons (192/512/maskable/apple-touch) are generated from `logo.png` at startup (`dashboard/asset_build.py::ensure_pwa_icons`) and gitignored as build artifacts, mirroring the existing `.min.css` pattern — no binary icons in the repo.
+- Square app icons (192/512/maskable/apple-touch) are generated from `logo.png` at startup (`dashboard/asset_build.py::ensure_pwa_icons`) and gitignored as build artifacts, mirroring the existing `.min.css` pattern - no binary icons in the repo.
 - The service worker is intentionally conservative: every non-GET, all navigations, and all `/api`, `/auth`, `/login`, `/_dash-update-component`, and live endpoints are network-only. Only content-hashed Dash bundles and immutable `/assets` files are cached, so it can never serve a stale login or stale security data.
 - `theme-color` now tracks the active light/dark theme.
 - `install.sh` / `install.bat` launch the dashboard in a chromeless `--app` window (Chrome/Edge) for a native feel on desktop, falling back to the default browser.
@@ -76,7 +94,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 #### Fixed - capture pipeline, shipped-image wiring, and latent NameErrors
 
-- **Zeek now actually captures the chosen interface.** The image installed Zeek but never wrote `node.cfg` or ran the initial `zeekctl deploy`, and the orchestrator's restart used `sudo` that the sudoers file did not permit — so on a fresh image the core monitoring could capture nothing. New `config/configure_zeek.sh` writes `node.cfg` for the wizard-selected interface and deploys (idempotent); the orchestrator runs it on startup; the wizard restarts the backend when the interface changes; and the Pi sudoers now allows `zeekctl` and the configure script without a password.
+- **Zeek now actually captures the chosen interface.** The image installed Zeek but never wrote `node.cfg` or ran the initial `zeekctl deploy`, and the orchestrator's restart used `sudo` that the sudoers file did not permit - so on a fresh image the core monitoring could capture nothing. New `config/configure_zeek.sh` writes `node.cfg` for the wizard-selected interface and deploys (idempotent); the orchestrator runs it on startup; the wizard restarts the backend when the interface changes; and the Pi sudoers now allows `zeekctl` and the configure script without a password.
 - Created the three ops scripts `scripts/setup_pi.sh` expected but that were missing (silently skipped): `config/optimize_pi.sh` (GPU split, swappiness, CPU governor), `config/zeek_monitor.sh` (Zeek watchdog, cron `*/5`), `config/zeek_cleanup.sh` (log rotation, cron `0 3`). The shipped image now actually tunes the Pi, self-heals Zeek, and rotates capture logs.
 - Fixed missing imports that would `NameError` at runtime: `sqlite3` and `timedelta` in `utils/excel_exporter.py` and `utils/pdf_exporter.py` (referenced inside `except sqlite3.Error` handlers), an undefined `severity_colors` in the CVE recommendations card, and an undefined `services` in `utils/privacy_analyzer.py`.
 - `agents/security_agent._get_auto_block_config` read the config with the wrong argument shape and always returned the default, so the auto-block setting was never honoured. Fixed to read `agent.auto_block` correctly - the wizard's consent choice now takes effect.
@@ -147,7 +165,7 @@ The previously unused `std_deviation` column in `device_behavior_baselines` now 
 
 #### Added - AI in the box (Pi image)
 
-The Pi image now provisions on-device AI automatically: a new `iotsentinel-localai.service` (oneshot, after network-online, Nice=19 / idle IO) runs `scripts/setup_local_ai.sh` on first boot — installs Ollama via the official installer and pulls the configured `ollama_model` (~1.6 GB) in the background. Idempotent via a stamp file; retries on next boot after transient failures; skips automatically on <3 GB RAM or when `ai_assistant.ollama_enabled` is false. The image stays small (no model baked in) and boot is never blocked. Result: zero-config, key-free, offline-capable AI out of the box — structurally impossible for cloud-AI competitors to match.
+The Pi image now provisions on-device AI automatically: a new `iotsentinel-localai.service` (oneshot, after network-online, Nice=19 / idle IO) runs `scripts/setup_local_ai.sh` on first boot - installs Ollama via the official installer and pulls the configured `ollama_model` (~1.6 GB) in the background. Idempotent via a stamp file; retries on next boot after transient failures; skips automatically on <3 GB RAM or when `ai_assistant.ollama_enabled` is false. The image stays small (no model baked in) and boot is never blocked. Result: zero-config, key-free, offline-capable AI out of the box - structurally impossible for cloud-AI competitors to match.
 
 #### Added - weekly story push digest
 
@@ -186,43 +204,43 @@ The logo shipped at 1031x1280 (314 KB) but renders at a maximum of 120 px. Resiz
 
 `.spotlight-result-selected` referenced `var(--accent-rgb)` which was never defined, so the keyboard-selected result silently lost its background tint and focus ring in light mode (dark mode worked via hardcoded values). `--accent-rgb` is now defined in both theme token blocks alongside `--accent-color`.
 
-#### Geolocation rewritten — batched + cached (`utils/ip_geolocator.py`)
+#### Geolocation rewritten - batched + cached (`utils/ip_geolocator.py`)
 
-The threat map and country-stats callbacks each looped up to 20 external IPs making sequential blocking requests to ip-api.com (2 s timeout each) — up to 40 requests per refresh against the free tier's 45 req/min cap, so requests were throttled into `Read timed out` warnings on every refresh, and the same IPs were re-queried every time.
+The threat map and country-stats callbacks each looped up to 20 external IPs making sequential blocking requests to ip-api.com (2 s timeout each) - up to 40 requests per refresh against the free tier's 45 req/min cap, so requests were throttled into `Read timed out` warnings on every refresh, and the same IPs were re-queried every time.
 
 - New `utils/ip_geolocator.py`: ONE batch POST to `ip-api.com/batch` (up to 100 IPs per call), 24 h cache for successes (geo data is effectively static), 10 min negative cache for failures, thread-safe, 5 s timeout on the single batched call.
-- Both callbacks now share the cache, so a dashboard refresh makes at most one geolocation request total — and zero once warm.
+- Both callbacks now share the cache, so a dashboard refresh makes at most one geolocation request total - and zero once warm.
 - Failures log at **debug**, not warning: an offline LAN-only Pi is an expected deployment, not an error condition.
 - `tests/test_ip_geolocator.py` (14 tests): batch behaviour, both cache TTLs, timeout/HTTP-error/bad-JSON fallbacks, de-dupe, batch cap.
 
-#### Webfont slimming — 646 KB of unreachable fonts removed
+#### Webfont slimming - 646 KB of unreachable fonts removed
 
-`assets/webfonts/` exists because Font Awesome is self-hosted (the dashboard must render on LAN-only / offline Pi installs where a CDN would fail). Audit: solid is used by 1,150 icons and brands by the Google/GitHub icons — kept (`.woff2`). Removed: `fa-regular-400.*` (zero `far` icons anywhere in the app; browsers never download a font that no glyph requests) and all three `.ttf` files (fallbacks only reachable by pre-2014 browsers that cannot run the app anyway). `webfonts/` is now two files, 258 KB.
+`assets/webfonts/` exists because Font Awesome is self-hosted (the dashboard must render on LAN-only / offline Pi installs where a CDN would fail). Audit: solid is used by 1,150 icons and brands by the Google/GitHub icons - kept (`.woff2`). Removed: `fa-regular-400.*` (zero `far` icons anywhere in the app; browsers never download a font that no glyph requests) and all three `.ttf` files (fallbacks only reachable by pre-2014 browsers that cannot run the app anyway). `webfonts/` is now two files, 258 KB.
 
 #### Dead CSS and asset cleanup
 
-Maintainability sweep over `dashboard/assets/` — everything removed was verified unreferenced by a corpus scan (all .py + .js) with protection for library-generated classes (bootstrap/dash/driver/plotly) and dynamically constructed class strings (`f"bg-{color}"`):
+Maintainability sweep over `dashboard/assets/` - everything removed was verified unreferenced by a corpus scan (all .py + .js) with protection for library-generated classes (bootstrap/dash/driver/plotly) and dynamically constructed class strings (`f"bg-{color}"`):
 
-- **77 dead CSS classes removed** (20 custom.css — old status-dot/password-strength/wizard primitives; 55 skeleton.css — only the `skeleton-device-*` family was ever used; skeleton.css shrinks 14.2 KB → 3.8 KB), plus 9 orphaned `@keyframes` and 20 dead custom properties (legacy `--dark-*` alias family, unused `--enable-*` flags). Verified safe: `--bs-*` overrides kept (referenced inside bootstrap.min.css), `bg-smart-template` kept (built via `f"bg-{color}"`), `annotation-text` kept (plotly-generated).
-- **Dead JS deleted**: `notifications.js` (12 KB — a desktop-notification system whose `/notifications/stream` SSE endpoint never existed server-side and whose permission flow was never wired to any UI), `virtual-scroll.js` (exported class never instantiated), `debounce.js` (no consumers; performance.js and the spotlight have their own).
+- **77 dead CSS classes removed** (20 custom.css - old status-dot/password-strength/wizard primitives; 55 skeleton.css - only the `skeleton-device-*` family was ever used; skeleton.css shrinks 14.2 KB → 3.8 KB), plus 9 orphaned `@keyframes` and 20 dead custom properties (legacy `--dark-*` alias family, unused `--enable-*` flags). Verified safe: `--bs-*` overrides kept (referenced inside bootstrap.min.css), `bg-smart-template` kept (built via `f"bg-{color}"`), `annotation-text` kept (plotly-generated).
+- **Dead JS deleted**: `notifications.js` (12 KB - a desktop-notification system whose `/notifications/stream` SSE endpoint never existed server-side and whose permission flow was never wired to any UI), `virtual-scroll.js` (exported class never instantiated), `debounce.js` (no consumers; performance.js and the spotlight have their own).
 - **theme-toggle.js rewritten 96 → 23 lines**: the floating-button code was disabled long ago, but it still ran a `MutationObserver` over the entire body subtree firing a no-op on every Dash re-render. Now it only does the early `body.dark-mode` apply (incl. `auto` via `prefers-color-scheme`) that prevents a light-flash before hydration.
-- **Setup wizard fix**: the Gmail "Show me how" button opened a collapse with `/assets/setup/gmail_apppassword.gif` — a file that does not exist (empty dir). Button, collapse, and callback removed; the vendor help link remains. Empty `assets/setup/` and stray `.DS_Store` deleted.
-- **Test guard added** (`test_parens_balanced`): during the sweep, an automated edit truncated `cubic-bezier(0.4, 0, 0.2, 1)` mid-value, leaving braces balanced but parens not — which silently killed ALL styling after `:root`. Caught by browser-parse verification (style-sheet rule count), repaired, and pinned with a parenthesis-balance test on every first-party stylesheet.
-- **Verification**: every removal was validated with a browser-parsed selector diff (Chromium walks both stylesheets; the removed-selector set must exactly equal the intended dead set). This caught and reverted one false positive — `body.dark-mode .js-plotly-plot .xaxis/.yaxis .crisp` (`.crisp` is a plotly-generated SVG class that themes chart axis lines in dark mode) — and two comment-corruption artifacts in custom.css and mobile-responsive.css.
+- **Setup wizard fix**: the Gmail "Show me how" button opened a collapse with `/assets/setup/gmail_apppassword.gif` - a file that does not exist (empty dir). Button, collapse, and callback removed; the vendor help link remains. Empty `assets/setup/` and stray `.DS_Store` deleted.
+- **Test guard added** (`test_parens_balanced`): during the sweep, an automated edit truncated `cubic-bezier(0.4, 0, 0.2, 1)` mid-value, leaving braces balanced but parens not - which silently killed ALL styling after `:root`. Caught by browser-parse verification (style-sheet rule count), repaired, and pinned with a parenthesis-balance test on every first-party stylesheet.
+- **Verification**: every removal was validated with a browser-parsed selector diff (Chromium walks both stylesheets; the removed-selector set must exactly equal the intended dead set). This caught and reverted one false positive - `body.dark-mode .js-plotly-plot .xaxis/.yaxis .crisp` (`.crisp` is a plotly-generated SVG class that themes chart axis lines in dark mode) - and two comment-corruption artifacts in custom.css and mobile-responsive.css.
 
 Result: 3 fewer JS files on every page load, custom.css source 267 KB → 252 KB, minified bundle 174 KB (27.6 KB gzipped). Suite: 788 passing / 9 skipped / 0 failing.
 
-#### Scroll jank eliminated — backdrop-filter moved off in-flow content
+#### Scroll jank eliminated - backdrop-filter moved off in-flow content
 
 Scrolling was laggy and cards visibly "re-rendered" after each scroll gesture. Three compounding causes, all fixed:
 
-- **Always-on blur on in-flow content.** A late `.glass-card` rule (`!important`) had silently overridden the W15 "no blur on cards" optimization, and every `.btn`, `.card`, input, table, alert and list item also carried `backdrop-filter: blur(...)`. Backdrop blur is sampled in screen space, so the browser re-blurred every visible element on every scrolled frame. Removed blur from all in-flow content (102 declarations across 60 rules); blur now lives only on overlay chrome — navbar, sidebar, modal surfaces, dropdowns, toasts, tooltips, overlays, mobile tab bar (24 rules). Since in-flow elements scroll together with the flat page background, the change is **pixel-identical** in both themes (verified by screenshot diff) — the glass look comes from the translucent backgrounds, borders and noise texture, which are untouched.
-- **`body.is-scrolling` toggle removed** (CSS + performance.js listener). Flipping a body class on scroll start/stop invalidated styles for the entire document, and on stop it re-applied blur+shadow+noise to ~25 cards simultaneously with a 0.5s transition — the visible post-scroll repaint storm. Its `html:not(.is-scrolling)` re-enable rule never matched anything anyway (the JS toggled the class on `body`, not `html`).
-- **skeleton.css**: 18 backdrop-filter declarations removed from shimmer placeholders (in-flow, animated — blur added cost, no visuals).
+- **Always-on blur on in-flow content.** A late `.glass-card` rule (`!important`) had silently overridden the W15 "no blur on cards" optimization, and every `.btn`, `.card`, input, table, alert and list item also carried `backdrop-filter: blur(...)`. Backdrop blur is sampled in screen space, so the browser re-blurred every visible element on every scrolled frame. Removed blur from all in-flow content (102 declarations across 60 rules); blur now lives only on overlay chrome - navbar, sidebar, modal surfaces, dropdowns, toasts, tooltips, overlays, mobile tab bar (24 rules). Since in-flow elements scroll together with the flat page background, the change is **pixel-identical** in both themes (verified by screenshot diff) - the glass look comes from the translucent backgrounds, borders and noise texture, which are untouched.
+- **`body.is-scrolling` toggle removed** (CSS + performance.js listener). Flipping a body class on scroll start/stop invalidated styles for the entire document, and on stop it re-applied blur+shadow+noise to ~25 cards simultaneously with a 0.5s transition - the visible post-scroll repaint storm. Its `html:not(.is-scrolling)` re-enable rule never matched anything anyway (the JS toggled the class on `body`, not `html`).
+- **skeleton.css**: 18 backdrop-filter declarations removed from shimmer placeholders (in-flow, animated - blur added cost, no visuals).
 
 Benchmark (40-card page, 6x CPU throttle, programmatic scroll + 600 ms post-scroll window): worst frame 54.8 ms → 15.9 ms, p95 17 ms → 10.5 ms, frames over 32 ms: 4 → 0. custom.css minified output drops to 180 KB (was 186 KB).
 
-#### performance.js — GPU-layer regression removed, honest metrics added
+#### performance.js - GPU-layer regression removed, honest metrics added
 
 - Removed the DOMContentLoaded loop that forced inline `translateZ(0)` onto every `button, a, .card, .dropdown-item`. This silently re-created the blanket GPU layer promotion that W15 removed from CSS for the Pi 4's Mali GPU (layers are promoted on-demand via `.glass-card:hover` instead). Also removed the dead Google Fonts preconnects (all fonts are self-hosted in `assets/webfonts/`).
 - The console performance breakdown now also prints **First Paint** (FCP) and **Interactive** (domInteractive). "Render Time" (`domComplete - domLoading`) includes async work such as the plotly chunk download/parse, so FCP is the honest "how fast does the page appear" number. Both values exposed on `window.performanceMetrics`.
@@ -238,11 +256,11 @@ Benchmark (40-card page, 6x CPU throttle, programmatic scroll + 600 ms post-scro
 
 ### Device Personality Profiles + AI test coverage (2026-06-10)
 
-#### Device Personality Profiles — novel AI feature (`utils/device_personality.py`, `dashboard/callbacks/callbacks_devices.py`)
+#### Device Personality Profiles - novel AI feature (`utils/device_personality.py`, `dashboard/callbacks/callbacks_devices.py`)
 
 A per-device AI behavioural summary card added to the top of the device detail modal's Overview tab. When a user opens any device, the card shows a plain-English profile of that device's normal behaviour: when it is typically active, how much data it transfers, how many external hosts it contacts, and whether today looks normal compared to its learned baseline.
 
-**Architecture** — follows the established `weekly_story` pattern end-to-end:
+**Architecture** - follows the established `weekly_story` pattern end-to-end:
 - `utils/device_personality.py` (new module): `build_profile_facts(db, device_ip)` gathers baseline metrics from `device_behavior_baselines`, today's stats from `connections`, peak-activity hours (new query: `strftime('%H')` grouped by hour, top 3), device identity, and total alert count. `generate_personality(facts, ai_assistant)` builds a low-temperature LLM prompt, strips em-dashes/bold from the response, and falls back to `_template_fallback` when no LLM is configured, the provider returns `source == 'rules'`, or the call raises. All LLM output rendered via `dcc.Markdown` per the AI output formatting rule.
 - `dashboard/app.py`: global `dcc.Store(id='device-personality-cache')` added alongside `weekly-story-cache`.
 - `dashboard/callbacks/callbacks_devices.py`: personality card inserted at the top of `tab_overview` (glass card, source badge from `alert_explainer.source_label/source_badge_class`, refresh button, timestamp). `update_device_personality` callback with 1-hour TTL cache keyed by device IP, matching the weekly story TTL pattern.
@@ -251,9 +269,9 @@ No home IoT security product ships per-device AI personality profiles grounded i
 
 #### Ask-why grounding extracted to testable helper (`utils/alert_explainer.py`)
 
-`build_followup_prompt(alert_row, today_count, destinations, recs, history, question) -> (prompt, network_context)` extracted from the inline closure in `alert_followup_chat` (`callbacks_alerts.py:3493`). The callback now delegates its context-lines and prompt-assembly to this helper. No behaviour change — same grounding, same history bounding (last 4 non-system turns), same `network_context` preamble.
+`build_followup_prompt(alert_row, today_count, destinations, recs, history, question) -> (prompt, network_context)` extracted from the inline closure in `alert_followup_chat` (`callbacks_alerts.py:3493`). The callback now delegates its context-lines and prompt-assembly to this helper. No behaviour change - same grounding, same history bounding (last 4 non-system turns), same `network_context` preamble.
 
-#### Test coverage — three previously-zero modules now fully covered
+#### Test coverage - three previously-zero modules now fully covered
 
 All three AI utility modules had 0% test coverage. New test files:
 
@@ -267,23 +285,23 @@ All three AI utility modules had 0% test coverage. New test files:
 
 ### Active IDS - autonomous enforcement, CVE on join, Shodan removal (2026-06-08)
 
-#### Active IDS — SecurityAgent becomes an enforcer
+#### Active IDS - SecurityAgent becomes an enforcer
 
 `SecurityAgent` is now an active intrusion detection system. When a high-risk alert fires, the agent autonomously blocks the offending device and any malicious external destinations rather than queuing the action for human approval.
 
-**Policy table** — `_POLICY` in `agents/security_agent.py` maps `(severity, attack_type)` → `(action_type, risk_level)`. `critical/*` always maps to `firewall_block / high`. `high/*` maps to `mark_suspicious / low` (escalates if the device floods alerts — see below).
+**Policy table** - `_POLICY` in `agents/security_agent.py` maps `(severity, attack_type)` → `(action_type, risk_level)`. `critical/*` always maps to `firewall_block / high`. `high/*` maps to `mark_suspicious / low` (escalates if the device floods alerts - see below).
 
-**Investigation** — `_investigate()` now returns `(steps, threat_meta)`. Step 3 performs a **live AbuseIPDB lookup** via `ThreatIntelligence.get_ip_reputation(ip)` for up to 3 external destination IPs; results cached 24 h in `ip_reputation`. Hard cap of 3 API calls per 60 s cycle (≤72/h, within AbuseIPDB 1 000/day free tier). `threat_meta` carries `max_confidence` and `malicious_dests: [(ip, score)]`.
+**Investigation** - `_investigate()` now returns `(steps, threat_meta)`. Step 3 performs a **live AbuseIPDB lookup** via `ThreatIntelligence.get_ip_reputation(ip)` for up to 3 external destination IPs; results cached 24 h in `ip_reputation`. Hard cap of 3 API calls per 60 s cycle (≤72/h, within AbuseIPDB 1 000/day free tier). `threat_meta` carries `max_confidence` and `malicious_dests: [(ip, score)]`.
 
-**Risk routing** — `_process_alert()` routes `risk_level == 'high'` to `_execute_auto_block()` when `enabled = true`; falls back to `status='pending'` queue when disabled.
+**Risk routing** - `_process_alert()` routes `risk_level == 'high'` to `_execute_auto_block()` when `enabled = true`; falls back to `status='pending'` queue when disabled.
 
 **`_execute_auto_block()`**:
-1. Circuit breaker check — 3+ distinct devices auto-blocked in last 10 min → trip breaker, set `auto_block_suspended = '1'`, send critical alert, queue as `pending`. Clear via Admin > Agent.
-2. `FirewallEnforcer.block_device(ip, mac)` — self-lockout guard runs inside enforcer.
+1. Circuit breaker check - 3+ distinct devices auto-blocked in last 10 min → trip breaker, set `auto_block_suspended = '1'`, send critical alert, queue as `pending`. Clear via Admin > Agent.
+2. `FirewallEnforcer.block_device(ip, mac)` - self-lockout guard runs inside enforcer.
 3. `FirewallEnforcer.block_ip(dest)` for each `malicious_dests` entry with `confidence >= threshold`.
 4. `create_agent_action(..., status='auto', risk_level='high')` + critical notification.
 
-**Alert escalation** — `_check_alert_escalation()` counts unacknowledged high/critical alerts from the same device in the last 10 minutes. Three or more promotes a `risk_level='low'` action to `_execute_auto_block` — catches devices that flood high-severity alerts without a single `critical` event.
+**Alert escalation** - `_check_alert_escalation()` counts unacknowledged high/critical alerts from the same device in the last 10 minutes. Three or more promotes a `risk_level='low'` action to `_execute_auto_block` - catches devices that flood high-severity alerts without a single `critical` event.
 
 Set `config.agent.auto_block.enabled = false` to revert to approval-only mode.
 
@@ -291,16 +309,16 @@ Set `config.agent.auto_block.enabled = false` to revert to approval-only mode.
 
 Autonomous blocking cannot lock the admin out of their own dashboard.
 
-- `FirewallEnforcer.block_ip()` and `block_device()` now call `_is_protected_ip(ip)` at the top. Protected IPs: (1) the stored `protected_admin_ip` setting (the browser IP recorded on last login), (2) `config.firewall.router_ip`, (3) `utils.network_monitor.get_default_gateway()`. A match returns `False` and writes an audit log entry — the IP is never blocked.
+- `FirewallEnforcer.block_ip()` and `block_device()` now call `_is_protected_ip(ip)` at the top. Protected IPs: (1) the stored `protected_admin_ip` setting (the browser IP recorded on last login), (2) `config.firewall.router_ip`, (3) `utils.network_monitor.get_default_gateway()`. A match returns `False` and writes an audit log entry - the IP is never blocked.
 - `callbacks_auth.py` `handle_login()` persists `protected_admin_ip = request.remote_addr` into the `system_settings` KV store on every successful login.
 - `dashboard/shared.py` injects the provider callable via `set_protected_ip_provider(lambda: db_manager.get_setting('protected_admin_ip'))` after firewall enforcer initialisation.
 
 #### Auto-quarantine for new devices that fire critical alerts on join
 
 `_scan_new_devices()` now:
-1. **CVE scan on join** — `_run_cve_scan_for_device(device)` performs LIKE matching on `iot_vulnerabilities.affected_vendors` and `affected_models` using the device's manufacturer, model, and device_type. Matches are written to `device_vulnerabilities_detected` with `risk_score = cvss_score * 0.8` (80% confidence for a text match) and `auto_detected = 1`. Skips CVEs already recorded for that device IP.
-2. **Auto-quarantine check** — `_device_has_critical_alert(device_ip, within_hours=1)`. If the new device already generated a critical alert in its first hour **and** auto-block is enabled, `_auto_quarantine_new_device()` runs instead of the normal triage card: blocks via `FirewallEnforcer.block_device`, sets `is_blocked = 1`, records `device_triage` action with `status='auto'` and `risk_level='high'`.
-3. Otherwise: normal Trust/Block triage card. Deduplication window: 720 hours (30 days) — `action_already_queued(device_ip, 'device_triage', hours=720)` skips reconnecting known devices.
+1. **CVE scan on join** - `_run_cve_scan_for_device(device)` performs LIKE matching on `iot_vulnerabilities.affected_vendors` and `affected_models` using the device's manufacturer, model, and device_type. Matches are written to `device_vulnerabilities_detected` with `risk_score = cvss_score * 0.8` (80% confidence for a text match) and `auto_detected = 1`. Skips CVEs already recorded for that device IP.
+2. **Auto-quarantine check** - `_device_has_critical_alert(device_ip, within_hours=1)`. If the new device already generated a critical alert in its first hour **and** auto-block is enabled, `_auto_quarantine_new_device()` runs instead of the normal triage card: blocks via `FirewallEnforcer.block_device`, sets `is_blocked = 1`, records `device_triage` action with `status='auto'` and `risk_level='high'`.
+3. Otherwise: normal Trust/Block triage card. Deduplication window: 720 hours (30 days) - `action_already_queued(device_ip, 'device_triage', hours=720)` skips reconnecting known devices.
 
 #### CVE surfaced in Device details panel (`dashboard/callbacks/callbacks_devices.py`)
 
@@ -308,13 +326,13 @@ The Security tab of the device detail panel now shows a "Known Vulnerabilities (
 
 `utils/cve_matcher.py` updated: `CVEMatcher.__init__` now accepts `db_manager` parameter (uses it directly when provided, falls back to creating a new `DatabaseManager(db_path=...)`). `get_cve_matcher()` accepts a matching kwarg.
 
-#### Real vulnerability scanner — no more fake CVE IDs (`dashboard/callbacks/callbacks_alerts.py`)
+#### Real vulnerability scanner - no more fake CVE IDs (`dashboard/callbacks/callbacks_alerts.py`)
 
 `update_vulnerability_scanner` now queries `device_vulnerabilities_detected` for real NVD CVE counts by severity. Port-based signals (Telnet/FTP) are still counted as additional risk factors but are **no longer assigned placeholder CVE IDs** (`CVE-2021-36260`, `CVE-2020-27403`, etc.). Badge numbers now reflect genuine CVE data.
 
 #### Shodan removed (`alerts/integration_system.py`, tests)
 
-Shodan had no client implementation, no `.env` key, no DB seed, and no dashboard coupling — shipping it would misrepresent the integration list. Removed from `INTEGRATIONS` dict; integration count is now **24** (was 25, Threat Intelligence sub-count "(8)" → "(7)"). Tests updated: `test_total_integration_count_is_24`, `test_advanced_count_is_12`, `test_advanced_sees_all` (24), `test_shodan_configured` deleted.
+Shodan had no client implementation, no `.env` key, no DB seed, and no dashboard coupling - shipping it would misrepresent the integration list. Removed from `INTEGRATIONS` dict; integration count is now **24** (was 25, Threat Intelligence sub-count "(8)" → "(7)"). Tests updated: `test_total_integration_count_is_24`, `test_advanced_count_is_12`, `test_advanced_sees_all` (24), `test_shodan_configured` deleted.
 
 ---
 

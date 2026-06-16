@@ -2228,6 +2228,19 @@ def register(app):
         live_alert_count = None
         if isinstance(ws_message, dict):
             live_alert_count = ws_message.get('alert_count')
+        # On macOS / websocket-fallback the ws payload is absent, so alert_count is
+        # None and the cache never invalidates — leaving a stale briefing that still
+        # names alerts the Security Alert Card no longer shows. Compute the same
+        # unacknowledged-24h count directly so the briefing tracks the card.
+        if live_alert_count is None:
+            try:
+                _r = db_manager.conn.cursor().execute(
+                    "SELECT COUNT(*) FROM alerts "
+                    "WHERE timestamp > datetime('now', '-24 hours') AND acknowledged = 0"
+                ).fetchone()
+                live_alert_count = _r[0] if _r else None
+            except Exception:
+                live_alert_count = None
         if (live_alert_count is not None
                 and cache.get('alert_count') is not None
                 and live_alert_count != cache.get('alert_count')):
@@ -2330,14 +2343,27 @@ def register(app):
                     f"{a['name']} is sending {int(a['today_bytes'] / max(a['baseline_val'], 1)):.0f}× "
                     "more data than its normal baseline today"
                 )
-        if crit + high == 0 and not new_devices:
+        # Always represent the alert state so the briefing can never contradict the
+        # Security Alert Card. crit/high come from get_latest_alerts (unacknowledged,
+        # last 24h) — the exact filter the card uses — so the two stay in lock-step.
+        if crit + high > 0:
+            sev_bits = []
+            if crit:
+                sev_bits.append(f"{crit} critical")
+            if high:
+                sev_bits.append(f"{high} high")
+            insight_facts.insert(0, f"{' and '.join(sev_bits)} unaddressed alert(s) in the last 24 hours")
+        else:
             insight_facts.append("No critical or high alerts in the last 24 hours")
 
         facts_str = "\n".join(f"- {f}" for f in insight_facts) if insight_facts else "- No unusual activity detected"
 
         prompt = (
             f"You are the IoTSentinel AI. Write a response in exactly this format.\n"
-            f"Use plain sentences. No em dashes, no markdown bold, no bullet points.\n\n"
+            f"Use plain sentences. No em dashes, no markdown bold, no bullet points.\n"
+            f"Only mention alerts, threats or severities that appear in the network state and "
+            f"key facts below. If critical=0 and high=0, say plainly there are no critical or high "
+            f"alerts and do not imply any exist.\n\n"
             f"BRIEFING: [2-3 sentences, plain English, friendly, specific. Start with overall status. "
             f"Mention the most important thing. Avoid jargon.]\n\n"
             f"INSIGHT_1: [One sentence about the first fact below, friendly and specific]\n"
@@ -2392,7 +2418,11 @@ def register(app):
             source = "rules"
 
         if not insight_texts:
-            insight_texts = [f[2:] for f in insight_facts[:2]] or ["No unusual activity detected."]
+            # insight_facts are plain strings (no "- " prefix — that's only added in
+            # facts_str). Slicing [2:] here chopped the first two characters, turning
+            # "No critical or high alerts…" into "critical or high alerts…", which read
+            # as the opposite of the truth and contradicted the Security Alert Card.
+            insight_texts = list(insight_facts[:2]) or ["No unusual activity detected."]
 
         new_cache = {'briefing': briefing_text, 'insights': insight_texts, 'source': source, 'ts': time.time(),
                      'alert_count': live_alert_count}

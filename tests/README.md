@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **997 passing**, 9 skipped, 0 failing |
-| Test files | 36 |
+| Total tests | **1055 passing**, 9 skipped, 0 failing |
+| Test files | 40 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
 | CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 997
+pytest tests/                          # all 1055
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -41,7 +41,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Core data pipeline
 
-#### `test_database.py` - 24 tests
+#### `test_database.py` - 26 tests
 **Covers:** `database/db_manager.py` - CRUD operations for all five core entity types.
 
 **Why it exists:** The database is the single source of truth for every dashboard view. This file establishes the correctness baseline: create/read/update/delete round-trips for devices, connections, alerts, ML predictions, and audit log entries. Transaction integrity tests verify that a mid-write failure leaves the DB in a clean state rather than partially committed.
@@ -57,7 +57,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_db_coverage.py` - 86 tests
+#### `test_db_coverage.py` - 88 tests
 **Covers:** `database/db_manager.py` - all 40+ methods not covered by `test_database.py`.
 
 **Why it exists:** `db_manager` is the widest module in the codebase (998 lines). `test_database.py` covers the five core entities; this file covers every other method so regressions surface at the function level rather than only at the integration level.
@@ -232,9 +232,9 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_pwa.py` - 18 tests
-**Covers:** Progressive Web App support — `/sw.js` and `/manifest.webmanifest` routes, the manifest, icon generation, and the service-worker caching guards.
+**Covers:** Progressive Web App support, `/sw.js` and `/manifest.webmanifest` routes, the manifest, icon generation, and the service-worker caching guards.
 
-**Why it exists:** the dashboard installs as a native-feeling app over the Tailscale Funnel HTTPS URL. That relies on a valid manifest, a root-scoped service worker, and the right `<head>` tags — and the service worker must never cache an authenticated or dynamic request. These tests pin install support and the network-only safety guards so a refactor can't silently break install or cache a login.
+**Why it exists:** the dashboard installs as a native-feeling app over the Tailscale Funnel HTTPS URL. That relies on a valid manifest, a root-scoped service worker, and the right `<head>` tags, and the service worker must never cache an authenticated or dynamic request. These tests pin install support and the network-only safety guards so a refactor can't silently break install or cache a login.
 
 | Class | What it validates |
 |---|---|
@@ -373,7 +373,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_alert_explainer.py` - 60 tests
-**Covers:** `utils/alert_explainer.py` — all 9 exported functions: `clean_ai_text`, `source_label`, `source_badge_class`, `source_icon`, `build_prompt`, `parse_ai_text`, `rewrite_alert`, `persist`, `build_followup_prompt`.
+**Covers:** `utils/alert_explainer.py`, all 9 exported functions: `clean_ai_text`, `source_label`, `source_badge_class`, `source_icon`, `build_prompt`, `parse_ai_text`, `rewrite_alert`, `persist`, `build_followup_prompt`.
 
 **Why it exists:** `alert_explainer.py` is the single source of truth for AI provider labels, badge CSS, icon classes, prompt construction, response parsing, DB persistence, and ask-why chat grounding. These helpers are imported by five callback modules; a regression in any of them degrades the AI feature layer across the entire dashboard without an obvious error. This file gives every function 100% line coverage and tests the six boundary cases that have previously caused silent failures (None AI assistant, empty LLM text, exception mid-call, em-dash stripping, 500-char DB truncation, `source == 'rules'` fallback routing).
 
@@ -390,9 +390,9 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_ai_assistant.py` - 85 tests
-**Covers:** `utils/ai_assistant.py` — the `HybridAIAssistant` 6-tier fallback engine: provider ordering, config-driven model names, per-provider health tracking, the TTL response cache, and the Anthropic/Gemini providers.
+**Covers:** `utils/ai_assistant.py`, the `HybridAIAssistant` 6-tier fallback engine: provider ordering, config-driven model names, per-provider health tracking, the TTL response cache, and the Anthropic/Gemini providers.
 
-**Why it exists:** This module routes every AI request in the product and previously had zero coverage — which is how a decommissioned Groq model (`llama3-8b-8192`) silently killed the free cloud tier for weeks. These tests pin the default model IDs (a regression guard asserts the dead model can never return), the exact fallback order in both standard and privacy mode, and the failure-surfacing contract (WARNING once per provider per 10 minutes, health recorded for the admin panel). All providers are stubbed; no network calls.
+**Why it exists:** This module routes every AI request in the product and previously had zero coverage, which is how a decommissioned Groq model (`llama3-8b-8192`) silently killed the free cloud tier for weeks. These tests pin the default model IDs (a regression guard asserts the dead model can never return), the exact fallback order in both standard and privacy mode, and the failure-surfacing contract (WARNING once per provider per 10 minutes, health recorded for the admin panel). All providers are stubbed; no network calls.
 
 | Class | What it validates |
 |---|---|
@@ -410,9 +410,9 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_ai_health.py` - 19 tests
-**Covers:** `utils/ai_health.py` — the pure helpers behind the admin "AI Engine Health" card.
+**Covers:** `utils/ai_health.py`, the pure helpers behind the admin "AI Engine Health" card.
 
-**Why it exists:** The health card is the user-facing window into provider failures (the fix for AI degrading silently to templates). The row-building logic is extracted from the Dash callback into a pure module precisely so these states — off / untested / ok / failing / recovered — can be unit-tested without a browser.
+**Why it exists:** The health card is the user-facing window into provider failures (the fix for AI degrading silently to templates). The row-building logic is extracted from the Dash callback into a pure module precisely so these states, off / untested / ok / failing / recovered, can be unit-tested without a browser.
 
 | Class | What it validates |
 |---|---|
@@ -423,9 +423,9 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_cold_start.py` - 26 tests
-**Covers:** `ml/inference_engine.py` — cold-start severity damping and baseline std-deviation sigma sentences.
+**Covers:** `ml/inference_engine.py`, cold-start severity damping and baseline std-deviation sigma sentences.
 
-**Why it exists:** New devices score against the global baseline and generate false positives until ~100 connections are learned — the worst first impression a security product can make. Damping lowers ML severities one level during the learning window (with a plain-English "still learning" note) while the threat-intel path is explicitly tested to never be damped. Sigma sentences ground spike claims in the device's learned variance instead of bare ratios.
+**Why it exists:** New devices score against the global baseline and generate false positives until ~100 connections are learned, the worst first impression a security product can make. Damping lowers ML severities one level during the learning window (with a plain-English "still learning" note) while the threat-intel path is explicitly tested to never be damped. Sigma sentences ground spike claims in the device's learned variance instead of bare ratios.
 
 | Class | What it validates |
 |---|---|
@@ -449,9 +449,9 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_weekly_story.py` - 33 tests
-**Covers:** `utils/weekly_story.py` — `_facts_to_text`, `_template_fallback`, `generate_story`, `build_facts`.
+**Covers:** `utils/weekly_story.py`, `_facts_to_text`, `_template_fallback`, `generate_story`, `build_facts`.
 
-**Why it exists:** The weekly story is the highest-value AI differentiator cited in the visa/demo evidence. It had zero test coverage. Tests guard the mood-threshold logic, plural/singular grammar, bandwidth percentage maths, and the four LLM fallback paths — the last of which (source == 'rules' passthrough returning raw rule-based chat copy) was a subtle bug that tests would have caught immediately.
+**Why it exists:** The weekly story is one of the highest-value AI differentiators in the product. It had zero test coverage. Tests guard the mood-threshold logic, plural/singular grammar, bandwidth percentage maths, and the four LLM fallback paths, the last of which (source == 'rules' passthrough returning raw rule-based chat copy) was a subtle bug that tests would have caught immediately.
 
 | Class | What it validates |
 |---|---|
@@ -463,7 +463,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 ---
 
 #### `test_device_personality.py` - 34 tests
-**Covers:** `utils/device_personality.py` — the new Device Personality Profiles AI feature (2026-06-10). `_facts_to_text`, `_template_fallback`, `generate_personality`, `build_profile_facts`, `PERSONALITY_TTL`.
+**Covers:** `utils/device_personality.py`, the new Device Personality Profiles AI feature (2026-06-10). `_facts_to_text`, `_template_fallback`, `generate_personality`, `build_profile_facts`, `PERSONALITY_TTL`.
 
 **Why it exists:** Device Personality Profiles is the v1.0.0 novel AI feature ("industry first"). The module follows the weekly-story pattern and has the same failure modes. Tests cover the complete fallback chain, em-dash/bold stripping, graceful DB degradation (missing baseline table, missing device row, no connections), and the TTL constant sanity check.
 
@@ -574,6 +574,28 @@ The test suite prioritises the paths where bugs have real consequences - default
 **Why it exists:** Smoke tests confirm the export endpoint initialises without error. Full export testing requires a browser session and is covered by manual testing.
 
 ---
+
+### Capture mode and gateway (v1.0.0)
+
+#### `test_mitre_helpers.py` - 10 tests
+**Covers:** `dashboard/shared.py` `mitre_stage_from_tactic` and `mitre_tactic_from_explanation`.
+
+**Why it exists:** the Attack Path Sankey was blank because alerts were matched against a tiny keyword map that never hit. These helpers reduce a persisted MITRE tactic (or one recovered from a legacy explanation) to a clean kill-chain stage, so the chart groups real stages. The tests cover every known tactic, the empty and unknown cases, and the helper composition.
+
+#### `test_capture_mode_p1.py` - 17 tests
+**Covers:** the capture-mode config, the Zeek interface-resolution precedence, `utils/network_monitor.uplink_ok`, and the orchestrator connectivity watchdog with auto-rollback.
+
+**Why it exists:** gateway mode must never break the home Wi-Fi. These tests pin the passive default, the interface precedence (monitor over ap over home), the uplink probe (including the 0 percent loss regression that previously read as down), and the watchdog rolling the access point back when the uplink drops.
+
+#### `test_gateway_ap_p2.py` - 17 tests
+**Covers:** `config/configure_ap.sh`, `utils/ap_manager.py`, the orchestrator access-point wiring, and the gateway-aware firewall failsafe.
+
+**Why it exists:** the access-point script must only start in gateway mode with a strong password and never touch the home Wi-Fi; the firewall must keep IoT devices blockable while protecting the access-point gateway. The tests prove the script safety, the manager start and stop paths, the immediate uplink check after bring-up, and that the failsafe whitelist makes the IoT subnet enforceable.
+
+#### `test_gateway_hardening_p3.py` - 10 tests
+**Covers:** the wizard access-point picker, `scripts/validate_gateway.sh`, the privileged nft and iptables wrapper, the sudoers grants, and systemd ordering.
+
+**Why it exists:** inline enforcement runs as a non-root service, so nft and iptables must be elevated. These tests pin the sudo wrapper (and the no-sudo-as-root path), the validation script checks, the dongle picker persistence, and the provisioning and service-ordering guarantees.
 
 ## Coverage notes
 

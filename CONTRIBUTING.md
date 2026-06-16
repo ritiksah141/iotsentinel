@@ -63,5 +63,5 @@ bandit -r . -c pyproject.toml --severity-level high --confidence-level high -q
 
 ## Reporting security issues
 
-Please report vulnerabilities privately — see [SECURITY.md](.github/SECURITY.md).
+Please report vulnerabilities privately - see [SECURITY.md](.github/SECURITY.md).
 Do not open a public issue for security problems.

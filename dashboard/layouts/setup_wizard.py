@@ -112,9 +112,53 @@ _step_1 = html.Div([
     dbc.Select(id="setup-interface", options=[], value=None,
                placeholder="Detecting interfaces...", className="mb-3"),
 
+    # Capture mode, passive (default, safe today) vs gateway/AP (full visibility).
+    # Gateway is the recommended full-protection mode but needs a USB Wi-Fi adapter;
+    # it is fully activated in a later step, so the default here stays passive.
+    dbc.Label("Monitoring mode", className="small fw-semibold mb-1"),
+    dbc.RadioItems(
+        id="setup-capture-mode",
+        options=[
+            {"label": "Passive monitor, watches your existing Wi-Fi (no extra hardware)",
+             "value": "passive"},
+            {"label": "Gateway / Access Point, full per-device protection "
+                      "(recommended; needs a USB Wi-Fi adapter)",
+             "value": "gateway"},
+        ],
+        value="passive",
+        className="mb-2",
+    ),
+    # Shown only when Gateway is selected (toggled by a callback). Starts hidden so
+    # passive users, the plug-and-play majority, never see AP fields.
+    html.Div([
+        dbc.Alert([
+            html.I(className="fa fa-usb me-2"),
+            "Plug your USB Wi-Fi adapter into the Pi, then click Rescan. The built-in "
+            "Wi-Fi stays your home connection.",
+        ], color="info", className="py-2 small mb-2"),
+        dbc.Label("USB Wi-Fi adapter (serves the IoT network)",
+                  className="small fw-semibold mb-1"),
+        dbc.InputGroup([
+            dbc.Select(id="setup-ap-interface", options=[], value=None,
+                       placeholder="Detecting adapters..."),
+            dbc.Button("Rescan", id="setup-ap-rescan-btn", color="secondary",
+                       outline=True, size="sm"),
+        ], className="mb-2"),
+        dbc.Input(id="setup-ap-ssid", placeholder="IoT network name (SSID)",
+                  value="IoTSentinel", className="mb-2 login-form-input"),
+        dbc.Input(id="setup-ap-password", type="password",
+                  placeholder="IoT network password (min 8 characters)",
+                  autocomplete="off", className="mb-2 login-form-input"),
+        html.Small("Pick the USB Wi-Fi adapter (not your home Wi-Fi). Don't see it? Plug "
+                   "it in and click Rescan. Your IoT devices join this network so "
+                   "IoTSentinel sees and protects all their traffic. Your home Wi-Fi is "
+                   "never changed.",
+                   className="text-muted d-block"),
+    ], id="setup-ap-fields", style={"display": "none"}),
+
     html.Hr(className="my-3"),
 
-    # Admin account — username + password chosen by the user
+    # Admin account, username + password chosen by the user
     html.Div([
         html.I(className="fa fa-user input-icon"),
         dbc.Input(id="setup-admin-username", type="text", placeholder=" ",
@@ -188,7 +232,7 @@ _step_2_tier = html.Div([
 
     html.Hr(className="my-3"),
 
-    # Autonomous protection — disclosed up front (privacy/consent), not buried.
+    # Autonomous protection, disclosed up front (privacy/consent), not buried.
     html.Div([
         html.Div([
             html.I(className="fa fa-shield-halved me-2 text-info"),
@@ -208,7 +252,7 @@ _step_2_tier = html.Div([
         ),
     ], className="wizard-section-box mb-3"),
 
-    # Alert sensitivity — how chatty notifications are.
+    # Alert sensitivity, how chatty notifications are.
     dbc.Label("Alert sensitivity", className="small fw-semibold mb-1"),
     dbc.RadioItems(
         id="setup-alert-sensitivity",
@@ -225,7 +269,7 @@ _step_2_tier = html.Div([
 
 def _build_step_3():
     """Build the Step 3 panel. Called at import time so the ntfy topic QR is
-    generated once per process start — each fresh first-run wizard session gets
+    generated once per process start, each fresh first-run wizard session gets
     its own random topic."""
     _default_topic = _ntfy_default_topic()
     _ntfy_url      = f"https://ntfy.sh/{_default_topic}"
@@ -239,7 +283,7 @@ def _build_step_3():
         dbc.Accordion([
 
             # ----------------------------------------------------------------
-            # ntfy.sh — Phone push (zero-account, zero-config)
+            # ntfy.sh, Phone push (zero-account, zero-config)
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P([
@@ -248,7 +292,7 @@ def _build_step_3():
                     " is open-source and free. Install the ",
                     html.A("ntfy app", href="https://ntfy.sh", target="_blank",
                            className="text-info"),
-                    " and scan the QR code below — done.",
+                    " and scan the QR code below, done.",
                 ], className="small text-muted mb-3"),
 
                 # Topic input + live QR code
@@ -273,7 +317,7 @@ def _build_step_3():
                         ], className="small mb-2"),
                         dbc.Alert([
                             html.I(className="fa fa-info-circle me-1"),
-                            "The topic name is public — anyone who knows it can "
+                            "The topic name is public, anyone who knows it can "
                             "subscribe. Keep it random (the default is fine).",
                         ], color="secondary", className="small py-2 px-3 mb-0"),
                     ], md=7),
@@ -370,7 +414,7 @@ def _build_step_3():
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P(
-                    "Receive alert emails via Gmail. Use an App Password — "
+                    "Receive alert emails via Gmail. Use an App Password, "
                     "not your main account password.",
                     className="small text-muted mb-3"
                 ),
@@ -383,7 +427,7 @@ def _build_step_3():
             ], title="Email (Gmail / SMTP)"),
 
             # ----------------------------------------------------------------
-            # AI Explanations (Groq) — unchanged
+            # AI Explanations (Groq), unchanged
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P(
@@ -401,7 +445,7 @@ def _build_step_3():
             dbc.AccordionItem([
                 html.P(
                     "Run AI explanations fully on this device with Ollama. "
-                    "Nothing leaves your network. Optional — install from ollama.com.",
+                    "Nothing leaves your network. Optional, install from ollama.com.",
                     className="small text-muted mb-3"
                 ),
                 dbc.Button(
@@ -424,7 +468,7 @@ def _build_step_3():
             ], title="Local AI (Ollama)"),
 
             # ----------------------------------------------------------------
-            # Threat Intelligence (AbuseIPDB) — unchanged
+            # Threat Intelligence (AbuseIPDB), unchanged
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P(
@@ -437,7 +481,7 @@ def _build_step_3():
             ], title="Threat Intelligence (AbuseIPDB)"),
 
             # ----------------------------------------------------------------
-            # Firewall enforcement (advanced) — lets auto-block actually act
+            # Firewall enforcement (advanced), lets auto-block actually act
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P([
@@ -569,7 +613,7 @@ _step_6_final = html.Div([
 
 
 # --------------------------------------------------------------------------
-# Left panel — static step roadmap
+# Left panel, static step roadmap
 # --------------------------------------------------------------------------
 
 _left_panel = html.Div([

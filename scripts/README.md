@@ -4,8 +4,8 @@ Operational, maintenance, and developer helper scripts for IoTSentinel.
 
 Every file in this directory is documented below. Scripts are grouped into two categories:
 
-- **Wired** — called automatically by the installer, CI/CD, systemd/cron, or production code.
-- **Manual** — run by a human operator or developer when needed; never called automatically.
+- **Wired** - called automatically by the installer, CI/CD, systemd/cron, or production code.
+- **Manual** - run by a human operator or developer when needed; never called automatically.
 
 ---
 
@@ -26,7 +26,7 @@ Every file in this directory is documented below. Scripts are grouped into two c
 
 Run these directly when needed. None are called by the app or CI automatically.
 
-### `reset_admin.py` — Admin password recovery
+### `reset_admin.py` - Admin password recovery
 ```
 python scripts/reset_admin.py
 ```
@@ -34,7 +34,7 @@ Resets the admin account password interactively. Use this if the admin password 
 the forced-change flow cannot be completed (e.g. forgotten before first login). Requires direct
 access to the machine running IoTSentinel.
 
-### `update_threat_feeds.py` — Refresh threat intelligence feeds
+### `update_threat_feeds.py` - Refresh threat intelligence feeds
 ```
 python scripts/update_threat_feeds.py
 ```
@@ -42,28 +42,28 @@ Downloads the latest IP blocklists and domain threat-intel feeds into the databa
 loads threat data at startup, so run this then restart IoTSentinel to pick up fresh data.
 Recommended: run monthly, or after a known incident.
 
-### `verify_rbac_security.py` — RBAC/permissions audit
+### `verify_rbac_security.py` - RBAC/permissions audit
 ```
 python scripts/verify_rbac_security.py
 ```
 Checks that every protected route and callback enforces the expected role (viewer/admin/super-admin).
 Run before a release or after adding new dashboard features.
 
-### `validate_pi.sh` — Post-deploy Pi health check
+### `validate_pi.sh` - Post-deploy Pi health check
 ```
 ./scripts/validate_pi.sh
 ```
 Confirms that all systemd services are running, Zeek is capturing, the DB is reachable, and idle
 CPU is below 20%. Run on the Pi after first boot or after upgrading IoTSentinel.
 
-### `generate_test_data.py` — Seed a development database
+### `generate_test_data.py` - Seed a development database
 ```
 python scripts/generate_test_data.py
 ```
 Populates the database with realistic sample devices, traffic flows, alerts, and anomalies.
 Useful for local development and UI testing when no real network traffic is available.
 
-### `init_db_features.py` — One-off feature-table initialiser
+### `init_db_features.py` - One-off feature-table initialiser
 ```
 python scripts/init_db_features.py
 ```

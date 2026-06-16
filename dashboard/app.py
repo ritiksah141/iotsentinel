@@ -5894,7 +5894,11 @@ dashboard_layout = dbc.Container([
                     html.Div([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6([html.I(className="fa fa-map me-2 text-danger"), "Global Threat Distribution"], className="mb-3"),
+                                html.H6([html.I(className="fa fa-map me-2 text-danger"), "Global Threat Distribution"], className="mb-1"),
+                                html.P("Where your devices connect on the internet over the last 24 hours. "
+                                       "Each marker is an external destination IP - larger and redder means more "
+                                       "connections. Local (private) addresses are excluded.",
+                                       className="text-muted small mb-3"),
                                 dbc.Row([
                                     dbc.Col([
                                         dbc.Card([
@@ -5921,14 +5925,19 @@ dashboard_layout = dbc.Container([
                                             dbc.CardBody([
                                                 html.Div([
                                                     html.I(className="fa fa-clock me-2 text-warning"),
-                                                    html.Span("Last Hour", className="h6 mb-0")
+                                                    html.Span("Last 24 Hours", className="h6 mb-0")
                                                 ], className="d-flex align-items-center justify-content-center")
                                             ])
                                         ], className="glass-card mb-3")
                                     ], md=4)
                                 ]),
                                 dcc.Loading(
-                                    dcc.Graph(id='geographic-threat-map', config={'displayModeBar': False},
+                                    dcc.Graph(id='geographic-threat-map',
+                                             config={'displayModeBar': False, 'responsive': True,
+                                                     # Serve the geo basemap from our own
+                                                     # /assets so Plotly never fetches
+                                                     # cdn.plot.ly (CSP-blocked + works offline).
+                                                     'topojsonURL': '/assets/topojson/'},
                                              className="chart-h-500"),
                                     type='circle'
                                 )
@@ -10124,7 +10133,11 @@ def main():
         except Exception:
             pass
         logger.info("Goodbye 👋")
-        sys.exit(0)
+        # os._exit (not sys.exit) — eventlet's greenlet WSGI server swallows the
+        # SystemExit that sys.exit raises, so a single Ctrl+C never terminated the
+        # process on macOS. A hard exit after the graceful cleanup above guarantees
+        # the first Ctrl+C/SIGTERM actually stops the server.
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, _graceful_shutdown)
     signal.signal(signal.SIGINT, _graceful_shutdown)

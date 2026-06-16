@@ -223,6 +223,7 @@ class AlertService:
         top_features: Optional[str] = None,
         send_notification: bool = True,
         plain_explanation: Optional[str] = None,
+        mitre_tactic: Optional[str] = None,
     ) -> Optional[int]:
         """
         Create a new alert and optionally send notifications.
@@ -234,6 +235,7 @@ class AlertService:
             explanation: Human-readable explanation of the anomaly
             top_features: JSON string of top contributing features
             send_notification: Whether to send notifications
+            mitre_tactic: MITRE ATT&CK tactic string for the Attack Path Sankey
 
         Returns:
             Alert ID if created, None if suppressed
@@ -263,6 +265,7 @@ class AlertService:
             explanation=explanation,
             top_features=top_features,
             plain_explanation=plain_explanation,
+            mitre_tactic=mitre_tactic,
         )
         alert.alert_id = alert_id
 

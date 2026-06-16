@@ -11,13 +11,21 @@
   "network": {
     "interface": "wlan0",
     "monitor_interface": null,
+    "capture_mode": "passive",
+    "ap_interface": "wlan1",
+    "ap_ssid": "IoTSentinel",
+    "ap_password": null,
+    "ap_subnet": "10.42.0.0/24",
+    "ap_band": "bg",
+    "ap_channel": 6,
     "local_networks": [
       "192.168.1.0/24"
     ],
     "zeek_enabled": true,
     "zeek_bin_path": "/opt/zeek/bin",
     "zeek_log_path": "/opt/zeek/logs",
-    "arp_scan_interval": 300
+    "arp_scan_interval": 300,
+    "note_capture_mode": "capture_mode: 'passive' (Zeek sniffs network.interface) or 'gateway' (Pi is a Wi-Fi AP on ap_interface via a USB dongle; all IoT traffic + DNS routed through the Pi for full visibility + inline enforcement). Home Wi-Fi (network.interface as client uplink) is never modified."
   },
   "zeek": {
     "parse_interval_seconds": 60,
