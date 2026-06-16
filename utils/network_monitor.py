@@ -126,6 +126,30 @@ def ping_device(ip_address: str, count: int = 4, timeout: int = 5) -> Optional[D
         return None
 
 
+def uplink_ok(internet_hosts: tuple = ("1.1.1.1", "8.8.8.8")) -> bool:
+    """Return True if the Pi's internet uplink is healthy.
+
+    Reachability of ANY public host is treated as "uplink up" — this deliberately
+    ignores the LAN gateway (many home routers block ICMP, which would otherwise
+    produce false "down" readings and spurious rollbacks). It only reports down when
+    every probe host is unreachable.
+
+    Used by the connectivity watchdog (orchestrator) so that bringing up the IoT
+    access point in gateway mode can be auto-rolled-back the moment it disrupts the
+    home-Wi-Fi uplink — the core "never break the home Wi-Fi" guarantee.
+    """
+    for host in internet_hosts:
+        result = ping_device(host, count=2, timeout=2)
+        if not result:
+            continue
+        # NB: 0.0% loss is the *best* case — don't use `or` here (0.0 is falsy and
+        # would be mistaken for "no data" → a false "uplink down").
+        loss = result.get('packet_loss_percent')
+        if loss is not None and loss < 100.0:
+            return True
+    return False
+
+
 def get_network_metrics(gateway_ip: Optional[str] = None) -> Dict[str, str]:
     """
     Get current network performance metrics.

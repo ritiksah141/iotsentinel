@@ -245,6 +245,9 @@ class IoTSentinelOrchestrator:
         # Threading control
         self.running = False
         self.threads = []
+        # Set on stop() so worker loops waiting in _sleep() wake immediately instead
+        # of blocking out their full interval — keeps shutdown fast and graceful.
+        self._shutdown_event = threading.Event()
 
         # Initialize AI Security Agent
         try:
@@ -303,6 +306,10 @@ class IoTSentinelOrchestrator:
         logger.info("Starting IoTSentinel components...")
 
         self.running = True
+
+        # In gateway mode, bring the IoT access point up FIRST so its interface
+        # exists before Zeek targets it. No-op (and safe) in passive mode.
+        self._ensure_ap_configured()
 
         # Ensure Zeek is pointed at the monitored interface and deployed before we
         # start parsing its logs — otherwise the capture pipeline has no input.
@@ -748,7 +755,7 @@ class IoTSentinelOrchestrator:
                                         except Exception:
                                             pass
 
-                            time.sleep(INTER_ITEM_SLEEP)
+                            self._sleep(INTER_ITEM_SLEEP)
 
                 except Exception as exc:
                     logger.debug(f"PlainEnglishRewrite cycle error: {exc}")
@@ -866,10 +873,49 @@ class IoTSentinelOrchestrator:
         if not os.path.isfile(script):
             logger.warning("configure_zeek.sh missing — skipping Zeek deploy.")
             return
-        interface = config.get('network', 'interface', default='') or ''
+        self._ensure_zeek_configured_inner(script)
+
+    def _ensure_ap_configured(self):
+        """In gateway mode, bring up the IoT Wi-Fi access point (NetworkManager
+        shared mode) before Zeek starts. Best-effort and never fatal — on a dev
+        machine (no nmcli/sudo) and in passive mode this is a no-op. After bring-up
+        it verifies the home uplink is still healthy and rolls back if not, so the
+        AP can never strand the user's internet."""
+        mode = config.get('network', 'capture_mode', default='passive')
+        if mode != 'gateway':
+            return
         try:
+            from utils.ap_manager import AccessPointManager
+            ap = AccessPointManager()
+            if not ap.start():
+                logger.warning("Access point did not start — staying on passive capture.")
+                return
+            logger.info("IoT access point started (gateway mode).")
+        except Exception as e:
+            logger.error("Could not start access point: %s", e)
+            return
+        # Immediate post-bring-up safety check: if the AP disrupted the home uplink,
+        # roll it straight back rather than wait for the periodic watchdog.
+        try:
+            from utils.network_monitor import uplink_ok
+            if not (uplink_ok() or uplink_ok()):
+                logger.critical("Home uplink unreachable right after AP bring-up — "
+                                "rolling the access point back.")
+                self._rollback_gateway("uplink lost immediately after AP bring-up")
+        except Exception as e:
+            logger.error("Post-AP uplink check failed: %s", e)
+
+    def _ensure_zeek_configured_inner(self, script):
+        # In gateway mode let configure_zeek.sh resolve the interface itself
+        # (monitor_interface > ap_interface). Passing the home interface as a CLI arg
+        # would win over that and point Zeek at the wrong NIC.
+        mode = config.get('network', 'capture_mode', default='passive')
+        interface = '' if mode == 'gateway' else (config.get('network', 'interface', default='') or '')
+        try:
+            # Invoke the script directly (executable shebang) with -n so the sudoers
+            # path rule matches and it never blocks on a password prompt.
             subprocess.run(
-                ["sudo", "bash", script] + ([interface] if interface else []),
+                ["sudo", "-n", script] + ([interface] if interface else []),
                 check=False, capture_output=True, text=True, timeout=60,
             )
             logger.info("Zeek configuration applied (interface=%s).",
@@ -903,6 +949,10 @@ class IoTSentinelOrchestrator:
                     except (subprocess.CalledProcessError, FileNotFoundError) as e:
                         logger.error(f"Failed to restart Zeek: {e}")
 
+                # Connectivity watchdog — only active in gateway mode (the only mode
+                # where IoTSentinel alters routing and could affect the uplink).
+                self._check_uplink_watchdog()
+
             except Exception as e:
                 logger.error(f"Error during health check: {e}", exc_info=True)
 
@@ -913,6 +963,70 @@ class IoTSentinelOrchestrator:
                 time.sleep(1)
 
         logger.info("Health check loop stopped.")
+
+    def _check_uplink_watchdog(self):
+        """Gateway-mode safety net: if the home-Wi-Fi uplink goes down (e.g. bringing
+        up the IoT access point disrupted it), roll the gateway back so the user never
+        loses internet. No-op in passive mode."""
+        mode = config.get('network', 'capture_mode', default='passive')
+        if mode != 'gateway':
+            self._uplink_fail_count = 0
+            return
+        try:
+            from utils.network_monitor import uplink_ok
+        except Exception:
+            return
+        # Confirm a real outage with quick retries so a transient blip never triggers
+        # a rollback.
+        down = True
+        for _ in range(3):
+            if uplink_ok():
+                down = False
+                break
+            self._sleep(3)
+        if not down:
+            self._uplink_fail_count = 0
+            return
+        self._uplink_fail_count = getattr(self, '_uplink_fail_count', 0) + 1
+        logger.critical(
+            "Connectivity watchdog: internet uplink DOWN in gateway mode "
+            "(consecutive=%d) — rolling back the IoT access point.",
+            self._uplink_fail_count,
+        )
+        self._rollback_gateway("uplink lost in gateway mode")
+
+    def _rollback_gateway(self, reason: str):
+        """Tear down the IoT AP and restore the plain home-Wi-Fi uplink. Best-effort,
+        never fatal. The real AP teardown lands with ap_manager (Phase 2); until then
+        this logs and records the event so the failure is always visible."""
+        rolled_back = False
+        try:
+            from utils.ap_manager import AccessPointManager
+            AccessPointManager().stop()
+            rolled_back = True
+            logger.warning("Gateway rolled back to passive (AP stopped): %s", reason)
+        except ImportError:
+            logger.error("Gateway rollback requested (%s) but ap_manager is not "
+                         "available yet — manual check needed.", reason)
+        except Exception as e:
+            logger.error("Gateway rollback failed (%s): %s", reason, e)
+        # Best-effort user-facing alert (never crash the watchdog).
+        try:
+            if getattr(self, 'alerting', None):
+                self.alerting.create_alert(
+                    device_ip='SYSTEM', severity='critical', anomaly_score=1.0,
+                    explanation=("Connectivity watchdog: internet uplink lost in gateway "
+                                 "mode. "
+                                 + ("Access point rolled back to passive."
+                                    if rolled_back else "Manual check needed.")
+                                 + f" Reason: {reason}"),
+                    send_notification=False,
+                    plain_explanation=("Your IoTSentinel hub lost internet while running "
+                                       "in access-point mode and switched back to safe "
+                                       "monitoring so your devices keep working."),
+                )
+        except Exception:
+            pass
 
     def _iot_threat_scan_loop(self):
         """Periodically scan all devices for IoT-specific threats."""
@@ -926,7 +1040,7 @@ class IoTSentinelOrchestrator:
             interval = config.get('iot', 'threat_scan_interval', default=600)
 
             # Perform initial scan after 30 seconds (let system stabilize)
-            time.sleep(30)
+            self._sleep(30)
             if not self.running:
                 return
 
@@ -1022,7 +1136,7 @@ class IoTSentinelOrchestrator:
             interval = config.get('iot', 'vulnerability_scan_interval', default=86400)  # 24 hours
 
             # Perform initial scan after 5 minutes
-            time.sleep(300)
+            self._sleep(300)
             if not self.running:
                 return
 
@@ -1089,7 +1203,7 @@ class IoTSentinelOrchestrator:
         interval = 8 * 3600  # 8 hours
 
         # First pass after a short delay to let other threads settle.
-        time.sleep(120)
+        self._sleep(120)
         if not self.running:
             return
 
@@ -1139,7 +1253,7 @@ class IoTSentinelOrchestrator:
             interval = config.get('iot', 'firmware_check_interval', default=604800)  # 7 days
 
             # Perform initial check after 10 minutes
-            time.sleep(600)
+            self._sleep(600)
             if not self.running:
                 return
 
@@ -1259,7 +1373,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in kids device monitoring: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _hardware_lifecycle_check_loop(self):
         """Background loop for hardware EOL monitoring (daily)."""
@@ -1318,7 +1432,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in hardware lifecycle check: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _sustainability_metrics_loop(self):
         """Background loop for sustainability metrics logging (every 6 hours)."""
@@ -1361,7 +1475,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in sustainability metrics calculation: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _nvd_sync_loop(self):
         """Background loop for NVD vulnerability synchronization (daily)."""
@@ -1371,7 +1485,7 @@ class IoTSentinelOrchestrator:
         logger.info(f"NVD sync loop started (interval: {interval/3600:.1f} hours)")
 
         # Initial sync after short delay
-        time.sleep(initial_delay)
+        self._sleep(initial_delay)
 
         while self.running:
             try:
@@ -1391,7 +1505,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in NVD sync: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _domain_blocklist_loop(self):
         """Background loop for domain blocklist sync (every 12 hours)."""
@@ -1399,7 +1513,7 @@ class IoTSentinelOrchestrator:
         initial_delay = 120   # 2 minutes — let the system finish startup first
 
         logger.info("Domain blocklist sync loop started (interval: 12h)")
-        time.sleep(initial_delay)
+        self._sleep(initial_delay)
 
         while self.running:
             try:
@@ -1413,7 +1527,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error("Error in domain blocklist sync: %s", e)
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _security_score_logging_loop(self):
         """Background loop for security score logging (hourly)."""
@@ -1433,7 +1547,7 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in security score logging: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
 
     def _mdns_discovery_loop(self):
         """Background loop for mDNS/Zeroconf device discovery."""
@@ -1445,7 +1559,7 @@ class IoTSentinelOrchestrator:
 
                 # Keep thread alive while running
                 while self.running:
-                    time.sleep(60)  # Check every minute
+                    self._sleep(60)  # Check every minute
 
                     # Periodic stats logging
                     stats = self.mdns_manager.get_stats()
@@ -1467,7 +1581,7 @@ class IoTSentinelOrchestrator:
 
                 # Keep thread alive while running
                 while self.running:
-                    time.sleep(60)  # Check every minute
+                    self._sleep(60)  # Check every minute
 
                     # Periodic stats logging
                     stats = self.upnp_scanner.get_stats()
@@ -1502,13 +1616,25 @@ class IoTSentinelOrchestrator:
             except Exception as e:
                 logger.error(f"Error in active scan: {e}")
 
-            time.sleep(interval)
+            self._sleep(interval)
+
+    def _sleep(self, seconds: float) -> bool:
+        """Interruptible sleep for worker loops. Returns immediately once stop() has
+        been called (the shutdown event is set), so threads never block out a long
+        interval during shutdown. Returns True if a shutdown was signalled."""
+        ev = getattr(self, '_shutdown_event', None)
+        if ev is not None:
+            return ev.wait(seconds)
+        time.sleep(seconds)  # defensive fallback if called before __init__ ran
+        return False
 
     def stop(self):
         """Stop all system components gracefully."""
         logger.info("Stopping IoTSentinel orchestrator...")
 
         self.running = False
+        # Wake every worker thread parked in _sleep() so the joins below return fast.
+        self._shutdown_event.set()
 
         # Stop alerting system
         if self.alerting:

@@ -5932,7 +5932,12 @@ dashboard_layout = dbc.Container([
                                     ], md=4)
                                 ]),
                                 dcc.Loading(
-                                    dcc.Graph(id='geographic-threat-map', config={'displayModeBar': False},
+                                    dcc.Graph(id='geographic-threat-map',
+                                             config={'displayModeBar': False, 'responsive': True,
+                                                     # Serve the geo basemap from our own
+                                                     # /assets so Plotly never fetches
+                                                     # cdn.plot.ly (CSP-blocked + works offline).
+                                                     'topojsonURL': '/assets/topojson/'},
                                              className="chart-h-500"),
                                     type='circle'
                                 )

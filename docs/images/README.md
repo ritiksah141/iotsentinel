@@ -14,9 +14,9 @@ Drop product screenshots / GIFs here with these exact filenames so the main
 Recommended: 16:10 or 16:9, ~1600px wide, PNG for static shots and GIF for the
 agent timeline / Ask Why interaction if you want motion.
 
-**Keep each file under 500 KB** — the `check-added-large-files` pre-commit hook rejects
+**Keep each file under 500 KB** - the `check-added-large-files` pre-commit hook rejects
 anything larger. UI screenshots compress well as palette PNGs (PNG-8); the committed shots
-were ~580–775 KB as RGB and dropped to ~80 KB with no visible loss via:
+were ~580-775 KB as RGB and dropped to ~80 KB with no visible loss via:
 
 ```python
 from PIL import Image

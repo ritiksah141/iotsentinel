@@ -46,7 +46,12 @@ class ARPScanner:
 
     def __init__(self):
         self.db = DatabaseManager(config.get('database', 'path'))
-        self.network_range = config.get('network', 'local_subnet', default='192.168.1.0/24')
+        # In gateway mode the monitored devices live on the Pi's AP subnet, so scan
+        # that range; otherwise scan the configured home subnet.
+        if config.get('network', 'capture_mode', default='passive') == 'gateway':
+            self.network_range = config.get('network', 'ap_subnet', default='10.42.0.0/24')
+        else:
+            self.network_range = config.get('network', 'local_subnet', default='192.168.1.0/24')
         self.timeout = int(config.get('network', 'arp_timeout', default=2))
         logger.info(f"ARP scanner initialised for {self.network_range} (no-sudo mode)")
 

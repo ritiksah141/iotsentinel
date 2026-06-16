@@ -1630,6 +1630,29 @@ def register(app):
     def toggle_threat_map_modal(open_clicks, is_open):
         return not is_open
 
+    # When the threat-map modal opens, the geographic Scattergeo was drawn while its
+    # container was hidden (display:none), so the geo basemap collapsed to 0 width and
+    # only the markers + "Connections" colorbar showed. Modal open does not fire a
+    # window resize, so nudge a few resizes once it is visible to make Plotly redraw
+    # the map at the correct size.
+    app.clientside_callback(
+        """
+        function(is_open) {
+            if (is_open) {
+                [250, 700, 1500].forEach(function(t) {
+                    setTimeout(function() {
+                        window.dispatchEvent(new Event('resize'));
+                    }, t);
+                });
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("geographic-threat-map", "style"),
+        Input("threat-map-modal", "is_open"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("risk-heatmap-modal", "is_open"),
         Input("risk-heatmap-card-btn", "n_clicks"),
@@ -2143,8 +2166,14 @@ def register(app):
                     showland=True,
                     showocean=True,
                     showcountries=True,
+                    bgcolor='rgba(0,0,0,0)',
                     **geo_style
                 ),
+                # autosize + responsive config let the geo basemap draw at the right
+                # size when the modal/tab becomes visible. Without it, a chart rendered
+                # while its container is hidden collapses to 0 width and only the
+                # markers and the "Connections" colorbar show, with no map.
+                autosize=True,
                 height=500,
                 margin=dict(l=0, r=0, t=40, b=0)
             )
