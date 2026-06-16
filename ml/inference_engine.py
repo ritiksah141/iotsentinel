@@ -388,6 +388,10 @@ class InferenceEngine:
         if learning_note and plain_explanation:
             plain_explanation = f"{plain_explanation} {self._LEARNING_NOTE}"
 
+        # Persist the MITRE tactic (same value embedded in river explanations) so the
+        # Attack Path Sankey can group this alert by real kill-chain stage.
+        mitre_tactic = self._map_to_mitre(connection) if connection is not None else None
+
         if self.alerting:
             return self.alerting.create_alert(
                 device_ip=device_ip,
@@ -396,6 +400,7 @@ class InferenceEngine:
                 explanation=explanation,
                 top_features=top_features,
                 plain_explanation=plain_explanation,
+                mitre_tactic=mitre_tactic,
             )
         else:
             return self.db.create_alert(
@@ -405,6 +410,7 @@ class InferenceEngine:
                 explanation=explanation,
                 top_features=top_features,
                 plain_explanation=plain_explanation,
+                mitre_tactic=mitre_tactic,
             )
 
     def process_connections(self, batch_size: int = 100):

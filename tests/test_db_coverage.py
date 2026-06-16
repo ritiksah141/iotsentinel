@@ -773,3 +773,64 @@ class TestMigrationV5:
 
         db.close()
         DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+
+# ── migration v10 ─────────────────────────────────────────────────────────────
+
+class TestMigrationV10:
+    """Verifies _migrate_to_v10 adds the mitre_tactic column on a v9 DB and is
+    idempotent. The column lets the Attack Path Sankey group alerts by kill-chain
+    stage instead of matching free-text explanations (which never hit)."""
+
+    def _build_v9_db_raw(self, db_path: str) -> None:
+        """Build a v9 DB (alerts table without mitre_tactic) using raw sqlite3."""
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS devices (
+                device_ip TEXT PRIMARY KEY, device_name TEXT
+            );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_ip TEXT, severity TEXT, anomaly_score REAL,
+                explanation TEXT, top_features TEXT, acknowledged INTEGER DEFAULT 0,
+                acknowledged_at TIMESTAMP, plain_explanation TEXT,
+                plain_explanation_ai INTEGER DEFAULT 0, ai_source TEXT
+            );
+        """)
+        conn.execute("PRAGMA user_version = 9")
+        conn.commit()
+        conn.close()
+
+    def _open_and_migrate(self, db_path: str):
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+        return DatabaseManager(db_path)
+
+    def test_v10_migration_adds_mitre_tactic_column(self, tmp_path):
+        db_path = str(tmp_path / 'v9.db')
+        self._build_v9_db_raw(db_path)
+
+        raw = sqlite3.connect(db_path)
+        cols_before = {r[1] for r in raw.execute('PRAGMA table_info(alerts)').fetchall()}
+        raw.close()
+        assert 'mitre_tactic' not in cols_before
+
+        db = self._open_and_migrate(db_path)  # auto-runs migrate_schema v9→v10
+        cols_after = {r[1] for r in db.conn.execute('PRAGMA table_info(alerts)').fetchall()}
+        assert 'mitre_tactic' in cols_after
+        assert db.get_schema_version() >= 10
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)
+
+    def test_v10_migration_idempotent(self, tmp_path):
+        db_path = str(tmp_path / 'v9_idem.db')
+        self._build_v9_db_raw(db_path)
+        db = self._open_and_migrate(db_path)
+        assert db.get_schema_version() >= 10
+
+        result = db.migrate_schema()  # second call — must not raise or corrupt
+        assert result is True
+        assert db.get_schema_version() >= 10
+
+        db.close()
+        DatabaseManager._instances.pop(str(Path(db_path).resolve()), None)

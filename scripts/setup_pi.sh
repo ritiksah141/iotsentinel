@@ -110,7 +110,7 @@ sudo apt-get install -y --no-install-recommends \
     curl git python3 python3-venv python3-pip \
     build-essential libssl-dev gnupg2 libpcap-dev \
     tcpdump net-tools iputils-ping \
-    network-manager avahi-daemon iptables
+    network-manager dnsmasq-base avahi-daemon iptables
 ok "System packages installed"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,13 +251,20 @@ else
     warn "Could not register DB maintenance cron — run 'bash scripts/setup_db_automation.sh' manually"
 fi
 
-# Allow current user to run specific nmcli commands without sudo (for wizard WiFi connect)
+# Allow the (unprivileged) service user to run exactly the commands IoTSentinel
+# needs, and nothing else:
+#  - nmcli wifi          (wizard: connect/list/hotspot for home-Wi-Fi + setup hotspot)
+#  - configure_ap.sh     (orchestrator brings the IoT access point up/down — gateway mode)
+#  - configure_zeek.sh   (orchestrator points Zeek at the monitored interface)
+#  - nft / iptables      (firewall_enforcer inline block/unblock — the IPS path)
+#  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
+# Scripts are invoked by absolute path (executable shebang) so the match is exact.
 CURRENT_USER="$(whoami)"
-SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *"
-if ! grep -qF "nmcli dev wifi connect" /etc/sudoers.d/iotsentinel 2>/dev/null; then
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy"
+if ! grep -qF "/usr/sbin/nft" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
     sudo chmod 440 /etc/sudoers.d/iotsentinel
-    ok "nmcli sudoers rule added for $CURRENT_USER"
+    ok "sudoers rules added for $CURRENT_USER (nmcli + AP/Zeek scripts + nft/iptables)"
 fi
 
 # Systemd services — substitute actual username and home dir into service files

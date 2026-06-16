@@ -15,6 +15,7 @@ data/*.db-*
 data/database/*.db
 data/database/*.db-*
 data/logs/*.log
+data/firewall_backup.nft
 data/baseline/*.json
 data/baseline/zeek_logs/
 data/models/*.h5
