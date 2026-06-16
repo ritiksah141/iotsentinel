@@ -406,7 +406,8 @@ class DatabaseManager:
 
     def create_alert(self, device_ip: str, severity: str, anomaly_score: float,
                      explanation: str, top_features: str,
-                     plain_explanation: Optional[str] = None) -> Optional[int]:
+                     plain_explanation: Optional[str] = None,
+                     mitre_tactic: Optional[str] = None) -> Optional[int]:
         """
         Create security alert.
 
@@ -417,6 +418,7 @@ class DatabaseManager:
             explanation: Technical explanation (kept for security_admin view)
             top_features: JSON string of top contributing features
             plain_explanation: Non-technical one-sentence summary (home_user view)
+            mitre_tactic: MITRE ATT&CK tactic string for the Attack Path Sankey
 
         Returns:
             Alert ID if successful, None otherwise
@@ -431,9 +433,9 @@ class DatabaseManager:
                 cursor = self.conn.cursor()
                 cursor.execute("""
                     INSERT INTO alerts
-                    (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation))
+                    (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation, mitre_tactic)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (device_ip, severity, anomaly_score, explanation, top_features, plain_explanation, mitre_tactic))
                 self.conn.commit()
             alert_id = cursor.lastrowid
             logger.info(f"Created {severity} alert for {device_ip}")
@@ -1524,7 +1526,7 @@ class DatabaseManager:
         Returns:
             True if migrations successful or not needed, False on error
         """
-        CURRENT_SCHEMA_VERSION = 9  # Increment when you add migrations
+        CURRENT_SCHEMA_VERSION = 10  # Increment when you add migrations
 
         try:
             current_version = self.get_schema_version()
@@ -1583,6 +1585,12 @@ class DatabaseManager:
             if current_version < 9:
                 self._migrate_to_v9()
                 current_version = 9
+
+            # v9 → v10: mitre_tactic column on alerts — persists the kill-chain tactic
+            #            so the Attack Path Sankey can group by real MITRE stage
+            if current_version < 10:
+                self._migrate_to_v10()
+                current_version = 10
 
             return True
 
@@ -1806,6 +1814,24 @@ class DatabaseManager:
         self.conn.commit()
         self.set_schema_version(9)
         logger.info("Migration v9 complete: ai_source column added to alerts + agent_actions")
+
+    def _migrate_to_v10(self):
+        """v10 migration — mitre_tactic TEXT on alerts.
+
+        Persists the MITRE ATT&CK tactic (e.g. "Exfiltration (TA0010) - ...")
+        for each alert at insert time so the Attack Path & Kill Chain Sankey can
+        group alerts by real kill-chain stage instead of trying to match the full
+        free-text explanation against a small keyword dictionary (which never hit,
+        leaving the chart blank). Fresh DBs get this column via init_database.py so
+        the ALTER is idempotent.
+        """
+        try:
+            self.conn.execute("ALTER TABLE alerts ADD COLUMN mitre_tactic TEXT")
+        except Exception:
+            pass  # Column already exists
+        self.conn.commit()
+        self.set_schema_version(10)
+        logger.info("Migration v10 complete: mitre_tactic column added to alerts")
 
     # ------------------------------------------------------------------
     # Incident correlation

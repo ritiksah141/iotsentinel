@@ -52,6 +52,8 @@ from dashboard.shared import (
     RISK_COLORS,
     SEVERITY_CONFIG,
     MITRE_ATTACK_MAPPING,
+    mitre_stage_from_tactic,
+    mitre_tactic_from_explanation,
     ToastManager,
     ChartFactory,
     PermissionManager,
@@ -1628,6 +1630,29 @@ def register(app):
     def toggle_threat_map_modal(open_clicks, is_open):
         return not is_open
 
+    # When the threat-map modal opens, the geographic Scattergeo was drawn while its
+    # container was hidden (display:none), so the geo basemap collapsed to 0 width and
+    # only the markers + "Connections" colorbar showed. Modal open does not fire a
+    # window resize, so nudge a few resizes once it is visible to make Plotly redraw
+    # the map at the correct size.
+    app.clientside_callback(
+        """
+        function(is_open) {
+            if (is_open) {
+                [250, 700, 1500].forEach(function(t) {
+                    setTimeout(function() {
+                        window.dispatchEvent(new Event('resize'));
+                    }, t);
+                });
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("geographic-threat-map", "style"),
+        Input("threat-map-modal", "is_open"),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output("risk-heatmap-modal", "is_open"),
         Input("risk-heatmap-card-btn", "n_clicks"),
@@ -2059,11 +2084,13 @@ def register(app):
 
             cursor = conn.cursor()
 
-            # Get unique external IPs from connections (potential attack sources)
+            # Get unique external IPs from connections (where devices reach out to).
+            # 24h window matches the header stat cards and the panel caption — the old
+            # 1h window left the map almost always empty during testing.
             cursor.execute('''
                 SELECT DISTINCT dest_ip, COUNT(*) as count
                 FROM connections
-                WHERE timestamp >= datetime("now", "-1 hour")
+                WHERE timestamp >= datetime("now", "-24 hours")
                 AND dest_ip NOT LIKE '192.168.%'
                 AND dest_ip NOT LIKE '10.%'
                 AND dest_ip NOT LIKE '172.16.%'
@@ -2076,16 +2103,20 @@ def register(app):
 
             if not threats:
                 fig = go.Figure()
+                fig.add_annotation(
+                    text="No external connections in the last 24 hours.",
+                    showarrow=False, font=dict(size=15, color=text_color),
+                    xref="paper", yref="paper", x=0.5, y=0.5,
+                )
                 fig.update_layout(
-                    title="No External Threats Detected",
-                    geo=dict(showcountries=True),
-                    height=500
+                    title="Global Threat Distribution",
+                    geo=dict(showcountries=True, **geo_style),
+                    height=500, paper_bgcolor='rgba(0,0,0,0)', font={'color': text_color},
                 )
                 toast = ToastManager.info(
-                    "Threat map refreshed - No threats detected",
-                    detail_message="No external threats detected in the last hour.\n\nYour network appears to be secure with no suspicious external connections.\n\nThis is good news - continue monitoring for any changes."
+                    "Threat map refreshed - No external connections",
+                    detail_message="No external connections detected in the last 24 hours.\n\nThis map shows where your devices reach out on the internet. An empty map simply means none of your devices have talked to an external address recently."
                 ) if show_toast else dash.no_update
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font={'color': text_color})
                 return fig, "0 Threats", "0 Countries", toast
 
             # IP-to-location mapping — one cached batch lookup instead of
@@ -2126,7 +2157,7 @@ def register(app):
             ))
 
             fig.update_layout(
-                title=dict(text='Global Threat Origins - Last Hour', x=0.5, xanchor='center',
+                title=dict(text='Global Threat Origins - Last 24 Hours', x=0.5, xanchor='center',
                            font=dict(color=text_color)),
                 paper_bgcolor='rgba(0,0,0,0)',
                 font={'color': text_color},
@@ -2135,8 +2166,14 @@ def register(app):
                     showland=True,
                     showocean=True,
                     showcountries=True,
+                    bgcolor='rgba(0,0,0,0)',
                     **geo_style
                 ),
+                # autosize + responsive config let the geo basemap draw at the right
+                # size when the modal/tab becomes visible. Without it, a chart rendered
+                # while its container is hidden collapses to 0 width and only the
+                # markers and the "Connections" colorbar show, with no map.
+                autosize=True,
                 height=500,
                 margin=dict(l=0, r=0, t=40, b=0)
             )
@@ -2174,11 +2211,11 @@ def register(app):
 
             cursor = conn.cursor()
 
-            # Get external IPs with geolocation
+            # Get external IPs with geolocation (24h — matches the Global Map tab)
             cursor.execute('''
                 SELECT DISTINCT dest_ip, COUNT(*) as count
                 FROM connections
-                WHERE timestamp >= datetime("now", "-1 hour")
+                WHERE timestamp >= datetime("now", "-24 hours")
                 AND dest_ip NOT LIKE '192.168.%'
                 AND dest_ip NOT LIKE '10.%'
                 AND dest_ip NOT LIKE '172.16.%'
@@ -2190,7 +2227,7 @@ def register(app):
             threats = cursor.fetchall()
 
             if not threats:
-                return html.P("No external threats detected in the last hour", className="text-muted text-center py-4")
+                return html.P("No external connections in the last 24 hours", className="text-muted text-center py-4")
 
             # Group by country — shares the geolocation cache with the threat
             # map, so the same IPs are never queried twice per refresh
@@ -3290,54 +3327,61 @@ def register(app):
             # Query alerts and extract MITRE tactics
             query = """
                 SELECT
+                    a.mitre_tactic,
                     a.explanation,
                     a.severity,
-                    a.device_ip,
-                    a.timestamp,
                     COUNT(*) as count
                 FROM alerts a
                 WHERE a.timestamp >= datetime('now', '-7 days')
             """
 
+            params = []
             if severity_filter:
-                query += f" AND a.severity = '{severity_filter}'"
+                query += " AND a.severity = ?"
+                params.append(severity_filter)
 
-            query += " GROUP BY a.explanation, a.severity ORDER BY a.timestamp"
+            query += " GROUP BY a.mitre_tactic, a.explanation, a.severity ORDER BY a.timestamp"
 
-            cursor.execute(query)
+            cursor.execute(query, params)
             alerts = cursor.fetchall()
 
-            # MITRE ATT&CK Kill Chain stages
-            kill_chain_stages = [
-                "Reconnaissance",
-                "Resource Development",
-                "Initial Access",
-                "Execution",
-                "Persistence",
-                "Privilege Escalation",
-                "Defense Evasion",
-                "Credential Access",
-                "Discovery",
-                "Lateral Movement",
-                "Collection",
-                "Command and Control",
-                "Exfiltration",
-                "Impact"
-            ]
+            # Severity → kill-chain stage, used only as a last resort for legacy
+            # alerts created before the mitre_tactic column existed and with no
+            # MITRE marker in their explanation text.
+            severity_default_stage = {
+                'critical': 'Command and Control',
+                'high': 'Exfiltration',
+                'medium': 'Discovery',
+                'low': 'Reconnaissance',
+            }
 
-            # Map alerts to kill chain stages based on MITRE mapping
+            # Map each alert group to a kill-chain stage. Preference order:
+            #   1. the persisted mitre_tactic column (set at insert time)
+            #   2. the "MITRE ATT&CK: ..." marker embedded in the explanation (legacy)
+            #   3. a severity-based default so nothing silently vanishes
             stage_mapping = {}
             for alert in alerts:
-                explanation = alert['explanation']
-                mitre_info = MITRE_ATTACK_MAPPING.get(explanation, {})
-                tactic = mitre_info.get('tactic', 'Unknown')
+                tactic = alert['mitre_tactic'] or mitre_tactic_from_explanation(alert['explanation'])
+                stage = mitre_stage_from_tactic(tactic)
+                if stage == 'Unknown':
+                    stage = severity_default_stage.get(alert['severity'], 'Discovery')
+                stage_mapping[stage] = stage_mapping.get(stage, 0) + alert['count']
 
-                # Extract stage from tactic (e.g., "Exfiltration (TA0010)" -> "Exfiltration")
-                stage = tactic.split('(')[0].strip() if tactic != 'Unknown' else 'Unknown'
-
-                if stage not in stage_mapping:
-                    stage_mapping[stage] = 0
-                stage_mapping[stage] += alert['count']
+            # Friendly empty-state instead of a blank chart when there are no alerts.
+            if not stage_mapping:
+                fig = go.Figure()
+                fig.add_annotation(
+                    text="No alerts in the last 7 days — no attack path to map.",
+                    showarrow=False, font=dict(size=15, color=text_color),
+                    xref="paper", yref="paper", x=0.5, y=0.5,
+                )
+                fig.update_layout(
+                    title="Attack Path Visualization - MITRE ATT&CK Kill Chain",
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    height=500, font=dict(color=text_color),
+                    xaxis=dict(visible=False), yaxis=dict(visible=False),
+                )
+                return fig
 
             # Create Sankey diagram data
             source_nodes = []

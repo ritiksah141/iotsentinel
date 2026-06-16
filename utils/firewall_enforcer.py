@@ -16,6 +16,7 @@ All changes are audit-logged to data/logs/audit.log.
 
 import json
 import logging
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -23,12 +24,69 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _priv(cmd: list) -> list:
+    """Prefix a privileged command with `sudo -n` unless already running as root.
+
+    The backend runs as an unprivileged service user (User=sentinel), so nft and
+    iptables need elevation. setup_pi.sh grants NOPASSWD sudo for exactly these two
+    binaries, so this never prompts. Already-root deployments skip sudo.
+    """
+    try:
+        if os.geteuid() == 0:
+            return cmd
+    except AttributeError:
+        pass  # non-POSIX (dev only) — sudo path is harmless there
+    return ["sudo", "-n"] + cmd
+
+
 CHAIN = "IOTSENTINEL"
 _AUDIT_LOG = Path("data/logs/audit.log")
 _BACKUP_PATH = Path("data/firewall_backup.nft")
 
 # Ports that must never be blocked, regardless of user rules
 _FAILSAFE_PORTS = [22, 8050]
+
+
+def _capture_mode() -> str:
+    """Current capture mode ('passive' | 'gateway')."""
+    try:
+        from config.config_manager import config as _cfg
+        return _cfg.get('network', 'capture_mode', 'passive') or 'passive'
+    except Exception:
+        return 'passive'
+
+
+def _ap_gateway_ip() -> Optional[str]:
+    """The Pi's AP gateway address — the first host of the configured AP subnet
+    (e.g. 10.42.0.1 for 10.42.0.0/24). This is the Pi itself on the IoT segment."""
+    try:
+        import ipaddress
+        from config.config_manager import config as _cfg
+        subnet = _cfg.get('network', 'ap_subnet', '10.42.0.0/24') or '10.42.0.0/24'
+        return str(ipaddress.ip_network(subnet, strict=False).network_address + 1)
+    except Exception:
+        return None
+
+
+def _failsafe_accept_nets() -> list:
+    """Source networks the FORWARD chain always accepts so management can never be
+    locked out.
+
+    In gateway mode the IoT devices live on the AP subnet (inside 10.0.0.0/8) and we
+    MUST be able to block them, so we deliberately do NOT blanket-accept 10.0.0.0/8
+    there — only the AP gateway (the Pi) itself. Otherwise an `ip saddr 10.0.0.0/8
+    accept` rule would match before any device drop rule and silently defeat
+    enforcement. Passive/router deployments keep the original broad whitelist.
+    """
+    nets = ["192.168.0.0/16", "172.16.0.0/12"]
+    if _capture_mode() == 'gateway':
+        gw = _ap_gateway_ip()
+        if gw:
+            nets.append(f"{gw}/32")
+    else:
+        nets.append("10.0.0.0/8")
+    return nets
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +146,15 @@ def _is_protected_ip(ip: str) -> bool:
         from utils.network_monitor import get_default_gateway
         gw = get_default_gateway()
         if gw and ip == gw:
+            return True
+    except Exception:
+        pass
+
+    # 4. The Pi's own AP gateway (gateway mode) — never firewall the access point
+    #    that the IoT devices depend on for DHCP/DNS/NAT.
+    try:
+        ap_gw = _ap_gateway_ip()
+        if ap_gw and ip == ap_gw:
             return True
     except Exception:
         pass
@@ -153,7 +220,7 @@ class _LocalBackend:
     # ------------------------------------------------------------------
 
     def _nft(self, *args, dry_run: bool = False) -> tuple[bool, str]:
-        cmd = ["nft"] + list(args)
+        cmd = _priv(["nft"] + list(args))
         if dry_run:
             logger.info("[dry-run] %s", " ".join(cmd))
             return True, ""
@@ -174,7 +241,7 @@ class _LocalBackend:
         """Snapshot the full ruleset before any change."""
         try:
             _BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
-            r = subprocess.run(["nft", "list", "ruleset"], capture_output=True, text=True)
+            r = subprocess.run(_priv(["nft", "list", "ruleset"]), capture_output=True, text=True)
             if r.returncode == 0:
                 _BACKUP_PATH.write_text(r.stdout)
         except Exception as e:
@@ -190,7 +257,7 @@ class _LocalBackend:
 
         # Check if chain already exists (has its hook); only set type/hook on creation
         chain_check = subprocess.run(
-            ["nft", "list", "chain", "inet", self._NF_TABLE, self._NF_CHAIN],
+            _priv(["nft", "list", "chain", "inet", self._NF_TABLE, self._NF_CHAIN]),
             capture_output=True, text=True
         )
         if chain_check.returncode != 0:
@@ -200,7 +267,7 @@ class _LocalBackend:
                 f"{{ type filter hook forward priority -10; policy accept; }}\n"
                 + "\n".join(
                     f"add rule inet {self._NF_TABLE} {self._NF_CHAIN} ip saddr {net} accept"
-                    for net in ("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")
+                    for net in _failsafe_accept_nets()
                 ) + "\n"
                 + "\n".join(
                     f"add rule inet {self._NF_TABLE} {self._NF_CHAIN} tcp dport {p} accept"
@@ -211,7 +278,7 @@ class _LocalBackend:
                 logger.info("[dry-run] nft chain setup:\n%s", script)
             else:
                 try:
-                    subprocess.run(["nft", "-f", "-"], input=script,
+                    subprocess.run(_priv(["nft", "-f", "-"]), input=script,
                                    capture_output=True, text=True, check=False)
                 except Exception as e:
                     logger.error("nft chain setup failed: %s", e)
@@ -222,7 +289,7 @@ class _LocalBackend:
     def _nft_handles_for(self, pattern: str) -> list[str]:
         """Return rule handles whose text contains `pattern`."""
         r = subprocess.run(
-            ["nft", "-a", "list", "chain", "inet", self._NF_TABLE, self._NF_CHAIN],
+            _priv(["nft", "-a", "list", "chain", "inet", self._NF_TABLE, self._NF_CHAIN]),
             capture_output=True, text=True
         )
         handles = []
@@ -250,7 +317,7 @@ class _LocalBackend:
     # ------------------------------------------------------------------
 
     def _ipt(self, *args, dry_run: bool = False) -> tuple[bool, str]:
-        cmd = ["iptables"] + list(args)
+        cmd = _priv(["iptables"] + list(args))
         if dry_run:
             logger.info("[dry-run] %s", " ".join(cmd))
             return True, ""
@@ -483,7 +550,7 @@ class FirewallEnforcer:
             logger.warning("No firewall backup found at %s", _BACKUP_PATH)
             return False
         try:
-            r = subprocess.run(["nft", "-f", str(_BACKUP_PATH)], capture_output=True, text=True)
+            r = subprocess.run(_priv(["nft", "-f", str(_BACKUP_PATH)]), capture_output=True, text=True)
             ok = r.returncode == 0
             _audit("rollback", str(_BACKUP_PATH), ok, r.stderr.strip() if not ok else "")
             return ok

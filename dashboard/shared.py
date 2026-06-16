@@ -540,6 +540,34 @@ MITRE_ATTACK_MAPPING = {
     }
 }
 
+
+def mitre_stage_from_tactic(tactic_str):
+    """Reduce a MITRE tactic string to its clean kill-chain stage name.
+
+    e.g. "Exfiltration (TA0010) - Large outbound data transfer" -> "Exfiltration",
+    "Command and Control (TA0011)" -> "Command and Control". Returns "Unknown" for
+    empty/None/unmapped tactics. Used by the Attack Path Sankey to group alerts.
+    """
+    if not tactic_str:
+        return "Unknown"
+    # Strip the "(TAxxxx)" id and any "- description" suffix, keep the tactic name.
+    stage = str(tactic_str).split('(')[0].split(' - ')[0].strip()
+    return stage or "Unknown"
+
+
+def mitre_tactic_from_explanation(explanation):
+    """Recover the MITRE tactic embedded in a free-text alert explanation.
+
+    Inference-engine explanations contain "MITRE ATT&CK: <tactic>." — this pulls
+    that back out for legacy alerts created before the mitre_tactic column existed.
+    Returns the tactic string, or None if the explanation has no MITRE marker.
+    """
+    if not explanation:
+        return None
+    import re
+    m = re.search(r"MITRE ATT&CK:\s*(.+?)\.(?:\s|$)", str(explanation))
+    return m.group(1).strip() if m else None
+
 SEVERITY_CONFIG = {
     'critical': {'color': 'danger', 'icon': 'fa-skull-crossbones', 'badge_color': '#dc3545'},
     'high': {'color': 'warning', 'icon': 'fa-exclamation-triangle', 'badge_color': '#fd7e14'},
