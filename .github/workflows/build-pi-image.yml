@@ -37,11 +37,14 @@ jobs:
           fetch-depth: 0   # needed so git describe can find the tag
 
       - name: Install build prerequisites
+        # pi-gen's full native dependency set (its build.sh dependency check fails
+        # otherwise), plus binfmt-support for the ARM64 emulation registration.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            qemu-user-static binfmt-support git curl \
-            coreutils xz-utils zip
+          sudo apt-get install -y \
+            coreutils quilt parted qemu-user-static debootstrap zerofree zip \
+            dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file \
+            git curl bc gpg pigz xxd arch-test binfmt-support kpartx fdisk gawk
 
       - name: Register ARM64 binfmt handler
         run: |

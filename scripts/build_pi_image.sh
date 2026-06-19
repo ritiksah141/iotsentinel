@@ -192,11 +192,21 @@ step "Running pi-gen build (this takes 30-45 minutes)"
 mkdir -p "$DEPLOY_DIR"
 
 cd "$PIGEN_DIR"
-CLEAN=1 bash build.sh 2>&1 | tee "$DEPLOY_DIR/build.log"
+# pi-gen's build.sh must run as root (it chroots, mounts loop devices, debootstraps).
+# On a CI runner the step runs as a non-root user with passwordless sudo, so elevate.
+# CLEAN=1 is passed through as an explicit sudo env assignment; the rest of the build
+# config is read from the ./config file inside build.sh.
+if [ "$(id -u)" -eq 0 ]; then
+  CLEAN=1 bash build.sh 2>&1 | tee "$DEPLOY_DIR/build.log"
+else
+  sudo CLEAN=1 bash build.sh 2>&1 | tee "$DEPLOY_DIR/build.log"
+fi
 
 # ---------------------------------------------------------------------------
 step "Collecting output"
 # ---------------------------------------------------------------------------
+# pi-gen wrote deploy/ as root; reclaim ownership so the non-root copy/sha steps work.
+sudo chown -R "$(id -u):$(id -g)" "$PIGEN_DIR/deploy" 2>/dev/null || true
 IMG_XZ=$(find "$PIGEN_DIR/deploy" -name "*.img.xz" | sort -r | head -1)
 [ -n "$IMG_XZ" ] || die "No .img.xz found in $PIGEN_DIR/deploy — check $DEPLOY_DIR/build.log"
 
