@@ -11,6 +11,12 @@ TimeoutStartSec=90
 StandardOutput=journal
 StandardError=journal
 ExecStart=/bin/bash -c '\
+  APP="/home/sentinel/iotsentinel"; ENVF="$APP/.env"; \
+  if ! grep -q "^FLASK_SECRET_KEY=" "$ENVF" 2>/dev/null; then \
+    echo "FLASK_SECRET_KEY=$(openssl rand -hex 32)" >> "$ENVF"; \
+    chown "$(stat -c %U:%G "$APP" 2>/dev/null || echo sentinel:sentinel)" "$ENVF" 2>/dev/null || true; \
+    echo "[provision] Generated a per-device FLASK_SECRET_KEY"; \
+  fi; \
   HOTSPOT="IoTSentinel-Setup"; IFACE="wlan0"; \
   ACTIVE=$(nmcli -t -f NAME,TYPE,STATE device status 2>/dev/null \
     | grep ":wifi:" | grep ":connected:" | grep -v "$HOTSPOT" || true); \

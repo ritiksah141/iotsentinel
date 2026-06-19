@@ -1,12 +1,17 @@
 # IoTSentinel Setup Guide
 
-**Three ways to run IoTSentinel - pick the one that matches your situation.**
+**Four ways to run IoTSentinel - pick the one that matches your situation.**
 
-| | Path A - Raspberry Pi | Path B - Mac / Windows / Linux | Path C - Pi (manual) |
-|---|---|---|---|
-| **Who** | Home users who want a dedicated always-on monitor | Anyone who wants to explore the dashboard on their laptop | Developers / advanced users |
-| **Effort** | Flash SD card → boot → browser wizard | One command | Terminal steps |
-| **Network capture** | Full (Zeek on the Pi) | Simulated / demo data | Full (Zeek on the Pi) |
+| | Path A - Raspberry Pi | Path B - Your computer (demo) | Path C - Pi (manual) | Path D - Spare PC or Linux VM |
+|---|---|---|---|---|
+| **Who** | Home users who want a dedicated always-on monitor | Anyone who wants to explore the dashboard first | Developers / advanced users | Home users with a spare PC or VM instead of a Pi |
+| **Effort** | Flash SD card → boot → browser wizard | One command | Terminal steps | One command on Debian/Ubuntu |
+| **Network capture** | Full (Zeek on the Pi) | Simulated / demo data | Full (Zeek on the Pi) | Full (Zeek), real passive capture |
+
+> **Demo vs real monitoring.** Path B (your everyday Mac/Windows/Linux computer) runs
+> the dashboard on **simulated data** so you can try the interface with zero risk. To
+> actually watch your network without a Raspberry Pi, use **Path D** (a spare PC or a
+> Linux virtual machine), which installs Zeek and captures for real.
 
 ---
 
@@ -98,9 +103,11 @@ After Step 1 completes, the Pi disconnects from the `IoTSentinel-Setup` hotspot 
 
 ---
 
-## Path B - Mac / Windows / Linux (laptop or desktop)
+## Path B - Your computer, demo data (Mac / Windows / Linux)
 
-The dashboard runs entirely on your laptop. Network capture is simulated - no Zeek, no Pi required. Useful for exploring the interface or developing new features.
+The dashboard runs entirely on your everyday computer. Network capture is simulated - no Zeek, no Pi required. This is the **try-it-out** path: explore the interface, click through every feature, and develop new ones, all on safe demo data. It does **not** monitor your real network. For that without a Pi, see **Path D** below.
+
+> On macOS and Windows the first run shows a minimal account-creation screen rather than the full 6-step wizard, because the wizard's WiFi, access-point, and capture steps are Linux-only. This is expected for the demo path. The full wizard appears on Linux (a Pi, a spare PC, or a Linux VM).
 
 **Prerequisite:** Python 3.9 or newer. Download from [python.org/downloads](https://www.python.org/downloads/).
 
@@ -168,6 +175,40 @@ After the script completes, open `http://<pi-ip>:8050/setup` in your browser and
 
 ---
 
+## Path D - Real monitoring on a spare PC or Linux VM (no Pi)
+
+Don't have a Raspberry Pi but have a spare PC, mini PC, or a virtual machine? You can run IoTSentinel with **real network capture** on x86_64 Debian or Ubuntu. It installs Zeek and behaves like a Pi in passive mode.
+
+### What you need
+
+| Item | Notes |
+|---|---|
+| x86_64 Debian 12 or Ubuntu 22.04+ | Bare metal (a spare PC / mini PC) or a virtual machine |
+| 4 GB RAM, 16 GB disk | Same as a Pi |
+| A wired or bridged network connection | The machine must be able to see your home LAN |
+
+### If you use a virtual machine
+
+Set the VM's network adapter to **Bridged** (not NAT). Bridged mode puts the VM directly on your home network so it can see LAN traffic, which is what capture needs. VirtualBox, VMware, and Hyper-V all offer a bridged option in the VM's network settings.
+
+### Install
+
+```bash
+git clone https://github.com/ritiksah141/iotsentinel.git
+cd iotsentinel
+bash scripts/setup_pi.sh
+```
+
+The same script that sets up a Pi runs here. It detects that you are not on ARM, continues, and installs Zeek plus everything else. When it finishes, open `http://localhost:8050/setup` (or `http://<machine-ip>:8050/setup` from another device) and complete the full 6-step wizard. On a wired machine, **skip the WiFi step** and just pick the interface to monitor.
+
+### What you get (and the honest limit)
+
+This gives you the **same capability as a Pi in passive mode**: device inventory, new-device alerts, firmware and vulnerability posture, and DNS-level threat intelligence. As with any passive setup on modern Wi-Fi, it **cannot** see the unicast traffic between other devices and the router, so per-device exfiltration, command-and-control detection, and inline blocking are not available in passive mode.
+
+For full per-device intrusion detection and prevention you need **gateway mode** (traffic must pass *through* the box). On a Pi that means a USB Wi-Fi adapter; in a VM it additionally requires USB or NIC passthrough so the VM owns the access-point adapter, which is an advanced setup. See [GATEWAY_MODE.md](GATEWAY_MODE.md) and [ROADMAP.md](ROADMAP.md) for the full picture.
+
+---
+
 ## Troubleshooting
 
 ### Raspberry Pi
@@ -190,6 +231,17 @@ After the script completes, open `http://<pi-ip>:8050/setup` in your browser and
 | `install.bat`: Python not found | Re-install Python and tick **"Add Python to PATH"** |
 | Browser doesn't open automatically | Manually open `http://localhost:8050/setup` |
 | Port 8050 already in use | Run `lsof -i :8050` (Mac/Linux) or `netstat -ano \| findstr :8050` (Windows) to find what's using it |
+
+### Gateway mode (USB Wi-Fi adapter)
+
+| Problem | Fix |
+|---|---|
+| USB adapter not listed in the wizard | Replug it and click **Rescan**. Confirm the chipset supports AP mode. |
+| IoT network name doesn't appear on a device | Check the adapter is plugged in and the box has finished booting; run `bash scripts/validate_gateway.sh`. |
+| A device joined but has no internet | The uplink watchdog may have rolled the access point back to protect your connection; reboot to bring it up again. |
+| Want to go back to passive | Set `network.capture_mode` to `passive`, or run `sudo bash config/configure_ap.sh --down`, then reboot. |
+
+See [GATEWAY_MODE.md](GATEWAY_MODE.md) for the full gateway-mode setup and troubleshooting guide.
 
 ---
 

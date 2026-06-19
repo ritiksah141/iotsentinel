@@ -1,7 +1,9 @@
 #!/bin/bash
-# IoTSentinel — End-to-End Raspberry Pi Setup
+# IoTSentinel — End-to-End Setup (Raspberry Pi, or a spare PC / Linux VM)
 #
 # Installs everything on a freshly-flashed Raspberry Pi OS Lite (64-bit, Bookworm).
+# Also runs on x86_64 Debian/Ubuntu (a spare PC or a Linux VM) for real monitoring
+# without a Pi — it continues past the ARM check and installs Zeek the same way.
 # Safe to run multiple times (idempotent).
 #
 # Usage (fresh Pi, no repo yet):
@@ -12,7 +14,7 @@
 #
 # Flags:
 #   --non-interactive   Skip all prompts (used by build_pi_image.sh)
-#   --skip-ollama       Do not install Ollama / phi3.5:mini
+#   --skip-ollama       Do not install Ollama / the on-device model
 #   --tag=TAG           Git tag to clone (default: latest main)
 
 set -euo pipefail
@@ -46,7 +48,7 @@ prompt() {
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}  IoTSentinel — Raspberry Pi Setup${NC}"
+echo -e "${BLUE}  IoTSentinel — Setup (Raspberry Pi, spare PC, or Linux VM)${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -61,7 +63,7 @@ ARCH=$(uname -m)
 if [[ "$ARCH" == "aarch64" || "$ARCH" == "armv7l" ]]; then
     ok "Architecture: $ARCH"
 else
-    warn "Architecture: $ARCH (not ARM — continuing for dev/testing)"
+    warn "Architecture: $ARCH (not a Pi — continuing; fine for a spare PC or Linux VM)"
 fi
 
 TOTAL_RAM=$(free -m | awk 'NR==2{print $2}')
@@ -109,8 +111,8 @@ sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     curl git python3 python3-venv python3-pip \
     build-essential libssl-dev gnupg2 libpcap-dev \
-    tcpdump net-tools iputils-ping \
-    network-manager dnsmasq-base avahi-daemon iptables
+    tcpdump net-tools iputils-ping openssl \
+    network-manager dnsmasq-base avahi-daemon iptables nftables
 ok "System packages installed"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -270,20 +272,27 @@ fi
 # Systemd services — substitute actual username and home dir into service files
 SERVICES_SRC="$PROJECT_DIR/services"
 if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
-    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision; do
+    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai; do
+        [ -f "$SERVICES_SRC/${svc}.service" ] || continue
         sed "s|/home/sentinel|$HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
             "$SERVICES_SRC/${svc}.service" \
             | sudo tee /etc/systemd/system/${svc}.service > /dev/null
     done
     sudo systemctl daemon-reload
     sudo systemctl enable --now iotsentinel-provision iotsentinel-backend iotsentinel-dashboard 2>/dev/null || true
+    # localai is a niced one-shot that pulls the on-device model; enable for next boot
+    # WITHOUT --now so its (long) model download never blocks this setup run.
+    sudo systemctl enable iotsentinel-localai 2>/dev/null || true
     ok "Systemd services installed and enabled (autostart on boot)"
 else
     warn "Service files not found in $SERVICES_SRC — skipping systemd"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-step "8/9  Ollama AI — phi3.5:mini (optimised for Pi 5 4 GB)"
+# Pull the model named in config (ai_assistant.ollama_model); keep this in sync
+# with config/default_config.json and scripts/setup_local_ai.sh.
+MODEL="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('$PROJECT_DIR/config/default_config.json').read_text()).get('ai_assistant',{}).get('ollama_model','gemma2:2b'))" 2>/dev/null || echo 'gemma2:2b')"
+step "8/9  Ollama AI — ${MODEL} (on-device, optimised for Pi 4/5 4 GB)"
 # ─────────────────────────────────────────────────────────────────────────────
 
 if $SKIP_OLLAMA; then
@@ -314,14 +323,14 @@ else
     done
 
     if $_OLLAMA_READY; then
-        if ollama list 2>/dev/null | grep -q "phi3.5:mini"; then
-            ok "phi3.5:mini already downloaded"
+        if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+            ok "${MODEL} already downloaded"
         else
-            echo "   Pulling phi3.5:mini (~2.2 GB — may take 10–20 min on a slow SD card)..."
-            ollama pull phi3.5:mini && ok "phi3.5:mini ready"
+            echo "   Pulling ${MODEL} (~1.6 GB — may take 10–20 min on a slow SD card)..."
+            ollama pull "$MODEL" && ok "${MODEL} ready"
         fi
     else
-        warn "Ollama API did not respond — model pull skipped. Retry: ollama pull phi3.5:mini"
+        warn "Ollama API did not respond — model pull skipped. Retry: ollama pull ${MODEL}"
     fi
 fi
 
@@ -348,7 +357,7 @@ _chk "systemd service enabled"          "systemctl is-enabled --quiet iotsentine
 
 if ! $SKIP_OLLAMA; then
     _chk "Ollama binary"                "command -v ollama"
-    _chk "phi3.5:mini model"            "ollama list 2>/dev/null | grep -q 'phi3.5:mini'"
+    _chk "${MODEL} model"               "ollama list 2>/dev/null | grep -q '${MODEL%%:*}'"
 fi
 
 echo ""
@@ -361,9 +370,9 @@ echo "  Open your browser on the same network and go to:"
 echo ""
 echo -e "     ${BLUE}http://${PI_IP:-<pi-ip>}:8050/setup${NC}"
 echo ""
-echo "  Complete the 4-step wizard to finish configuration."
+echo "  Complete the 6-step wizard to finish configuration."
 echo "  The dashboard autostarts on every reboot."
 if ! $SKIP_OLLAMA; then
-    echo "  AI explanations: powered by phi3.5:mini running locally on the Pi."
+    echo "  AI explanations: powered by ${MODEL} running locally on the Pi."
 fi
 echo ""

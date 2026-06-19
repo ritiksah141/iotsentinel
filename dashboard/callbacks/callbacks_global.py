@@ -252,6 +252,23 @@ def register(app):
         prevent_initial_call=True,
     )
 
+    # ---- Top navbar: "More" toggle reveals the secondary action buttons on mobile ----
+    # On desktop the secondary buttons are always inline and the More toggle is hidden by
+    # CSS, so this only has a visible effect at mobile widths (see #dashboard-navbar in
+    # mobile-responsive.css). Mirrors the tab-bar More-sheet pattern above.
+    app.clientside_callback(
+        """
+        function(n) {
+            var sec = document.getElementById('navbar-secondary-actions');
+            if (sec) sec.classList.toggle('show');
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("navbar-more-toggle", "data-open"),
+        Input("navbar-more-toggle", "n_clicks"),
+        prevent_initial_call=True,
+    )
+
     # Close More sheet whenever navigation changes (a More-sheet item was tapped)
     app.clientside_callback(
         """
