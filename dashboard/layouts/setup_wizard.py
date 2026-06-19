@@ -583,6 +583,7 @@ _step_6_final = html.Div([
         " and the password you just set.",
     ], color="success", className="mb-3 small"),
     html.Div(id="setup-public-url-display", className="mb-3"),
+    html.Div(id="setup-reachable-display", className="mb-3"),
     html.P("What would you like to do next?", className="small text-muted mb-3"),
     dbc.Row([
         dbc.Col(html.Div([

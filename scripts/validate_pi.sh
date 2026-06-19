@@ -127,6 +127,13 @@ for svc in iotsentinel-provision iotsentinel-backend iotsentinel-dashboard; do
     fi
 done
 
+# Connectivity recovery timer — re-arms the setup hotspot if home Wi-Fi is lost.
+if systemctl is-enabled --quiet iotsentinel-connectivity.timer 2>/dev/null; then
+    pass "iotsentinel-connectivity.timer: enabled (Wi-Fi loss auto-recovery)"
+else
+    warn "iotsentinel-connectivity.timer: not enabled — run: sudo systemctl enable --now iotsentinel-connectivity.timer"
+fi
+
 # ── 6. Network & WiFi provisioning ──────────────────────────────────────────
 section "6/8  Network & WiFi"
 

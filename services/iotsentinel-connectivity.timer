@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic IoTSentinel connectivity recovery check
+
+[Timer]
+# First check a few minutes after boot (give NetworkManager time to join home WiFi),
+# then every 2 minutes. With the script's 3-strike threshold this means the setup
+# hotspot re-arms after roughly 6 minutes of confirmed outage.
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

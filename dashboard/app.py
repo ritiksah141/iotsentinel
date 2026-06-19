@@ -7830,6 +7830,42 @@ dashboard_layout = dbc.Container([
                 dbc.Tab([
                     dbc.Card([
                         dbc.CardBody([
+                            # Change WiFi — lets a headless Pi move to a new network
+                            # after setup without re-flashing. Reuses the same nmcli
+                            # helpers as the first-run wizard (utils.wifi_manager).
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-wifi me-2"),
+                                    "WiFi Network"
+                                ], className="fw-bold mb-2"),
+                                html.Div(id="settings-wifi-current",
+                                         className="small text-muted mb-2"),
+                                dbc.InputGroup([
+                                    dbc.Select(id="settings-wifi-ssid", options=[],
+                                               placeholder="Select a network..."),
+                                    dbc.Button("Scan", id="settings-wifi-scan-btn",
+                                               color="secondary", outline=True, size="sm",
+                                               className="ms-1"),
+                                ], className="mb-2"),
+                                dbc.Input(id="settings-wifi-password", type="password",
+                                          placeholder="WiFi password (blank for open networks)",
+                                          autocomplete="off", className="mb-2"),
+                                dbc.Button([html.I(className="fa fa-right-left me-2"),
+                                            "Switch to this WiFi"],
+                                           id="settings-wifi-connect-btn",
+                                           color="primary", outline=True, size="sm"),
+                                html.Div(id="settings-wifi-feedback", className="small mt-2"),
+                                dbc.Alert(
+                                    "Switching networks will briefly disconnect this device "
+                                    "from the Pi. After it switches, rejoin the same WiFi and "
+                                    "reopen the dashboard.",
+                                    color=None, className="glass-alert-info small mt-2 mb-0"),
+                            ], className="wizard-section-box mb-4"),
+
+                            # How to reach this device (find-the-Pi helper)
+                            html.Div(id="settings-reachable",
+                                     className="small text-muted mb-4"),
+
                             # Network Interface
                             html.Div([
                                 html.Label([

@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1055 passing**, 9 skipped, 0 failing |
-| Test files | 40 |
+| Total tests | **1069 passing**, 9 skipped, 0 failing |
+| Test files | 41 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
 | CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1055
+pytest tests/                          # all 1069
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -213,6 +213,18 @@ The test suite prioritises the paths where bugs have real consequences - default
 | `TestShowStep6` | step 6 shows container; steps 1-5 hide it; None data defaults hidden |
 | `TestToggleTailscalePanel` | True shows panel; False/None/empty hides panel |
 | `TestWizardFinalePanel` | `setup-done-btn` present; step 6 container present; `_STEPS` has 6 entries; `_step_header(n)` renders badge |
+
+#### `test_wifi_manager.py` - 14 tests
+**Covers:** `utils/wifi_manager.py` - the shared nmcli/reachability helpers used by the setup wizard, the post-setup **Settings → Network → Change WiFi** control, and the `iotsentinel-connectivity` recovery watchdog.
+
+**Why it exists:** WiFi switching is how a headless, non-technical user stays in control of the Pi - in the wizard, when moving the Pi to a new network, and when the connectivity timer re-opens the setup hotspot after an outage. All three paths run the same `nmcli` calls, so the parsing and the "treat a connect timeout as a soft success" behaviour (the network drops the request that switches it) are pinned here once. Every helper degrades gracefully on a host without `nmcli`.
+
+| What it validates |
+|---|
+| `nmcli_available` true/false by PATH; `scan_wifi_networks` parses SSIDs, dedupes, hides the setup hotspot, locks secured networks, and swallows errors → `[]` |
+| `current_wifi` returns the active SSID, ignores the setup hotspot, and is `None` without nmcli |
+| `connect_wifi` requires an SSID, builds the password command, surfaces stderr on failure, and treats a timeout as a soft success |
+| `get_reachable_addresses` shape (`mdns`/`ip`/`port`); `get_local_ip` skips loopback |
 
 ---
 

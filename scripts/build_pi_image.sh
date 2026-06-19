@@ -64,6 +64,10 @@ step "Configuring pi-gen"
 # ---------------------------------------------------------------------------
 cat > "$PIGEN_DIR/config" <<EOF
 IMG_NAME="IoTSentinel"
+# Explicit stage order. Without this, pi-gen globs stage* and runs them
+# alphanumerically, which puts "stage-iotsentinel" BEFORE "stage0" ('-' < '0') —
+# the custom stage would run before debootstrap creates any rootfs.
+STAGE_LIST="stage0 stage1 stage2 stage-iotsentinel"
 RELEASE="bookworm"
 DEPLOY_COMPRESSION="xz"
 LOCALE_DEFAULT="en_US.UTF-8"
@@ -94,8 +98,10 @@ rm -rf "$CUSTOM_STAGE"
 mkdir -p "$CUSTOM_STAGE/files"
 
 # 00 — Install system dependencies (Zeek, Python 3.11, tools)
+# Named *-run-chroot.sh so pi-gen runs it INSIDE the ARM Bookworm chroot (where
+# python3.11 exists), not on the amd64 noble host (which only has python3.12).
 mkdir -p "$CUSTOM_STAGE/00-install-deps"
-cat > "$CUSTOM_STAGE/00-install-deps/00-run.sh" <<'SHELL'
+cat > "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh" <<'SHELL'
 #!/bin/bash -e
 # Install Zeek via apt (official Zeek repository for Debian Bookworm)
 apt-get install -y curl gnupg2
@@ -119,7 +125,7 @@ systemctl enable avahi-daemon 2>/dev/null || true
 # Create sentinel user home directory if missing
 mkdir -p /home/sentinel
 SHELL
-chmod +x "$CUSTOM_STAGE/00-install-deps/00-run.sh"
+chmod +x "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh"
 
 # 01 — Copy repo and run setup_pi.sh
 mkdir -p "$CUSTOM_STAGE/01-install-iotsentinel/files"
@@ -127,14 +133,26 @@ mkdir -p "$CUSTOM_STAGE/01-install-iotsentinel/files"
 (cd "$REPO_DIR" && git archive --format=tar --prefix=iotsentinel/ HEAD) \
   | gzip > "$CUSTOM_STAGE/01-install-iotsentinel/files/iotsentinel.tar.gz"
 
-cat > "$CUSTOM_STAGE/01-install-iotsentinel/00-run-chroot.sh" <<'SHELL'
+# 00 (host) — pi-gen does NOT auto-copy a sub-stage's files/ into the chroot, so
+# stage the tarball into the rootfs ourselves before the chroot script extracts it.
+# Must sort before the chroot script: "00-run.sh" < "01-run-chroot.sh".
+cat > "$CUSTOM_STAGE/01-install-iotsentinel/00-run.sh" <<'SHELL'
+#!/bin/bash -e
+install -d "${ROOTFS_DIR}/tmp"
+install -m 644 files/iotsentinel.tar.gz "${ROOTFS_DIR}/tmp/iotsentinel.tar.gz"
+SHELL
+chmod +x "$CUSTOM_STAGE/01-install-iotsentinel/00-run.sh"
+
+cat > "$CUSTOM_STAGE/01-install-iotsentinel/01-run-chroot.sh" <<'SHELL'
 #!/bin/bash -e
 cd /home/sentinel
-tar xzf /tmp/iotsentinel_stage/iotsentinel.tar.gz
+tar xzf /tmp/iotsentinel.tar.gz
 chown -R sentinel:sentinel iotsentinel
 
-# Run setup as the sentinel user
-su - sentinel -c "cd /home/sentinel/iotsentinel && bash scripts/setup_pi.sh --non-interactive"
+# Run setup as the sentinel user. --skip-ollama: the on-device model is NOT baked
+# into the image (it would bloat the build and can't be pulled in an emulated
+# chroot); iotsentinel-localai.service pulls it on first boot instead.
+su - sentinel -c "cd /home/sentinel/iotsentinel && bash scripts/setup_pi.sh --non-interactive --skip-ollama"
 
 # Pre-seed is_configured=false so first boot shows the wizard
 python3 -c "
@@ -148,18 +166,22 @@ p.write_text(json.dumps(d, indent=2))
 # Remove the build-time FLASK_SECRET_KEY so it is NOT shared across every flashed
 # device. The provision service regenerates a unique key per device on first boot.
 sed -i '/^FLASK_SECRET_KEY=/d' /home/sentinel/iotsentinel/.env 2>/dev/null || true
+
+rm -f /tmp/iotsentinel.tar.gz
 SHELL
-chmod +x "$CUSTOM_STAGE/01-install-iotsentinel/00-run-chroot.sh"
+chmod +x "$CUSTOM_STAGE/01-install-iotsentinel/01-run-chroot.sh"
 
 # 02 — Install and enable systemd services
 mkdir -p "$CUSTOM_STAGE/02-systemd-services"
 cat > "$CUSTOM_STAGE/02-systemd-services/00-run-chroot.sh" <<'SHELL'
 #!/bin/bash -e
 SERVICES_SRC="/home/sentinel/iotsentinel/services"
-cp "${SERVICES_SRC}/iotsentinel-provision.service" /etc/systemd/system/
-cp "${SERVICES_SRC}/iotsentinel-backend.service"   /etc/systemd/system/
-cp "${SERVICES_SRC}/iotsentinel-dashboard.service" /etc/systemd/system/
-cp "${SERVICES_SRC}/iotsentinel-localai.service"   /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-provision.service"     /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-backend.service"       /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-dashboard.service"     /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-localai.service"       /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-connectivity.service"  /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-connectivity.timer"    /etc/systemd/system/
 
 # Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
 # the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,
@@ -177,14 +199,30 @@ echo "[build] sudoers validated (gateway nft/iptables/configure_ap present)"
 systemctl enable iotsentinel-provision.service
 systemctl enable iotsentinel-backend.service
 systemctl enable iotsentinel-dashboard.service
+# Connectivity recovery: a systemd timer re-arms the IoTSentinel-Setup hotspot if
+# home WiFi is ever lost, so a headless user can always get back in to fix it.
+# Enable the TIMER (it triggers the one-shot service); never enable the service.
+systemctl enable iotsentinel-connectivity.timer
 # AI in the box: installs Ollama + pulls the on-device model in the background
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
 SHELL
 chmod +x "$CUSTOM_STAGE/02-systemd-services/00-run-chroot.sh"
 
-# Mark stage order for pi-gen
-echo "$STAGE_NAME" >> "$PIGEN_DIR/STAGE_LIST" 2>/dev/null || true
+# prerun.sh — every pi-gen stage needs this to seed its rootfs from the previous
+# stage (stage2). Without it ${ROOTFS_DIR} is empty and the chroot scripts fail with
+# "Unable to chroot". Stage order itself is set via STAGE_LIST in the config above.
+cat > "$CUSTOM_STAGE/prerun.sh" <<'SHELL'
+#!/bin/bash -e
+if [ ! -d "${ROOTFS_DIR}" ]; then
+  copy_previous
+fi
+SHELL
+chmod +x "$CUSTOM_STAGE/prerun.sh"
+
+# EXPORT_IMAGE marks this as the stage that produces the final .img. stage2's own
+# export is suppressed (SKIP_IMAGES above) so only the customised rootfs is exported.
+echo 'IMG_SUFFIX=""' > "$CUSTOM_STAGE/EXPORT_IMAGE"
 
 # ---------------------------------------------------------------------------
 step "Running pi-gen build (this takes 30-45 minutes)"

@@ -91,13 +91,18 @@ After Step 1 completes, the Pi disconnects from the `IoTSentinel-Setup` hotspot 
 
 ### Step 5 - Access the dashboard
 
+The final wizard screen (**Step 6**) shows the exact addresses for your Pi - both
+`http://iotsentinel.local:8050` and the Pi's own IP address (e.g. `http://192.168.1.42:8050`).
+**Bookmark one of them** so you never have to hunt for the Pi again. The same addresses
+are always available later under **Settings → Network**.
+
 | Device | Address to use |
 |---|---|
 | macOS / Linux / iPhone | `http://iotsentinel.local:8050` |
-| Windows / Android | `http://<pi-ip>:8050` - find the Pi's IP in your router's admin page |
+| Windows / Android | The Pi's IP address shown on wizard Step 6 (or under **Settings → Network**) |
 | Any device, any network | Your remote access URL (shown on wizard Step 6 if you enabled it in Step 4) |
 
-> **Windows note:** `iotsentinel.local` requires Bonjour, which ships with iTunes. Without it, use the Pi's IP address directly.
+> **Windows note:** `iotsentinel.local` requires Bonjour, which ships with iTunes. Without it, use the Pi's IP address - the wizard's last screen prints it for you.
 
 > **Remote access:** If you enabled remote access in Step 4, you'll have a permanent `https://<name>.ts.net` URL - bookmark it and use it from anywhere.
 
@@ -218,8 +223,10 @@ For full per-device intrusion detection and prevention you need **gateway mode**
 | `IoTSentinel-Setup` hotspot doesn't appear | Wait 90 seconds. Check the SD card is fully seated and power supply is ≥ 5 A. |
 | Can't reach `http://10.42.0.1:8050/setup` | Make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. |
 | WiFi connect fails in wizard | Double-check the password. If your network name has special characters, try a different browser. |
-| `iotsentinel.local` doesn't resolve on Windows | Use the IP address instead. Find it in your router admin page under connected devices. |
-| `iotsentinel.local` doesn't resolve on Android | Use the IP address. Android's DNS-SD support is inconsistent. |
+| `iotsentinel.local` doesn't resolve on Windows | Use the Pi's IP address instead - it's printed on the last wizard screen and under **Settings → Network**. |
+| `iotsentinel.local` doesn't resolve on Android | Use the IP address (shown on the last wizard screen / **Settings → Network**). Android's DNS-SD support is inconsistent. |
+| **Pi fell off Wi-Fi / you can't reach it any more** | After a few minutes offline the Pi re-opens the **`IoTSentinel-Setup`** hotspot automatically. Join it, open `http://10.42.0.1:8050`, log in, and reconnect Wi-Fi from **Settings → Network → Change WiFi**. (A reboot also re-opens the hotspot if no known Wi-Fi is in range.) |
+| **Moving the Pi to a different Wi-Fi network** | Log in and use **Settings → Network → Change WiFi** - no re-flash needed. The Pi briefly drops off while it switches; rejoin the new network and reopen the dashboard. |
 | Dashboard loads but shows errors | SSH into the Pi and run: `sudo systemctl status iotsentinel-dashboard` |
 | Want to start fresh | Re-flash the SD card from Step 2. |
 
@@ -247,8 +254,10 @@ See [GATEWAY_MODE.md](GATEWAY_MODE.md) for the full gateway-mode setup and troub
 
 ## After setup
 
-- **Local:** `http://iotsentinel.local:8050` (Pi) or `http://localhost:8050` (laptop)
+- **Local:** `http://iotsentinel.local:8050` (Pi) or `http://localhost:8050` (laptop). The Pi's exact addresses are always listed under **Settings → Network**.
 - **Remote:** your `https://<name>.ts.net` URL shown on wizard Step 6 (if you enabled remote access)
+- **Change Wi-Fi:** **Settings → Network → Change WiFi** moves the Pi to a different network without re-flashing
+- **Never locked out:** if the Pi ever loses Wi-Fi for more than a few minutes, it automatically re-opens the **`IoTSentinel-Setup`** hotspot so you can reconnect it (see Troubleshooting)
 - On the Pi, IoTSentinel restarts automatically after every reboot
 - To add integrations later: log in → **Integrations** tab → API Hub
 - Switch between **Simple** and **Advanced** mode in the top navigation bar
