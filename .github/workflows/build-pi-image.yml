@@ -54,16 +54,35 @@ jobs:
 
       - name: Build image
         env:
-          TAG: ${{ github.ref_name != 'refs/heads/main' && github.ref_name || inputs.tag }}
+          # On a tag push use the tag name; on a manual run use the dispatch input.
+          # (github.ref_name is the short name, so it is never 'refs/heads/main';
+          # ref_type distinguishes a tag build from a branch/dispatch build.)
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           PIGEN_DIR: ${{ github.workspace }}/../pi-gen
         run: |
           bash scripts/build_pi_image.sh --tag="${TAG}" --pigen-dir="${PIGEN_DIR}"
 
+      # Always publish the image as a workflow artifact. For a manual (workflow_dispatch)
+      # build this is the ONLY output: download it from the run page, flash it, and test
+      # on the Pi privately. Nothing is published to a public release.
+      - name: Upload image as workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pi-image
+          path: |
+            deploy/IoTSentinel-*.img.xz
+            deploy/IoTSentinel-*.img.xz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      # Publish to a public GitHub Release ONLY on a real version-tag push, after the
+      # Pi hardware test has passed and you cut the release tag.
       - name: Upload image to GitHub Release
+        if: github.ref_type == 'tag'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.ref_name != 'refs/heads/main' && github.ref_name || inputs.tag }}"
+          TAG="${{ github.ref_name }}"
           IMGFILE="deploy/IoTSentinel-${TAG}.img.xz"
           SHAFILE="${IMGFILE}.sha256"
           gh release upload "${TAG}" "${IMGFILE}" "${SHAFILE}" \
