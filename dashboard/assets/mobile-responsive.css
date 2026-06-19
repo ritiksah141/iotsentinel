@@ -157,6 +157,70 @@
 }
 
 /* ============================================================================
+   TOP HEADER (#dashboard-navbar) - MOBILE
+   The header is a glass Card with two columns (brand | actions), not a Bootstrap
+   .navbar, so the rules above don't reach it. On phones the two columns stack and
+   the secondary actions collapse behind the "More" (ellipsis) toggle.
+   ============================================================================ */
+/* Desktop default: the More toggle is hidden; the secondary strip is inline.
+   text-decoration:none removes the btn-link underline that otherwise shows as a
+   short line under the narrow vertical-ellipsis glyph. */
+.navbar-more-toggle {
+    display: none;
+    text-decoration: none !important;
+}
+
+@media (max-width: 991.98px) {
+    /* Small-tablet safety net: let the action strip wrap instead of overflowing. */
+    #dashboard-navbar .ms-auto {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 767.98px) {
+    #dashboard-navbar .card-body {
+        padding: 0.85rem 1rem;
+    }
+
+    /* Stacked brand sits left-aligned; the action strip centers and wraps below it. */
+    #dashboard-navbar .ms-auto {
+        margin-left: 0 !important;
+        margin-top: 0.5rem;
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 0.15rem;
+    }
+
+    .navbar-more-toggle {
+        display: inline-flex !important;
+    }
+
+    /* Secondary actions hidden until the More toggle adds .show.
+       !important is needed to override Bootstrap's .d-flex utility on the element. */
+    .navbar-secondary-actions {
+        display: none !important;
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 0.15rem;
+        margin-top: 0.35rem;
+    }
+    .navbar-secondary-actions.show {
+        display: flex !important;
+    }
+
+    /* Reclaim space so the brand never collides with the buttons. */
+    #dashboard-navbar .logo-header {
+        width: 40px;
+        height: 40px;
+    }
+    #dashboard-navbar .u-text-display-sm {
+        font-size: 1.4rem;
+    }
+}
+
+/* ============================================================================
    DEVICE LIST - MOBILE
    ============================================================================ */
 @media (max-width: 767.98px) {

@@ -53,7 +53,14 @@ class ARPScanner:
         else:
             self.network_range = config.get('network', 'local_subnet', default='192.168.1.0/24')
         self.timeout = int(config.get('network', 'arp_timeout', default=2))
+        # Optional shutdown signal: the orchestrator sets this to its shutdown event so a
+        # long ping sweep aborts promptly instead of blocking graceful shutdown.
+        self.stop_event = None
         logger.info(f"ARP scanner initialised for {self.network_range} (no-sudo mode)")
+
+    def _stopping(self) -> bool:
+        """True once a shutdown has been signalled via stop_event."""
+        return self.stop_event is not None and self.stop_event.is_set()
 
     # ── Phase 1: populate ARP cache ─────────────────────────────────────────
 
@@ -84,10 +91,17 @@ class ARPScanner:
         hosts = list(net.hosts())
         logger.info(f"Ping sweep: {len(hosts)} hosts in {self.network_range}")
 
-        with ThreadPoolExecutor(max_workers=64) as pool:
+        # Not a `with` block: on shutdown we break out and cancel the queued pings
+        # without waiting (wait=False), so the scan thread joins within the timeout.
+        pool = ThreadPoolExecutor(max_workers=64)
+        try:
             futures = {pool.submit(self._ping_host, str(ip)): str(ip) for ip in hosts}
             for _ in as_completed(futures):
-                pass  # fire-and-forget; result irrelevant
+                if self._stopping():
+                    logger.info("Ping sweep aborted — shutdown signalled")
+                    break  # fire-and-forget; result irrelevant
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     # ── Phase 2: read ARP table ──────────────────────────────────────────────
 
@@ -215,6 +229,11 @@ class ARPScanner:
         """
         # Phase 1 — populate ARP cache
         self._ping_sweep()
+
+        # If shutdown was signalled during the sweep, return early without the
+        # follow-up table reads so the worker thread exits promptly.
+        if self._stopping():
+            return []
 
         # Phase 2 — read ARP table (try methods in order)
         devices = self._read_ip_neigh()

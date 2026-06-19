@@ -79,7 +79,12 @@ in plain English.
 
 IoTSentinel offers two modes, both chosen in the browser wizard with no command line.
 
-**Passive (plug-and-play, Raspberry Pi only).** The default. The Pi watches your network and
+**Where it runs.** A Raspberry Pi 4 or 5 is the recommended always-on appliance. You can also
+run real monitoring on a spare PC or a Linux virtual machine (bridged networking), or just try the
+dashboard on your everyday Mac, Windows, or Linux computer with demo data. See the
+[setup guide](docs/SETUP_GUIDE.md) for all four paths.
+
+**Passive (plug-and-play).** The default. The Pi (or PC / VM) watches your network and
 gives you device inventory, new-device alerts, firmware end-of-life and vulnerability posture,
 DNS-level threat intelligence, the full dashboard, and the local AI explanations. Zero extra
 hardware, zero configuration.

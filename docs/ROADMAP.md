@@ -17,7 +17,9 @@ effort for the user.
 ## Product tiers (good, better, best)
 
 ### Tier 1: Passive monitor (plug-and-play, ships in v1.0.0)
-- **Hardware:** a Raspberry Pi only.
+- **Hardware:** a Raspberry Pi, or a spare PC or Linux VM with bridged networking. (A
+  regular laptop can run the dashboard on demo data to try it first; real capture needs
+  the Pi or a bridged PC/VM. See the setup guide.)
 - **Setup:** flash the image, run the on-screen wizard. No command line, no extra hardware.
 - **Features:** device inventory, new-device alerts, firmware end-of-life and vulnerability
   posture, DNS-level threat intelligence, the dashboard, and the local AI plain-English

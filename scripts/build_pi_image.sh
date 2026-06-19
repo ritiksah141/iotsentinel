@@ -107,9 +107,11 @@ curl -fsSL https://download.opensuse.org/repositories/security:/zeek/Debian_12/R
   | gpg --dearmor > /etc/apt/trusted.gpg.d/security_zeek.gpg
 apt-get update
 
-# Install Zeek + Python build tools + networking stack
+# Install Zeek + Python build tools + networking stack.
+# nftables: native inline-blocking backend (firewall_enforcer prefers it, falls back
+#   to iptables). dnsmasq-base: required for NetworkManager shared-mode AP (gateway).
 apt-get install -y zeek python3.11 python3.11-venv python3-pip build-essential libssl-dev \
-    network-manager avahi-daemon avahi-utils iptables
+    network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base
 
 # Enable avahi for iotsentinel.local mDNS discovery
 systemctl enable avahi-daemon 2>/dev/null || true
@@ -142,6 +144,10 @@ d = json.loads(p.read_text())
 d.setdefault('system', {})['is_configured'] = False
 p.write_text(json.dumps(d, indent=2))
 "
+
+# Remove the build-time FLASK_SECRET_KEY so it is NOT shared across every flashed
+# device. The provision service regenerates a unique key per device on first boot.
+sed -i '/^FLASK_SECRET_KEY=/d' /home/sentinel/iotsentinel/.env 2>/dev/null || true
 SHELL
 chmod +x "$CUSTOM_STAGE/01-install-iotsentinel/00-run-chroot.sh"
 
@@ -155,15 +161,18 @@ cp "${SERVICES_SRC}/iotsentinel-backend.service"   /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-dashboard.service" /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-localai.service"   /etc/systemd/system/
 
-# sudoers: allow sentinel to run, without a password:
-#  - nmcli wifi commands (setup wizard WiFi connect)
-#  - zeekctl + configure_zeek.sh (deploy/restart the capture engine on the chosen interface)
-{
-  echo "sentinel ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *"
-  echo "sentinel ALL=(ALL) NOPASSWD: /opt/zeek/bin/zeekctl *"
-  echo "sentinel ALL=(ALL) NOPASSWD: /bin/bash /home/sentinel/iotsentinel/config/configure_zeek.sh*, /usr/bin/bash /home/sentinel/iotsentinel/config/configure_zeek.sh*"
-} > /etc/sudoers.d/iotsentinel
-chmod 440 /etc/sudoers.d/iotsentinel
+# Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
+# the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,
+# zeekctl). This stage must NOT overwrite that file — doing so previously dropped the
+# nft/iptables/configure_ap permissions and silently broke gateway inline IDS/IPS.
+# Instead, validate it so a future regression fails the build loudly.
+SUDOERS=/etc/sudoers.d/iotsentinel
+[ -f "$SUDOERS" ] || { echo "FATAL: $SUDOERS missing — setup_pi.sh did not run"; exit 1; }
+visudo -cf "$SUDOERS" >/dev/null || { echo "FATAL: $SUDOERS has invalid syntax"; exit 1; }
+for needed in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh"; do
+  grep -qF "$needed" "$SUDOERS" || { echo "FATAL: $SUDOERS missing gateway perm: $needed"; exit 1; }
+done
+echo "[build] sudoers validated (gateway nft/iptables/configure_ap present)"
 
 systemctl enable iotsentinel-provision.service
 systemctl enable iotsentinel-backend.service

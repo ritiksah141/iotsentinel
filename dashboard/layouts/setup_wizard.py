@@ -83,7 +83,8 @@ _step_1 = html.Div([
         ], className="d-flex align-items-center mb-2"),
         html.P(
             "If you're on the IoTSentinel-Setup hotspot, enter your home WiFi here. "
-            "Skip this if you already have a network connection.",
+            "On a spare PC or virtual machine connected by Ethernet, skip these WiFi "
+            "fields and just pick the interface to monitor below.",
             className="small text-muted mb-2"
         ),
         dbc.InputGroup([

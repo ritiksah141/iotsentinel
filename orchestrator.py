@@ -812,22 +812,22 @@ class IoTSentinelOrchestrator:
         logger.info("ARP scan loop started.")
         try:
             interval = config.get('network', 'arp_scan_interval', default=300)
+            # Let a long ping sweep abort promptly when the orchestrator is shutting down.
+            self.arp_scanner.stop_event = self._shutdown_event
 
-            # Perform initial scan immediately
-            logger.info("Performing initial ARP network scan...")
-            try:
-                count = self.arp_scanner.scan_and_update_database()
-                logger.info(f"Initial ARP scan complete: {count} devices discovered")
-            except Exception as e:
-                logger.error(f"Error in initial ARP scan: {e}")
+            # Perform initial scan immediately (skip if already shutting down)
+            if self.running and not self._shutdown_event.is_set():
+                logger.info("Performing initial ARP network scan...")
+                try:
+                    count = self.arp_scanner.scan_and_update_database()
+                    logger.info(f"Initial ARP scan complete: {count} devices discovered")
+                except Exception as e:
+                    logger.error(f"Error in initial ARP scan: {e}")
 
-            # Continue with periodic scans
+            # Continue with periodic scans (interruptible wait — wakes instantly on stop)
             while self.running:
-                # Sleep first, then scan
-                for _ in range(interval):
-                    if not self.running:
-                        break
-                    time.sleep(1)
+                if self._sleep(interval):
+                    break  # shutdown signalled during the wait
 
                 if not self.running:
                     break

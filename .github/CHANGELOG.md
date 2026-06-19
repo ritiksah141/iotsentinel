@@ -49,6 +49,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### Pre-release image hardening (2026-06-19)
+
+- **Gateway sudoers are no longer dropped from the image.** The image build used to overwrite the complete sudoers that `setup_pi.sh` writes with a stale subset, silently removing the `nft`, `iptables`, and `configure_ap.sh` grants and breaking gateway inline enforcement on the flashed Pi. The build now treats `setup_pi.sh` as the single source of truth and validates the file (`visudo -c` plus an assertion that the gateway grants are present), failing the build if they ever go missing again.
+- **Per-device session key.** `FLASK_SECRET_KEY` is no longer baked once into the image (which would share one key across every flashed device). The build strips it and the `iotsentinel-provision` service generates a unique key per device on first boot, before the dashboard starts.
+- **Native nftables backend installed.** `nftables` and `dnsmasq-base` are installed explicitly so `firewall_enforcer` uses its preferred nftables path (with ruleset backup/restore) rather than only the iptables fallback.
+- **On-device model consistency.** `setup_pi.sh` now pulls the model named in config (`ai_assistant.ollama_model`, default `gemma2:2b`) instead of a hardcoded `phi3.5:mini`, matching `setup_local_ai.sh` and `default_config.json`.
+- **localai service** is now username-substituted and enabled by `setup_pi.sh` (without `--now`, so the model download never blocks setup), fixing on-device AI for manual installs under a non-`sentinel` user.
+
+### Mobile navbar and VM run paths (2026-06-19)
+
+- **Mobile header fixed.** On phones the top toolbar buttons overlapped the logo and wordmark. The header now stacks on small screens with the primary actions visible and the rest behind a "More" toggle; desktop is unchanged.
+- **Real monitoring without a Pi.** Documented a spare-PC / Linux-VM path (`scripts/setup_pi.sh` already runs on x86_64 Debian/Ubuntu) alongside the existing demo path, with the honest passive-mode caveat. The wizard now hints that wired hosts can skip the Wi-Fi step.
+
+### Stability fixes found in pre-deploy E2E (2026-06-19)
+
+- **Risk Heat Map no longer crashes on an empty database.** `update_device_risk_heatmap` returned 5 values for its 6 outputs when no devices existed yet (a `SchemaLengthValidationError`), which would have errored the card on a fresh Pi's first boot. It now returns the full output set. An AST sweep of every multi-output callback confirmed no other wrong-length returns remain.
+- **Clean orchestrator shutdown.** The ARP scan loop now waits on the shared shutdown event (interruptible) and its ping sweep aborts immediately when shutdown is signalled, so the worker thread no longer blocks the join timeout. The "Thread ARPScanThread did not stop gracefully" warning is gone and shutdown is faster (about 1 to 2 seconds).
+
 ### Gateway capture mode - full inline IDS/IPS (2026-06-15)
 
 - **New capture mode** (`network.capture_mode`): `passive` (default, plug-and-play) or `gateway`. In gateway mode the Pi serves a dedicated Wi-Fi network for IoT devices on a USB Wi-Fi adapter (NetworkManager shared mode: DHCP, DNS, NAT, forwarding), so Zeek sees all of their traffic and the firewall can block inline. The home Wi-Fi is never modified.
