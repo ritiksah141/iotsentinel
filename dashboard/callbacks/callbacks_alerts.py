@@ -2407,7 +2407,11 @@ def register(app):
             devices = cursor.fetchall()
 
             if not devices:
-                return go.Figure(), "0", "0", "0", "0"
+                # 6 outputs: include the toast slot (no toast unless refresh was clicked).
+                empty_toast = ToastManager.success(
+                    "Data Updated", detail_message="Data Updated"
+                ) if show_toast else dash.no_update
+                return go.Figure(), "0", "0", "0", "0", empty_toast
 
             # Calculate risk scores
             device_risks = []

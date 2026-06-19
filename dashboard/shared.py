@@ -1784,14 +1784,13 @@ def create_header():
                             ], className="text-muted mb-0 u-text-md")
                         ])
                     ], className="d-flex align-items-center")
-                ], width=6, className="d-flex align-items-center"),
+                ], xs=12, md=6, className="d-flex align-items-center"),
                 dbc.Col([
                     html.Div([
                         dbc.Button([
                             html.I(className="fa fa-bell"),
                             dbc.Badge(id="notification-badge", color="danger", className="position-absolute top-0 start-100 translate-middle u-text-badge")
                         ], color="link", id="notification-bell-button", className="text-white position-relative px-2"),
-                        dbc.Button(html.I(className="fa fa-history"), color="link", id="toast-history-toggle-btn", className="text-white px-2", title="Toast History"),
                         dbc.Button(html.I(className="fa fa-comments"), color="link", id="open-chat-button", className="text-white px-2"),
                         html.Span([
                             dbc.Button(
@@ -1806,12 +1805,18 @@ def create_header():
                                 style={"fontSize": "0.6rem", "display": "none"}
                             ),
                         ], className="position-relative"),
-                        dbc.Button(html.I(className="fa fa-pause", id="pause-icon"), color="link", id="pause-button", className="text-white px-2"),
-                        dbc.Button(html.I(className="fa fa-volume-up", id="voice-alert-icon"), color="link", id="voice-alert-toggle", className="text-white px-2", title="Toggle Voice Alerts"),
-                        dbc.Button(html.I(className="fa fa-paper-plane", id="email-alert-nav-icon"), color="link", id="email-alert-nav-toggle", className="text-white px-2", title="Notifications"),
-                        dbc.Button(html.I(className="fa fa-moon", id="dark-mode-icon"), color="link", id="dark-mode-toggle", className="text-white px-2", title="Toggle Dark Mode"),
-                        dbc.Button(html.I(className="fa fa-th"), color="link", id="customize-layout-button", className="text-white px-2", title="Customize Layout"),
-                        dbc.Button(html.I(className="fa fa-bolt"), color="link", id="quick-actions-button", className="text-white px-2", title="Quick Actions"),
+                        # Secondary actions: visible inline on desktop, collapsed behind the
+                        # "More" toggle on mobile (see #dashboard-navbar in mobile-responsive.css).
+                        html.Div([
+                            dbc.Button(html.I(className="fa fa-history"), color="link", id="toast-history-toggle-btn", className="text-white px-2", title="Toast History"),
+                            dbc.Button(html.I(className="fa fa-pause", id="pause-icon"), color="link", id="pause-button", className="text-white px-2"),
+                            dbc.Button(html.I(className="fa fa-volume-up", id="voice-alert-icon"), color="link", id="voice-alert-toggle", className="text-white px-2", title="Toggle Voice Alerts"),
+                            dbc.Button(html.I(className="fa fa-paper-plane", id="email-alert-nav-icon"), color="link", id="email-alert-nav-toggle", className="text-white px-2", title="Notifications"),
+                            dbc.Button(html.I(className="fa fa-moon", id="dark-mode-icon"), color="link", id="dark-mode-toggle", className="text-white px-2", title="Toggle Dark Mode"),
+                            dbc.Button(html.I(className="fa fa-th"), color="link", id="customize-layout-button", className="text-white px-2", title="Customize Layout"),
+                            dbc.Button(html.I(className="fa fa-bolt"), color="link", id="quick-actions-button", className="text-white px-2", title="Quick Actions"),
+                        ], id="navbar-secondary-actions", className="navbar-secondary-actions d-flex align-items-center"),
+                        dbc.Button(html.I(className="fa fa-ellipsis-v"), color="link", id="navbar-more-toggle", className="navbar-more-toggle text-white px-2", title="More", n_clicks=0),
                         html.Div([
                             dbc.Button(html.I(className="fa fa-house fa-sm"), id="view-mode-simple-btn", size="sm", outline=True,
                                        color="success", className="mode-btn-pill", n_clicks=0, title="Simple Mode"),
@@ -1844,7 +1849,7 @@ def create_header():
                            className="profile-dropdown ms-2",
                            toggle_style={"padding": "0.5rem 0.75rem"})
                     ], className="d-flex align-items-center ms-auto")
-                ], width=6, className="d-flex align-items-center justify-content-end")
+                ], xs=12, md=6, className="d-flex align-items-center justify-content-end")
             ])
         ], className="p-4")
     ], id="dashboard-navbar", className="mb-3 glass-card border-0 shadow-lg")
@@ -1854,6 +1859,10 @@ def create_header():
             "Notifications - View security alerts and system notifications. "
             "Badge shows unread count. Click to open notification drawer.",
             target="notification-bell-button", placement="bottom"
+        ),
+        dbc.Tooltip(
+            "More - Show the rest of the toolbar actions.",
+            target="navbar-more-toggle", placement="bottom"
         ),
         dbc.Tooltip(
             "Toast History - View all recent toast notifications. "
