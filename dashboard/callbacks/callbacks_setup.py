@@ -270,61 +270,34 @@ def _detect_ollama(url: str = "http://localhost:11434/api/tags",
                        "on-device AI. Optional - cloud AI works without it.")
 
 
+# WiFi/reachability helpers live in utils.wifi_manager (shared with the post-setup
+# "Change WiFi" control and the connectivity-recovery watchdog). Thin wrappers keep
+# the existing wizard call sites and message wording stable.
+from utils import wifi_manager
+
+
 def _nmcli_available() -> bool:
-    return shutil.which("nmcli") is not None
+    return wifi_manager.nmcli_available()
 
 
 def _scan_wifi_networks() -> list[dict]:
     """Return a list of {label, value} dicts for visible SSIDs."""
-    if not _nmcli_available():
-        return []
-    try:
-        result = subprocess.run(
-            ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "yes"],
-            capture_output=True, text=True, timeout=15,
-        )
-        options, seen = [], set()
-        for line in result.stdout.splitlines():
-            parts = line.split(":")
-            ssid = parts[0].strip() if parts else ""
-            if not ssid or ssid in seen:
-                continue
-            seen.add(ssid)
-            signal = parts[1].strip() if len(parts) > 1 else "?"
-            secured = "🔒 " if len(parts) > 2 and parts[2].strip() else ""
-            options.append({"label": f"{secured}{ssid}  ({signal}%)", "value": ssid})
-        return options
-    except Exception:
-        return []
+    return wifi_manager.scan_wifi_networks()
 
 
 def _connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
     """Connect to a WiFi network using nmcli. Returns (success, message)."""
-    if not ssid:
-        return False, "Please select a WiFi network first."
-    if not _nmcli_available():
-        return False, "nmcli not available on this device."
-    try:
-        cmd = ["sudo", "nmcli", "dev", "wifi", "connect", ssid]
-        if password:
-            cmd += ["password", password]
-        cmd += ["ifname", "wlan0"]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
-        if result.returncode == 0:
-            return True, (
-                "Connected! Your Pi is now on your home network. "
-                "Reconnect your laptop to your home WiFi, then continue at: "
-                "http://iotsentinel.local:8050/setup"
-            )
-        err = result.stderr.strip() or result.stdout.strip()
-        return False, err or "Connection failed. Check your WiFi password and try again."
-    except subprocess.TimeoutExpired:
-        return True, (
-            "Connecting… The Pi is switching to your home WiFi. "
-            "Rejoin your home network and open http://iotsentinel.local:8050/setup to continue."
+    ok, msg = wifi_manager.connect_wifi(ssid, password)
+    if ok:
+        # First-run wizard sends the user back to the /setup route to continue.
+        msg = msg.replace(
+            f"reopen http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}.",
+            f"continue at http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}/setup.",
+        ).replace(
+            f"reopen http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT} to continue.",
+            f"open http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}/setup to continue.",
         )
-    except Exception as e:
-        return False, str(e)
+    return ok, msg
 
 
 def _test_router_ssh(router_ip: str, router_user: str, key_path: str) -> tuple[bool, str]:
@@ -403,6 +376,69 @@ def register(app):
         ok, msg = _connect_wifi(ssid, password or "")
         color = "text-success" if ok else "text-danger"
         return html.Span(msg, className=color)
+
+    # ------------------------------------------------------------------
+    # Post-setup "Change WiFi" (Settings → Network). Lets a headless Pi move to
+    # a new network after the wizard, without re-flashing. Reuses wifi_manager.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("settings-wifi-current", "children"),
+        Output("settings-wifi-ssid", "options"),
+        Output("settings-reachable", "children"),
+        Input("quick-settings-modal", "is_open"),
+        Input("settings-wifi-scan-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def settings_wifi_refresh(is_open, _scan_clicks):
+        triggered = callback_context.triggered_id
+        # Ignore the modal-close event; only act on open or an explicit Scan.
+        if triggered == "quick-settings-modal" and not is_open:
+            raise dash.exceptions.PreventUpdate
+
+        # "How to reach this device" — always useful, even without nmcli.
+        addr = wifi_manager.get_reachable_addresses()
+        reach = [html.I(className="fa fa-location-dot me-1"),
+                 "Reach this dashboard at ",
+                 html.Code(f"http://{addr['mdns']}:{addr['port']}")]
+        if addr["ip"]:
+            reach += [" or ", html.Code(f"http://{addr['ip']}:{addr['port']}")]
+
+        if not wifi_manager.nmcli_available():
+            return (
+                html.Span([html.I(className="fa fa-circle-info me-1"),
+                           "WiFi switching isn't available on this host."]),
+                [],
+                reach,
+            )
+        current = wifi_manager.current_wifi()
+        if current:
+            current_txt = html.Span(
+                [html.I(className="fa fa-circle-check text-success me-1"),
+                 "Connected to ", html.Strong(current), "."])
+        else:
+            current_txt = html.Span(
+                [html.I(className="fa fa-circle-exclamation text-warning me-1"),
+                 "Not connected to any WiFi network."])
+        # Rescanning is slow (~15s), so only do it on an explicit Scan click; on a
+        # plain modal-open just refresh the current-network line.
+        options = (wifi_manager.scan_wifi_networks()
+                   if triggered == "settings-wifi-scan-btn" else dash.no_update)
+        return current_txt, options, reach
+
+    @app.callback(
+        Output("settings-wifi-feedback", "children"),
+        Input("settings-wifi-connect-btn", "n_clicks"),
+        State("settings-wifi-ssid", "value"),
+        State("settings-wifi-password", "value"),
+        prevent_initial_call=True,
+    )
+    def settings_wifi_connect(_n, ssid, password):
+        if not ssid:
+            return html.Span("Select a network first.", className="text-warning")
+        ok, msg = wifi_manager.connect_wifi(ssid, password or "")
+        icon = "fa-circle-check text-success" if ok else "fa-circle-exclamation text-danger"
+        color = "text-success" if ok else "text-danger"
+        return html.Span([html.I(className=f"fa {icon} me-1"), msg], className=color)
 
     # ------------------------------------------------------------------
     # Show the access-point fields only when Gateway mode is selected, so the
@@ -511,6 +547,41 @@ def register(app):
             html.Small("Bookmark this link. It's how you reach IoTSentinel from anywhere.",
                         className="text-muted"),
         ], color="success", className="small")
+
+    # ------------------------------------------------------------------
+    # On step 6, show how to reach the dashboard on the local network. Crucial for
+    # a headless Pi: gives the user the .local name AND the live IP so they never
+    # have to dig the address out of their router.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("setup-reachable-display", "children"),
+        Input("setup-step-store", "data"),
+        prevent_initial_call=True,
+    )
+    def update_reachable_display(step_data):
+        if (step_data or {}).get("step") != 6:
+            return ""
+        from utils import wifi_manager
+        addr = wifi_manager.get_reachable_addresses()
+        port = addr["port"]
+        mdns_url = f"http://{addr['mdns']}:{port}"
+        rows = [
+            html.Strong("On your home network, reach IoTSentinel at:"),
+            html.Br(),
+            html.A(mdns_url, href=mdns_url, className="text-info fw-semibold"),
+            html.Span(" (works on most phones and computers)", className="text-muted"),
+        ]
+        if addr["ip"]:
+            ip_url = f"http://{addr['ip']}:{port}"
+            rows += [
+                html.Br(),
+                html.A(ip_url, href=ip_url, className="text-info fw-semibold"),
+                html.Span("  (use this if the name above doesn't load)", className="text-muted"),
+            ]
+        rows.append(
+            html.Div("Tip: bookmark one of these now so you can always find your Pi.",
+                     className="text-muted mt-1"))
+        return dbc.Alert(rows, color=None, className="glass-alert-info small")
 
     # ------------------------------------------------------------------
     # Step navigation + progress bar  (6-step wizard)

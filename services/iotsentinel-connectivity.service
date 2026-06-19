@@ -1,0 +1,14 @@
+[Unit]
+Description=IoTSentinel connectivity recovery (re-arm setup hotspot if WiFi is lost)
+# NetworkManager owns the WiFi device this checks and (re)arms.
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+# Runs as root (no User=) so it can drive nmcli + iptables directly. Fired by the
+# matching .timer every couple of minutes; arms the IoTSentinel-Setup hotspot only
+# after a sustained outage so a headless user can always get back in to fix WiFi.
+ExecStart=/home/sentinel/iotsentinel/scripts/setup_hotspot.sh recover
+StandardOutput=journal
+StandardError=journal

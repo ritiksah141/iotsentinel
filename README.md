@@ -282,7 +282,12 @@ All API keys are optional. The system works without them using local threat feed
 fallbacks.
 
 > **Windows / Android:** `iotsentinel.local` needs Bonjour (ships with iTunes on Windows). Without
-> it, use the Pi's IP from your router's connected-devices page.
+> it, use the Pi's IP address - the final wizard screen and **Settings → Network** both show it, so
+> you don't need to dig it out of your router.
+
+> **Moved house or changed your router?** You're never locked out: use **Settings → Network → Change
+> WiFi** to switch networks, and if the Pi ever loses Wi-Fi it re-opens the `IoTSentinel-Setup`
+> hotspot automatically so you can reconnect it. See [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md).
 
 ### Laptop / desktop (macOS / Linux / Windows)
 
@@ -348,10 +353,10 @@ dashboard still works there, it just is not installable).
 
 ## Testing
 
-**1055 tests** across 40 files cover the full data pipeline, ML engine, security flows, alert
-system, AI feature helpers, device intelligence, capture-mode and gateway logic, and the setup
-wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke test and an ARM64
-dependency-install check.
+**1069 tests** across 41 files cover the full data pipeline, ML engine, security flows, alert
+system, AI feature helpers, device intelligence, capture-mode and gateway logic, Wi-Fi / hotspot
+recovery, and the setup wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke
+test and an ARM64 dependency-install check.
 
 | Module | Coverage |
 |---|---|
@@ -363,7 +368,7 @@ dependency-install check.
 | Alert service | 78% |
 
 ```bash
-pytest tests/                          # all 1055 tests
+pytest tests/                          # all 1069 tests
 pytest tests/ -x                       # stop at first failure
 ./scripts/run_tests.sh report          # HTML coverage report
 ```

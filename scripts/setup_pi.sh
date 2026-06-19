@@ -272,14 +272,22 @@ fi
 # Systemd services — substitute actual username and home dir into service files
 SERVICES_SRC="$PROJECT_DIR/services"
 if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
-    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai; do
+    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity; do
         [ -f "$SERVICES_SRC/${svc}.service" ] || continue
         sed "s|/home/sentinel|$HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
             "$SERVICES_SRC/${svc}.service" \
             | sudo tee /etc/systemd/system/${svc}.service > /dev/null
     done
+    # The connectivity recovery timer (no username/path substitution needed).
+    if [ -f "$SERVICES_SRC/iotsentinel-connectivity.timer" ]; then
+        sudo cp "$SERVICES_SRC/iotsentinel-connectivity.timer" /etc/systemd/system/
+    fi
     sudo systemctl daemon-reload
     sudo systemctl enable --now iotsentinel-provision iotsentinel-backend iotsentinel-dashboard 2>/dev/null || true
+    # Connectivity recovery: re-arms the setup hotspot if home WiFi is ever lost, so
+    # a headless user can always get back in to fix it. Enable the timer (not the
+    # one-shot service) for next boot.
+    sudo systemctl enable --now iotsentinel-connectivity.timer 2>/dev/null || true
     # localai is a niced one-shot that pulls the on-device model; enable for next boot
     # WITHOUT --now so its (long) model download never blocks this setup run.
     sudo systemctl enable iotsentinel-localai 2>/dev/null || true

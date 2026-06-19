@@ -49,6 +49,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### Headless Wi-Fi resilience and image-build fix (2026-06-19)
+
+- **The Pi image actually builds now.** The custom pi-gen stage was mis-wired and had never produced a valid image: the stage sorted ahead of `stage0` (so it ran before any root filesystem existed), the dependency install ran on the amd64 build host instead of the ARM chroot (`E: Unable to locate package python3.11`), the stage had no `prerun.sh`/`EXPORT_IMAGE`, and the repo tarball was never copied into the chroot. `scripts/build_pi_image.sh` now sets an explicit `STAGE_LIST`, adds `prerun.sh` (`copy_previous`) and `EXPORT_IMAGE`, runs the deps install in-chroot, stages the tarball via a host step, and builds with `--skip-ollama` (the model is pulled on first boot, not baked in).
+- **Never locked out of a headless Pi.** A new `iotsentinel-connectivity.timer` re-opens the **`IoTSentinel-Setup`** hotspot automatically if the Pi loses home Wi-Fi for more than a few minutes (3-strike grace, never flaps), so a user with no screen or keyboard can always get back in to fix Wi-Fi. The hotspot logic moved into a single shared script, `scripts/setup_hotspot.sh`, used by both the provision service (first boot) and the new recovery timer.
+- **Change Wi-Fi after setup, no re-flash.** **Settings → Network** gains a "Change WiFi" control (scan, password, switch) for moving the Pi to a different network. The nmcli helpers are now shared in `utils/wifi_manager.py` (used by the wizard, the new control, and the recovery script).
+- **Find the Pi without the router.** The final wizard screen and **Settings → Network** now show the Pi's reachable addresses - `iotsentinel.local` and its live LAN IP - so non-technical users never have to dig the address out of their router.
+
 ### Pre-release image hardening (2026-06-19)
 
 - **Gateway sudoers are no longer dropped from the image.** The image build used to overwrite the complete sudoers that `setup_pi.sh` writes with a stale subset, silently removing the `nft`, `iptables`, and `configure_ap.sh` grants and breaking gateway inline enforcement on the flashed Pi. The build now treats `setup_pi.sh` as the single source of truth and validates the file (`visudo -c` plus an assertion that the gateway grants are present), failing the build if they ever go missing again.
