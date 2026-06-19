@@ -8,16 +8,19 @@ on:
   push:
     branches: [ main ]
     paths: [ 'requirements-pi.txt' ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
     paths: [ 'requirements-pi.txt' ]
-  workflow_call:          # so build-pi-image can gate on it
+  workflow_call:          # so build-pi-image can gate on it (covers the tag build)
 
 # Cancel superseded runs on a PR branch when new commits arrive; never cancel
 # on main, where every commit must be validated.
+# The group prefix is a static literal (not github.workflow) so that when this
+# workflow is *called* by build-pi-image it does NOT share a group with the other
+# reusable gate (test.yml) — github.workflow resolves to the caller's name for
+# both, which previously made them cancel each other on a tag build.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: pi-deps-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

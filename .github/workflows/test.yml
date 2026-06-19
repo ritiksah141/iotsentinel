@@ -10,7 +10,10 @@ on:
 # Cancel superseded runs on a PR branch when new commits arrive; never cancel
 # on main, where every commit must be validated.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Static prefix (not github.workflow): when called by build-pi-image, github.workflow
+  # is the caller's name, which would collide with the pi-deps reusable call and cancel
+  # the build on a tag ref. A literal keeps each gate in its own group.
+  group: test-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
