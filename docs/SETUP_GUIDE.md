@@ -21,10 +21,10 @@
 
 ```mermaid
 flowchart TD
-    A["Download the IoTSentinel image"] --> B["Flash it to the SD card with<br/>Raspberry Pi Imager<br/><b>Skip every prompt - click NO</b>"]
+    A["Download the IoTSentinel image"] --> B["Flash it to the SD card with<br/>Raspberry Pi Imager<br/>Skip every prompt - click NO"]
     B --> C["Put the card in the Pi and power on<br/>No screen or keyboard needed"]
     C --> D["Wait about 2 minutes<br/>(first-boot setup)"]
-    D --> E["On your phone, join the open Wi-Fi<br/>named <b>IoTSentinel-Setup</b>"]
+    D --> E["On your phone, join the open Wi-Fi<br/>named IoTSentinel-Setup"]
     E --> F["Open the setup page<br/>http://10.42.0.1:8050/setup"]
     F --> G["Wizard: pick your home Wi-Fi<br/>and set your password"]
     G --> H["The Pi joins your home Wi-Fi<br/>Reconnect your phone to home Wi-Fi"]
