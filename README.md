@@ -265,9 +265,9 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A["Download<br/>the image"] --> B["Flash with Pi Imager<br/><b>skip all prompts</b>"]
+    A["Download<br/>the image"] --> B["Flash with Pi Imager<br/>skip all prompts"]
     B --> C["Power on the Pi<br/>(no screen needed)"]
-    C --> D["Join the open Wi-Fi<br/><b>IoTSentinel-Setup</b>"]
+    C --> D["Join the open Wi-Fi<br/>IoTSentinel-Setup"]
     D --> E["Open<br/>10.42.0.1:8050/setup"]
     E --> F["Pick Wi-Fi,<br/>set password"]
     F --> G["Live monitoring<br/>on the dashboard"]
