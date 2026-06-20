@@ -7,7 +7,9 @@ Wants=NetworkManager.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-TimeoutStartSec=90
+# Generous: setup_hotspot.sh waits for NetworkManager to take over wlan0 on a cold
+# boot and then retries the AP bring-up a few times, so the worst case is ~2 min.
+TimeoutStartSec=180
 StandardOutput=journal
 StandardError=journal
 ExecStart=/bin/bash -c '\

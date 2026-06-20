@@ -17,6 +17,25 @@
 
 ## Path A - Raspberry Pi (recommended for home use)
 
+**The whole setup, at a glance:**
+
+```mermaid
+flowchart TD
+    A["Download the IoTSentinel image"] --> B["Flash it to the SD card with<br/>Raspberry Pi Imager<br/><b>Skip every prompt - click NO</b>"]
+    B --> C["Put the card in the Pi and power on<br/>No screen or keyboard needed"]
+    C --> D["Wait about 2 minutes<br/>(first-boot setup)"]
+    D --> E["On your phone, join the open Wi-Fi<br/>named <b>IoTSentinel-Setup</b>"]
+    E --> F["Open the setup page<br/>http://10.42.0.1:8050/setup"]
+    F --> G["Wizard: pick your home Wi-Fi<br/>and set your password"]
+    G --> H["The Pi joins your home Wi-Fi<br/>Reconnect your phone to home Wi-Fi"]
+    H --> I["Finish the wizard<br/>(alerts, mode, optional extras)"]
+    I --> J["Open the dashboard<br/>http://iotsentinel.local:8050"]
+    J --> K["Live monitoring:<br/>devices, alerts, security score"]
+    style A fill:#e3f2fd,stroke:#1976d2
+    style K fill:#e8f5e9,stroke:#388e3c
+    style B fill:#fff3e0,stroke:#f57c00
+```
+
 ### What you need
 
 | Item | Notes |
@@ -37,6 +56,7 @@ Go to the [**latest release**](https://github.com/ritiksah141/iotsentinel/releas
 
 - `IoTSentinel-<version>.img.xz` - the pre-built image (~2-3 GB compressed). The filename matches the release tag (e.g. `IoTSentinel-v1.2.0.img.xz`).
 - `IoTSentinel-<version>.img.xz.sha256` - optional checksum for verification
+- `IoTSentinel-Setup-Guide.html` - this guide, as a page you can open in any browser (double-click it)
 
 **Optional - verify the download:**
 
@@ -50,42 +70,59 @@ sha256sum -c IoTSentinel-<version>.img.xz.sha256
 
 ---
 
-### Step 2 - Flash with Raspberry Pi Imager
+### Step 2 - Write the image to the SD card
 
-1. Download **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** (free, works on Mac, Windows, and Linux - it's the official tool from the Pi Foundation)
-2. Open Raspberry Pi Imager
-3. Under **Operating System**, click **"Use custom"** and select the `IoTSentinel-<version>.img.xz` file you downloaded
-4. Under **Storage**, select your SD card
-5. Click **Write** and wait ~5 minutes
+You only need the free **Raspberry Pi Imager** app. Follow these clicks exactly - and
+importantly, **skip every extra question it asks**. IoTSentinel sets up Wi-Fi and your
+password in its own wizard later, so there is nothing to fill in here.
 
-> No customisation screen is needed. The setup wizard on the Pi handles WiFi and passwords for you - just write the image as-is.
+1. Download and open **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** (it's the official Raspberry Pi app for Mac, Windows, and Linux).
+2. Plug your SD card into your computer.
+3. Click **CHOOSE DEVICE** and pick your Raspberry Pi model (if it isn't listed, just continue).
+4. Click **CHOOSE OS**, scroll to the very bottom, and pick **Use custom**. Then select the `IoTSentinel-<version>.img.xz` file you downloaded in Step 1.
+5. Click **CHOOSE STORAGE** and select your SD card. Make sure it's the SD card and not another drive - everything on it gets erased.
+6. Click **NEXT**.
+7. **Skip the customisation - this is the important part.** Imager will ask: *"Would you like to apply OS customisation settings?"* Click **NO**.
+   - Do **not** click "Edit Settings".
+   - Do **not** type in a Wi-Fi name, username, or password here.
+   - If your version shows a simple on/off toggle instead, leave it **off**.
+8. If it warns that the card will be erased, click **YES**, then wait about 5 minutes for it to finish.
 
----
-
-### Step 3 - Boot and connect
-
-1. Insert the SD card into the Raspberry Pi and plug in the power cable
-2. Wait **90 seconds** for first-boot setup to complete
-3. A Wi-Fi network named **`IoTSentinel-Setup`** will appear on your phone or laptop - no password needed
-4. Connect to `IoTSentinel-Setup`
-5. Open your browser and go to: **`http://10.42.0.1:8050/setup`**
-
-> If the network doesn't appear after 90 seconds, check that your SD card is fully seated and that you're using a 5 A power supply, not a phone charger.
+> **Why skip it?** If you enter your Wi-Fi in Imager, the Pi quietly joins your home network and never shows the setup screen. Leaving it blank is what makes the Pi open its own `IoTSentinel-Setup` network so you can do everything from your phone.
 
 ---
 
-### Step 4 - Complete the 6-step wizard
+### Step 3 - Power on and open the setup screen
+
+1. Take the SD card out of your computer and put it into the Raspberry Pi.
+2. Plug in the power cable. The Pi will start up on its own - **there is no screen, keyboard, or cable to connect.**
+3. Wait about **2 minutes** the first time (it's getting itself ready).
+4. On your **phone or laptop**, open the Wi-Fi list. A new network called **`IoTSentinel-Setup`** will appear - it has **no password**. Tap it to connect.
+5. A setup page should pop up on its own. If it doesn't, open your web browser and go to **`http://10.42.0.1:8050/setup`**.
+
+> Don't see `IoTSentinel-Setup` after a couple of minutes? Unplug the Pi, wait 5 seconds, plug it back in, and wait again. Make sure you're using a proper Raspberry Pi power supply - a weak phone charger can stop the Wi-Fi from starting. Still nothing? See [Troubleshooting](#troubleshooting).
+
+---
+
+### Step 4 - Follow the setup wizard
+
+The setup page walks you through six short steps. Everything except the first one is
+optional - you can change all of it later from the dashboard.
 
 | Step | What you do |
 |---|---|
-| **1 - WiFi & Admin** | Click **Scan**, pick your home Wi-Fi, enter its password, tap **Connect to this WiFi**. Set your admin password. |
-| **2 - Who is this for?** | Choose **Household** (recommended for home) or **Small Business**. Household unlocks all home security features; Business adds enterprise integrations. |
-| **3 - Notifications & extras** | Pick your notification channels: **ntfy.sh** (zero setup - scan the QR on your phone), Telegram, Discord, webhook, or Email. Optionally add AI explanations (free Groq key) and threat intelligence (free AbuseIPDB key). Everything here is optional. |
-| **4 - Access from anywhere** | Enable remote access to reach the dashboard from any device, anywhere - not just your home Wi-Fi. Powered by Tailscale (free). |
-| **5 - Review & Launch** | Confirm your settings and click **Launch IoTSentinel →** |
-| **6 - You're all set!** | The Pi has joined your home network. Follow the on-screen instructions to access the dashboard. |
+| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, and tap **Connect to this WiFi**. Then create a password for your IoTSentinel account (you'll use this to log in). |
+| **2 - Who is this for?** | Pick **Household** (best for homes) or **Small Business**. You can switch later. |
+| **3 - Alerts & extras** | Choose how you want to be alerted: **ntfy** (easiest - scan a QR code with your phone), Telegram, Discord, or email. All optional. |
+| **4 - Use it away from home** | Optional: turn on remote access so you can check IoTSentinel from anywhere, not just at home. |
+| **5 - Review** | Check your choices and tap **Launch IoTSentinel**. |
+| **6 - All set** | The page shows the web address to use from now on. Bookmark it. |
 
-After Step 1 completes, the Pi disconnects from the `IoTSentinel-Setup` hotspot and joins your home Wi-Fi. **Reconnect your laptop/phone to your home Wi-Fi** before continuing to Step 2.
+> **What happens after Step 1 (important):** when you connect your Wi-Fi, the Pi leaves
+> its own `IoTSentinel-Setup` network and joins your home Wi-Fi. Your phone/laptop will
+> drop off the `IoTSentinel-Setup` network at this point - that's normal. **Reconnect your
+> phone/laptop to your usual home Wi-Fi**, and the setup page will continue. If the page
+> looks stuck, reload **`http://iotsentinel.local:8050/setup`** once you're back on home Wi-Fi.
 
 ---
 
@@ -220,8 +257,8 @@ For full per-device intrusion detection and prevention you need **gateway mode**
 
 | Problem | Fix |
 |---|---|
-| `IoTSentinel-Setup` hotspot doesn't appear | Wait 90 seconds. Check the SD card is fully seated and power supply is ≥ 5 A. |
-| Can't reach `http://10.42.0.1:8050/setup` | Make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. |
+| `IoTSentinel-Setup` hotspot doesn't appear | Wait the full ~2 minutes on first boot. If it's still missing, unplug the Pi, wait 5 seconds, and power it back on. Check the SD card is fully seated and that you're using a proper Raspberry Pi power supply (a weak phone charger can stop the Wi-Fi starting). |
+| Can't reach `http://10.42.0.1:8050/setup` | First make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. If you still can't load it, the dashboard may be listening on localhost only - SSH in (`ssh sentinel@10.42.0.1`, password `iotsentinel`), run `echo "IOTSENTINEL_HOST=0.0.0.0" >> ~/iotsentinel/.env && sudo systemctl restart iotsentinel-dashboard`, then reload the page. (Fixed in current images.) |
 | WiFi connect fails in wizard | Double-check the password. If your network name has special characters, try a different browser. |
 | `iotsentinel.local` doesn't resolve on Windows | Use the Pi's IP address instead - it's printed on the last wizard screen and under **Settings → Network**. |
 | `iotsentinel.local` doesn't resolve on Android | Use the IP address (shown on the last wizard screen / **Settings → Network**). Android's DNS-SD support is inconsistent. |

@@ -65,6 +65,17 @@ jobs:
         run: |
           bash scripts/build_pi_image.sh --tag="${TAG}" --pigen-dir="${PIGEN_DIR}"
 
+      # Ship a non-technical, end-to-end setup guide INSIDE the download so users never
+      # have to come back to GitHub. Self-contained HTML (pure-stdlib generator).
+      - name: Generate the shipped setup guide (HTML)
+        run: |
+          # markdown: required (pure-Python, renders the guide at build time so the
+          # HTML is fully offline). pillow: optional, just shrinks the embedded
+          # screenshots so the self-contained file stays small.
+          python3 -m pip install --quiet markdown
+          python3 -m pip install --quiet pillow || true
+          python3 scripts/build_setup_guide_html.py deploy/IoTSentinel-Setup-Guide.html
+
       # Always publish the image as a workflow artifact. For a manual (workflow_dispatch)
       # build this is the ONLY output: download it from the run page, flash it, and test
       # on the Pi privately. Nothing is published to a public release.
@@ -75,6 +86,7 @@ jobs:
           path: |
             deploy/IoTSentinel-*.img.xz
             deploy/IoTSentinel-*.img.xz.sha256
+            deploy/IoTSentinel-Setup-Guide.html
           if-no-files-found: error
           retention-days: 14
 
@@ -88,7 +100,8 @@ jobs:
           TAG="${{ github.ref_name }}"
           IMGFILE="deploy/IoTSentinel-${TAG}.img.xz"
           SHAFILE="${IMGFILE}.sha256"
-          gh release upload "${TAG}" "${IMGFILE}" "${SHAFILE}" \
+          GUIDE="deploy/IoTSentinel-Setup-Guide.html"
+          gh release upload "${TAG}" "${IMGFILE}" "${SHAFILE}" "${GUIDE}" \
             --repo "${{ github.repository }}" \
             --clobber
 

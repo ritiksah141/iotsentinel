@@ -258,14 +258,32 @@ flowchart TD
 
 ### Raspberry Pi (recommended, no terminal)
 
+> 📖 **Full step-by-step guide:** [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md) - written for
+> non-technical users, with every click and a troubleshooting section. The same guide ships
+> **inside the downloaded image package** as `IoTSentinel-Setup-Guide.html`, so you don't need
+> to come back to GitHub.
+
+```mermaid
+flowchart LR
+    A["Download<br/>the image"] --> B["Flash with Pi Imager<br/><b>skip all prompts</b>"]
+    B --> C["Power on the Pi<br/>(no screen needed)"]
+    C --> D["Join the open Wi-Fi<br/><b>IoTSentinel-Setup</b>"]
+    D --> E["Open<br/>10.42.0.1:8050/setup"]
+    E --> F["Pick Wi-Fi,<br/>set password"]
+    F --> G["Live monitoring<br/>on the dashboard"]
+    style A fill:#e3f2fd,stroke:#1976d2
+    style G fill:#e8f5e9,stroke:#388e3c
+```
+
 **1. Flash.** Download `IoTSentinel-<version>.img.xz` from the
 [latest release](https://github.com/ritiksah141/iotsentinel/releases/latest). Open
-**[Raspberry Pi Imager](https://www.raspberrypi.com/software/)**, select the `.img.xz` and your
-SD card, click Write.
+**[Raspberry Pi Imager](https://www.raspberrypi.com/software/)**, choose **Use custom** and select
+the `.img.xz`, pick your SD card, click **Write**. When Imager asks about applying OS customisation
+settings, click **NO** - don't enter Wi-Fi or a password there; the Pi's own wizard does that.
 
-**2. Boot and connect.** Insert the card and power on. After about 90 seconds a WiFi network called
-**`IoTSentinel-Setup`** appears. Connect your phone or laptop, then open
-`http://10.42.0.1:8050/setup`.
+**2. Boot and connect.** Insert the card and power on (no screen or keyboard needed). After about
+2 minutes an **open** WiFi network called **`IoTSentinel-Setup`** appears - join it from your phone,
+then open `http://10.42.0.1:8050/setup`.
 
 **3. Complete the wizard.**
 

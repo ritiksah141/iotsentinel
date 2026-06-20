@@ -7,6 +7,12 @@ Wants=iotsentinel-backend.service
 Type=simple
 User=sentinel
 WorkingDirectory=/home/sentinel/iotsentinel
+# Bind all interfaces so the dashboard is reachable over the IoTSentinel-Setup
+# provisioning hotspot (10.42.0.1) on first boot — BEFORE the wizard runs. app.py
+# otherwise defaults IOTSENTINEL_HOST to 127.0.0.1, which only the Pi itself can
+# reach, so http://10.42.0.1:8050/setup would never load. The wizard later writes
+# the same value to .env when remote access is enabled; this guarantees it always.
+Environment=IOTSENTINEL_HOST=0.0.0.0
 ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/dashboard/app.py
 Restart=on-failure
 RestartSec=5
