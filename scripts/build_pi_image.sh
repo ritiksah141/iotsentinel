@@ -115,12 +115,27 @@ apt-get update
 
 # Install Zeek + Python build tools + networking stack.
 # nftables: native inline-blocking backend (firewall_enforcer prefers it, falls back
-#   to iptables). dnsmasq-base: required for NetworkManager shared-mode AP (gateway).
+#   to iptables). dnsmasq-base: required for NetworkManager shared-mode AP (gateway +
+#   the IoTSentinel-Setup provisioning hotspot). iw + rfkill: the provisioning script
+#   uses them to unblock the radio and set the regulatory domain so the AP can start.
 apt-get install -y zeek python3.11 python3.11-venv python3-pip build-essential libssl-dev \
-    network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base
+    network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base iw rfkill
 
 # Enable avahi for iotsentinel.local mDNS discovery
 systemctl enable avahi-daemon 2>/dev/null || true
+
+# The provisioning hotspot and all Wi-Fi switching go through NetworkManager. Make it
+# the active backend and disable the legacy dhcpcd so nothing else owns wlan0 — if
+# dhcpcd manages the interface, `nmcli ... hotspot` silently fails and a headless
+# first boot shows NO IoTSentinel-Setup network at all.
+systemctl enable NetworkManager 2>/dev/null || true
+systemctl disable dhcpcd 2>/dev/null || true
+
+# Persist a best-effort Wi-Fi regulatory country (legacy CRDA path). The reliable
+# mechanism is the runtime `rfkill unblock wifi` + `iw reg set` in setup_hotspot.sh,
+# which runs right before the AP is armed; this is just a sensible default. Kept in
+# sync with WPA_COUNTRY in the pi-gen config and IOTSENTINEL_WIFI_COUNTRY in the script.
+echo 'REGDOMAIN=GB' > /etc/default/crda 2>/dev/null || true
 
 # Create sentinel user home directory if missing
 mkdir -p /home/sentinel
