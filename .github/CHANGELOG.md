@@ -56,6 +56,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Belt and braces:** combined with the post-build rootfs assertion (below), a broken or incomplete image now fails the build at two independent points instead of shipping silently.
 - **Design/assets covered too:** the build now verifies the front-end ships — `logo.png`, `custom.css`, Font Awesome CSS + webfonts, `manifest.webmanifest`, `sw.js`, and the offline threat map (`topojson/world_110m.json`) — and tests confirm those sources stay git-tracked (untracked assets are silently dropped by `git archive`). The minified CSS and PWA icons remain generated at first boot (`ensure_minified_css`/`ensure_pwa_icons`, Pillow), with a test asserting those generators stay wired into startup.
 
+### Exhaustive chroot-safety audit of setup_pi.sh (2026-06-21)
+
+Audited every remaining setup step for the "command that fails in the emulated chroot
+under set -e" failure class, to stop discovering them one 40-minute build at a time:
+- **`systemctl daemon-reload` is now guarded** — it needs a running systemd and fails
+  in the build chroot, which would abort setup right before the service enables.
+- **Service autostart is guaranteed** — explicit `multi-user.target.wants` /
+  `timers.target.wants` symlinks are created as a fallback in case `systemctl enable`
+  can't reach systemd in the chroot.
+- **`RPi.GPIO` no longer breaks the install** — it only builds on real Pi hardware and
+  is not imported anywhere in the app; the dependency install now retries without it
+  (mirroring the validated pi-deps set). Added `python3-dev`/`python3.11-dev`/`libffi-dev`
+  to the build so any C-extension package compiles, matching the pi-deps environment.
+- **Post-build DB check downgraded to a warning** — the app auto-creates its schema on
+  first boot (`migrate_schema`), so the DB need not be pre-baked; this avoids a
+  false-positive build failure. The critical checks (services, sudoers + grants, Zeek,
+  venv + deps, gateway scripts, assets, wizard pre-seed) remain hard failures.
+
+### apt works in the arm64 build chroot; setup completes (2026-06-21)
+
+- **Fixed the real cause of the empty arm64 image:** in the emulated 64-bit build chroot, apt/apt-key/gpgv couldn't create temp files under `/tmp`, so signature verification failed with `NO_PUBKEY` / "repository is not signed" and (under `bash -e`) the deps stage aborted **before installing Zeek/Python/NetworkManager** — only curl/gnupg2 got in. The deps stage now ensures `/tmp` exists + is `1777` and runs apt outside its sandbox user (build-only override, removed before the image ships), so the full dependency set installs.
+- **setup_pi.sh no longer re-runs apt in the chroot:** the image build passes `--skip-apt` (the deps stage is the single, reliable installer), eliminating the redundant, fragile apt path; the deps stage gained the few extra packages setup_pi.sh used (curl, git, gnupg2, libpcap-dev, tcpdump, net-tools, openssl).
+
 ### 64-bit image + setup completes in the chroot (2026-06-21)
 
 - **The image is now 64-bit (arm64).** The build cloned pi-gen's default branch, which produces a 32-bit (armhf) image — on which **Ollama / gemma2:2b cannot run**, silently losing the on-device-AI feature. The workflow now clones pi-gen's `arm64` branch (the documented way to get 64-bit; there is no ARCH var). A test asserts this so it can't regress.

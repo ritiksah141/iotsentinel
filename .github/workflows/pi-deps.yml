@@ -33,15 +33,13 @@ jobs:
       - name: Register ARM64 binfmt handler
         run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      # RPi.GPIO is Pi-hardware-only (touches /dev/mem) and is not import-tested
-      # in CI; drop just that line so the resolver check reflects installable deps.
+      # Installs the EXACT requirements-pi.txt the image build uses (full parity).
       - name: Install Pi requirements under emulated aarch64
         run: |
           docker run --rm --platform linux/arm64 -v "${{ github.workspace }}:/src" arm64v8/python:3.11-bookworm \
             bash -c '
               set -e
               python -m pip install --upgrade pip
-              grep -ivE "^RPi\.GPIO" /src/requirements-pi.txt > /tmp/req-pi.txt
-              pip install -r /tmp/req-pi.txt
+              pip install -r /src/requirements-pi.txt
               python -c "import numpy, pandas, sklearn, river, scapy; print(\"ARM64 import OK:\", numpy.__version__, pandas.__version__, sklearn.__version__)"
             '
