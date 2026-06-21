@@ -109,7 +109,17 @@ mkdir -p "$CUSTOM_STAGE/files"
 mkdir -p "$CUSTOM_STAGE/00-install-deps"
 cat > "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh" <<'SHELL'
 #!/bin/bash -e
+# CRITICAL for arm64/Debian builds: apt/apt-key/gpgv create temp files under /tmp to
+# verify repository signatures. In the emulated pi-gen chroot /tmp can be missing or
+# unwritable, which makes verification fail with NO_PUBKEY / "repository is not
+# signed" and (under `bash -e`) aborts this stage BEFORE Zeek/Python install — the
+# image then ships with no IoTSentinel deps. Make /tmp usable and keep apt out of its
+# sandbox user (which also can't write /tmp here) for the duration of the build.
+mkdir -p /tmp && chmod 1777 /tmp
+printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00iotsentinel-build
+
 # Install Zeek via apt (official Zeek repository for Debian Bookworm)
+apt-get update
 apt-get install -y curl gnupg2
 
 # Add Zeek repository
@@ -124,8 +134,10 @@ apt-get update
 #   to iptables). dnsmasq-base: required for NetworkManager shared-mode AP (gateway +
 #   the IoTSentinel-Setup provisioning hotspot). iw + rfkill: the provisioning script
 #   uses them to unblock the radio and set the regulatory domain so the AP can start.
-apt-get install -y zeek python3.11 python3.11-venv python3-pip build-essential libssl-dev \
-    network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base iw rfkill
+apt-get install -y zeek python3.11 python3.11-venv python3.11-dev python3-pip python3-dev \
+    build-essential libssl-dev libffi-dev \
+    network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base iw rfkill \
+    curl git gnupg2 libpcap-dev tcpdump net-tools iputils-ping openssl
 
 # Enable avahi for iotsentinel.local mDNS discovery
 systemctl enable avahi-daemon 2>/dev/null || true
@@ -188,7 +200,7 @@ chown -R sentinel:sentinel iotsentinel
 # home, and chown everything back. --skip-ollama: the model is pulled on first boot.
 cd /home/sentinel/iotsentinel
 IOTSENTINEL_TARGET_USER=sentinel IOTSENTINEL_WIFI_COUNTRY=__WIFI_COUNTRY__ \
-  bash scripts/setup_pi.sh --non-interactive --skip-ollama
+  bash scripts/setup_pi.sh --non-interactive --skip-ollama --skip-apt
 cd /home/sentinel
 
 # Pre-seed is_configured=false so first boot shows the wizard
@@ -250,6 +262,9 @@ systemctl enable iotsentinel-firstboot-report.service
 # AI in the box: installs Ollama + pulls the on-device model in the background
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
+
+# Drop the build-only apt sandbox override so it does not ship in the image.
+rm -f /etc/apt/apt.conf.d/00iotsentinel-build
 SHELL
 chmod +x "$CUSTOM_STAGE/02-systemd-services/00-run-chroot.sh"
 
@@ -308,6 +323,7 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   _need "$WANTS/iotsentinel-provision.service"                     "provision ENABLED"
   _need "$APP/scripts/setup_hotspot.sh"                            "hotspot script"
   _need "$APP/scripts/firstboot_diag.sh"                           "first-boot diagnostic"
+  _need "$APP/scripts/setup_local_ai.sh"                           "on-device AI installer (first boot)"
   # B. Every service the gate checks must be ENABLED (symlinked), not just present
   _need "$WANTS/iotsentinel-backend.service"                       "backend ENABLED"
   _need "$WANTS/iotsentinel-dashboard.service"                     "dashboard ENABLED"
@@ -337,9 +353,10 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   _need "$APP/dashboard/assets/manifest.webmanifest"            "PWA manifest"
   _need "$APP/dashboard/assets/sw.js"                            "service worker"
   _need "$APP/dashboard/assets/topojson/world_110m.json"        "offline threat map"
-  # F. Database initialised
+  # F. Database — setup pre-creates it, but the app also auto-creates the schema on
+  # first boot (DatabaseManager.migrate_schema), so absence is NOT fatal.
   sudo find "$ROOTFS/$APP/data" -name '*.db' 2>/dev/null | grep -q . \
-    || _missing="$_missing\n    - initialised database (data/*.db)"
+    || warn "No pre-created DB in image — it will be created automatically on first boot."
   # G. Wizard pre-seeded to first-run
   sudo grep -q '"is_configured": false' "$ROOTFS/$APP/config/default_config.json" 2>/dev/null \
     || _missing="$_missing\n    - is_configured=false (wizard would be skipped)"

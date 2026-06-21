@@ -64,6 +64,7 @@ CRITICAL_TRACKED = [
     "scripts/setup_pi.sh",
     "scripts/setup_hotspot.sh",
     "scripts/firstboot_diag.sh",
+    "scripts/setup_local_ai.sh",
     "scripts/build_setup_guide_html.py",
     "utils/wifi_manager.py",
     "config/default_config.json",
@@ -290,6 +291,38 @@ def test_setup_pi_has_root_target_mode():
     text = (REPO / "scripts" / "setup_pi.sh").read_text()
     assert "IOTSENTINEL_TARGET_USER" in text, "root/target-user mode removed -> chroot build breaks"
     assert "TARGET_HOME" in text
+    assert "--skip-apt" in text, "setup_pi.sh must support --skip-apt for the image build"
+
+
+def test_setup_pi_systemctl_calls_are_chroot_safe():
+    """Any `systemctl` in setup_pi.sh must be guarded — daemon-reload/start fail in
+    the build chroot (no running systemd) and would abort setup under `set -e`,
+    leaving the image with no services. This caught the daemon-reload regression."""
+    import re as _re
+    for ln in (REPO / "scripts" / "setup_pi.sh").read_text().splitlines():
+        s = ln.strip()
+        if s.startswith("#") or "systemctl" not in s:
+            continue
+        if "is-enabled" in s or "is-active" in s:   # read-only checks are fine
+            continue
+        guarded = ("|| true" in s) or ("|| sudo" in s) or s.endswith("\\") or \
+                  bool(_re.match(r"(els?e?if|if)\b", s))
+        assert guarded, f"unguarded systemctl (aborts in chroot): {s}"
+
+
+def test_setup_pi_ensures_service_symlinks():
+    """Explicit autostart-symlink fallback so enablement survives a chroot where
+    `systemctl enable` can't reach systemd."""
+    text = (REPO / "scripts" / "setup_pi.sh").read_text()
+    assert "multi-user.target.wants" in text and "ln -sf" in text
+
+
+def test_deps_stage_fixes_apt_tmp():
+    """The arm64 deps stage must make /tmp usable or apt fails GPG verification
+    (NO_PUBKEY) and installs nothing — the empty-image bug."""
+    text = BUILD.read_text()
+    assert "chmod 1777 /tmp" in text
+    assert "APT::Sandbox::User" in text
 
 
 def test_build_has_postbuild_rootfs_assertion():

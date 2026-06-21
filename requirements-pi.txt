@@ -47,7 +47,6 @@ apscheduler
 manuf
 requests
 paramiko         # SSH-based firewall enforcement (OpenWrt router via firewall_enforcer.py)
-RPi.GPIO
 
 # IoT Discovery & Vulnerability Management
 zeroconf>=0.112.0         # mDNS/Zeroconf service discovery

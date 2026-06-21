@@ -22,12 +22,14 @@ set -euo pipefail
 # ── Argument parsing ─────────────────────────────────────────────────────────
 NON_INTERACTIVE=false
 SKIP_OLLAMA=false
+SKIP_APT=false
 TAG=""
 
 for arg in "$@"; do
   case "$arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
     --skip-ollama)     SKIP_OLLAMA=true ;;
+    --skip-apt)        SKIP_APT=true ;;
     --tag=*)           TAG="${arg#*=}" ;;
   esac
 done
@@ -126,13 +128,22 @@ fi
 step "3/9  Install system packages"
 # ─────────────────────────────────────────────────────────────────────────────
 
-sudo apt-get update -qq
-sudo apt-get install -y --no-install-recommends \
-    curl git python3 python3-venv python3-pip \
-    build-essential libssl-dev gnupg2 libpcap-dev \
-    tcpdump net-tools iputils-ping openssl \
-    network-manager dnsmasq-base avahi-daemon iptables nftables
-ok "System packages installed"
+# --skip-apt: the image build pre-installs the full system-package set as root in a
+# dedicated pi-gen stage (reliable), so re-running apt inside the emulated build
+# chroot here is redundant AND fragile (apt-key can't write /tmp temp files there,
+# which fails on the Debian/arm64 base). Skip it in that case; install normally on a
+# real Pi / spare-PC run.
+if $SKIP_APT; then
+    warn "Skipping system-package install (--skip-apt; pre-installed by the image build)"
+else
+    sudo apt-get update -qq
+    sudo apt-get install -y --no-install-recommends \
+        curl git python3 python3-venv python3-pip \
+        build-essential libssl-dev gnupg2 libpcap-dev \
+        tcpdump net-tools iputils-ping openssl \
+        network-manager dnsmasq-base avahi-daemon iptables nftables
+    ok "System packages installed"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Install Tailscale (optional remote-access — wizard enables Funnel later)
@@ -158,6 +169,8 @@ step "4/9  Install Zeek (network monitor)"
 
 if command -v /opt/zeek/bin/zeek &>/dev/null; then
     ok "Zeek already installed: $(/opt/zeek/bin/zeek --version 2>&1 | head -1)"
+elif $SKIP_APT; then
+    warn "Zeek not found and --skip-apt set — expected it pre-installed by the image build"
 else
     echo "   Adding Zeek repository (Debian Bookworm / Pi OS)..."
     echo 'deb http://download.opensuse.org/repositories/security:/zeek/Debian_12/ /' \
@@ -308,17 +321,29 @@ if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
     if [ -f "$SERVICES_SRC/iotsentinel-connectivity.timer" ]; then
         sudo cp "$SERVICES_SRC/iotsentinel-connectivity.timer" /etc/systemd/system/
     fi
-    sudo systemctl daemon-reload
+    # daemon-reload needs a RUNNING systemd; it fails inside the image-build chroot,
+    # so it must never abort the script (set -e). Harmless on a real system.
+    sudo systemctl daemon-reload 2>/dev/null || true
+    # `systemctl enable` creates the wants-symlinks offline (works in a chroot). `--now`
+    # additionally starts the unit on a real system and harmlessly fails in the chroot.
     sudo systemctl enable --now iotsentinel-provision iotsentinel-backend iotsentinel-dashboard 2>/dev/null || true
-    # Connectivity recovery: re-arms the setup hotspot if home WiFi is ever lost, so
-    # a headless user can always get back in to fix it. Enable the timer (not the
-    # one-shot service) for next boot.
+    # Connectivity recovery: re-arms the setup hotspot if home WiFi is ever lost.
     sudo systemctl enable --now iotsentinel-connectivity.timer 2>/dev/null || true
     # First-boot diagnostic report (writes Wi-Fi/AP state to the FAT boot partition).
     sudo systemctl enable iotsentinel-firstboot-report 2>/dev/null || true
-    # localai is a niced one-shot that pulls the on-device model; enable for next boot
-    # WITHOUT --now so its (long) model download never blocks this setup run.
+    # localai pulls the on-device model on first boot; enable for next boot (no --now).
     sudo systemctl enable iotsentinel-localai 2>/dev/null || true
+    # Fallback: guarantee the autostart symlinks exist even if `systemctl enable` could
+    # not talk to systemd in the chroot, so the image always boots the services.
+    sudo mkdir -p /etc/systemd/system/multi-user.target.wants \
+                  /etc/systemd/system/timers.target.wants 2>/dev/null || true
+    for _u in iotsentinel-provision iotsentinel-backend iotsentinel-dashboard \
+              iotsentinel-firstboot-report iotsentinel-localai; do
+        sudo ln -sf "/etc/systemd/system/${_u}.service" \
+            "/etc/systemd/system/multi-user.target.wants/${_u}.service" 2>/dev/null || true
+    done
+    sudo ln -sf /etc/systemd/system/iotsentinel-connectivity.timer \
+        /etc/systemd/system/timers.target.wants/iotsentinel-connectivity.timer 2>/dev/null || true
     ok "Systemd services installed and enabled (autostart on boot)"
 else
     warn "Service files not found in $SERVICES_SRC — skipping systemd"
