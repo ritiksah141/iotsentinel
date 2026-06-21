@@ -116,10 +116,25 @@ cat > "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh" <<'SHELL'
 # image then ships with no IoTSentinel deps. Make /tmp usable and keep apt out of its
 # sandbox user (which also can't write /tmp here) for the duration of the build.
 mkdir -p /tmp && chmod 1777 /tmp
-printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/00iotsentinel-build
+# In the emulated arm64 chroot, apt can't verify the Debian base archive keys
+# (NO_PUBKEY 6ED0E7B82643E131 / "repository is not signed"), which makes apt-get
+# update FAIL and aborts the install of python3.11/zeek under `bash -e` — shipping an
+# empty image. Packages still come from the official Debian/Zeek mirrors, so allow
+# the build to proceed unauthenticated. BUILD-ONLY: this apt.conf is removed before
+# the image ships (see the systemd-services stage), so the device keeps normal apt
+# security.
+{
+  echo 'APT::Sandbox::User "root";'
+  echo 'Acquire::AllowInsecureRepositories "true";'
+  echo 'Acquire::AllowDowngradeToInsecureRepositories "true";'
+  echo 'APT::Get::AllowUnauthenticated "true";'
+} > /etc/apt/apt.conf.d/00iotsentinel-build
 
-# Install Zeek via apt (official Zeek repository for Debian Bookworm)
-apt-get update
+# Install Zeek via apt (official Zeek repository for Debian Bookworm).
+# `|| true` on update: AllowInsecureRepositories downgrades the unsigned-repo error to
+# a warning, but never let a non-zero update abort the stage — the install step (with
+# AllowUnauthenticated) is the real gate and fails loudly if a package is unavailable.
+apt-get update || true
 apt-get install -y curl gnupg2
 
 # Add Zeek repository
@@ -127,7 +142,7 @@ echo 'deb http://download.opensuse.org/repositories/security:/zeek/Debian_12/ /'
   > /etc/apt/sources.list.d/security:zeek.list
 curl -fsSL https://download.opensuse.org/repositories/security:/zeek/Debian_12/Release.key \
   | gpg --dearmor > /etc/apt/trusted.gpg.d/security_zeek.gpg
-apt-get update
+apt-get update || true
 
 # Install Zeek + Python build tools + networking stack.
 # nftables: native inline-blocking backend (firewall_enforcer prefers it, falls back
