@@ -56,6 +56,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Belt and braces:** combined with the post-build rootfs assertion (below), a broken or incomplete image now fails the build at two independent points instead of shipping silently.
 - **Design/assets covered too:** the build now verifies the front-end ships — `logo.png`, `custom.css`, Font Awesome CSS + webfonts, `manifest.webmanifest`, `sw.js`, and the offline threat map (`topojson/world_110m.json`) — and tests confirm those sources stay git-tracked (untracked assets are silently dropped by `git archive`). The minified CSS and PWA icons remain generated at first boot (`ensure_minified_css`/`ensure_pwa_icons`, Pillow), with a test asserting those generators stay wired into startup.
 
+### The install fully works; fixed a bug in the verify step itself (2026-06-21)
+
+- **setup_pi.sh now completes end-to-end in the arm64 chroot** (all 9 steps: deps,
+  venv + pip, DB, sudoers, services enabled) and the image assembles. The remaining
+  failure was a bug in the post-build *verification* code, not the image: it located
+  the root-owned rootfs with a non-sudo `find | head` pipeline, which returned
+  non-zero (permission/SIGPIPE) and aborted the whole build under `set -o pipefail` —
+  with no message — after a fully successful ~2h install. The rootfs locate now uses
+  `sudo` and is `|| true`-guarded; the image-locate `find | sort | head` got the same
+  guard. A test locks both in.
+
 ### Exhaustive chroot-safety audit of setup_pi.sh (2026-06-21)
 
 Audited every remaining setup step for the "command that fails in the emulated chroot
