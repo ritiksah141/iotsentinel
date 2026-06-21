@@ -51,9 +51,12 @@ jobs:
           sudo update-binfmts --enable
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      - name: Clone pi-gen
+      - name: Clone pi-gen (arm64 branch = 64-bit image)
         run: |
-          git clone --depth 1 https://github.com/RPi-Distro/pi-gen.git ../pi-gen
+          # 64-bit Raspberry Pi OS is built from pi-gen's `arm64` branch (there is no
+          # ARCH config var). 64-bit is REQUIRED for on-device AI — Ollama/gemma2:2b
+          # do not run on 32-bit armhf. The default branch builds a 32-bit image.
+          git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git ../pi-gen
 
       - name: Build image
         env:

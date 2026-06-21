@@ -141,8 +141,15 @@ if command -v tailscale &>/dev/null; then
     ok "Tailscale already installed: $(tailscale version 2>/dev/null | head -1 || true)"
 else
     echo "   Installing Tailscale…"
-    curl -fsSL https://tailscale.com/install.sh | sh
-    ok "Tailscale installed (sign-in happens inside the setup wizard)"
+    # NON-FATAL: Tailscale is optional (remote access; the wizard enables Funnel later).
+    # Its installer adds an apt repo via apt-key, which fails inside the emulated build
+    # chroot (can't write /tmp temp files) — that must NOT abort the whole setup under
+    # `set -e`. If it fails here it can be installed on first boot / from the wizard.
+    if curl -fsSL https://tailscale.com/install.sh | sh; then
+        ok "Tailscale installed (sign-in happens inside the setup wizard)"
+    else
+        warn "Tailscale install skipped (failed in this environment) — remote access can be enabled later"
+    fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

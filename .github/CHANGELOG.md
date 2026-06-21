@@ -56,6 +56,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Belt and braces:** combined with the post-build rootfs assertion (below), a broken or incomplete image now fails the build at two independent points instead of shipping silently.
 - **Design/assets covered too:** the build now verifies the front-end ships — `logo.png`, `custom.css`, Font Awesome CSS + webfonts, `manifest.webmanifest`, `sw.js`, and the offline threat map (`topojson/world_110m.json`) — and tests confirm those sources stay git-tracked (untracked assets are silently dropped by `git archive`). The minified CSS and PWA icons remain generated at first boot (`ensure_minified_css`/`ensure_pwa_icons`, Pillow), with a test asserting those generators stay wired into startup.
 
+### 64-bit image + setup completes in the chroot (2026-06-21)
+
+- **The image is now 64-bit (arm64).** The build cloned pi-gen's default branch, which produces a 32-bit (armhf) image — on which **Ollama / gemma2:2b cannot run**, silently losing the on-device-AI feature. The workflow now clones pi-gen's `arm64` branch (the documented way to get 64-bit; there is no ARCH var). A test asserts this so it can't regress.
+- **Tailscale install no longer aborts setup.** Inside the emulated build chroot the Tailscale installer's apt-key step fails (can't write `/tmp` temp files), and under `set -euo pipefail` that killed `setup_pi.sh` right after "System packages installed" — before sudoers/services. It is now non-fatal (Tailscale is optional; remote access can be enabled later), so setup runs through to completion.
+
 ### CRITICAL: the image actually installs IoTSentinel now (2026-06-21)
 
 - **Root cause of "no hotspot / no dashboard / no diagnostic file" on real hardware:** every built image was an empty shell. `build_pi_image.sh` ran `setup_pi.sh` inside the pi-gen chroot via `su - sentinel`, but under qemu emulation `sudo` fails in a `su` session, so `setup_pi.sh` aborted at its first `sudo apt-get` (under `set -euo pipefail`) — **before** creating the venv, writing sudoers, or enabling any systemd services. pi-gen did not propagate the chroot failure, so a serviceless image shipped as "successful".

@@ -29,6 +29,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 BUILD = REPO / "scripts" / "build_pi_image.sh"
+WORKFLOW = REPO / ".github" / "workflows" / "build-pi-image.yml"
 SERVICES = REPO / "services"
 
 # Service unit files the image build copies + enables.
@@ -274,6 +275,14 @@ def test_asset_generators_run_at_boot():
     assert "ensure_pwa_icons(" in app, "PWA icons not generated at boot"
     # Pillow (icon resize) must be a real dependency.
     assert "Pillow" in (REPO / "requirements-pi.txt").read_text()
+
+
+def test_workflow_builds_64bit_arm64_image():
+    """64-bit is required for on-device AI (Ollama/gemma2:2b don't run on 32-bit
+    armhf). pi-gen builds 64-bit only from its `arm64` branch."""
+    wf = WORKFLOW.read_text()
+    assert "--branch arm64" in wf, \
+        "build must clone pi-gen's arm64 branch or the image is 32-bit (no on-device AI)"
 
 
 def test_setup_pi_has_root_target_mode():
