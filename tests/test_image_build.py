@@ -318,11 +318,16 @@ def test_setup_pi_ensures_service_symlinks():
 
 
 def test_deps_stage_fixes_apt_tmp():
-    """The arm64 deps stage must make /tmp usable or apt fails GPG verification
-    (NO_PUBKEY) and installs nothing — the empty-image bug."""
+    """The arm64 deps stage must make apt usable or it fails verification (NO_PUBKEY /
+    'not signed') and installs nothing — the empty-image bug. Needs the /tmp fix AND
+    allowing the unsigned base repos so apt-get update/install proceed in the chroot."""
     text = BUILD.read_text()
     assert "chmod 1777 /tmp" in text
     assert "APT::Sandbox::User" in text
+    assert "AllowInsecureRepositories" in text
+    assert "AllowUnauthenticated" in text
+    # The build-only override must be removed before the image ships.
+    assert "rm -f /etc/apt/apt.conf.d/00iotsentinel-build" in text
 
 
 def test_build_has_postbuild_rootfs_assertion():
