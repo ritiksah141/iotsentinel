@@ -49,6 +49,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### Image-build safety net — fast local tests + hard CI gate (2026-06-21)
+
+- **`tests/test_image_build.py` (15 tests, runs in ~0.5s)** dry-runs the image build with a stubbed qemu/pi-gen and asserts the generated stage tree is correct, catching the bug classes that shipped dead images: setup running via `su` instead of root, unsubstituted `__WIFI_COUNTRY__` placeholders, wrong stage order, deps running on the host arch, missing/uncommitted files (`git archive HEAD`), and any referenced service/script that doesn't exist. No more waiting ~40 min for CI to find a typo.
+- **Hard gate:** the suite runs in `test.yml`, and `build-pi-image` already has `needs: [test, pi-deps]`, so the expensive ARM build never starts unless these checks pass — on both tag pushes and manual dispatch.
+- **Belt and braces:** combined with the post-build rootfs assertion (below), a broken or incomplete image now fails the build at two independent points instead of shipping silently.
+- **Design/assets covered too:** the build now verifies the front-end ships — `logo.png`, `custom.css`, Font Awesome CSS + webfonts, `manifest.webmanifest`, `sw.js`, and the offline threat map (`topojson/world_110m.json`) — and tests confirm those sources stay git-tracked (untracked assets are silently dropped by `git archive`). The minified CSS and PWA icons remain generated at first boot (`ensure_minified_css`/`ensure_pwa_icons`, Pillow), with a test asserting those generators stay wired into startup.
+
+### CRITICAL: the image actually installs IoTSentinel now (2026-06-21)
+
+- **Root cause of "no hotspot / no dashboard / no diagnostic file" on real hardware:** every built image was an empty shell. `build_pi_image.sh` ran `setup_pi.sh` inside the pi-gen chroot via `su - sentinel`, but under qemu emulation `sudo` fails in a `su` session, so `setup_pi.sh` aborted at its first `sudo apt-get` (under `set -euo pipefail`) — **before** creating the venv, writing sudoers, or enabling any systemd services. pi-gen did not propagate the chroot failure, so a serviceless image shipped as "successful".
+- **Fix:** `setup_pi.sh` now supports running as root targeting a service user (`IOTSENTINEL_TARGET_USER`): it shims `sudo` to run directly, installs into that user's home, and `chown`s everything back. The build invokes it as root (no `su`), so it completes and the image contains the venv, sudoers, and all enabled services.
+- **Guardrail:** after the pi-gen build, `build_pi_image.sh` now **verifies the built rootfs** contains the sudoers file, the enabled provision/dashboard services, and the venv — and **fails the build loudly** if not, so a broken image can never silently ship again.
+
 ### User-selectable Wi-Fi country (no longer GB-locked) (2026-06-20)
 
 - **Wi-Fi region is now chosen by the user, not baked to GB.** The wizard's first step has a country selector (placeholder "Select your country…", no pre-selected bias); the choice is persisted (config + `.env`) and applied live (`iw reg set` + `raspi-config do_wifi_country`), so a single shipped image is regulatory-correct anywhere in the world. The provisioning and recovery hotspot services read the chosen country via `EnvironmentFile`. The country list is globally representative (49 countries incl. Nepal, South/SE Asia, Middle East, Africa, LatAm), sorted by name. (The bootstrap default only matters for the very first setup hotspot, which broadcasts on 2.4GHz ch6 — legal in every regulatory domain — so the device was never functionally UK-only. `config.network.wifi_country` carries a `note_wifi_country` explaining it is a bootstrap default, not a lock.)
