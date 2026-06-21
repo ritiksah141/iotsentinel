@@ -10,6 +10,7 @@ from dash import dcc, html
 import dash_bootstrap_components as dbc
 
 from utils.qr import make_qr_data_uri as _make_qr_data_uri
+from utils import wifi_manager as _wifi
 
 
 def _ntfy_default_topic():
@@ -99,6 +100,20 @@ _step_1 = html.Div([
         dbc.Button("Connect to this WiFi", id="setup-wifi-connect-btn",
                    color="primary", outline=True, size="sm", className="mb-1"),
         html.Div(id="setup-wifi-feedback", className="small mt-1"),
+
+        # Wi-Fi region — needed so the radio is legal/usable in the user's country
+        # (governs channels and power). Defaults to the image's bootstrap country;
+        # the user sets their own here so a single image works worldwide.
+        dbc.Label("Your country (for Wi-Fi)", className="small fw-semibold mt-2 mb-1"),
+        dbc.Select(
+            id="setup-wifi-country",
+            options=[{"label": name, "value": code} for code, name in _wifi.COUNTRY_OPTIONS],
+            value=None,
+            placeholder="Select your country…",
+            className="mb-0",
+        ),
+        html.Small("Sets the correct Wi-Fi rules for where you live.",
+                   className="text-muted"),
     ], className="wizard-section-box mb-3"),
 
     # Network details
@@ -150,6 +165,16 @@ _step_1 = html.Div([
         dbc.Input(id="setup-ap-password", type="password",
                   placeholder="IoT network password (min 8 characters)",
                   autocomplete="off", className="mb-2 login-form-input"),
+        dbc.Label("IoT network band", className="small fw-semibold mb-1"),
+        dbc.Select(
+            id="setup-ap-band",
+            options=[
+                {"label": "2.4 GHz (best reach — most smart-home devices)", "value": "bg"},
+                {"label": "5 GHz (faster — needs 5 GHz-capable devices + adapter)", "value": "a"},
+            ],
+            value="bg",
+            className="mb-2",
+        ),
         html.Small("Pick the USB Wi-Fi adapter (not your home Wi-Fi). Don't see it? Plug "
                    "it in and click Rescan. Your IoT devices join this network so "
                    "IoTSentinel sees and protects all their traffic. Your home Wi-Fi is "

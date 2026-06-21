@@ -99,6 +99,12 @@ if command -v raspi-config &>/dev/null; then
         && ok "Hostname set to 'iotsentinel'" || true
     sudo raspi-config nonint do_ssh 0 2>/dev/null \
         && ok "SSH enabled" || true
+    # Wi-Fi country: on a Pi the radio is rfkill-blocked and won't do AP (hotspot)
+    # mode until a country is set. Without this the IoTSentinel-Setup hotspot never
+    # appears on a headless first boot. GB by default; change to your ISO country.
+    sudo raspi-config nonint do_wifi_country "${IOTSENTINEL_WIFI_COUNTRY:-GB}" 2>/dev/null \
+        && ok "Wi-Fi country set (${IOTSENTINEL_WIFI_COUNTRY:-GB})" \
+        || warn "Could not set Wi-Fi country — hotspot may not start until you set it"
 else
     warn "raspi-config not found — skipping Pi configuration"
 fi
@@ -262,7 +268,7 @@ fi
 #  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
 # Scripts are invoked by absolute path (executable shebang) so the match is exact.
 CURRENT_USER="$(whoami)"
-SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy"
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *"
 if ! grep -qF "/usr/sbin/nft" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
     sudo chmod 440 /etc/sudoers.d/iotsentinel
@@ -272,7 +278,7 @@ fi
 # Systemd services — substitute actual username and home dir into service files
 SERVICES_SRC="$PROJECT_DIR/services"
 if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
-    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity; do
+    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity iotsentinel-firstboot-report; do
         [ -f "$SERVICES_SRC/${svc}.service" ] || continue
         sed "s|/home/sentinel|$HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
             "$SERVICES_SRC/${svc}.service" \
@@ -288,6 +294,8 @@ if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
     # a headless user can always get back in to fix it. Enable the timer (not the
     # one-shot service) for next boot.
     sudo systemctl enable --now iotsentinel-connectivity.timer 2>/dev/null || true
+    # First-boot diagnostic report (writes Wi-Fi/AP state to the FAT boot partition).
+    sudo systemctl enable iotsentinel-firstboot-report 2>/dev/null || true
     # localai is a niced one-shot that pulls the on-device model; enable for next boot
     # WITHOUT --now so its (long) model download never blocks this setup run.
     sudo systemctl enable iotsentinel-localai 2>/dev/null || true

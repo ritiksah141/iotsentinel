@@ -6,6 +6,9 @@ Wants=NetworkManager.service
 
 [Service]
 Type=oneshot
+# Pick up IOTSENTINEL_WIFI_COUNTRY (set by the wizard) so the recovery hotspot uses
+# the user's Wi-Fi region. Optional ('-'): may be absent before first setup.
+EnvironmentFile=-/home/sentinel/iotsentinel/.env
 # Runs as root (no User=) so it can drive nmcli + iptables directly. Fired by the
 # matching .timer every couple of minutes; arms the IoTSentinel-Setup hotspot only
 # after a sustained outage so a headless user can always get back in to fix WiFi.

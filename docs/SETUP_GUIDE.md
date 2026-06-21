@@ -111,7 +111,7 @@ optional - you can change all of it later from the dashboard.
 
 | Step | What you do |
 |---|---|
-| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, and tap **Connect to this WiFi**. Then create a password for your IoTSentinel account (you'll use this to log in). |
+| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, pick **your country** (sets the correct Wi-Fi rules for where you live), and tap **Connect to this WiFi**. Then create a password for your IoTSentinel account (you'll use this to log in). |
 | **2 - Who is this for?** | Pick **Household** (best for homes) or **Small Business**. You can switch later. |
 | **3 - Alerts & extras** | Choose how you want to be alerted: **ntfy** (easiest - scan a QR code with your phone), Telegram, Discord, or email. All optional. |
 | **4 - Use it away from home** | Optional: turn on remote access so you can check IoTSentinel from anywhere, not just at home. |
@@ -257,7 +257,7 @@ For full per-device intrusion detection and prevention you need **gateway mode**
 
 | Problem | Fix |
 |---|---|
-| `IoTSentinel-Setup` hotspot doesn't appear | Wait the full ~2 minutes on first boot. If it's still missing, unplug the Pi, wait 5 seconds, and power it back on. Check the SD card is fully seated and that you're using a proper Raspberry Pi power supply (a weak phone charger can stop the Wi-Fi starting). |
+| `IoTSentinel-Setup` hotspot doesn't appear | Wait the full ~2 minutes on first boot. If it's still missing, unplug the Pi, wait 5 seconds, and power it back on. Check the SD card is fully seated and that you're using a proper Raspberry Pi power supply (a weak phone charger can stop the Wi-Fi starting). **Still nothing?** Power off, put the SD card back in your computer, and open the file **`iotsentinel-firstboot.txt`** on the card's small `bootfs`/`boot` drive - it records exactly why the Wi-Fi didn't start (no monitor or network cable needed). |
 | Can't reach `http://10.42.0.1:8050/setup` | First make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. If you still can't load it, the dashboard may be listening on localhost only - SSH in (`ssh sentinel@10.42.0.1`, password `iotsentinel`), run `echo "IOTSENTINEL_HOST=0.0.0.0" >> ~/iotsentinel/.env && sudo systemctl restart iotsentinel-dashboard`, then reload the page. (Fixed in current images.) |
 | WiFi connect fails in wizard | Double-check the password. If your network name has special characters, try a different browser. |
 | `iotsentinel.local` doesn't resolve on Windows | Use the Pi's IP address instead - it's printed on the last wizard screen and under **Settings → Network**. |

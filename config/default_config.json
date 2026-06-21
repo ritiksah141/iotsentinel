@@ -11,6 +11,8 @@
   "network": {
     "interface": "wlan0",
     "monitor_interface": null,
+    "wifi_country": "GB",
+    "note_wifi_country": "Bootstrap Wi-Fi regulatory country (ISO 3166-1 alpha-2). NOT a lock: the Pi's radio needs some valid country to start the first setup hotspot before the wizard runs (the 'world'/00 domain blocks AP mode). The user picks their own country in the wizard, which overwrites this and is applied via iw reg set + raspi-config. Build a regional image with IOTSENTINEL_WIFI_COUNTRY.",
     "capture_mode": "passive",
     "ap_interface": "wlan1",
     "ap_ssid": "IoTSentinel",

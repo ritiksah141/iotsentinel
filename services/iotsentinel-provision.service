@@ -7,6 +7,9 @@ Wants=NetworkManager.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# Pick up IOTSENTINEL_WIFI_COUNTRY (set by the wizard) so the setup hotspot uses the
+# user's Wi-Fi region. Optional ('-'): absent on first boot, present after setup.
+EnvironmentFile=-/home/sentinel/iotsentinel/.env
 # Generous: setup_hotspot.sh waits for NetworkManager to take over wlan0 on a cold
 # boot and then retries the AP bring-up a few times, so the worst case is ~2 min.
 TimeoutStartSec=180

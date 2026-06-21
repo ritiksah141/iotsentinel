@@ -1,0 +1,18 @@
+[Unit]
+Description=IoTSentinel first-boot diagnostic report (writes to the FAT boot partition)
+# Run after provisioning has tried to bring the setup hotspot up, so the report
+# captures the FINAL Wi-Fi/AP/service state. This is the headless escape hatch:
+# if no hotspot appears, the user reads iotsentinel-firstboot.txt off the SD card.
+After=iotsentinel-provision.service multi-user.target
+Wants=iotsentinel-provision.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Runs as root so it can read rfkill/nmcli/journal and write to /boot/firmware.
+ExecStart=/home/sentinel/iotsentinel/scripts/firstboot_diag.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

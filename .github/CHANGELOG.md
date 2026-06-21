@@ -49,6 +49,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - post 1.0.0
 
+### User-selectable Wi-Fi country (no longer GB-locked) (2026-06-20)
+
+- **Wi-Fi region is now chosen by the user, not baked to GB.** The wizard's first step has a country selector (placeholder "Select your country…", no pre-selected bias); the choice is persisted (config + `.env`) and applied live (`iw reg set` + `raspi-config do_wifi_country`), so a single shipped image is regulatory-correct anywhere in the world. The provisioning and recovery hotspot services read the chosen country via `EnvironmentFile`. The country list is globally representative (49 countries incl. Nepal, South/SE Asia, Middle East, Africa, LatAm), sorted by name. (The bootstrap default only matters for the very first setup hotspot, which broadcasts on 2.4GHz ch6 — legal in every regulatory domain — so the device was never functionally UK-only. `config.network.wifi_country` carries a `note_wifi_country` explaining it is a bootstrap default, not a lock.)
+- **Build country is configurable too.** `build_pi_image.sh` takes `IOTSENTINEL_WIFI_COUNTRY` (default `GB`) for the bootstrap regulatory code, so regional SKUs can be built with one env var. sudoers gains `iw reg set` + `raspi-config do_wifi_country` so the dashboard can apply the region without root.
+- **5 GHz support.** Connecting to a 5 GHz home network already worked (the Pi joins as a dual-band client). Gateway mode now also exposes a **2.4 GHz / 5 GHz band selector** for the dedicated IoT access point (`network.ap_band`, with a matching default channel), defaulting to 2.4 GHz since most smart-home devices are 2.4 GHz-only. The setup hotspot stays 2.4 GHz by design for maximum phone compatibility and range.
+
+### Headless first-boot Wi-Fi country fix + readable diagnostic (2026-06-20)
+
+- **Set the Wi-Fi country the canonical Raspberry Pi way.** On a Pi the onboard Broadcom Wi-Fi is rfkill-soft-blocked and refuses AP (hotspot) mode until a regulatory country is configured - the most common reason a headless first boot shows no `IoTSentinel-Setup` network. The image build now runs `raspi-config nonint do_wifi_country GB` in the chroot (and `setup_pi.sh` does the same on a Pi), which is more reliable than the previous `WPA_COUNTRY`/`crda` approach; the runtime `rfkill unblock` + `iw reg set` stays as a fallback.
+- **First-boot diagnostic you can read with no monitor or network.** New `scripts/firstboot_diag.sh` + `iotsentinel-firstboot-report.service` write the full Wi-Fi / access-point / service state to **`iotsentinel-firstboot.txt` on the SD card's FAT boot partition**. If the hotspot doesn't appear, the user powers off, puts the card back in any computer, and reads exactly why - no Ethernet or screen required. Documented in both setup guides.
+
 ### Commercial packaging - guide ships with the image (2026-06-20)
 
 - **The download now includes a full setup guide.** Non-technical buyers won't go to GitHub to find instructions, so `build-pi-image.yml` builds a self-contained `IoTSentinel-Setup-Guide.html` (from `docs/START_HERE.md` via `scripts/build_setup_guide_html.py`) and ships it alongside the `.img.xz` and `.sha256` in both the workflow artifact and the GitHub Release. It's a true end-to-end manual - flash, boot, wizard, dashboard tour, setting up phone alerts, acting on alerts (block / Ask Why), remote access, and privacy - with the real product screenshots embedded as a single portable file (no internet needed to view).
