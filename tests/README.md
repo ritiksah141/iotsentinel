@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1090 passing**, 9 skipped, 0 failing |
+| Total tests | **1091 passing**, 9 skipped, 0 failing |
 | Test files | 42 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1090
+pytest tests/                          # all 1091
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -263,7 +263,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_image_build.py` - 18 tests
+#### `test_image_build.py` - 19 tests
 **Covers:** `scripts/build_pi_image.sh` (the Raspberry Pi image build) and the files it bundles.
 
 **Why it exists:** A real ARM image takes ~40 min to build in CI, and broken builds shipped *silently* — images that "built successfully" but had no IoTSentinel installed (setup ran via `su` and aborted under qemu), an unsubstituted `__WIFI_COUNTRY__` placeholder, or files that were never committed so `git archive` left them out. This file dry-runs the build with a stubbed qemu/pi-gen in **~0.5 s** and asserts the generated stage tree is correct, so those failures surface locally and **block the expensive build** (the suite gates `build-pi-image` via `needs: [test]`).
