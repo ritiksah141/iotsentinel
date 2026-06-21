@@ -103,7 +103,7 @@ def _navigate_steps_logic(
     auto_block=None, alert_sensitivity=None,
     firewall_enable=None, firewall_router_ip=None,
     firewall_router_user=None, firewall_key_path=None,
-    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
+    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None, ap_band=None,
 ):
     """Pure navigation logic for the 6-step wizard; no Dash context dependency.
 
@@ -137,7 +137,7 @@ def _navigate_steps_logic(
         _save_config(cidr, interface, None, None, None, None, "household", None,
                      None, None, None, None, None,
                      capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
-                     ap_interface=ap_interface)
+                     ap_interface=ap_interface, ap_band=ap_band)
         return _ret(
             6, (), False, "Next →", "primary",
             _build_review(cidr, interface, None, None, None, "household", None,
@@ -210,7 +210,7 @@ def _navigate_steps_logic(
                 firewall_enable=firewall_enable, firewall_router_ip=firewall_router_ip,
                 firewall_router_user=firewall_router_user, firewall_key_path=firewall_key_path,
                 capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
-                ap_interface=ap_interface,
+                ap_interface=ap_interface, ap_band=ap_band,
             )
             if success:
                 return _ret(6, (), False, "Next →", "primary", status="",
@@ -368,9 +368,18 @@ def register(app):
         Input("setup-wifi-connect-btn", "n_clicks"),
         State("setup-wifi-ssid", "value"),
         State("setup-wifi-password", "value"),
+        State("setup-wifi-country", "value"),
         prevent_initial_call=True,
     )
-    def connect_to_wifi(_n, ssid, password):
+    def connect_to_wifi(_n, ssid, password, country):
+        # Apply the chosen Wi-Fi region first so the radio is legal/usable for the
+        # connection (and persisted for the provisioning/recovery hotspot). Best-effort.
+        if country:
+            try:
+                config.update("network", "wifi_country", country)
+                wifi_manager.set_country(country)
+            except Exception as e:
+                logger.warning("Wi-Fi country apply failed: %s", e)
         if not ssid:
             return html.Span("Select a network first.", className="text-warning")
         ok, msg = _connect_wifi(ssid, password or "")
@@ -641,6 +650,7 @@ def register(app):
             State("setup-ap-ssid", "value"),
             State("setup-ap-password", "value"),
             State("setup-ap-interface", "value"),
+            State("setup-ap-band", "value"),
         ],
         prevent_initial_call=True,
     )
@@ -654,7 +664,7 @@ def register(app):
         ai_privacy_choice,
         auto_block, alert_sensitivity,
         firewall_enable, firewall_router_ip, firewall_router_user, firewall_key_path,
-        capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
+        capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None, ap_band=None,
     ):
         triggered = callback_context.triggered_id
         step = (step_data or {}).get("step", 1)
@@ -670,7 +680,7 @@ def register(app):
             firewall_enable=firewall_enable, firewall_router_ip=firewall_router_ip,
             firewall_router_user=firewall_router_user, firewall_key_path=firewall_key_path,
             capture_mode=capture_mode, ap_ssid=ap_ssid, ap_password=ap_password,
-            ap_interface=ap_interface,
+            ap_interface=ap_interface, ap_band=ap_band,
         )
 
     # ------------------------------------------------------------------
@@ -927,7 +937,7 @@ def _save_config(
     auto_block=None, alert_sensitivity=None,
     firewall_enable=None, firewall_router_ip=None,
     firewall_router_user=None, firewall_key_path=None,
-    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None,
+    capture_mode=None, ap_ssid=None, ap_password=None, ap_interface=None, ap_band=None,
 ) -> bool:
     """Write .env, update default_config.json. Admin account is created in Step 1."""
     if config.get("system", "is_configured", default=False):
@@ -947,6 +957,11 @@ def _save_config(
             config.update("network", "ap_password", ap_password)
             if ap_interface:
                 config.update("network", "ap_interface", ap_interface)
+            # IoT AP band: 2.4GHz ("bg", default — widest device support) or 5GHz ("a").
+            # Pick a valid default channel for the band so configure_ap.sh starts cleanly.
+            if ap_band in ("bg", "a"):
+                config.update("network", "ap_band", ap_band)
+                config.update("network", "ap_channel", 36 if ap_band == "a" else 6)
         else:
             config.update("network", "capture_mode", "passive")
 

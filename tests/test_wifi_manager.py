@@ -124,6 +124,41 @@ def test_connect_timeout_is_soft_success():
 
 
 # ---------------------------------------------------------------------------
+# set_country (Wi-Fi regulatory region)
+# ---------------------------------------------------------------------------
+def test_set_country_rejects_invalid_code():
+    ok, msg = wifi_manager.set_country("USA")   # not 2-letter
+    assert ok is False and "country" in msg.lower()
+    ok, msg = wifi_manager.set_country("")
+    assert ok is False
+
+
+def test_set_country_applies_and_persists(tmp_path):
+    calls = []
+    fake_env = tmp_path / ".env"
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("utils.wifi_manager.shutil.which", return_value="/usr/sbin/iw"), \
+         patch("utils.wifi_manager.subprocess.run", side_effect=fake_run), \
+         patch("utils.wifi_manager.Path") as PathMock:
+        PathMock.return_value.resolve.return_value.parent.parent = tmp_path
+        ok, msg = wifi_manager.set_country("us")   # lowercase -> normalised
+    assert ok is True
+    # applied via iw reg set with the upper-cased code
+    assert any("iw" in c and "US" in c for c in calls)
+    assert fake_env.read_text().strip() == "IOTSENTINEL_WIFI_COUNTRY=US"
+
+
+def test_country_options_are_valid_codes():
+    assert ("GB", "United Kingdom") in wifi_manager.COUNTRY_OPTIONS
+    for code, name in wifi_manager.COUNTRY_OPTIONS:
+        assert len(code) == 2 and code.isupper() and name
+
+
+# ---------------------------------------------------------------------------
 # reachability
 # ---------------------------------------------------------------------------
 def test_get_reachable_addresses_shape():

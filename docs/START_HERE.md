@@ -77,7 +77,8 @@ required - you can change everything else later from the dashboard.
 ![The IoTSentinel setup wizard runs in your browser](images/monitoring-mode.png)
 
 1. **Wi-Fi and password** - Tap **Scan**, choose your home Wi-Fi from the list, type its
-   password, and tap **Connect to this WiFi**. Then create a password for your IoTSentinel
+   password, pick **your country** (so the Wi-Fi works correctly where you live), and tap
+   **Connect to this WiFi**. Then create a password for your IoTSentinel
    account - you'll use this to log in from now on.
 2. **How it watches your network** - Choose **Passive** (recommended - the Pi quietly
    watches from the side, nothing else to buy) or **Gateway** (more thorough, and needs a
@@ -192,7 +193,7 @@ local AI in the wizard. Your data stays yours.
 
 | Problem | What to do |
 |---|---|
-| `IoTSentinel-Setup` doesn't appear | Wait the full 2 minutes. Then unplug the Pi, wait 5 seconds, and power it back on. Use the official power supply. |
+| `IoTSentinel-Setup` doesn't appear | Wait the full 2 minutes. Then unplug the Pi, wait 5 seconds, and power it back on. Use the official power supply. If it still doesn't show, power off, put the SD card back in your computer, and open **`iotsentinel-firstboot.txt`** on the card's small `bootfs` drive - it explains exactly what happened. |
 | The setup page won't load | Make sure your phone is connected to `IoTSentinel-Setup` (not your home Wi-Fi), then reload `http://10.42.0.1:8050/setup`. |
 | Can't reach `iotsentinel.local` later | Use the Pi's number address shown on the last setup screen and under **Settings → Network**. |
 | You moved house or changed Wi-Fi | The Pi re-opens `IoTSentinel-Setup` after a few minutes offline - reconnect and pick the new Wi-Fi, or change it under **Settings → Network**. |

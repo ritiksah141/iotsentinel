@@ -14,6 +14,7 @@ import logging
 import shutil
 import socket
 import subprocess
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,27 @@ DEFAULT_MDNS_HOST = "iotsentinel.local"
 
 # Dashboard port (kept in sync with dashboard/app.py).
 DASHBOARD_PORT = 8050
+
+# Wi-Fi regulatory countries for the wizard picker (ISO 3166-1 alpha-2), kept
+# globally representative and sorted by country name. Not every ISO country is
+# listed, but the field accepts any valid 2-letter code. There is no built-in
+# bias to any one country — the user picks their own; the radio just needs *some*
+# valid code to start the first setup hotspot before the wizard runs.
+COUNTRY_OPTIONS = sorted([
+    ("AR", "Argentina"), ("AU", "Australia"), ("AT", "Austria"), ("BD", "Bangladesh"),
+    ("BE", "Belgium"), ("BR", "Brazil"), ("CA", "Canada"), ("CL", "Chile"),
+    ("CN", "China"), ("CO", "Colombia"), ("DK", "Denmark"), ("EG", "Egypt"),
+    ("FI", "Finland"), ("FR", "France"), ("DE", "Germany"), ("HK", "Hong Kong"),
+    ("IN", "India"), ("ID", "Indonesia"), ("IE", "Ireland"), ("IL", "Israel"),
+    ("IT", "Italy"), ("JP", "Japan"), ("KE", "Kenya"), ("MY", "Malaysia"),
+    ("MX", "Mexico"), ("NP", "Nepal"), ("NL", "Netherlands"), ("NZ", "New Zealand"),
+    ("NG", "Nigeria"), ("NO", "Norway"), ("PK", "Pakistan"), ("PH", "Philippines"),
+    ("PL", "Poland"), ("PT", "Portugal"), ("SA", "Saudi Arabia"), ("SG", "Singapore"),
+    ("ZA", "South Africa"), ("KR", "South Korea"), ("ES", "Spain"), ("LK", "Sri Lanka"),
+    ("SE", "Sweden"), ("CH", "Switzerland"), ("TW", "Taiwan"), ("TH", "Thailand"),
+    ("TR", "Turkey"), ("AE", "United Arab Emirates"), ("GB", "United Kingdom"),
+    ("US", "United States"), ("VN", "Vietnam"),
+], key=lambda x: x[1])
 
 
 def nmcli_available() -> bool:
@@ -111,6 +133,54 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
         )
     except Exception as e:
         return False, str(e)
+
+
+def set_country(country: str) -> tuple[bool, str]:
+    """Set + persist the Wi-Fi regulatory country (ISO 3166-1 alpha-2).
+
+    On a Raspberry Pi the radio is rfkill-blocked and won't do AP mode until a
+    country is set, and the code also governs legal TX power / channels. This applies
+    it live (`iw reg set`), persists it for reboots (`raspi-config do_wifi_country`),
+    and records it in .env so the provisioning/recovery hotspot scripts reuse it.
+    Best-effort and non-fatal — degrades cleanly on a non-Pi host.
+    """
+    cc = (country or "").strip().upper()
+    if len(cc) != 2 or not cc.isalpha():
+        return False, "Please choose a valid country."
+    applied = False
+    try:
+        if shutil.which("iw"):
+            subprocess.run(["sudo", "iw", "reg", "set", cc],
+                           capture_output=True, text=True, timeout=10)
+            applied = True
+        if shutil.which("raspi-config"):
+            subprocess.run(["sudo", "raspi-config", "nonint", "do_wifi_country", cc],
+                           capture_output=True, text=True, timeout=20)
+            applied = True
+    except Exception as e:  # never break setup over the regulatory apply
+        logger.warning("set_country apply failed: %s", e)
+    _persist_country_env(cc)
+    if applied:
+        return True, f"Wi-Fi region set to {cc}."
+    return True, f"Saved region {cc} (will apply on this device's Wi-Fi)."
+
+
+def _persist_country_env(cc: str) -> None:
+    """Record IOTSENTINEL_WIFI_COUNTRY in .env so the root hotspot scripts reuse it."""
+    try:
+        env = Path(__file__).resolve().parent.parent / ".env"
+        lines, found = [], False
+        if env.exists():
+            for line in env.read_text().splitlines():
+                if line.startswith("IOTSENTINEL_WIFI_COUNTRY="):
+                    lines.append(f"IOTSENTINEL_WIFI_COUNTRY={cc}"); found = True
+                else:
+                    lines.append(line)
+        if not found:
+            lines.append(f"IOTSENTINEL_WIFI_COUNTRY={cc}")
+        env.write_text("\n".join(lines) + "\n")
+    except Exception as e:
+        logger.warning("could not persist Wi-Fi country to .env: %s", e)
 
 
 def get_local_ip() -> str | None:

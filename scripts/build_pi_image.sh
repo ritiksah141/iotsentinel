@@ -33,6 +33,12 @@ TAG="${TAG:-$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null || echo 
 PIGEN_DIR="${PIGEN_DIR:-${REPO_DIR}/../pi-gen}"
 DEPLOY_DIR="${REPO_DIR}/deploy"
 STAGE_NAME="stage-iotsentinel"
+# Bootstrap Wi-Fi regulatory country for the image. This is only the DEFAULT the Pi
+# uses so the setup hotspot can start on first boot (2.4GHz ch6 is legal in every
+# domain, so it works worldwide regardless); the user picks their actual country in
+# the wizard, which persists + applies it. Override to build a regional SKU, e.g.
+# IOTSENTINEL_WIFI_COUNTRY=US bash scripts/build_pi_image.sh
+WIFI_COUNTRY="${IOTSENTINEL_WIFI_COUNTRY:-GB}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 
@@ -80,7 +86,7 @@ FIRST_USER_PASS="iotsentinel"
 ENABLE_SSH=1
 WPA_ESSID=""
 WPA_PASSWORD=""
-WPA_COUNTRY="GB"
+WPA_COUNTRY="${WIFI_COUNTRY}"
 EOF
 
 # Disable stages we don't need (desktop, recommended packages)
@@ -131,16 +137,26 @@ systemctl enable avahi-daemon 2>/dev/null || true
 systemctl enable NetworkManager 2>/dev/null || true
 systemctl disable dhcpcd 2>/dev/null || true
 
-# Persist a best-effort Wi-Fi regulatory country (legacy CRDA path). The reliable
-# mechanism is the runtime `rfkill unblock wifi` + `iw reg set` in setup_hotspot.sh,
-# which runs right before the AP is armed; this is just a sensible default. Kept in
-# sync with WPA_COUNTRY in the pi-gen config and IOTSENTINEL_WIFI_COUNTRY in the script.
-echo 'REGDOMAIN=GB' > /etc/default/crda 2>/dev/null || true
+# Set the Wi-Fi regulatory country the CANONICAL Raspberry Pi way. On a Pi the
+# onboard Broadcom Wi-Fi is rfkill-soft-blocked and refuses AP (hotspot) mode until
+# a country is configured — the #1 reason a headless first boot shows NO
+# IoTSentinel-Setup network. `raspi-config nonint do_wifi_country` writes the country
+# where the brcmfmac driver actually reads it and unblocks the radio; this is more
+# reliable than WPA_COUNTRY / crda alone. The runtime rfkill/iw fallback stays in
+# setup_hotspot.sh as belt-and-suspenders. Change GB to your ISO country if needed.
+raspi-config nonint do_wifi_country __WIFI_COUNTRY__ 2>/dev/null \
+  || { echo 'REGDOMAIN=__WIFI_COUNTRY__' > /etc/default/crda 2>/dev/null; \
+       echo 'country=__WIFI_COUNTRY__' > /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null; } || true
 
 # Create sentinel user home directory if missing
 mkdir -p /home/sentinel
 SHELL
 chmod +x "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh"
+# Bake the chosen bootstrap Wi-Fi country into the (quoted-heredoc) chroot script.
+# Portable in-place edit (avoids GNU vs BSD `sed -i` differences).
+_deps="$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh"
+sed "s/__WIFI_COUNTRY__/${WIFI_COUNTRY}/g" "$_deps" > "$_deps.tmp" && mv "$_deps.tmp" "$_deps"
+chmod +x "$_deps"
 
 # 01 — Copy repo and run setup_pi.sh
 mkdir -p "$CUSTOM_STAGE/01-install-iotsentinel/files"
@@ -197,6 +213,7 @@ cp "${SERVICES_SRC}/iotsentinel-dashboard.service"     /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-localai.service"       /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-connectivity.service"  /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-connectivity.timer"    /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-firstboot-report.service" /etc/systemd/system/
 
 # Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
 # the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,
@@ -218,6 +235,10 @@ systemctl enable iotsentinel-dashboard.service
 # home WiFi is ever lost, so a headless user can always get back in to fix it.
 # Enable the TIMER (it triggers the one-shot service); never enable the service.
 systemctl enable iotsentinel-connectivity.timer
+# First-boot diagnostic: writes Wi-Fi/AP/service state to the FAT boot partition so a
+# headless user can read why the hotspot did/didn't come up by putting the SD card
+# back in their computer (no Ethernet or monitor needed).
+systemctl enable iotsentinel-firstboot-report.service
 # AI in the box: installs Ollama + pulls the on-device model in the background
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
