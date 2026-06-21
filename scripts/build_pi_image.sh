@@ -322,8 +322,13 @@ step "Verifying IoTSentinel was actually installed into the image"
 # produced a "successful" build whose image had NO IoTSentinel services at all
 # (no hotspot, no dashboard on the real Pi). Assert against the built rootfs so a
 # broken install fails the build LOUDLY instead of shipping a dead image.
-ROOTFS=$(find "$PIGEN_DIR/work" -type d -path "*/export-image/rootfs" 2>/dev/null | head -1)
-[ -n "$ROOTFS" ] || ROOTFS=$(find "$PIGEN_DIR/work" -type d -name rootfs 2>/dev/null | sort | tail -1)
+# NOTE: the built rootfs is root-owned, so these must use sudo to traverse it; and
+# the find|head pipeline must not trip `set -o pipefail` (SIGPIPE/permission) and
+# abort the whole build — hence `|| true`.
+ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -path "*/export-image/rootfs" 2>/dev/null | head -1)" || true
+if [ -z "$ROOTFS" ]; then
+  ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -name rootfs 2>/dev/null | sort | tail -1)" || true
+fi
 if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   APP="home/sentinel/iotsentinel"
   # Resolve the venv site-packages dir (don't hardcode the python minor version).
@@ -402,7 +407,9 @@ step "Collecting output"
 # ---------------------------------------------------------------------------
 # pi-gen wrote deploy/ as root; reclaim ownership so the non-root copy/sha steps work.
 sudo chown -R "$(id -u):$(id -g)" "$PIGEN_DIR/deploy" 2>/dev/null || true
-IMG_XZ=$(find "$PIGEN_DIR/deploy" -name "*.img.xz" | sort -r | head -1)
+# `|| true`: a find|sort|head pipeline can return non-zero via SIGPIPE under
+# `set -o pipefail` and must not abort before the explicit emptiness check below.
+IMG_XZ="$(find "$PIGEN_DIR/deploy" -name "*.img.xz" | sort -r | head -1)" || true
 [ -n "$IMG_XZ" ] || die "No .img.xz found in $PIGEN_DIR/deploy — check $DEPLOY_DIR/build.log"
 
 FINAL_NAME="IoTSentinel-${TAG}.img.xz"

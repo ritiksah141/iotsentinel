@@ -330,6 +330,16 @@ def test_deps_stage_fixes_apt_tmp():
     assert "rm -f /etc/apt/apt.conf.d/00iotsentinel-build" in text
 
 
+def test_postbuild_finds_rootfs_with_sudo_and_no_pipefail_trap():
+    """The verify step traverses the root-owned rootfs (needs sudo) and must not let a
+    find|head pipeline abort the build under set -o pipefail. This bug failed a build
+    AFTER a fully successful 2h18m install."""
+    text = BUILD.read_text()
+    # The rootfs locate + the image-locate pipelines must be guarded.
+    assert 'ROOTFS="$(sudo find' in text, "rootfs find must use sudo (root-owned dirs)"
+    assert text.count("| head -1)\" || true") >= 1, "find|head pipelines must be `|| true` guarded"
+
+
 def test_build_has_postbuild_rootfs_assertion():
     """The build must fail loudly if the rootfs lacks any P4-critical feature, so a
     green build means 'ready for the hardware gate' without a wasted rebuild."""
