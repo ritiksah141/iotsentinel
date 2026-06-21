@@ -57,7 +57,14 @@ done
 # ---------------------------------------------------------------------------
 step "Checking prerequisites"
 # ---------------------------------------------------------------------------
-command -v qemu-aarch64-static &>/dev/null || die "qemu-user-static not found. Run: apt install qemu-user-static binfmt-support"
+# QEMU is only needed to build an arm64 image on a NON-arm64 host. On a native arm64
+# host (e.g. an arm64 CI runner) pi-gen builds without emulation, so don't require it.
+if [ "$(uname -m)" != "aarch64" ]; then
+  command -v qemu-aarch64-static &>/dev/null || die "qemu-user-static not found. Run: apt install qemu-user-static binfmt-support"
+  echo "  Host is $(uname -m) — building arm64 via QEMU emulation (slow)."
+else
+  echo "  Host is aarch64 — building arm64 natively (no emulation)."
+fi
 command -v git &>/dev/null || die "git not found"
 [ -d "$PIGEN_DIR" ] || die "pi-gen directory not found at $PIGEN_DIR. Clone it: git clone https://github.com/RPi-Distro/pi-gen $PIGEN_DIR"
 

@@ -28,7 +28,12 @@ jobs:
   build-pi-image:
     name: Build ARM64 .img.xz
     needs: [test, pi-deps]
-    runs-on: ubuntu-latest
+    # NATIVE arm64 runner: pi-gen builds the arm64 image without QEMU emulation. This
+    # eliminates the emulated-SSL flakiness that broke pip downloads and cuts the build
+    # from ~2 hours to ~20 minutes. (GitHub-hosted arm64 runners are free for public
+    # repos.) If this label is ever unavailable, the only change needed to fall back to
+    # emulation is runs-on + re-adding the qemu-user-static/binfmt steps.
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout IoTSentinel
@@ -37,19 +42,14 @@ jobs:
           fetch-depth: 0   # needed so git describe can find the tag
 
       - name: Install build prerequisites
-        # pi-gen's full native dependency set (its build.sh dependency check fails
-        # otherwise), plus binfmt-support for the ARM64 emulation registration.
+        # pi-gen's native dependency set (its build.sh dependency check fails
+        # otherwise). No qemu/binfmt needed — the runner is already arm64.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y \
-            coreutils quilt parted qemu-user-static debootstrap zerofree zip \
+            coreutils quilt parted debootstrap zerofree zip \
             dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file \
-            git curl bc gpg pigz xxd arch-test binfmt-support kpartx fdisk gawk
-
-      - name: Register ARM64 binfmt handler
-        run: |
-          sudo update-binfmts --enable
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+            git curl bc gpg pigz xxd arch-test kpartx fdisk gawk
 
       - name: Clone pi-gen (arm64 branch = 64-bit image)
         run: |

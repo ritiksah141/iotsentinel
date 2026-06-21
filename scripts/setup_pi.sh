@@ -242,11 +242,13 @@ else
 fi
 
 source "$PROJECT_DIR/venv/bin/activate"
-pip install --upgrade pip -q
+# More tolerant of transient TLS/network hiccups during downloads.
+PIP_OPTS="--retries 5 --timeout 60"
+pip install $PIP_OPTS --upgrade pip -q
 
 REQ_FILE="$PROJECT_DIR/requirements-pi.txt"
 [ -f "$REQ_FILE" ] || REQ_FILE="$PROJECT_DIR/requirements.txt"
-pip install -r "$REQ_FILE" -q
+pip install $PIP_OPTS -r "$REQ_FILE" -q
 ok "Python packages installed from $(basename "$REQ_FILE")"
 
 python3 config/init_database.py </dev/null \
