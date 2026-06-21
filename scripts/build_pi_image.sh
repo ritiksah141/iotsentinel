@@ -180,10 +180,16 @@ cd /home/sentinel
 tar xzf /tmp/iotsentinel.tar.gz
 chown -R sentinel:sentinel iotsentinel
 
-# Run setup as the sentinel user. --skip-ollama: the on-device model is NOT baked
-# into the image (it would bloat the build and can't be pulled in an emulated
-# chroot); iotsentinel-localai.service pulls it on first boot instead.
-su - sentinel -c "cd /home/sentinel/iotsentinel && bash scripts/setup_pi.sh --non-interactive --skip-ollama"
+# Run setup AS ROOT (the chroot is already root), targeting the sentinel user.
+# IMPORTANT: do NOT use `su - sentinel` here — under qemu emulation `sudo` inside a
+# su session fails, which silently aborts setup_pi.sh before it installs the venv,
+# sudoers, or systemd services (the image then boots with NO IoTSentinel at all).
+# IOTSENTINEL_TARGET_USER makes setup_pi.sh shim sudo, install into the sentinel
+# home, and chown everything back. --skip-ollama: the model is pulled on first boot.
+cd /home/sentinel/iotsentinel
+IOTSENTINEL_TARGET_USER=sentinel IOTSENTINEL_WIFI_COUNTRY=__WIFI_COUNTRY__ \
+  bash scripts/setup_pi.sh --non-interactive --skip-ollama
+cd /home/sentinel
 
 # Pre-seed is_configured=false so first boot shows the wizard
 python3 -c "
@@ -200,7 +206,9 @@ sed -i '/^FLASK_SECRET_KEY=/d' /home/sentinel/iotsentinel/.env 2>/dev/null || tr
 
 rm -f /tmp/iotsentinel.tar.gz
 SHELL
-chmod +x "$CUSTOM_STAGE/01-install-iotsentinel/01-run-chroot.sh"
+_inst="$CUSTOM_STAGE/01-install-iotsentinel/01-run-chroot.sh"
+sed "s/__WIFI_COUNTRY__/${WIFI_COUNTRY}/g" "$_inst" > "$_inst.tmp" && mv "$_inst.tmp" "$_inst"
+chmod +x "$_inst"
 
 # 02 — Install and enable systemd services
 mkdir -p "$CUSTOM_STAGE/02-systemd-services"
@@ -274,6 +282,87 @@ if [ "$(id -u)" -eq 0 ]; then
   CLEAN=1 bash build.sh 2>&1 | tee "$DEPLOY_DIR/build.log"
 else
   sudo CLEAN=1 bash build.sh 2>&1 | tee "$DEPLOY_DIR/build.log"
+fi
+
+# ---------------------------------------------------------------------------
+step "Verifying IoTSentinel was actually installed into the image"
+# ---------------------------------------------------------------------------
+# CRITICAL GUARD. pi-gen does NOT reliably fail the build when a chroot sub-stage
+# script exits non-zero, so a setup_pi.sh failure inside the chroot previously
+# produced a "successful" build whose image had NO IoTSentinel services at all
+# (no hotspot, no dashboard on the real Pi). Assert against the built rootfs so a
+# broken install fails the build LOUDLY instead of shipping a dead image.
+ROOTFS=$(find "$PIGEN_DIR/work" -type d -path "*/export-image/rootfs" 2>/dev/null | head -1)
+[ -n "$ROOTFS" ] || ROOTFS=$(find "$PIGEN_DIR/work" -type d -name rootfs 2>/dev/null | sort | tail -1)
+if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
+  APP="home/sentinel/iotsentinel"
+  # Resolve the venv site-packages dir (don't hardcode the python minor version).
+  SP=$(sudo bash -c "ls -d '$ROOTFS/$APP/venv/lib/'python3*/site-packages 2>/dev/null | head -1")
+  SP="${SP#"$ROOTFS/"}"
+  WANTS="etc/systemd/system/multi-user.target.wants"
+  _missing=""
+  _need() { sudo test -e "$ROOTFS/$1" || _missing="$_missing\n    - $2 ($1)"; }
+
+  # A. First-boot provisioning + the hotspot/diagnostic scripts it runs
+  _need "etc/systemd/system/iotsentinel-provision.service"        "provision service"
+  _need "$WANTS/iotsentinel-provision.service"                     "provision ENABLED"
+  _need "$APP/scripts/setup_hotspot.sh"                            "hotspot script"
+  _need "$APP/scripts/firstboot_diag.sh"                           "first-boot diagnostic"
+  # B. Every service the gate checks must be ENABLED (symlinked), not just present
+  _need "$WANTS/iotsentinel-backend.service"                       "backend ENABLED"
+  _need "$WANTS/iotsentinel-dashboard.service"                     "dashboard ENABLED"
+  _need "$WANTS/iotsentinel-localai.service"                       "localai ENABLED (on-device AI)"
+  _need "$WANTS/iotsentinel-firstboot-report.service"             "firstboot-report ENABLED"
+  _need "etc/systemd/system/timers.target.wants/iotsentinel-connectivity.timer" "connectivity TIMER ENABLED"
+  _need "$WANTS/NetworkManager.service"                            "NetworkManager ENABLED"
+  # C. Capture + AI runtime
+  _need "opt/zeek/bin/zeek"                                        "Zeek (passive/gateway capture)"
+  _need "$APP/venv/bin/python3"                                    "python venv"
+  # D. Python deps actually installed (catches a partial pip install). Direct,
+  # top-level deps whose import dir name is stable.
+  for pkg in dash dash_bootstrap_components plotly river pandas numpy sklearn; do
+    sudo test -d "$ROOTFS/$SP/$pkg" \
+      || _missing="$_missing\n    - python package: $pkg"
+  done
+  # E. Gateway scripts (inline IDS/IPS) ship in the image
+  _need "$APP/config/configure_ap.sh"                             "gateway AP script"
+  _need "$APP/config/configure_zeek.sh"                           "gateway Zeek script"
+  _need "$APP/scripts/validate_gateway.sh"                        "gateway validator"
+  # E2. Front-end design/assets (the *.min.css + PWA icons are generated at first
+  # boot from these sources, so the SOURCES must be in the image).
+  _need "$APP/dashboard/assets/logo.png"                          "logo / PWA-icon source"
+  _need "$APP/dashboard/assets/custom.css"                        "main theme CSS"
+  _need "$APP/dashboard/assets/fontawesome.min.css"              "icon font CSS"
+  _need "$APP/dashboard/assets/webfonts/fa-solid-900.woff2"      "icon font glyphs"
+  _need "$APP/dashboard/assets/manifest.webmanifest"            "PWA manifest"
+  _need "$APP/dashboard/assets/sw.js"                            "service worker"
+  _need "$APP/dashboard/assets/topojson/world_110m.json"        "offline threat map"
+  # F. Database initialised
+  sudo find "$ROOTFS/$APP/data" -name '*.db' 2>/dev/null | grep -q . \
+    || _missing="$_missing\n    - initialised database (data/*.db)"
+  # G. Wizard pre-seeded to first-run
+  sudo grep -q '"is_configured": false' "$ROOTFS/$APP/config/default_config.json" 2>/dev/null \
+    || _missing="$_missing\n    - is_configured=false (wizard would be skipped)"
+
+  if [ -n "$_missing" ]; then
+    die "Image is INCOMPLETE — setup_pi.sh did not finish in the chroot. Missing:$(echo -e "$_missing")\n  Check $DEPLOY_DIR/build.log for the failure."
+  fi
+
+  # Gateway sudoers MUST carry the inline-enforcement grants (block/unblock on the Pi).
+  _sudoers_missing=""
+  for grant in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh" "/opt/zeek/bin/zeekctl"; do
+    sudo grep -qF "$grant" "$ROOTFS/etc/sudoers.d/iotsentinel" 2>/dev/null \
+      || _sudoers_missing="$_sudoers_missing $grant"
+  done
+  [ -z "$_sudoers_missing" ] || die "sudoers is missing gateway grants:$_sudoers_missing"
+
+  # Longevity: the Zeek-monitor cron must be registered (H. of the P4 gate).
+  sudo grep -qrF "zeek_monitor.sh" "$ROOTFS/var/spool/cron/crontabs" 2>/dev/null \
+    || warn "Zeek-monitor cron not found in image — check setup_db_automation/cron step."
+
+  echo "  ✓ Verified image: services enabled, Zeek + venv (deps), gateway scripts + sudoers, DB, wizard pre-seed."
+else
+  warn "Could not locate the built rootfs to verify — skipping install check."
 fi
 
 # ---------------------------------------------------------------------------

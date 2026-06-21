@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1072 passing**, 9 skipped, 0 failing |
-| Test files | 41 |
+| Total tests | **1090 passing**, 9 skipped, 0 failing |
+| Test files | 42 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
 | CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1072
+pytest tests/                          # all 1090
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -260,6 +260,24 @@ The test suite prioritises the paths where bugs have real consequences - default
 **Covers:** the Raspberry Pi ops scripts in `config/` (`optimize_pi.sh`, `zeek_monitor.sh`, `zeek_cleanup.sh`).
 
 **Why it exists:** `scripts/setup_pi.sh` wires these into the shipped image behind `[ -f ]` guards; when they were missing the image silently lost Pi tuning, the Zeek watchdog, and log rotation. These tests pin that the files exist, are executable, pass `bash -n`, and that every path `setup_pi.sh` references resolves.
+
+---
+
+#### `test_image_build.py` - 18 tests
+**Covers:** `scripts/build_pi_image.sh` (the Raspberry Pi image build) and the files it bundles.
+
+**Why it exists:** A real ARM image takes ~40 min to build in CI, and broken builds shipped *silently* — images that "built successfully" but had no IoTSentinel installed (setup ran via `su` and aborted under qemu), an unsubstituted `__WIFI_COUNTRY__` placeholder, or files that were never committed so `git archive` left them out. This file dry-runs the build with a stubbed qemu/pi-gen in **~0.5 s** and asserts the generated stage tree is correct, so those failures surface locally and **block the expensive build** (the suite gates `build-pi-image` via `needs: [test]`).
+
+| What it validates |
+|---|
+| `STAGE_LIST` runs the custom stage last; `prerun.sh` (copy_previous) + `EXPORT_IMAGE` present |
+| deps install runs in the ARM chroot (not the host arch); installs `iw`/`rfkill`/NetworkManager |
+| setup_pi.sh is invoked **as root** (`IOTSENTINEL_TARGET_USER`), never via `su` (the shipped-broken bug) |
+| no `__WIFI_COUNTRY__` placeholders remain; `IOTSENTINEL_WIFI_COUNTRY=US` bakes US in |
+| all 7 systemd units copied + the right ones enabled; repo tarball staged into the chroot |
+| every referenced service/script exists; ExecStart targets exist; units have required sections |
+| all critical files are committed (`git ls-files`) so they ship in the image |
+| the post-build rootfs assertion (services/sudoers/venv) stays in `build_pi_image.sh` |
 
 ---
 

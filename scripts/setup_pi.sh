@@ -52,8 +52,21 @@ echo -e "${BLUE}  IoTSentinel — Setup (Raspberry Pi, spare PC, or Linux VM)${N
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# ── Do not run as root ────────────────────────────────────────────────────────
-[ "$EUID" -eq 0 ] && die "Run as a regular user with sudo rights, not root."
+# ── User / privilege model ───────────────────────────────────────────────────
+# Normal use: run as a regular user with passwordless sudo (on a booted Pi/PC).
+# Image build: the pi-gen chroot runs us AS ROOT, where `su`/`sudo` are unreliable
+# under qemu. In that case set IOTSENTINEL_TARGET_USER (e.g. "sentinel"): we then
+# run privileged commands directly (sudo shim) and install into that user's home,
+# chowning everything to them at the end.
+if [ "$EUID" -eq 0 ]; then
+    [ -n "${IOTSENTINEL_TARGET_USER:-}" ] || die "Run as a regular user with sudo rights, not root (or set IOTSENTINEL_TARGET_USER for image builds)."
+    TARGET_USER="$IOTSENTINEL_TARGET_USER"
+    sudo() { "$@"; }   # already root inside the chroot — no sudo needed
+else
+    TARGET_USER="${IOTSENTINEL_TARGET_USER:-$(whoami)}"
+fi
+TARGET_HOME="$(getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6)"
+TARGET_HOME="${TARGET_HOME:-$HOME}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "1/9  System pre-flight checks"
@@ -151,8 +164,8 @@ else
 fi
 
 # Persist Zeek on PATH
-if ! grep -qF '/opt/zeek/bin' "$HOME/.bashrc" 2>/dev/null; then
-    echo 'export PATH="/opt/zeek/bin:$PATH"' >> "$HOME/.bashrc"
+if ! grep -qF '/opt/zeek/bin' "$TARGET_HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="/opt/zeek/bin:$PATH"' >> "$TARGET_HOME/.bashrc"
 fi
 export PATH="/opt/zeek/bin:$PATH"
 
@@ -160,7 +173,7 @@ export PATH="/opt/zeek/bin:$PATH"
 step "5/9  Clone / update IoTSentinel"
 # ─────────────────────────────────────────────────────────────────────────────
 
-PROJECT_DIR="$HOME/iotsentinel"
+PROJECT_DIR="$TARGET_HOME/iotsentinel"
 REPO_URL="https://github.com/ritiksah141/iotsentinel.git"
 
 if [ -d "$PROJECT_DIR/.git" ]; then
@@ -267,7 +280,7 @@ fi
 #  - nft / iptables      (firewall_enforcer inline block/unblock — the IPS path)
 #  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
 # Scripts are invoked by absolute path (executable shebang) so the match is exact.
-CURRENT_USER="$(whoami)"
+CURRENT_USER="$TARGET_USER"
 SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *"
 if ! grep -qF "/usr/sbin/nft" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
@@ -280,7 +293,7 @@ SERVICES_SRC="$PROJECT_DIR/services"
 if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
     for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity iotsentinel-firstboot-report; do
         [ -f "$SERVICES_SRC/${svc}.service" ] || continue
-        sed "s|/home/sentinel|$HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
+        sed "s|/home/sentinel|$TARGET_HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
             "$SERVICES_SRC/${svc}.service" \
             | sudo tee /etc/systemd/system/${svc}.service > /dev/null
     done
@@ -348,6 +361,14 @@ else
     else
         warn "Ollama API did not respond — model pull skipped. Retry: ollama pull ${MODEL}"
     fi
+fi
+
+# When we ran as root targeting another user (image build), everything we created
+# in their home (venv, .env, data/, .bashrc) is root-owned — hand it back so the
+# unprivileged service user can read/write it at runtime.
+if [ "$EUID" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
+    chown -R "$TARGET_USER":"$TARGET_USER" "$PROJECT_DIR" "$TARGET_HOME/.bashrc" 2>/dev/null || true
+    ok "Ownership handed to $TARGET_USER"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
