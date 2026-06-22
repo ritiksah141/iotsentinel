@@ -56,6 +56,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Belt and braces:** combined with the post-build rootfs assertion (below), a broken or incomplete image now fails the build at two independent points instead of shipping silently.
 - **Design/assets covered too:** the build now verifies the front-end ships — `logo.png`, `custom.css`, Font Awesome CSS + webfonts, `manifest.webmanifest`, `sw.js`, and the offline threat map (`topojson/world_110m.json`) — and tests confirm those sources stay git-tracked (untracked assets are silently dropped by `git archive`). The minified CSS and PWA icons remain generated at first boot (`ensure_minified_css`/`ensure_pwa_icons`, Pillow), with a test asserting those generators stay wired into startup.
 
+### Verify inspects the populated rootfs, not the unmounted mountpoint (2026-06-22)
+
+- The post-build verification checked `export-image/rootfs`, which pi-gen **unmounts**
+  after writing the `.img`, leaving an empty mountpoint — so every check reported
+  "missing" even though the install was complete and the image was fine. It now
+  inspects the custom stage's rootfs (`stage-iotsentinel/rootfs`), the real on-disk
+  filesystem that is packaged into the image, and logs which rootfs it used.
+
 ### Build natively on arm64 — no more QEMU (2026-06-22)
 
 - **The image build moved from an emulated (QEMU) amd64 runner to a native arm64
