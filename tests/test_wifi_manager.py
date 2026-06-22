@@ -226,3 +226,37 @@ def test_get_local_ip_skips_loopback():
         inst.getsockname.return_value = ("127.0.0.1", 0)
         with patch("utils.wifi_manager.socket.gethostbyname", return_value="127.0.0.1"):
             assert wifi_manager.get_local_ip() is None
+
+
+def test_teardown_invokes_script_by_path_not_bash():
+    """sudoers grants the exact script path; `sudo bash <script>` would be denied (and
+    is a root hole). On success we must NOT also run the nmcli fallback."""
+    proc = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.Path.exists", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", return_value=proc) as run:
+        wifi_manager.teardown_setup_hotspot("wlan0")
+    cmds = [c[0][0] for c in run.call_args_list]
+    assert len(cmds) == 1, "successful disarm must not fall through to nmcli"
+    assert cmds[0][:2] == ["sudo", "-n"] and "bash" not in cmds[0]
+    assert cmds[0][-1] == "disarm" and cmds[0][2].endswith("setup_hotspot.sh")
+
+
+def test_teardown_falls_back_to_nmcli_when_script_denied():
+    """A non-zero exit (e.g. sudoers denial) must fall through to the direct nmcli
+    delete — not silently return as if the hotspot were gone (the rc5 teardown bug)."""
+    denied = MagicMock(returncode=1, stdout="", stderr="sudo: a password is required")
+    ok = MagicMock(returncode=0, stdout="", stderr="")
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return denied if cmd[2].endswith("setup_hotspot.sh") else ok
+
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.Path.exists", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", side_effect=fake_run):
+        wifi_manager.teardown_setup_hotspot("wlan0")
+    # script attempt + nmcli down + nmcli delete
+    assert any("connection" in c and "down" in c for c in calls)
+    assert any("connection" in c and "delete" in c for c in calls)

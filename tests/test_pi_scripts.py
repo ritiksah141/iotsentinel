@@ -82,3 +82,13 @@ class TestSetupHotspotScript:
         text = self.PATH.read_text()
         assert 'nmcli connection delete "$HOTSPOT"' in text
         assert 'nmcli connection down "$HOTSPOT"' in text
+
+    def test_recover_disarms_lingering_hotspot_on_home_wifi(self):
+        """Root-side backstop: when home Wi-Fi is up the recover timer must disarm a
+        still-active setup hotspot (else wlan0 stays AP+client and the dashboard is
+        reachable only on 10.42.0.1). Guards against a missed dashboard disarm."""
+        text = self.PATH.read_text()
+        recover = text.split("recover)", 1)[1].split("disarm)", 1)[0]
+        # Inside the home-Wi-Fi branch we must call disarm_hotspot when one is active.
+        assert "disarm_hotspot" in recover, \
+            "recover) must tear down a lingering hotspot once on home Wi-Fi"

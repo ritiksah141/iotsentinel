@@ -43,9 +43,9 @@ FLOW_STEPS = [
     ("Wait about 2 minutes", "First-boot setup runs on its own"),
     ("Join the open Wi-Fi on your phone", "Network name: IoTSentinel-Setup"),
     ("Open the setup page", "http://10.42.0.1:8050/setup"),
-    ("Run the wizard", "Pick your home Wi-Fi and set your password"),
-    ("The Pi joins your home Wi-Fi", "Reconnect your phone to home Wi-Fi"),
-    ("Finish the wizard", "Alerts, monitoring mode, optional extras"),
+    ("Run the whole wizard", "Set your password, pick your home Wi-Fi, choose alerts and mode - all while staying on the setup hotspot"),
+    ("Finish setup", "Only now does the Pi join your home Wi-Fi and close the setup hotspot"),
+    ("Reconnect your phone to your home Wi-Fi", "The setup hotspot is gone now"),
     ("Open the dashboard", "http://iotsentinel.local:8050"),
     ("Live monitoring", "Devices, alerts, security score"),
 ]

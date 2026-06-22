@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 _ts_state = {'url': None, 'connected': False, 'public_url': None, 'running': False}
 _ts_lock = threading.Lock()
 
+# Guard so the deferred final-step Wi-Fi join (apply_wifi_on_finish) runs at most once
+# per process — the join drops the hotspot the request came in on, so the reply is
+# usually lost and a retry would only thrash a wlan0 that is already a client.
+_wifi_join_done = False
+
 
 def _tailscale_available() -> bool:
     return shutil.which("tailscale") is not None
@@ -300,6 +305,35 @@ def _connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
     return ok, msg
 
 
+def _do_wifi_join(ssid, password, country):
+    """Perform the final-step (deferred) Wi-Fi join. Returns (ok, msg), or None when
+    there is nothing to do (no SSID chosen, or nmcli unavailable, e.g. an Ethernet
+    setup). Applies the Wi-Fi region first so the channels are legal. Kept module-level
+    so it is unit-testable without driving the Dash callback context."""
+    if not ssid or not wifi_manager.nmcli_available():
+        return None
+    if country:
+        try:
+            config.update("network", "wifi_country", country)
+            wifi_manager.set_country(country)
+        except Exception as e:
+            logger.warning("Wi-Fi country apply failed: %s", e)
+    ok, msg = _connect_wifi(ssid, password or "")
+    if ok:
+        # Now that wlan0 is on the home LAN (not the 10.42.0.1 hotspot), bounce the
+        # backend so its one-shot subnet self-heal re-runs against the real network.
+        # Without this, discovery keeps scanning the placeholder subnet until the next
+        # periodic ARP cycle. Best-effort; `sudo -n` never blocks on a password prompt.
+        try:
+            _unit = "/etc/systemd/system/iotsentinel-backend.service"
+            if os.path.exists(_unit):
+                subprocess.run(["sudo", "-n", "systemctl", "restart", "iotsentinel-backend"],
+                               check=False, capture_output=True, timeout=15)
+        except Exception as e:
+            logger.warning(f"Could not restart backend after Wi-Fi join: {e}")
+    return ok, msg
+
+
 def _test_router_ssh(router_ip: str, router_user: str, key_path: str) -> tuple[bool, str]:
     """Attempt an SSH connection to the router with the given credentials so the
     user can confirm firewall enforcement will work before relying on it."""
@@ -372,8 +406,12 @@ def register(app):
         prevent_initial_call=True,
     )
     def connect_to_wifi(_n, ssid, password, country):
-        # Apply the chosen Wi-Fi region first so the radio is legal/usable for the
-        # connection (and persisted for the provisioning/recovery hotspot). Best-effort.
+        # Deferred-connect model: a single-radio Pi cannot host the IoTSentinel-Setup
+        # hotspot AND be a client on home Wi-Fi at once, so connecting *now* would drop
+        # the very session the user is in (the dead "Next" button on the rc4/rc5 image).
+        # Instead we only RECORD the choice here — applying the Wi-Fi region is safe and
+        # makes the channels legal/usable — and the actual join + hotspot teardown happen
+        # on the final step (see apply_wifi_on_finish), after the hand-off screen renders.
         if country:
             try:
                 config.update("network", "wifi_country", country)
@@ -382,9 +420,47 @@ def register(app):
                 logger.warning("Wi-Fi country apply failed: %s", e)
         if not ssid:
             return html.Span("Select a network first.", className="text-warning")
-        ok, msg = _connect_wifi(ssid, password or "")
-        color = "text-success" if ok else "text-danger"
-        return html.Span(msg, className=color)
+        return html.Span(
+            f"Saved. Your Pi will join “{ssid}” when you finish setup, then the "
+            "setup hotspot closes and the dashboard moves to your home network.",
+            className="text-success",
+        )
+
+    # ------------------------------------------------------------------
+    # Deferred Wi-Fi join — the final-step half of the record-now/join-later flow.
+    # Arming the interval only on Step 6 lets the browser paint the hand-off screen
+    # before wlan0 leaves the hotspot (otherwise the user never sees the "switch
+    # networks" instructions because the connection drops first).
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("setup-wifi-apply-interval", "disabled"),
+        Input("setup-step-store", "data"),
+        prevent_initial_call=True,
+    )
+    def arm_wifi_apply(step_data):
+        return (step_data or {}).get("step") != 6
+
+    @app.callback(
+        Output("setup-wifi-handoff-status", "children"),
+        Input("setup-wifi-apply-interval", "n_intervals"),
+        State("setup-wifi-ssid", "value"),
+        State("setup-wifi-password", "value"),
+        State("setup-wifi-country", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_wifi_on_finish(_n, ssid, password, country):
+        # Perform the Wi-Fi join deferred from Step 1. On a single-radio Pi this tears
+        # down the setup hotspot, so the reply below is usually lost — that's expected;
+        # the hand-off alert already told the user to switch networks. Runs once.
+        global _wifi_join_done
+        if _wifi_join_done:
+            raise dash.exceptions.PreventUpdate
+        result = _do_wifi_join(ssid, password, country)
+        if result is None:
+            raise dash.exceptions.PreventUpdate
+        _wifi_join_done = True
+        ok, msg = result
+        return html.Span(msg, className="text-success" if ok else "text-danger")
 
     # ------------------------------------------------------------------
     # Post-setup "Change WiFi" (Settings → Network). Lets a headless Pi move to
@@ -504,14 +580,21 @@ def register(app):
             return 2
 
         def _guess_cidr(iface):
-            """Return CIDR string for the first IPv4 address on the interface, or None."""
+            """Return CIDR string for the first real IPv4 address on the interface, or
+            None. Skips loopback, link-local, and the 10.42.0.x setup-hotspot range —
+            the wizard now runs entirely on that hotspot, so without these skips it
+            would pre-fill (and the Step 5 review would show) the wrong subnet. The
+            orchestrator self-heals the real LAN once on home Wi-Fi anyway."""
             try:
                 for addr in psutil.net_if_addrs().get(iface, []):
-                    if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
-                        net = ipaddress.IPv4Network(
-                            f"{addr.address}/{addr.netmask}", strict=False
-                        )
-                        return str(net)
+                    if addr.family != socket.AF_INET:
+                        continue
+                    if addr.address.startswith(('127.', '169.254.', '10.42.')):
+                        continue
+                    net = ipaddress.IPv4Network(
+                        f"{addr.address}/{addr.netmask}", strict=False
+                    )
+                    return str(net)
             except Exception:
                 pass
             return None

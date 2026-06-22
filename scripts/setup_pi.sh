@@ -297,17 +297,21 @@ fi
 # Allow the (unprivileged) service user to run exactly the commands IoTSentinel
 # needs, and nothing else:
 #  - nmcli wifi          (wizard: connect/list/hotspot for home-Wi-Fi + setup hotspot)
+#  - nmcli connection    (wizard: tear down the setup hotspot once on home Wi-Fi)
+#  - setup_hotspot.sh    (wizard: disarm the provisioning hotspot after the Wi-Fi join)
 #  - configure_ap.sh     (orchestrator brings the IoT access point up/down — gateway mode)
 #  - configure_zeek.sh   (orchestrator points Zeek at the monitored interface)
 #  - nft / iptables      (firewall_enforcer inline block/unblock — the IPS path)
 #  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
+#  - systemctl restart iotsentinel-backend (re-run subnet self-heal after the Wi-Fi join)
 # Scripts are invoked by absolute path (executable shebang) so the match is exact.
 CURRENT_USER="$TARGET_USER"
-SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *"
-if ! grep -qF "/usr/sbin/nft" /etc/sudoers.d/iotsentinel 2>/dev/null; then
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, /usr/bin/nmcli connection down *, /usr/bin/nmcli connection delete *, $PROJECT_DIR/scripts/setup_hotspot.sh disarm, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *, /usr/bin/systemctl restart iotsentinel-backend"
+# Guard keys on a token only the current line has, so an older install's file is rewritten.
+if ! grep -qF "setup_hotspot.sh disarm" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
     sudo chmod 440 /etc/sudoers.d/iotsentinel
-    ok "sudoers rules added for $CURRENT_USER (nmcli + AP/Zeek scripts + nft/iptables)"
+    ok "sudoers rules added for $CURRENT_USER (nmcli + hotspot disarm + AP/Zeek + nft/iptables + backend restart)"
 fi
 
 # Systemd services — substitute actual username and home dir into service files

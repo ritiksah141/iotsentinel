@@ -148,10 +148,43 @@ class TestSetupWizardLayout:
             "setup-progress",
             "setup-review-content",
             "setup-status",
+            # Deferred Wi-Fi join (record-on-Step-1, connect-on-Step-6) — see
+            # apply_wifi_on_finish. The hand-off screen + interval must exist.
+            "setup-wifi-apply-interval",
+            "setup-wifi-handoff-status",
         ]
 
         for cid in required_ids:
             assert cid in layout_str, f"Component ID '{cid}' missing from setup_wizard_layout"
+
+    def test_do_wifi_join_connects_when_ssid_set(self):
+        """The deferred join (Step 6) reaches wifi_manager.connect_wifi for a real SSID."""
+        from dashboard.callbacks import callbacks_setup as cs
+
+        with patch.object(cs.wifi_manager, "nmcli_available", return_value=True), \
+             patch.object(cs.wifi_manager, "connect_wifi",
+                          return_value=(True, "Connected")) as mock_connect:
+            result = cs._do_wifi_join("HomeNet", "pw", None)
+            assert result is not None and result[0] is True
+            mock_connect.assert_called_once()
+
+    def test_do_wifi_join_noop_without_ssid(self):
+        """No SSID (e.g. an Ethernet setup) must never touch the radio — returns None."""
+        from dashboard.callbacks import callbacks_setup as cs
+
+        with patch.object(cs.wifi_manager, "nmcli_available", return_value=True), \
+             patch.object(cs.wifi_manager, "connect_wifi") as mock_connect:
+            assert cs._do_wifi_join("", "pw", None) is None
+            mock_connect.assert_not_called()
+
+    def test_do_wifi_join_noop_without_nmcli(self):
+        """No nmcli on the host (dev/CI) is a no-op, not a crash."""
+        from dashboard.callbacks import callbacks_setup as cs
+
+        with patch.object(cs.wifi_manager, "nmcli_available", return_value=False), \
+             patch.object(cs.wifi_manager, "connect_wifi") as mock_connect:
+            assert cs._do_wifi_join("HomeNet", "pw", "GB") is None
+            mock_connect.assert_not_called()
 
     def test_vendor_links_point_to_expected_domains(self):
         from dashboard.layouts.setup_wizard import _VENDOR_LINKS

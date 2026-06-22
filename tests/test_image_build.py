@@ -189,12 +189,15 @@ def test_setup_guide_html_is_offline_and_navigable(tmp_path):
     assert not re.search(r'<img[^>]+src="https?://', html), "remote <img> breaks offline use"
 
 
-def test_first_login_forces_password_change(staged):
-    # Every image ships with the same default sentinel/iotsentinel login, so the
-    # build MUST expire it so the first interactive SSH/console login forces a reset.
+def test_does_not_force_os_password_expiry(staged):
+    # We must NOT force-expire the sentinel OS password (`chage -d 0` / `passwd
+    # --expire`): the dashboard runs as User=sentinel and drives Wi-Fi/hotspot/firewall
+    # via `sudo -n`, which PAM rejects ("account validation failure") while the password
+    # is in the must-change state — bricking the wizard's home-Wi-Fi join on a headless
+    # first boot. The security boundary is the wizard's mandatory strong admin account.
     svc = (_stage(staged) / "02-systemd-services" / "00-run-chroot.sh").read_text()
-    assert "chage -d 0 sentinel" in svc or "passwd --expire sentinel" in svc, \
-        "image must force a password change on first login (default creds are public)"
+    assert "chage -d 0 sentinel" not in svc and "passwd --expire sentinel" not in svc, \
+        "must not force OS password expiry — it breaks the service user's sudo (Wi-Fi join)"
 
 
 def test_apt_prefers_verified_repos_before_insecure_fallback(staged):
@@ -356,6 +359,8 @@ def test_setup_pi_systemctl_calls_are_chroot_safe():
             continue
         if "is-enabled" in s or "is-active" in s:   # read-only checks are fine
             continue
+        if "NOPASSWD" in s:   # a sudoers GRANT string, not an invocation — runs nothing
+            continue
         guarded = ("|| true" in s) or ("|| sudo" in s) or s.endswith("\\") or \
                   bool(_re.match(r"(els?e?if|if)\b", s))
         assert guarded, f"unguarded systemctl (aborts in chroot): {s}"
@@ -366,6 +371,22 @@ def test_setup_pi_ensures_service_symlinks():
     `systemctl enable` can't reach systemd."""
     text = (REPO / "scripts" / "setup_pi.sh").read_text()
     assert "multi-user.target.wants" in text and "ln -sf" in text
+
+
+def test_setup_pi_sudoers_grants_hotspot_teardown_and_backend_restart():
+    """The wizard tears down the setup hotspot and bounces the backend (to re-detect
+    the home subnet) once on home Wi-Fi. Both run as the unprivileged service user via
+    sudo, so the grants MUST be present or they fail silently and the dashboard stays
+    stuck on 10.42.0.1 with an empty device list (the rc4/rc5 hardware bug)."""
+    text = (REPO / "scripts" / "setup_pi.sh").read_text()
+    sudoers = next(l for l in text.splitlines() if l.strip().startswith("SUDOERS_LINE="))
+    assert "scripts/setup_hotspot.sh disarm" in sudoers, "hotspot disarm not granted"
+    assert "/usr/bin/systemctl restart iotsentinel-backend" in sudoers, "backend restart not granted"
+    assert "nmcli connection down" in sudoers and "nmcli connection delete" in sudoers, \
+        "nmcli teardown fallback not granted"
+    # The idempotency guard must key on a token unique to the current line, so an older
+    # install's sudoers file is rewritten with the new grants rather than left stale.
+    assert 'grep -qF "setup_hotspot.sh disarm"' in text
 
 
 def test_deps_stage_fixes_apt_tmp():
@@ -409,11 +430,25 @@ def test_build_has_postbuild_rootfs_assertion():
         "is_configured",                       # wizard pre-seed
         "/usr/sbin/nft",                       # gateway sudoers grant
         "zeek_monitor.sh",                     # longevity cron
+        "hostname=iotsentinel",                # mDNS: iotsentinel.local resolvable
+        "setup_hotspot.sh disarm",             # hotspot teardown sudoers grant
     ):
         assert token in text, f"post-build verification no longer checks: {token}"
     # Python deps must be verified (catches a partial pip install)
     for pkg in ("dash", "river", "pandas", "numpy", "sklearn"):
         assert pkg in text, f"post-build verification no longer checks python pkg: {pkg}"
+
+
+def test_build_sets_hostname_deterministically():
+    """avahi publishes <hostname>.local, so the dashboard's 'iotsentinel.local:8050'
+    story only works if the image's hostname is 'iotsentinel'. The build must write
+    /etc/hostname directly (not rely on raspi-config do_hostname, which can route
+    through hostnamectl and fail in the build chroot)."""
+    text = BUILD.read_text()
+    assert 'echo "iotsentinel" > /etc/hostname' in text, \
+        "build must write /etc/hostname deterministically"
+    assert "/etc/hosts" in text, "build must update /etc/hosts 127.0.1.1 mapping"
+    assert "avahi-daemon" in text, "avahi must be installed/enabled for mDNS"
 
 
 if __name__ == "__main__":

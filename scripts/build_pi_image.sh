@@ -167,6 +167,19 @@ apt-get install -y zeek python3.11 python3.11-venv python3.11-dev python3-pip py
 # Enable avahi for iotsentinel.local mDNS discovery
 systemctl enable avahi-daemon 2>/dev/null || true
 
+# Set the hostname DETERMINISTICALLY so avahi publishes iotsentinel.local and the
+# whole "reach the dashboard at iotsentinel.local:8050" story works. We write the
+# files directly instead of relying on `raspi-config nonint do_hostname` (in
+# setup_pi.sh), which on Bookworm can route through hostnamectl and FAIL silently in
+# the build chroot (no running systemd/dbus) — leaving the pi-gen default
+# 'raspberrypi', so iotsentinel.local never resolves on the home LAN.
+echo "iotsentinel" > /etc/hostname
+if grep -q "^127\.0\.1\.1" /etc/hosts 2>/dev/null; then
+  sed -i "s/^127\.0\.1\.1.*/127.0.1.1\tiotsentinel/" /etc/hosts
+else
+  printf '127.0.1.1\tiotsentinel\n' >> /etc/hosts
+fi
+
 # The provisioning hotspot and all Wi-Fi switching go through NetworkManager. Make it
 # the active backend and disable the legacy dhcpcd so nothing else owns wlan0 — if
 # dhcpcd manages the interface, `nmcli ... hotspot` silently fails and a headless
@@ -288,12 +301,15 @@ systemctl enable iotsentinel-firstboot-report.service
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
 
-# SECURITY: every image ships with the same default login (sentinel / iotsentinel),
-# so force a password change on the first interactive login. `chage -d 0` expires the
-# password's age (last-changed = epoch) which makes sshd/login (via PAM) demand a new
-# password before granting a shell. It does NOT affect systemd `User=sentinel` service
-# startup (no PAM password auth there), so the dashboard/backend still boot normally.
-chage -d 0 sentinel 2>/dev/null || passwd --expire sentinel 2>/dev/null || true
+# SECURITY: every image ships with the same default login (sentinel / iotsentinel).
+# We deliberately DO NOT force-expire it with `chage -d 0`: the dashboard runs as
+# `User=sentinel` and drives privileged actions (Wi-Fi join, hotspot teardown, backend
+# restart, firewall) via `sudo -n`. sudo runs PAM account management, and a force-
+# expired password (lastchg=0) makes `sudo -n` fail ("account validation failure")
+# until the password is changed interactively — which, since setup is done through the
+# web wizard, may never happen, leaving the appliance unable to join home Wi-Fi.
+# The real security boundary is the strong ADMIN account the wizard requires before
+# anything else; the setup guide tells the user to change the SSH password too.
 
 # Drop the build-only apt sandbox override so it does not ship in the image.
 rm -f /etc/apt/apt.conf.d/00iotsentinel-build
@@ -405,6 +421,10 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   # G. Wizard pre-seeded to first-run
   sudo grep -q '"is_configured": false' "$ROOTFS/$APP/config/default_config.json" 2>/dev/null \
     || _missing="$_missing\n    - is_configured=false (wizard would be skipped)"
+  # H. Hostname must be 'iotsentinel' so avahi publishes iotsentinel.local — otherwise
+  # the dashboard is unreachable by name on the home LAN (the rc4 "can't reach .local").
+  sudo grep -qx "iotsentinel" "$ROOTFS/etc/hostname" 2>/dev/null \
+    || _missing="$_missing\n    - hostname=iotsentinel (iotsentinel.local would not resolve)"
 
   if [ -n "$_missing" ]; then
     die "Image is INCOMPLETE — setup_pi.sh did not finish in the chroot. Missing:$(echo -e "$_missing")\n  Check $DEPLOY_DIR/build.log for the failure."
@@ -412,11 +432,12 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
 
   # Gateway sudoers MUST carry the inline-enforcement grants (block/unblock on the Pi).
   _sudoers_missing=""
-  for grant in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh" "/opt/zeek/bin/zeekctl"; do
+  for grant in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh" "/opt/zeek/bin/zeekctl" \
+               "setup_hotspot.sh disarm" "systemctl restart iotsentinel-backend"; do
     sudo grep -qF "$grant" "$ROOTFS/etc/sudoers.d/iotsentinel" 2>/dev/null \
       || _sudoers_missing="$_sudoers_missing $grant"
   done
-  [ -z "$_sudoers_missing" ] || die "sudoers is missing gateway grants:$_sudoers_missing"
+  [ -z "$_sudoers_missing" ] || die "sudoers is missing required grants:$_sudoers_missing"
 
   # Longevity: the Zeek-monitor cron must be registered (H. of the P4 gate).
   sudo grep -qrF "zeek_monitor.sh" "$ROOTFS/var/spool/cron/crontabs" 2>/dev/null \

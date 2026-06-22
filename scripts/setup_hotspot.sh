@@ -135,13 +135,20 @@ case "$MODE" in
         log "WARNING: hotspot did not come up after 3 attempts — connectivity timer will keep trying"
         ;;
     recover)
-        # Already in recovery mode: leave it to the user (Change WiFi in the
-        # dashboard) or a reboot. Do not flap the AP.
-        if hotspot_active; then exit 0; fi
         if [ -n "$(active_home_wifi)" ]; then
             echo 0 > "$FAIL_FILE" 2>/dev/null || true
+            # On home Wi-Fi: the provisioning/recovery AP is redundant and keeps wlan0
+            # in a confused AP+client state (dashboard then reachable only on 10.42.0.1).
+            # Disarm it as a root-side backstop in case the dashboard's post-wizard
+            # disarm was missed. Safe — only runs when we are genuinely on home Wi-Fi.
+            if hotspot_active; then
+                log "home WiFi active but setup hotspot still up — disarming"
+                disarm_hotspot
+            fi
             exit 0
         fi
+        # No home Wi-Fi. If the recovery hotspot is already up, leave it (do not flap).
+        if hotspot_active; then exit 0; fi
         count=$(cat "$FAIL_FILE" 2>/dev/null || echo 0)
         count=$((count + 1))
         echo "$count" > "$FAIL_FILE" 2>/dev/null || true
