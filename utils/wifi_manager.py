@@ -11,6 +11,7 @@ dashboard keeps working.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -55,28 +56,42 @@ def nmcli_available() -> bool:
     return shutil.which("nmcli") is not None
 
 
+def _parse_wifi_list(stdout: str) -> list[dict]:
+    options, seen = [], set()
+    for line in stdout.splitlines():
+        parts = line.split(":")
+        ssid = parts[0].strip() if parts else ""
+        if not ssid or ssid in seen or ssid == HOTSPOT_SSID:
+            continue
+        seen.add(ssid)
+        signal = parts[1].strip() if len(parts) > 1 else "?"
+        secured = "\U0001f512 " if len(parts) > 2 and parts[2].strip() else ""
+        options.append({"label": f"{secured}{ssid}  ({signal}%)", "value": ssid})
+    return options
+
+
 def scan_wifi_networks() -> list[dict]:
-    """Return a list of {label, value} dicts for visible SSIDs (value == SSID)."""
+    """Return a list of {label, value} dicts for visible SSIDs (value == SSID).
+
+    Tries an active rescan first; if that yields nothing (common when the radio
+    is busy — e.g. wlan0 still hosting the setup AP — or the rescan errors), it
+    falls back to NetworkManager's cached list so the dropdown isn't empty.
+    """
     if not nmcli_available():
         return []
-    try:
-        result = subprocess.run(
-            ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "yes"],
-            capture_output=True, text=True, timeout=15,
-        )
-        options, seen = [], set()
-        for line in result.stdout.splitlines():
-            parts = line.split(":")
-            ssid = parts[0].strip() if parts else ""
-            if not ssid or ssid in seen or ssid == HOTSPOT_SSID:
-                continue
-            seen.add(ssid)
-            signal = parts[1].strip() if len(parts) > 1 else "?"
-            secured = "\U0001f512 " if len(parts) > 2 and parts[2].strip() else ""
-            options.append({"label": f"{secured}{ssid}  ({signal}%)", "value": ssid})
-        return options
-    except Exception:
-        return []
+    base = ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list"]
+    for rescan in ("yes", "no"):
+        try:
+            result = subprocess.run(
+                base + ["--rescan", rescan],
+                capture_output=True, text=True, timeout=15,
+            )
+            options = _parse_wifi_list(result.stdout)
+            if options:
+                return options
+        except Exception:
+            continue
+    return []
 
 
 def current_wifi() -> str | None:
@@ -101,12 +116,46 @@ def current_wifi() -> str | None:
         return None
 
 
+def teardown_setup_hotspot(iface: str = "wlan0") -> None:
+    """Bring down + delete the provisioning hotspot so wlan0 returns to client mode.
+
+    Called once the Pi has joined home Wi-Fi. The setup AP and the home-Wi-Fi
+    client share wlan0, so a lingering AP profile blocks/confuses the client
+    connection and keeps the dashboard reachable only on 10.42.0.1. Best-effort
+    and never raises — failure here must not break a successful Wi-Fi switch.
+
+    Prefers the shared setup_hotspot.sh (it also clears the captive iptables
+    redirect); falls back to a direct nmcli delete if the script isn't available.
+    """
+    if not nmcli_available():
+        return
+    script = Path(__file__).resolve().parents[1] / "scripts" / "setup_hotspot.sh"
+    try:
+        if script.exists():
+            subprocess.run(["sudo", "-n", "bash", str(script), "disarm"],
+                           capture_output=True, text=True, timeout=20)
+            return
+    except Exception as e:
+        logger.warning("setup_hotspot.sh disarm failed, falling back to nmcli: %s", e)
+    # Fallback: at least remove the NetworkManager AP profile directly.
+    try:
+        subprocess.run(["sudo", "-n", "nmcli", "connection", "down", HOTSPOT_SSID],
+                       capture_output=True, text=True, timeout=10)
+        subprocess.run(["sudo", "-n", "nmcli", "connection", "delete", HOTSPOT_SSID],
+                       capture_output=True, text=True, timeout=10)
+    except Exception as e:
+        logger.warning("Direct hotspot teardown failed: %s", e)
+
+
 def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, str]:
     """Switch the Pi to a WiFi network using nmcli. Returns (success, message).
 
     A timeout is treated as a soft success: nmcli often does connect the Pi to the
     new network but the response is lost because switching networks drops the very
     connection this request came in on.
+
+    On success the provisioning hotspot is torn down so wlan0 becomes an ordinary
+    client and the dashboard is reachable on the home LAN (not just 10.42.0.1).
     """
     if not ssid:
         return False, "Please select a WiFi network first."
@@ -119,6 +168,7 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
         cmd += ["ifname", iface]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
         if result.returncode == 0:
+            teardown_setup_hotspot(iface)
             return True, (
                 f"Connected to “{ssid}”. Your Pi is now on this network. "
                 f"Reconnect this device to the same WiFi, then reopen "
@@ -127,6 +177,9 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
         err = result.stderr.strip() or result.stdout.strip()
         return False, err or "Connection failed. Check your WiFi password and try again."
     except subprocess.TimeoutExpired:
+        # nmcli usually did connect; the reply was lost when wlan0 switched off the
+        # AP. Tear the hotspot down too so we don't bounce back onto the setup AP.
+        teardown_setup_hotspot(iface)
         return True, (
             f"Switching to “{ssid}”… Rejoin that network on this device and "
             f"reopen http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT} to continue."
@@ -210,10 +263,12 @@ def get_local_ip() -> str | None:
 
 
 def get_reachable_addresses() -> dict:
-    """Return {mdns, ip, port} describing how to reach the dashboard.
+    """Return {mdns, ip, port, remote} describing how to reach the dashboard.
 
     'mdns' is the iotsentinel.local hostname (always offered as the primary,
-    router-independent address); 'ip' is the live LAN IP if one is detectable.
+    router-independent address); 'ip' is the live LAN IP if one is detectable;
+    'remote' is the public remote-access URL (Tailscale Funnel) if configured, so
+    the Quick Settings → Network tab can show the from-anywhere link too.
     """
     host = socket.gethostname() or "iotsentinel"
     mdns = host if host.endswith(".local") else f"{host}.local"
@@ -222,4 +277,5 @@ def get_reachable_addresses() -> dict:
     # trust the real hostname here and fall back to the documented default.
     if host in ("", "localhost"):
         mdns = DEFAULT_MDNS_HOST
-    return {"mdns": mdns, "ip": get_local_ip(), "port": DASHBOARD_PORT}
+    remote = (os.getenv("IOTSENTINEL_PUBLIC_URL") or "").strip() or None
+    return {"mdns": mdns, "ip": get_local_ip(), "port": DASHBOARD_PORT, "remote": remote}

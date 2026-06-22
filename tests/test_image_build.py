@@ -20,6 +20,7 @@ Run: pytest tests/test_image_build.py -v
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -158,6 +159,53 @@ def test_setup_runs_as_root_not_su(staged):
     assert "su - sentinel" not in code, \
         "su+sudo fails under qemu -> setup aborts -> serviceless image (the shipped-broken bug)"
     assert "setup_pi.sh --non-interactive --skip-ollama" in code
+
+
+def test_setup_guide_html_is_offline_and_navigable(tmp_path):
+    """The shipped HTML guide must be self-contained (offline) and navigable: a TOC,
+    reading progress, theme toggle, and zero external script/style/img asset loads."""
+    out = tmp_path / "guide.html"
+    r = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "build_setup_guide_html.py"), str(out)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"guide build failed: {r.stderr}"
+    html = out.read_text(encoding="utf-8")
+    assert "__CONTENT__" not in html, "template placeholder was not substituted"
+    # Interactive navigation present.
+    for needle in ('id="toc"', 'id="progress"', 'id="themeToggle"', 'id="toTop"', "<script>"):
+        assert needle in html, f"missing {needle} (guide not interactive)"
+    assert re.search(r"<h2", html), "guide has no sections"
+    # The long static flow diagram is replaced by an interactive tap-to-tick checklist.
+    assert 'id="setupFlow"' in html, "interactive setup flow missing"
+    assert html.count('class="flow-step"') == 11, "expected 11 interactive flow steps"
+    assert 'aria-roledescription="flowchart' not in html, "long static flow SVG should not be inlined"
+    # Offline-safe: no external scripts, stylesheets, or remote images.
+    assert not re.search(r"<script[^>]+src=", html), "external script breaks offline use"
+    assert not re.search(r"<link[^>]+stylesheet", html), "external stylesheet breaks offline use"
+    assert not re.search(r'<img[^>]+src="https?://', html), "remote <img> breaks offline use"
+
+
+def test_first_login_forces_password_change(staged):
+    # Every image ships with the same default sentinel/iotsentinel login, so the
+    # build MUST expire it so the first interactive SSH/console login forces a reset.
+    svc = (_stage(staged) / "02-systemd-services" / "00-run-chroot.sh").read_text()
+    assert "chage -d 0 sentinel" in svc or "passwd --expire sentinel" in svc, \
+        "image must force a password change on first login (default creds are public)"
+
+
+def test_apt_prefers_verified_repos_before_insecure_fallback(staged):
+    # Supply-chain: the build should try a signature-VERIFIED apt update first and
+    # only fall back to unauthenticated if verification genuinely fails (and that
+    # override is build-only, removed before ship).
+    deps = (_stage(staged) / "00-install-deps" / "00-run-chroot.sh").read_text()
+    assert "debian-archive-keyring" in deps, "should refresh Debian keyring before giving up"
+    # The insecure allowance must be conditional (inside a fallback), not unconditional.
+    assert "AllowInsecureRepositories" in deps
+    assert "if ! apt-get update" in deps, "verified update must be attempted first"
+    systemd = (_stage(staged) / "02-systemd-services" / "00-run-chroot.sh").read_text()
+    assert "rm -f /etc/apt/apt.conf.d/00iotsentinel-build" in systemd, \
+        "build-only apt override must be removed before the image ships"
 
 
 def test_no_unsubstituted_placeholders(staged):

@@ -51,7 +51,13 @@ class ARPScanner:
         if config.get('network', 'capture_mode', default='passive') == 'gateway':
             self.network_range = config.get('network', 'ap_subnet', default='10.42.0.0/24')
         else:
-            self.network_range = config.get('network', 'local_subnet', default='192.168.1.0/24')
+            # The wizard / orchestrator store the home LAN as the list
+            # network.local_networks (see callbacks_setup._save_config and
+            # orchestrator). Read the first entry — the legacy 'local_subnet'
+            # key was never written, so scanning always fell back to the
+            # hardcoded default and discovered nothing on the real LAN.
+            local_networks = config.get('network', 'local_networks', default=['192.168.1.0/24'])
+            self.network_range = (local_networks[0] if local_networks else '192.168.1.0/24')
         self.timeout = int(config.get('network', 'arp_timeout', default=2))
         # Optional shutdown signal: the orchestrator sets this to its shutdown event so a
         # long ping sweep aborts promptly instead of blocking graceful shutdown.

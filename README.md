@@ -300,10 +300,10 @@ All API keys are optional. The system works without them using local threat feed
 fallbacks.
 
 > **Windows / Android:** `iotsentinel.local` needs Bonjour (ships with iTunes on Windows). Without
-> it, use the Pi's IP address - the final wizard screen and **Settings → Network** both show it, so
+> it, use the Pi's IP address - the final wizard screen and **Quick Settings → Network** both show it, so
 > you don't need to dig it out of your router.
 
-> **Moved house or changed your router?** You're never locked out: use **Settings → Network → Change
+> **Moved house or changed your router?** You're never locked out: use **Quick Settings → Network → Change
 > WiFi** to switch networks, and if the Pi ever loses Wi-Fi it re-opens the `IoTSentinel-Setup`
 > hotspot automatically so you can reconnect it. See [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md).
 
@@ -371,7 +371,7 @@ dashboard still works there, it just is not installable).
 
 ## Testing
 
-**1094 tests** across 42 files cover the full data pipeline, ML engine, security flows, alert
+**1117 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
 system, AI feature helpers, device intelligence, capture-mode and gateway logic, Wi-Fi / hotspot
 recovery, and the setup wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke
 test and an ARM64 dependency-install check.
@@ -386,7 +386,7 @@ test and an ARM64 dependency-install check.
 | Alert service | 78% |
 
 ```bash
-pytest tests/                          # all 1094 tests
+pytest tests/                          # all 1117 tests
 pytest tests/ -x                       # stop at first failure
 ./scripts/run_tests.sh report          # HTML coverage report
 ```
@@ -465,6 +465,8 @@ The roadmap, in priority order:
 - **[tests/README.md](tests/README.md)**, full test-suite documentation
 - **[.github/CHANGELOG.md](.github/CHANGELOG.md)**, full version history
 - **[.github/SECURITY.md](.github/SECURITY.md)**, security policy and responsible disclosure
+- **[docs/PRIVACY.md](docs/PRIVACY.md)**, privacy policy and data handling (draft)
+- **[docs/TERMS.md](docs/TERMS.md)**, terms of use (draft)
 
 ---
 

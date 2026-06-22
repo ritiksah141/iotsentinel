@@ -354,7 +354,7 @@ def _build_step_3():
                                 src=_qr_src,
                                 alt="Scan to subscribe",
                                 style={"width": "160px", "height": "160px",
-                                       "border": "1px solid #444",
+                                       "border": "1px solid var(--border-soft)",
                                        "borderRadius": "8px",
                                        "background": "#fff",
                                        "padding": "4px"},
@@ -612,11 +612,11 @@ _step_6_final = html.Div([
     html.P("What would you like to do next?", className="small text-muted mb-3"),
     dbc.Row([
         dbc.Col(html.Div([
-            html.I(className="fa fa-shield-alt fa-2x text-success mb-2 d-block text-center"),
+            html.I(className="fa fa-home fa-2x text-success mb-2 d-block text-center"),
             html.Div("Go to Dashboard", className="fw-semibold small text-center mb-1"),
             html.P("Start monitoring your network now.", className="small text-muted text-center mb-3"),
             dbc.Button("Open Dashboard", id="setup-done-btn", color="success",
-                       className="w-100 cyber-button-modern"),
+                       className="w-100 cyber-button-modern mt-auto"),
         ], className="wizard-finale-card p-3"), md=4, className="mb-3"),
         dbc.Col(html.Div([
             html.I(className="fa fa-user-shield fa-2x text-primary mb-2 d-block text-center"),
@@ -625,7 +625,7 @@ _step_6_final = html.Div([
                    "from Settings → Security for a stronger login.",
                    className="small text-muted text-center mb-3"),
             html.A("Open Dashboard", href="/",
-                   className="btn btn-outline-primary btn-sm w-100 d-block text-center"),
+                   className="btn btn-outline-primary btn-sm w-100 d-block text-center mt-auto"),
         ], className="wizard-finale-card p-3"), md=4, className="mb-3"),
         dbc.Col(html.Div([
             html.I(className="fa fa-book-open fa-2x text-info mb-2 d-block text-center"),
@@ -633,7 +633,7 @@ _step_6_final = html.Div([
             html.P("Quick-start walkthroughs and tips.", className="small text-muted text-center mb-3"),
             html.A("Open guide", href="https://github.com/ritiksah141/iotsentinel#getting-started",
                    target="_blank",
-                   className="btn btn-outline-info btn-sm w-100 d-block text-center"),
+                   className="btn btn-outline-info btn-sm w-100 d-block text-center mt-auto"),
         ], className="wizard-finale-card p-3"), md=4, className="mb-3"),
     ]),
 ])
@@ -706,7 +706,7 @@ setup_wizard_layout = dbc.Container([
                     dbc.Col(
                         dbc.Button("Skip Setup", id="setup-skip-btn",
                                    color="link", size="sm",
-                                   className="w-100 text-muted",
+                                   className="w-100 text-muted text-decoration-none",
                                    style={"textDecoration": "none"}),
                         xs=12, sm=4
                     ),

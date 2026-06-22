@@ -162,12 +162,16 @@
     padding: 0.5rem 0.25rem;
   }
 
-  /* Finale "what's next" cards (step 6) */
+  /* Finale "what's next" cards (step 6) — flex column so the action button
+     pins to the bottom (mt-auto) and all three cards line up regardless of how
+     long the body copy is. */
   .wizard-finale-card {
     border-radius: var(--radius-sm);
     background: var(--surface-2);
     border: 1px solid var(--border-soft);
     height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   body.dark-mode .wizard-finale-card {
     background: var(--surface-1);
@@ -1295,6 +1299,25 @@ body.dark-mode .login-form-input-pad {
 }
 .login-form-input-pad {
   padding-right: 3rem;
+}
+/* Keep focus + native validation states on the indigo/neutral palette so the
+   setup-wizard inputs never flash the browser's default pink/red invalid ring
+   (they live outside .login-form-panel, so its focus rule didn't reach them). */
+.login-form-input:focus,
+.login-form-input-pad:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+.login-form-input:invalid,
+.login-form-input-pad:invalid,
+.login-form-input.is-invalid,
+.login-form-input-pad.is-invalid {
+  border-color: rgba(0, 0, 0, 0.22) !important;
+  box-shadow: none !important;
+}
+body.dark-mode .login-form-input:invalid,
+body.dark-mode .login-form-input-pad:invalid {
+  border-color: rgba(255, 255, 255, 0.2) !important;
 }
 .login-form-input::placeholder,
 .login-form-input-pad::placeholder {
@@ -3907,6 +3930,19 @@ body.light-mode .toast-detail-button:hover {
 
 #toast-container > * {
   pointer-events: all;
+}
+
+/* On phones the fixed 350px min-width overflows the viewport and the centered
+   transform pushes toasts off-screen. Pin to both edges with a fluid width. */
+@media (max-width: 575.98px) {
+  #toast-container {
+    left: 10px;
+    right: 10px;
+    transform: none;
+    min-width: 0;
+    max-width: none;
+    width: auto;
+  }
 }
 
 /* Persistent toasts — amber left border, no pulsing keyframe */
@@ -7896,8 +7932,12 @@ body.dark-mode .spotlight-filter-badge.bg-light {
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .spotlight-button-container {
-    bottom: 16px;
+    /* Sit clear ABOVE the mobile bottom tab bar (~52px tall + safe-area) and
+       above its z-index (tabbar is 1055, more-sheet 1056) so the button is
+       both visible and tappable instead of being painted over by the tabbar. */
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px) + 16px);
     right: 16px;
+    z-index: 1057;
   }
 
   .spotlight-floating-button {
