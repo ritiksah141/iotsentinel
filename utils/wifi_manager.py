@@ -15,6 +15,7 @@ import os
 import shutil
 import socket
 import subprocess
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -161,21 +162,50 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
     new network but the response is lost because switching networks drops the very
     connection this request came in on.
 
-    On success the provisioning hotspot is torn down so wlan0 becomes an ordinary
-    client and the dashboard is reachable on the home LAN (not just 10.42.0.1).
+    The provisioning hotspot is torn down FIRST: a radio hosting the AP is in AP mode
+    and cannot scan or associate, so nmcli would fail with "No network with SSID
+    '<ssid>' found". Bringing the AP down returns wlan0 to managed/client mode so the
+    scan + connect can actually happen. (This is why the join is deferred to the
+    wizard's final step — the teardown drops the session it came in on.)
     """
     if not ssid:
         return False, "Please select a WiFi network first."
     if not nmcli_available():
         return False, "nmcli not available on this device."
+
+    # 1) Drop the setup AP so wlan0 leaves AP mode (no-op if no hotspot is up, e.g. a
+    #    post-setup "Change WiFi" while already on home Wi-Fi).
+    teardown_setup_hotspot(iface)
+    # 2) Give NetworkManager a moment to return wlan0 to managed mode, then warm a
+    #    fresh scan so the target SSID is in range before we associate. Best-effort.
+    time.sleep(2)
     try:
+        subprocess.run(
+            ["nmcli", "dev", "wifi", "list", "ifname", iface, "--rescan", "yes"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        pass
+
+    try:
+        # 3) Associate. nmcli will also rescan internally if needed now that wlan0 is
+        #    a client. A retry covers the case where the first scan landed just before
+        #    the radio settled and the SSID wasn't listed yet.
         cmd = ["sudo", "nmcli", "dev", "wifi", "connect", ssid]
         if password:
             cmd += ["password", password]
         cmd += ["ifname", iface]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0 and "No network with SSID" in (
+            result.stderr + result.stdout
+        ):
+            time.sleep(3)
+            subprocess.run(
+                ["nmcli", "dev", "wifi", "list", "ifname", iface, "--rescan", "yes"],
+                capture_output=True, text=True, timeout=15,
+            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode == 0:
-            teardown_setup_hotspot(iface)
             return True, (
                 f"Connected to “{ssid}”. Your Pi is now on this network. "
                 f"Reconnect this device to the same WiFi, then reopen "
@@ -184,9 +214,7 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
         err = result.stderr.strip() or result.stdout.strip()
         return False, err or "Connection failed. Check your WiFi password and try again."
     except subprocess.TimeoutExpired:
-        # nmcli usually did connect; the reply was lost when wlan0 switched off the
-        # AP. Tear the hotspot down too so we don't bounce back onto the setup AP.
-        teardown_setup_hotspot(iface)
+        # nmcli usually did connect; the reply was lost when wlan0 switched networks.
         return True, (
             f"Switching to “{ssid}”… Rejoin that network on this device and "
             f"reopen http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT} to continue."

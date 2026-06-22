@@ -99,7 +99,7 @@ _step_1 = html.Div([
         dbc.Input(id="setup-wifi-password", type="password",
                   placeholder="WiFi password (blank for open networks)",
                   autocomplete="off", className="mb-2 login-form-input"),
-        dbc.Button("Use this WiFi", id="setup-wifi-connect-btn",
+        dbc.Button("Save this WiFi", id="setup-wifi-connect-btn",
                    color="primary", outline=True, size="sm", className="mb-1"),
         html.Div(id="setup-wifi-feedback", className="small mt-1"),
 
@@ -308,6 +308,9 @@ def _build_step_3():
         html.P("All optional. You can configure any of these later from the dashboard.",
                className="text-muted small mb-3"),
 
+        # ── Category: Notifications ─────────────────────────────────────────
+        html.H6([html.I(className="fa fa-bell me-2 text-info"), "Notifications"],
+                className="fw-semibold small text-uppercase text-muted mt-2 mb-2"),
         dbc.Accordion([
 
             # ----------------------------------------------------------------
@@ -454,8 +457,15 @@ def _build_step_3():
                 html.Div(id="setup-smtp-feedback", className="small text-muted"),
             ], title="Email (Gmail / SMTP)"),
 
+        ], start_collapsed=True, always_open=True, className="mb-3"),
+
+        # ── Category: AI explanations ───────────────────────────────────────
+        html.H6([html.I(className="fa fa-robot me-2 text-info"), "AI explanations"],
+                className="fw-semibold small text-uppercase text-muted mt-3 mb-2"),
+        dbc.Accordion([
+
             # ----------------------------------------------------------------
-            # AI Explanations (Groq), unchanged
+            # AI Explanations (Groq)
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P(
@@ -495,8 +505,15 @@ def _build_step_3():
                 ),
             ], title="Local AI (Ollama)"),
 
+        ], start_collapsed=True, always_open=True, className="mb-3"),
+
+        # ── Category: Security & advanced ───────────────────────────────────
+        html.H6([html.I(className="fa fa-shield-halved me-2 text-info"), "Security & advanced"],
+                className="fw-semibold small text-uppercase text-muted mt-3 mb-2"),
+        dbc.Accordion([
+
             # ----------------------------------------------------------------
-            # Threat Intelligence (AbuseIPDB), unchanged
+            # Threat Intelligence (AbuseIPDB)
             # ----------------------------------------------------------------
             dbc.AccordionItem([
                 html.P(

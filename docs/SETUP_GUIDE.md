@@ -111,7 +111,7 @@ optional - you can change all of it later from the dashboard.
 
 | Step | What you do |
 |---|---|
-| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, pick **your country** (sets the correct Wi-Fi rules for where you live), and tap **Use this WiFi** to save it (your Pi doesn't switch over yet). Then create a password for your IoTSentinel account (you'll use this to log in). |
+| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, pick **your country** (sets the correct Wi-Fi rules for where you live), and tap **Save this WiFi** to save it (your Pi doesn't switch over yet). Then create a password for your IoTSentinel account (you'll use this to log in). |
 | **2 - Who is this for?** | Pick **Household** (best for homes) or **Small Business**. You can switch later. |
 | **3 - Alerts & extras** | Choose how you want to be alerted: **ntfy** (easiest - scan a QR code with your phone), Telegram, Discord, or email. All optional. |
 | **4 - Use it away from home** | Optional: turn on remote access so you can check IoTSentinel from anywhere, not just at home. |

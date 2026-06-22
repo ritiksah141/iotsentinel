@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1125 passing**, 9 skipped, 0 failing |
+| Total tests | **1133 passing**, 9 skipped, 0 failing |
 | Test files | 44 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1125
+pytest tests/                          # all 1133
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -214,7 +214,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 | `TestToggleTailscalePanel` | True shows panel; False/None/empty hides panel |
 | `TestWizardFinalePanel` | `setup-done-btn` present; step 6 container present; `_STEPS` has 6 entries; `_step_header(n)` renders badge |
 
-#### `test_wifi_manager.py` - 24 tests
+#### `test_wifi_manager.py` - 25 tests
 **Covers:** `utils/wifi_manager.py` - the shared nmcli/reachability helpers used by the setup wizard, the post-setup **Settings → Network → Change WiFi** control, and the `iotsentinel-connectivity` recovery watchdog.
 
 **Why it exists:** WiFi switching is how a headless, non-technical user stays in control of the Pi - in the wizard, when moving the Pi to a new network, and when the connectivity timer re-opens the setup hotspot after an outage. All three paths run the same `nmcli` calls, so the parsing and the "treat a connect timeout as a soft success" behaviour (the network drops the request that switches it) are pinned here once. Every helper degrades gracefully on a host without `nmcli`.

@@ -1879,7 +1879,7 @@ def register(app):
                     html.Th("Last Triggered")
                 ])),
                 html.Tbody(table_rows)
-            ], bordered=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
+            ], bordered=True, hover=True, responsive=True, className="mb-0 table-adaptive")
 
             return table
 

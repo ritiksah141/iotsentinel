@@ -503,7 +503,7 @@ def register(app):
                         html.Td(f"{score:.2f}")
                     ]) for ip, count, score in top_sources
                 ])
-            ], bordered=True, dark=False, hover=True, responsive=True, className="mt-3 table-adaptive")
+            ], bordered=True, hover=True, responsive=True, className="mt-3 table-adaptive")
 
             return html.Div([
                 dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}),
@@ -1249,7 +1249,7 @@ def register(app):
                             html.Td(f"{row[4]:.2f}s" if row[4] else "N/A")
                         ]) for row in patterns
                     ])
-                ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
+                ], bordered=True, hover=True, size="sm", responsive=True, className="table-adaptive")
 
                 pattern_cards.append(html.Div([
                     html.H6([html.I(className="fa fa-search me-2 text-info"), "Connection Patterns"], className="mb-3"),
@@ -1276,7 +1276,7 @@ def register(app):
                             html.Td(str(row[4])[:50] + "..." if len(str(row[4])) > 50 else str(row[4]), className="small")
                         ]) for row in anomaly_patterns
                     ])
-                ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
+                ], bordered=True, hover=True, size="sm", responsive=True, className="table-adaptive")
 
                 pattern_cards.append(html.Div([
                     html.H6([html.I(className="fa fa-exclamation-triangle me-2 text-danger"), "Anomalous Patterns"], className="mb-3 mt-4"),
@@ -1472,7 +1472,7 @@ def register(app):
                         )
                     ], className="text-danger" if row[7] or row[9] == 'critical' else "") for row in events
                 ])
-            ], bordered=True, dark=False, hover=True, size="sm", responsive=True, className="table-adaptive")
+            ], bordered=True, hover=True, size="sm", responsive=True, className="table-adaptive")
 
             return html.Div([
                 dbc.Alert([

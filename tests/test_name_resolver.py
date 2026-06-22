@@ -108,6 +108,12 @@ class TestIsSynthetic:
     def test_manufacturer_label(self, _patch_config):
         assert _patch_config.is_synthetic('Samsung TV') is False
 
+    def test_mac_prefixed_placeholder_is_synthetic(self, _patch_config):
+        # Legacy/seed 'MAC-XXXXXX' labels (seen in the topology) must be treated as
+        # synthetic so they get re-resolved to a friendly name.
+        assert _patch_config.is_synthetic('MAC-C3D40B') is True
+        assert _patch_config.is_synthetic('mac-abc123') is True
+
 
 # ---------------------------------------------------------------------------
 # Reverse DNS
@@ -207,6 +213,20 @@ class TestManufacturerFallback:
     def test_unknown_vendor_string(self, _patch_config):
         result = _patch_config._build_manufacturer_fallback('Unknown', 'camera')
         assert result == 'Camera'
+
+    def test_randomized_mac_gets_clean_private_label(self, _patch_config):
+        # get_manufacturer() returns "Private/Random MAC" for privacy-randomized MACs
+        # (modern phones/laptops). It must become a clean "Private device", NOT a
+        # mangled "Private/Random Device".
+        result = _patch_config._build_manufacturer_fallback('Private/Random MAC', None)
+        assert result == 'Private device'
+
+    def test_randomized_mac_with_type(self, _patch_config):
+        result = _patch_config._build_manufacturer_fallback('Private/Random MAC', 'smartphone')
+        assert result == 'Private Phone'
+
+    def test_randomized_mac_not_treated_as_brand(self, _patch_config):
+        assert _patch_config._extract_brand('Private/Random MAC') is None
 
     def test_raspberry_pi(self, _patch_config):
         result = _patch_config._build_manufacturer_fallback('Raspberry Pi Foundation', 'raspberry_pi')

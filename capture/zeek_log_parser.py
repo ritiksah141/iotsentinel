@@ -288,8 +288,11 @@ class ZeekLogParser:
                             # Get manufacturer from MAC
                             manufacturer = get_manufacturer(mac)
 
-                            # Generate friendly name
-                            device_name = hostname if hostname else f"Device-{mac[-8:].replace(':', '')}"
+                            # Use the real DHCP hostname when present; otherwise pass
+                            # None so add_device's COALESCE preserves any already-resolved
+                            # name (vendor/mDNS/reverse-DNS) instead of clobbering it with
+                            # a synthetic Device-XXXX placeholder.
+                            device_name = hostname or None
 
                             # Update device with MAC and hostname
                             success = self.db.add_device(

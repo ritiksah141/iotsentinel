@@ -1280,7 +1280,7 @@ def register(app):
                                     ] if top_alerting_devices else [
                                         html.Tr([html.Td("No high-alert devices in the last 7 days", colSpan=3, className="text-center text-muted")])
                                     ])
-                                ], bordered=True, hover=True, dark=False, size="sm", responsive=True, className="table-adaptive")
+                                ], bordered=True, hover=True, size="sm", responsive=True, className="table-adaptive")
                             ])
                         ], className="mb-4 shadow-sm")
                     ], xs=12, md=6),

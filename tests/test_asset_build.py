@@ -172,3 +172,20 @@ def _strip_strings(css):
 
 def _brace_count_outside_strings_and_comments(css):
     return _strip_strings(css).count('{')
+
+
+def test_no_dbc_table_uses_dark_kwarg():
+    """dash_bootstrap_components 2.0.4's Table dropped the `dark` argument; any
+    `dbc.Table(... dark=...)` raises at render time (hit on Network Segmentation's
+    Device Ecosystems). Guard so it can't creep back into any callback."""
+    from pathlib import Path
+    import re
+    repo = Path(__file__).resolve().parent.parent
+    offenders = []
+    for py in (repo / "dashboard").rglob("*.py"):
+        text = py.read_text()
+        # crude but effective: a dbc.Table(...) call carrying a dark= kwarg
+        for m in re.finditer(r"dbc\.Table\((.*?)\)", text, re.DOTALL):
+            if re.search(r"\bdark\s*=", m.group(1)):
+                offenders.append(py.name)
+    assert not offenders, f"dbc.Table(dark=...) is invalid in dbc 2.0.4: {set(offenders)}"

@@ -3020,7 +3020,7 @@ def register(app):
                                 html.Td(html.Small(row['last_seen'][:16] if row['last_seen'] else 'N/A', className="text-muted"))
                             ]) for row in tracker_connections
                         ])
-                    ], bordered=True, hover=True, responsive=True, dark=False, size="sm", className="table-adaptive")
+                    ], bordered=True, hover=True, responsive=True, size="sm", className="table-adaptive")
                 ])
             ], className="shadow-sm")
 

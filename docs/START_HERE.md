@@ -78,7 +78,7 @@ required - you can change everything else later from the dashboard.
 
 1. **Wi-Fi and password** - Tap **Scan**, choose your home Wi-Fi from the list, type its
    password, pick **your country** (so the Wi-Fi works correctly where you live), and tap
-   **Use this WiFi** to save it. Your Pi doesn't switch over yet - it stays on the setup
+   **Save this WiFi** to save it. Your Pi doesn't switch over yet - it stays on the setup
    hotspot until you finish. Then create a password for your IoTSentinel account - you'll
    use this to log in from now on.
 2. **How it watches your network** - Choose **Passive** (recommended - the Pi quietly

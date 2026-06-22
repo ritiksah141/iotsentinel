@@ -157,6 +157,14 @@ class TestSetupWizardLayout:
         for cid in required_ids:
             assert cid in layout_str, f"Component ID '{cid}' missing from setup_wizard_layout"
 
+    def test_step3_optional_features_grouped_by_category(self):
+        """Step 3 must group the options under topic headings (Notifications / AI /
+        Security) instead of one flat list."""
+        from dashboard.layouts.setup_wizard import setup_wizard_layout
+        s = str(setup_wizard_layout)
+        for category in ("Notifications", "AI explanations", "Security & advanced"):
+            assert category in s, f"Step 3 category heading missing: {category}"
+
     def test_do_wifi_join_connects_when_ssid_set(self):
         """The deferred join (Step 6) reaches wifi_manager.connect_wifi for a real SSID."""
         from dashboard.callbacks import callbacks_setup as cs
@@ -433,11 +441,22 @@ class TestValidationHelpers:
         assert ok
 
     def test_validate_abuseipdb_connection_error(self):
+        # Offline during setup (Pi on the hotspot) → neutral ok=None, NOT a red error.
         from dashboard.callbacks.callbacks_setup import _validate_abuseipdb
         with patch("requests.get", side_effect=Exception("timeout")):
             ok, msg = _validate_abuseipdb("v" * 40)
-        assert not ok
-        assert "internet" in msg.lower() or "reach" in msg.lower()
+        assert ok is None
+        assert "online" in msg.lower()
+
+    def test_validate_groq_offline_is_neutral_not_error(self):
+        # The Pi has no internet during the wizard (it joins home Wi-Fi only at the end),
+        # so a Groq connection failure must be neutral (ok=None / "verify once online"),
+        # not the scary red "Could not reach Groq" the user hit while pasting the key.
+        from dashboard.callbacks.callbacks_setup import _validate_groq
+        with patch("requests.get", side_effect=Exception("no route to host")):
+            ok, msg = _validate_groq("gsk_" + "a" * 40)
+        assert ok is None
+        assert "online" in msg.lower()
 
 
 # ---------------------------------------------------------------------------

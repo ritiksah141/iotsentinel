@@ -215,7 +215,6 @@ def register(app):
             bordered=True,
             hover=True,
             responsive=True,
-            dark=False,
             className="mt-3 table-adaptive"
         )
 
@@ -380,7 +379,7 @@ def register(app):
             user_table = dbc.Table(
                 [html.Thead(html.Tr([html.Th("Username"), html.Th("Role"), html.Th("Status"), html.Th("Created", className="text-center"), html.Th("Actions", className="text-center")]))] +
                 [html.Tbody(rows)],
-                bordered=True, hover=True, responsive=True, dark=False, className="mt-3 table-adaptive"
+                bordered=True, hover=True, responsive=True, className="mt-3 table-adaptive"
             )
 
             toast = ToastManager.success(
@@ -2605,7 +2604,7 @@ def register(app):
                     ])
                 ]),
                 html.Tbody(table_rows)
-            ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
+            ], bordered=True, striped=True, hover=True, responsive=True, className="mb-0 table-adaptive")
 
             last_updated = f"Last updated: {datetime.now().strftime('%I:%M:%S %p')}"
 
@@ -2723,7 +2722,7 @@ def register(app):
                         ])
                         for svc in cloud_services.get('top_services', [])[:10]
                     ])
-                ], bordered=True, striped=True, hover=True, responsive=True, dark=False, className="mb-4 table-adaptive"),
+                ], bordered=True, striped=True, hover=True, responsive=True, className="mb-4 table-adaptive"),
 
                 # Transmission statistics
                 html.H6("Data Transmission Statistics", className="mt-4 mb-3"),
@@ -3183,6 +3182,26 @@ def register(app):
         except Exception as exc:
             logger.error(f"Failed to save ai_privacy_mode: {exc}")
             return enabled, dbc.Alert(f"Error: {exc}", color="danger", duration=5000)
+
+    # Reflect API keys saved by the setup wizard (or a previous session) so the AI
+    # Settings page shows what's configured instead of blank fields — the same gap that
+    # left ntfy/email blank in the notification modal.
+    @app.callback(
+        [Output('ai-groq-key-input', 'value'),
+         Output('ai-openai-key-input', 'value'),
+         Output('ai-anthropic-key-input', 'value'),
+         Output('ai-gemini-key-input', 'value')],
+        Input('profile-edit-tabs', 'active_tab'),
+        prevent_initial_call=True,
+    )
+    def load_ai_api_keys(active_tab):
+        if active_tab != 'ai-settings-tab':
+            raise dash.exceptions.PreventUpdate
+        from dotenv import load_dotenv
+        load_dotenv(override=True)   # pick up wizard / external .env writes
+        g = os.environ.get
+        return (g('GROQ_API_KEY', ''), g('OPENAI_API_KEY', ''),
+                g('ANTHROPIC_API_KEY', ''), g('GEMINI_API_KEY', ''))
 
     # AI Engine health card
     _HEALTH_DOT_CLASSES = {

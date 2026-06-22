@@ -1391,18 +1391,36 @@ dashboard_layout = dbc.Container([
                                 layout={'name': 'cose', 'animate': True},
                                 className="cytoscape-panel",
                                 stylesheet=[
+                                    # Labels sit BELOW the node as a soft rounded pill (white
+                                    # text on a translucent dark chip) — readable on both the
+                                    # light and dark graph surfaces and on-brand, instead of the
+                                    # old harsh black-outlined text stamped over the node.
                                     {'selector': 'node', 'style': {
-                                        'content': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
-                                        'background-color': 'data(color)', 'border-width': 2, 'border-color': 'data(borderColor)',
-                                        'font-size': '10px', 'color': '#fff', 'text-outline-color': '#000', 'text-outline-width': 1
+                                        'content': 'data(label)',
+                                        'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 7,
+                                        'background-color': 'data(color)',
+                                        'border-width': 3, 'border-color': 'data(borderColor)',
+                                        'border-opacity': 0.9,
+                                        'font-size': '11px', 'font-weight': 600,
+                                        'color': '#ffffff',
+                                        'text-outline-width': 0,
+                                        'text-background-color': '#27272a',
+                                        'text-background-opacity': 0.82,
+                                        'text-background-shape': 'roundrectangle',
+                                        'text-background-padding': 3,
+                                        'min-zoomed-font-size': 6,
                                     }},
-                                    {'selector': 'node[type="router"]', 'style': {'shape': 'diamond', 'width': 60, 'height': 60}},
-                                    {'selector': 'node[type="device"]', 'style': {'width': 40, 'height': 40}},
+                                    {'selector': 'node[type="router"]', 'style': {'shape': 'diamond', 'width': 64, 'height': 64, 'font-size': '12px'}},
+                                    {'selector': 'node[type="device"]', 'style': {'width': 42, 'height': 42}},
                                     {'selector': 'edge', 'style': {
-                                        'width': 2, 'line-color': '#666', 'target-arrow-shape': 'triangle',
-                                        'target-arrow-color': '#666', 'curve-style': 'bezier'
+                                        'width': 2, 'line-color': '#94a3b8', 'opacity': 0.55,
+                                        'target-arrow-shape': 'triangle', 'target-arrow-color': '#94a3b8',
+                                        'arrow-scale': 0.9, 'curve-style': 'bezier'
                                     }},
-                                    {'selector': '.animated-edge', 'style': {'line-color': '#00ffcc', 'width': 3}}
+                                    {'selector': '.animated-edge', 'style': {
+                                        'line-color': '#6366f1', 'target-arrow-color': '#6366f1',
+                                        'width': 3, 'opacity': 0.9
+                                    }}
                                 ],
                                 tapNodeData={'id': None}
                             )
@@ -9473,7 +9491,7 @@ def background_thread():
             device['z'] = z * 10
 
         elements = []
-        elements.append({'data': {'id': 'router', 'label': 'Router', 'type': 'router', 'color': '#007bff', 'borderColor': '#0056b3'}})
+        elements.append({'data': {'id': 'router', 'label': 'Router', 'type': 'router', 'color': '#6366f1', 'borderColor': '#4f46e5'}})
         device_ips = set()
         for device in devices_with_status:
             device_ip = device['device_ip']
