@@ -131,10 +131,17 @@ def teardown_setup_hotspot(iface: str = "wlan0") -> None:
         return
     script = Path(__file__).resolve().parents[1] / "scripts" / "setup_hotspot.sh"
     try:
+        # Invoke by absolute path (not `sudo bash <script>`): sudoers grants the exact
+        # script path, and granting `bash` would be a root-equivalent hole. Only treat
+        # it as done when it actually succeeded — a non-zero exit (e.g. sudoers denial)
+        # must fall through to the direct nmcli teardown below, not silently return.
         if script.exists():
-            subprocess.run(["sudo", "-n", "bash", str(script), "disarm"],
-                           capture_output=True, text=True, timeout=20)
-            return
+            r = subprocess.run(["sudo", "-n", str(script), "disarm"],
+                               capture_output=True, text=True, timeout=20)
+            if r.returncode == 0:
+                return
+            logger.warning("setup_hotspot.sh disarm exited %s (%s) — falling back to nmcli",
+                           r.returncode, (r.stderr or r.stdout or "").strip())
     except Exception as e:
         logger.warning("setup_hotspot.sh disarm failed, falling back to nmcli: %s", e)
     # Fallback: at least remove the NetworkManager AP profile directly.

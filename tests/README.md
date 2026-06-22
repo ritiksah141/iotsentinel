@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1117 passing**, 9 skipped, 0 failing |
+| Total tests | **1125 passing**, 9 skipped, 0 failing |
 | Test files | 44 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1117
+pytest tests/                          # all 1125
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -196,7 +196,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Setup wizard
 
-#### `test_setup_wizard.py` - 110 tests
+#### `test_setup_wizard.py` - 113 tests
 **Covers:** `dashboard/layouts/setup_wizard.py`, `dashboard/callbacks/callbacks_setup.py`, `config/config_manager.py`.
 
 **Why it exists:** The wizard is the first thing every user sees on a fresh Pi install. A broken step-progression or a silent config-write failure would leave every new install broken. This is the most comprehensive callback test file - the `navigate_steps` logic was extracted to a module-level function specifically to make it testable without a running browser.
@@ -214,7 +214,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 | `TestToggleTailscalePanel` | True shows panel; False/None/empty hides panel |
 | `TestWizardFinalePanel` | `setup-done-btn` present; step 6 container present; `_STEPS` has 6 entries; `_step_header(n)` renders badge |
 
-#### `test_wifi_manager.py` - 14 tests
+#### `test_wifi_manager.py` - 24 tests
 **Covers:** `utils/wifi_manager.py` - the shared nmcli/reachability helpers used by the setup wizard, the post-setup **Settings → Network → Change WiFi** control, and the `iotsentinel-connectivity` recovery watchdog.
 
 **Why it exists:** WiFi switching is how a headless, non-technical user stays in control of the Pi - in the wizard, when moving the Pi to a new network, and when the connectivity timer re-opens the setup hotspot after an outage. All three paths run the same `nmcli` calls, so the parsing and the "treat a connect timeout as a soft success" behaviour (the network drops the request that switches it) are pinned here once. Every helper degrades gracefully on a host without `nmcli`.
@@ -256,14 +256,14 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_pi_scripts.py` - 7 tests
+#### `test_pi_scripts.py` - 11 tests
 **Covers:** the Raspberry Pi ops scripts in `config/` (`optimize_pi.sh`, `zeek_monitor.sh`, `zeek_cleanup.sh`).
 
 **Why it exists:** `scripts/setup_pi.sh` wires these into the shipped image behind `[ -f ]` guards; when they were missing the image silently lost Pi tuning, the Zeek watchdog, and log rotation. These tests pin that the files exist, are executable, pass `bash -n`, and that every path `setup_pi.sh` references resolves.
 
 ---
 
-#### `test_image_build.py` - 22 tests
+#### `test_image_build.py` - 28 tests
 **Covers:** `scripts/build_pi_image.sh` (the Raspberry Pi image build) and the files it bundles.
 
 **Why it exists:** A real ARM image takes ~40 min to build in CI, and broken builds shipped *silently* — images that "built successfully" but had no IoTSentinel installed (setup ran via `su` and aborted under qemu), an unsubstituted `__WIFI_COUNTRY__` placeholder, or files that were never committed so `git archive` left them out. This file dry-runs the build with a stubbed qemu/pi-gen in **~0.5 s** and asserts the generated stage tree is correct, so those failures surface locally and **block the expensive build** (the suite gates `build-pi-image` via `needs: [test]`).

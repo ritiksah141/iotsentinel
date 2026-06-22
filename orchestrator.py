@@ -824,6 +824,13 @@ class IoTSentinelOrchestrator:
 
             # Perform initial scan immediately (skip if already shutting down)
             if self.running and not self._shutdown_event.is_set():
+                # Re-check the subnet right before scanning: on a fresh image the
+                # backend boots while the Pi is still on its 10.42.0.1 hotspot, and
+                # only joins home Wi-Fi at the very end of the wizard — after the
+                # one-shot startup detection has already run. Re-detecting here (a
+                # no-op once a real subnet is locked in) keeps discovery pointed at
+                # the live LAN regardless of when the join landed.
+                self._autodetect_local_network()
                 logger.info("Performing initial ARP network scan...")
                 try:
                     count = self.arp_scanner.scan_and_update_database()
@@ -840,6 +847,9 @@ class IoTSentinelOrchestrator:
                     break
 
                 try:
+                    # Heal the subnet each cycle until a real LAN is detected, so a
+                    # late hotspot→home-Wi-Fi switch is picked up within one interval.
+                    self._autodetect_local_network()
                     logger.info("Running periodic ARP network scan...")
                     count = self.arp_scanner.scan_and_update_database()
                     logger.info(f"ARP scan complete: {count} devices updated")

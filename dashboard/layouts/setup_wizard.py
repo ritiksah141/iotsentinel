@@ -83,9 +83,11 @@ _step_1 = html.Div([
             html.Span("Connect to home WiFi", className="fw-semibold small"),
         ], className="d-flex align-items-center mb-2"),
         html.P(
-            "If you're on the IoTSentinel-Setup hotspot, enter your home WiFi here. "
-            "On a spare PC or virtual machine connected by Ethernet, skip these WiFi "
-            "fields and just pick the interface to monitor below.",
+            "If you're on the IoTSentinel-Setup hotspot, pick your home WiFi here. "
+            "Your Pi stays on the setup hotspot through the whole wizard and only "
+            "joins this network on the last step, so you won't lose the dashboard "
+            "partway through. On a spare PC or virtual machine wired by Ethernet, "
+            "leave these WiFi fields blank and just pick the interface to monitor below.",
             className="small text-muted mb-2"
         ),
         dbc.InputGroup([
@@ -97,7 +99,7 @@ _step_1 = html.Div([
         dbc.Input(id="setup-wifi-password", type="password",
                   placeholder="WiFi password (blank for open networks)",
                   autocomplete="off", className="mb-2 login-form-input"),
-        dbc.Button("Connect to this WiFi", id="setup-wifi-connect-btn",
+        dbc.Button("Use this WiFi", id="setup-wifi-connect-btn",
                    color="primary", outline=True, size="sm", className="mb-1"),
         html.Div(id="setup-wifi-feedback", className="small mt-1"),
 
@@ -607,6 +609,18 @@ _step_6_final = html.Div([
         "Username: ", html.Code(id="setup-final-username", className="mx-1"),
         " and the password you just set.",
     ], color="success", className="mb-3 small"),
+    dbc.Alert([
+        html.I(className="fa fa-wifi me-2"),
+        html.Strong("Switching to your home Wi-Fi. "),
+        "If you set this up over the IoTSentinel-Setup hotspot, your Pi is now "
+        "leaving it to join your home network, so this hotspot closes in a few "
+        "seconds. On THIS device, reconnect to your home Wi-Fi, then open ",
+        html.Code("http://iotsentinel.local:8050"),
+        " (or the Pi's LAN address) to log in.",
+    ], color=None, className="glass-alert-info mb-3 small", id="setup-wifi-handoff"),
+    html.Div(id="setup-wifi-handoff-status", className="small mb-2"),
+    dcc.Interval(id="setup-wifi-apply-interval", interval=4000,
+                 n_intervals=0, disabled=True, max_intervals=1),
     html.Div(id="setup-public-url-display", className="mb-3"),
     html.Div(id="setup-reachable-display", className="mb-3"),
     html.P("What would you like to do next?", className="small text-muted mb-3"),

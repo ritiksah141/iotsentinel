@@ -78,8 +78,9 @@ required - you can change everything else later from the dashboard.
 
 1. **Wi-Fi and password** - Tap **Scan**, choose your home Wi-Fi from the list, type its
    password, pick **your country** (so the Wi-Fi works correctly where you live), and tap
-   **Connect to this WiFi**. Then create a password for your IoTSentinel
-   account - you'll use this to log in from now on.
+   **Use this WiFi** to save it. Your Pi doesn't switch over yet - it stays on the setup
+   hotspot until you finish. Then create a password for your IoTSentinel account - you'll
+   use this to log in from now on.
 2. **How it watches your network** - Choose **Passive** (recommended - the Pi quietly
    watches from the side, nothing else to buy) or **Gateway** (more thorough, and needs a
    small USB Wi-Fi adapter). If you're not sure, choose **Passive**; you can switch later.
@@ -91,11 +92,12 @@ required - you can change everything else later from the dashboard.
    not just at home.
 6. **Review and Launch** - Check your choices and tap **Launch IoTSentinel**.
 
-> **Important - your phone will disconnect for a moment.** When you connect your home Wi-Fi
-> in the first step, the Pi leaves its own `IoTSentinel-Setup` network and joins your home
-> Wi-Fi. Your phone drops off `IoTSentinel-Setup` - that's normal. **Reconnect your phone to
-> your usual home Wi-Fi** and the setup page carries on. If it looks stuck, reload
-> `http://iotsentinel.local:8050/setup` once you're back on home Wi-Fi.
+> **Important - your phone disconnects once at the very end, not during setup.** Your Pi
+> stays on its own `IoTSentinel-Setup` network for the whole wizard, so you won't lose the
+> page partway through. Only when you tap **Launch IoTSentinel** on the last step does the
+> Pi join your home Wi-Fi and close the `IoTSentinel-Setup` network. Your phone then drops
+> off `IoTSentinel-Setup` - that's normal. **Reconnect your phone to your usual home Wi-Fi**,
+> then open `http://iotsentinel.local:8050` to log in.
 
 ---
 
