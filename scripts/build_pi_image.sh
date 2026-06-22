@@ -348,7 +348,10 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   SP="${SP#"$ROOTFS/"}"
   WANTS="etc/systemd/system/multi-user.target.wants"
   _missing=""
-  _need() { sudo test -e "$ROOTFS/$1" || _missing="$_missing\n    - $2 ($1)"; }
+  # `test -e` FOLLOWS symlinks — but systemd enablement symlinks are ABSOLUTE
+  # (-> /etc/systemd/system/X), which dangle when resolved from the host (outside the
+  # rootfs). Accept a symlink as present via `test -L` (it resolves fine in the image).
+  _need() { sudo test -e "$ROOTFS/$1" || sudo test -L "$ROOTFS/$1" || _missing="$_missing\n    - $2 ($1)"; }
 
   # A. First-boot provisioning + the hotspot/diagnostic scripts it runs
   _need "etc/systemd/system/iotsentinel-provision.service"        "provision service"
