@@ -123,25 +123,28 @@ cat > "$CUSTOM_STAGE/00-install-deps/00-run-chroot.sh" <<'SHELL'
 # image then ships with no IoTSentinel deps. Make /tmp usable and keep apt out of its
 # sandbox user (which also can't write /tmp here) for the duration of the build.
 mkdir -p /tmp && chmod 1777 /tmp
-# In the emulated arm64 chroot, apt can't verify the Debian base archive keys
-# (NO_PUBKEY 6ED0E7B82643E131 / "repository is not signed"), which makes apt-get
-# update FAIL and aborts the install of python3.11/zeek under `bash -e` — shipping an
-# empty image. Packages still come from the official Debian/Zeek mirrors, so allow
-# the build to proceed unauthenticated. BUILD-ONLY: this apt.conf is removed before
-# the image ships (see the systemd-services stage), so the device keeps normal apt
-# security.
-{
-  echo 'APT::Sandbox::User "root";'
-  echo 'Acquire::AllowInsecureRepositories "true";'
-  echo 'Acquire::AllowDowngradeToInsecureRepositories "true";'
-  echo 'APT::Get::AllowUnauthenticated "true";'
-} > /etc/apt/apt.conf.d/00iotsentinel-build
-
-# Install Zeek via apt (official Zeek repository for Debian Bookworm).
-# `|| true` on update: AllowInsecureRepositories downgrades the unsigned-repo error to
-# a warning, but never let a non-zero update abort the stage — the install step (with
-# AllowUnauthenticated) is the real gate and fails loudly if a package is unavailable.
-apt-get update || true
+# Always keep apt out of its sandbox user (which can't write /tmp in this chroot) —
+# this alone fixes most signature-verification failures. We then PREFER verified base
+# repos: try a normal signed apt-get update first, refreshing the Debian archive
+# keyring if needed. Only if signature verification still fails (e.g. an emulated
+# chroot where gpgv misbehaves) do we fall back to unauthenticated, BUILD-ONLY — the
+# override apt.conf is removed before the image ships (systemd-services stage), so the
+# device always keeps normal apt security. On the native arm64 runner the verified
+# path succeeds and the base repos stay authenticated, closing the supply-chain gap.
+echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/00iotsentinel-build
+if ! apt-get update; then
+  echo "[build] signed apt update failed — refreshing debian-archive-keyring and retrying"
+  apt-get install -y --reinstall debian-archive-keyring 2>/dev/null || true
+  if ! apt-get update; then
+    echo "[build] WARNING: base repos still failing signature verification — falling back to unauthenticated (BUILD-ONLY, removed before ship)"
+    {
+      echo 'Acquire::AllowInsecureRepositories "true";'
+      echo 'Acquire::AllowDowngradeToInsecureRepositories "true";'
+      echo 'APT::Get::AllowUnauthenticated "true";'
+    } >> /etc/apt/apt.conf.d/00iotsentinel-build
+    apt-get update || true
+  fi
+fi
 apt-get install -y curl gnupg2
 
 # Add Zeek repository
@@ -284,6 +287,13 @@ systemctl enable iotsentinel-firstboot-report.service
 # AI in the box: installs Ollama + pulls the on-device model in the background
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
+
+# SECURITY: every image ships with the same default login (sentinel / iotsentinel),
+# so force a password change on the first interactive login. `chage -d 0` expires the
+# password's age (last-changed = epoch) which makes sshd/login (via PAM) demand a new
+# password before granting a shell. It does NOT affect systemd `User=sentinel` service
+# startup (no PAM password auth there), so the dashboard/backend still boot normally.
+chage -d 0 sentinel 2>/dev/null || passwd --expire sentinel 2>/dev/null || true
 
 # Drop the build-only apt sandbox override so it does not ship in the image.
 rm -f /etc/apt/apt.conf.d/00iotsentinel-build

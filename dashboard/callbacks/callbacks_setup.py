@@ -411,6 +411,11 @@ def register(app):
                  html.Code(f"http://{addr['mdns']}:{addr['port']}")]
         if addr["ip"]:
             reach += [" or ", html.Code(f"http://{addr['ip']}:{addr['port']}")]
+        if addr.get("remote"):
+            reach += [html.Br(),
+                      html.I(className="fa fa-globe me-1"),
+                      "From anywhere (remote access): ",
+                      html.A(addr["remote"], href=addr["remote"], target="_blank")]
 
         if not wifi_manager.nmcli_available():
             return (
@@ -430,8 +435,20 @@ def register(app):
                  "Not connected to any WiFi network."])
         # Rescanning is slow (~15s), so only do it on an explicit Scan click; on a
         # plain modal-open just refresh the current-network line.
-        options = (wifi_manager.scan_wifi_networks()
-                   if triggered == "settings-wifi-scan-btn" else dash.no_update)
+        if triggered == "settings-wifi-scan-btn":
+            options = wifi_manager.scan_wifi_networks()
+            if not options:
+                # Empty result looks like a broken button — tell the user why and
+                # what to do (common while wlan0 is still hosting the setup AP).
+                current_txt = html.Div([
+                    current_txt,
+                    html.Div([
+                        html.I(className="fa fa-circle-info me-1"),
+                        "No networks found. Wait a moment and tap Scan again.",
+                    ], className="text-warning mt-1"),
+                ])
+        else:
+            options = dash.no_update
         return current_txt, options, reach
 
     @app.callback(

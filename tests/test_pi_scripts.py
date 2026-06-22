@@ -60,3 +60,25 @@ class TestCleanupRetention:
     def test_cleanup_never_touches_current_logs(self):
         # The live "current/" Zeek dir must be pruned from deletion.
         assert "current" in (CONFIG / "zeek_cleanup.sh").read_text()
+
+
+class TestSetupHotspotScript:
+    """setup_hotspot.sh arms/recovers the provisioning AP and (now) disarms it
+    once the Pi joins home Wi-Fi, so wlan0 returns to client mode."""
+
+    PATH = Path(__file__).parent.parent / "scripts" / "setup_hotspot.sh"
+
+    def test_exists_and_syntax_ok(self):
+        assert self.PATH.is_file(), "missing scripts/setup_hotspot.sh"
+        r = subprocess.run(["bash", "-n", str(self.PATH)], capture_output=True, text=True)
+        assert r.returncode == 0, f"setup_hotspot.sh syntax error: {r.stderr}"
+
+    def test_supports_disarm_mode(self):
+        text = self.PATH.read_text()
+        assert "disarm)" in text, "setup_hotspot.sh must handle the 'disarm' mode"
+        assert 'usage: setup_hotspot.sh [boot|recover|disarm]' in text
+
+    def test_disarm_deletes_the_hotspot_connection(self):
+        text = self.PATH.read_text()
+        assert 'nmcli connection delete "$HOTSPOT"' in text
+        assert 'nmcli connection down "$HOTSPOT"' in text

@@ -139,6 +139,44 @@ def register(app):
     """Register all global / cross-cutting callbacks on *app*."""
 
     # ================================================================
+    # LIVE WEBSOCKET URL — point the WebSocket at the host the browser
+    # actually loaded the page from, not a baked-in 127.0.0.1. Without this
+    # the socket only connects when the dashboard is opened ON the Pi itself;
+    # from a phone/laptop (hotspot IP, iotsentinel.local, LAN IP, or the
+    # remote-access https URL) it would dial the *client's* own localhost and
+    # silently fail, leaving every live card/graph/topology empty.
+    # ================================================================
+    app.clientside_callback(
+        """
+        function(href) {
+            var proto = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+            return proto + window.location.host + '/ws';
+        }
+        """,
+        Output("ws", "url"),
+        Input("url", "href"),
+    )
+
+    # ================================================================
+    # PARSE WEBSOCKET PAYLOAD — dash-extensions sets ws.message to
+    # {data: "<raw json>"}; parse it once into ws-data.data so every
+    # callback can read the payload dict directly. Reading ws.message raw
+    # made every ws_message.get(...) miss, leaving the live cards, device
+    # list and graphs blank.
+    # ================================================================
+    app.clientside_callback(
+        """
+        function(msg) {
+            if (!msg || !msg.data) return window.dash_clientside.no_update;
+            try { return JSON.parse(msg.data); }
+            catch (e) { return window.dash_clientside.no_update; }
+        }
+        """,
+        Output("ws-data", "data"),
+        Input("ws", "message"),
+    )
+
+    # ================================================================
     # SIDEBAR NAVIGATION
     # ================================================================
 
@@ -314,7 +352,7 @@ def register(app):
         [Output('notification-badge', 'children'),
          Output('notification-count-display', 'children'),
          Output('notification-drawer-body', 'children', allow_duplicate=True)],
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         prevent_initial_call=True
     )
     def update_notifications_from_ws(ws_message):
@@ -987,7 +1025,7 @@ def register(app):
          Input('lockdown-cancel', 'n_clicks'),
          Input('lockdown-confirm', 'n_clicks')],
         [State('lockdown-modal', 'is_open'),
-         State('ws', 'message')],
+         State('ws-data', 'data')],
         prevent_initial_call=True
     )
     def toggle_lockdown_modal(switch_value, cancel_clicks, confirm_clicks, is_open, ws_message):
@@ -1214,7 +1252,7 @@ def register(app):
         }
         """,
         Output('announced-alerts-store', 'data'),
-        [Input('ws', 'message'),
+        [Input('ws-data', 'data'),
          Input('voice-alert-store', 'data')],
         State('announced-alerts-store', 'data')
     )
@@ -1529,7 +1567,7 @@ def register(app):
          Input({'type': 'chat-chip', 'prompt': ALL}, 'n_clicks')],
         [State('chat-input', 'value'),
          State('chat-history-store', 'data'),
-         State('ws', 'message')],
+         State('ws-data', 'data')],
         prevent_initial_call=True
     )
     def handle_chat_message(send_clicks, input_submit, chip_clicks, message, chat_data, ws_message):

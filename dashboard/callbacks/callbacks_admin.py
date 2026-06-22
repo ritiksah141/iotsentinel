@@ -718,7 +718,7 @@ def register(app):
     @app.callback(
         [Output('refresh-interval', 'interval', allow_duplicate=True),
          Output('theme-store', 'data', allow_duplicate=True),
-         Output('ws', 'message', allow_duplicate=True),
+         Output('ws-data', 'data', allow_duplicate=True),
          Output('toast-container', 'children', allow_duplicate=True),
          Output('preferences-modal', 'is_open', allow_duplicate=True)],
         Input('save-preferences-btn', 'n_clicks'),

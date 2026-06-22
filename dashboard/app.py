@@ -206,6 +206,12 @@ _plain_ws_clients = set()
 @_plain_sock.route('/ws')
 def _plain_ws_handler(ws):
     _plain_ws_clients.add(ws)
+    # The dashboard delivers all live data over THIS plain socket (the page loads
+    # no Socket.IO client), so the producer thread must be started here too — not
+    # only from the Socket.IO 'connect' handler. Without this, a browser reaching
+    # the Pi over plain LAN/hotspot http gets an empty dashboard (no devices,
+    # graphs or metrics) because the background thread is never spun up.
+    _ensure_background_thread()
     try:
         while True:
             ws.receive(timeout=60)  # yield to scheduler; detect dead connections
@@ -277,8 +283,10 @@ def set_security_headers(response):
         'camera=(), microphone=(), geolocation=(), payment=()'
     )
     response.headers['Content-Security-Policy'] = _CSP
-    # HSTS — only when served over HTTPS
-    if _use_https:
+    # HSTS — only meaningful over HTTPS (browsers ignore it on plain http). Gate on the
+    # actual request scheme so it's correct behind the Tailscale Funnel (ProxyFix makes
+    # request.is_secure reflect X-Forwarded-Proto) and never advertised on a LAN http hit.
+    if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     # Cache-Control for static assets (JS/CSS/fonts)
     if response.content_type and any(
@@ -8182,6 +8190,12 @@ dashboard_layout = dbc.Container([
     # Hidden Components & Modals
     html.Div(id='dummy-output-card-clicks', style={'display': 'none'}),
     WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"),
+    # dash-extensions delivers ws.message as {data: "<raw json>"}, but every
+    # consumer wants the parsed payload. A clientside callback JSON-parses each
+    # message into this Store, and all callbacks read ws-data.data instead of the
+    # raw ws.message. (Without this, ws_message.get(...) always missed and the
+    # live cards/devices/graphs stayed empty.)
+    dcc.Store(id="ws-data"),
     dcc.Interval(id='refresh-interval', interval=30*1000, n_intervals=0),  # 30 second refresh (optimized for performance)
     dcc.Store(id='alert-filter', data='all'),
     dcc.Store(id='alerts-data-store', data=[]),  # Store recent alerts data
@@ -9563,12 +9577,22 @@ def background_thread():
                 except Exception:
                     _plain_ws_clients.discard(_ws)
 
-@socketio.on('connect')
-def test_connect(auth):
+def _ensure_background_thread():
+    """Start the single live-data producer thread if it isn't running yet.
+
+    Idempotent and safe to call from both the plain-WS handler and the Socket.IO
+    connect handler — whichever client arrives first spins it up.
+    """
     global thread
     with thread_lock:
         if thread is None:
             thread = socketio.start_background_task(background_thread)
+            logger.info("Live-data background thread started.")
+
+
+@socketio.on('connect')
+def test_connect(auth):
+    _ensure_background_thread()
     logger.info("Client connected to WebSocket.")
 
 @socketio.on('disconnect')

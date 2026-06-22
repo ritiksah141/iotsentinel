@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1094 passing**, 9 skipped, 0 failing |
-| Test files | 42 |
+| Total tests | **1117 passing**, 9 skipped, 0 failing |
+| Test files | 44 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
 | CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1094
+pytest tests/                          # all 1117
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report

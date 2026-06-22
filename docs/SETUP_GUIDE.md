@@ -131,12 +131,12 @@ optional - you can change all of it later from the dashboard.
 The final wizard screen (**Step 6**) shows the exact addresses for your Pi - both
 `http://iotsentinel.local:8050` and the Pi's own IP address (e.g. `http://192.168.1.42:8050`).
 **Bookmark one of them** so you never have to hunt for the Pi again. The same addresses
-are always available later under **Settings → Network**.
+are always available later under **Quick Settings → Network**.
 
 | Device | Address to use |
 |---|---|
 | macOS / Linux / iPhone | `http://iotsentinel.local:8050` |
-| Windows / Android | The Pi's IP address shown on wizard Step 6 (or under **Settings → Network**) |
+| Windows / Android | The Pi's IP address shown on wizard Step 6 (or under **Quick Settings → Network**) |
 | Any device, any network | Your remote access URL (shown on wizard Step 6 if you enabled it in Step 4) |
 
 > **Windows note:** `iotsentinel.local` requires Bonjour, which ships with iTunes. Without it, use the Pi's IP address - the wizard's last screen prints it for you.
@@ -258,12 +258,12 @@ For full per-device intrusion detection and prevention you need **gateway mode**
 | Problem | Fix |
 |---|---|
 | `IoTSentinel-Setup` hotspot doesn't appear | Wait the full ~2 minutes on first boot. If it's still missing, unplug the Pi, wait 5 seconds, and power it back on. Check the SD card is fully seated and that you're using a proper Raspberry Pi power supply (a weak phone charger can stop the Wi-Fi starting). **Still nothing?** Power off, put the SD card back in your computer, and open the file **`iotsentinel-firstboot.txt`** on the card's small `bootfs`/`boot` drive - it records exactly why the Wi-Fi didn't start (no monitor or network cable needed). |
-| Can't reach `http://10.42.0.1:8050/setup` | First make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. If you still can't load it, the dashboard may be listening on localhost only - SSH in (`ssh sentinel@10.42.0.1`, password `iotsentinel`), run `echo "IOTSENTINEL_HOST=0.0.0.0" >> ~/iotsentinel/.env && sudo systemctl restart iotsentinel-dashboard`, then reload the page. (Fixed in current images.) |
+| Can't reach `http://10.42.0.1:8050/setup` | First make sure you're connected to the `IoTSentinel-Setup` network, not your home Wi-Fi. If you still can't load it, the dashboard may be listening on localhost only - SSH in (`ssh sentinel@10.42.0.1`, default password `iotsentinel` - you'll be required to set a new password on this first login), run `echo "IOTSENTINEL_HOST=0.0.0.0" >> ~/iotsentinel/.env && sudo systemctl restart iotsentinel-dashboard`, then reload the page. (Fixed in current images.) |
 | WiFi connect fails in wizard | Double-check the password. If your network name has special characters, try a different browser. |
-| `iotsentinel.local` doesn't resolve on Windows | Use the Pi's IP address instead - it's printed on the last wizard screen and under **Settings → Network**. |
-| `iotsentinel.local` doesn't resolve on Android | Use the IP address (shown on the last wizard screen / **Settings → Network**). Android's DNS-SD support is inconsistent. |
-| **Pi fell off Wi-Fi / you can't reach it any more** | After a few minutes offline the Pi re-opens the **`IoTSentinel-Setup`** hotspot automatically. Join it, open `http://10.42.0.1:8050`, log in, and reconnect Wi-Fi from **Settings → Network → Change WiFi**. (A reboot also re-opens the hotspot if no known Wi-Fi is in range.) |
-| **Moving the Pi to a different Wi-Fi network** | Log in and use **Settings → Network → Change WiFi** - no re-flash needed. The Pi briefly drops off while it switches; rejoin the new network and reopen the dashboard. |
+| `iotsentinel.local` doesn't resolve on Windows | Use the Pi's IP address instead - it's printed on the last wizard screen and under **Quick Settings → Network**. |
+| `iotsentinel.local` doesn't resolve on Android | Use the IP address (shown on the last wizard screen / **Quick Settings → Network**). Android's DNS-SD support is inconsistent. |
+| **Pi fell off Wi-Fi / you can't reach it any more** | After a few minutes offline the Pi re-opens the **`IoTSentinel-Setup`** hotspot automatically. Join it, open `http://10.42.0.1:8050`, log in, and reconnect Wi-Fi from **Quick Settings → Network → Change WiFi**. (A reboot also re-opens the hotspot if no known Wi-Fi is in range.) |
+| **Moving the Pi to a different Wi-Fi network** | Log in and use **Quick Settings → Network → Change WiFi** - no re-flash needed. The Pi briefly drops off while it switches; rejoin the new network and reopen the dashboard. |
 | Dashboard loads but shows errors | SSH into the Pi and run: `sudo systemctl status iotsentinel-dashboard` |
 | Want to start fresh | Re-flash the SD card from Step 2. |
 
@@ -291,9 +291,11 @@ See [GATEWAY_MODE.md](GATEWAY_MODE.md) for the full gateway-mode setup and troub
 
 ## After setup
 
-- **Local:** `http://iotsentinel.local:8050` (Pi) or `http://localhost:8050` (laptop). The Pi's exact addresses are always listed under **Settings → Network**.
-- **Remote:** your `https://<name>.ts.net` URL shown on wizard Step 6 (if you enabled remote access)
-- **Change Wi-Fi:** **Settings → Network → Change WiFi** moves the Pi to a different network without re-flashing
+> **Where is "Quick Settings → Network"?** On the dashboard, open the **Quick Settings** panel (the gear / "Quick Settings" card) and click the **Network** tab. That tab lists the Pi's exact local addresses, your remote-access link, and the **Change WiFi** controls.
+
+- **Local:** `http://iotsentinel.local:8050` (Pi) or `http://localhost:8050` (laptop). The Pi's exact addresses are always listed under **Quick Settings → Network**.
+- **Remote:** your `https://<name>.ts.net` URL (if you enabled remote access in Step 4). It's shown on wizard Step 6 and, afterwards, in **Quick Settings → Network** - bookmark it and open it from anywhere.
+- **Change Wi-Fi:** **Quick Settings → Network → Change WiFi** moves the Pi to a different network without re-flashing
 - **Never locked out:** if the Pi ever loses Wi-Fi for more than a few minutes, it automatically re-opens the **`IoTSentinel-Setup`** hotspot so you can reconnect it (see Troubleshooting)
 - On the Pi, IoTSentinel restarts automatically after every reboot
 - To add integrations later: log in → **Integrations** tab → API Hub

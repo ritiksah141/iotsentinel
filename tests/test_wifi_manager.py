@@ -98,13 +98,25 @@ def test_connect_requires_ssid():
 def test_connect_success_builds_password_command():
     proc = MagicMock(returncode=0, stdout="", stderr="")
     with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.teardown_setup_hotspot") as teardown, \
          patch("utils.wifi_manager.subprocess.run", return_value=proc) as run:
         ok, msg = wifi_manager.connect_wifi("HomeNet", "secret")
     assert ok is True
-    cmd = run.call_args[0][0]
+    cmd = run.call_args_list[0][0][0]   # the connect call (teardown is mocked out)
     assert cmd[:5] == ["sudo", "nmcli", "dev", "wifi", "connect"]
     assert "password" in cmd and "secret" in cmd
     assert "HomeNet" in msg
+    teardown.assert_called_once()        # hotspot is torn down on success
+
+
+def test_connect_timeout_tears_down_hotspot():
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.teardown_setup_hotspot") as teardown, \
+         patch("utils.wifi_manager.subprocess.run",
+               side_effect=subprocess.TimeoutExpired(cmd="nmcli", timeout=25)):
+        ok, _ = wifi_manager.connect_wifi("HomeNet", "secret")
+    assert ok is True
+    teardown.assert_called_once()
 
 
 def test_connect_failure_surfaces_stderr():
@@ -117,10 +129,30 @@ def test_connect_failure_surfaces_stderr():
 
 def test_connect_timeout_is_soft_success():
     with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.teardown_setup_hotspot"), \
          patch("utils.wifi_manager.subprocess.run",
                side_effect=subprocess.TimeoutExpired(cmd="nmcli", timeout=25)):
         ok, msg = wifi_manager.connect_wifi("HomeNet", "secret")
     assert ok is True and "HomeNet" in msg
+
+
+# ---------------------------------------------------------------------------
+# teardown_setup_hotspot
+# ---------------------------------------------------------------------------
+def test_teardown_noop_without_nmcli():
+    with patch("utils.wifi_manager.nmcli_available", return_value=False), \
+         patch("utils.wifi_manager.subprocess.run") as run:
+        wifi_manager.teardown_setup_hotspot()
+    run.assert_not_called()
+
+
+def test_teardown_invokes_disarm_script():
+    proc = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", return_value=proc) as run:
+        wifi_manager.teardown_setup_hotspot()
+    cmd = run.call_args_list[0][0][0]
+    assert "setup_hotspot.sh" in " ".join(cmd) and cmd[-1] == "disarm"
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +195,29 @@ def test_country_options_are_valid_codes():
 # ---------------------------------------------------------------------------
 def test_get_reachable_addresses_shape():
     addr = wifi_manager.get_reachable_addresses()
-    assert set(addr) == {"mdns", "ip", "port"}
+    assert set(addr) == {"mdns", "ip", "port", "remote"}
     assert addr["mdns"].endswith(".local")
     assert addr["port"] == wifi_manager.DASHBOARD_PORT
+
+
+def test_get_reachable_addresses_includes_remote_url():
+    with patch.dict("os.environ", {"IOTSENTINEL_PUBLIC_URL": "https://demo.ts.net"}):
+        addr = wifi_manager.get_reachable_addresses()
+    assert addr["remote"] == "https://demo.ts.net"
+
+
+def test_scan_falls_back_to_cached_when_rescan_empty():
+    cached = "HomeNet:80:WPA2\n"
+
+    def fake_run(cmd, **kw):
+        # First call (rescan yes) returns nothing; second (rescan no) returns cache.
+        rescan = cmd[cmd.index("--rescan") + 1]
+        return MagicMock(stdout=cached if rescan == "no" else "")
+
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", side_effect=fake_run):
+        opts = wifi_manager.scan_wifi_networks()
+    assert [o["value"] for o in opts] == ["HomeNet"]
 
 
 def test_get_local_ip_skips_loopback():

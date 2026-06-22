@@ -487,7 +487,7 @@ IoTSentinel AI-Powered Edge Network Guardian
 
     @app.callback(
         Output('email-history-list', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_email_history(ws_message):
         """Update email history list with configured email and recent activity."""

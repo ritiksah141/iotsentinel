@@ -326,7 +326,7 @@ def register(app):
     @app.callback(
         [Output('cpu-usage', 'children'),
          Output('ram-usage', 'children')],
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         prevent_initial_call=True  # Performance: Don't run on initial load
     )
     def update_system_metrics(ws_message):
@@ -347,7 +347,7 @@ def register(app):
         [Output('bandwidth-usage', 'children'),
          Output('threats-blocked', 'children'),
          Output('connection-count', 'children')],
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         prevent_initial_call=True  # Performance: Don't run on initial load
     )
     def update_header_stats(ws_message):
@@ -367,12 +367,45 @@ def register(app):
             return "-", "-", "-"
 
     # ========================================================================
+    # PRIVACY SCORE (overview metric card)
+    # ========================================================================
+
+    @app.callback(
+        Output('privacy-score-metric', 'children'),
+        Input('refresh-interval', 'n_intervals'),
+    )
+    def update_privacy_score_metric(_n):
+        """Fill the overview Privacy metric card. Mirrors the privacy-score
+        calculation in callbacks_devices/privacy modal so the value is
+        consistent across the app. Without this callback the card renders
+        empty (it had no Output wired to it)."""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT privacy_concern_level, COUNT(DISTINCT device_ip) as count
+                FROM cloud_connections
+                GROUP BY privacy_concern_level
+            ''')
+            concerns = {row['privacy_concern_level']: row['count'] for row in cursor.fetchall()}
+            high_concern = concerns.get('high', 0) + concerns.get('critical', 0)
+            total_devices = sum(concerns.values())
+            if total_devices == 0:
+                # No cloud connections analysed yet — privacy is nominally perfect.
+                return "100"
+            privacy_score = max(0, 100 - (high_concern / total_devices * 50))
+            return f"{privacy_score:.0f}"
+        except Exception as e:
+            logger.error(f"Error calculating privacy score metric: {e}")
+            return "-"
+
+    # ========================================================================
     # 2D NETWORK GRAPH
     # ========================================================================
 
     @app.callback(
         Output('network-graph', 'elements'),
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         prevent_initial_call=True  # Performance: Lazy load network graph
     )
     def update_network_graph(ws_message):
@@ -403,7 +436,7 @@ def register(app):
 
     @app.callback(
         Output('network-graph-3d', 'figure'),
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load 3D graph only when data arrives
     )
@@ -557,7 +590,7 @@ def register(app):
 
     @app.callback(
         Output('traffic-timeline', 'figure'),
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load traffic timeline
     )
@@ -591,7 +624,7 @@ def register(app):
 
     @app.callback(
         Output('protocol-pie', 'figure'),
-        [Input('ws', 'message'),
+        [Input('ws-data', 'data'),
          Input('global-device-filter', 'data')],
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # Performance: Lazy load protocol chart
@@ -643,7 +676,7 @@ def register(app):
 
     @app.callback(
         Output('devices-status-compact', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_devices_status_compact(ws_message):
         if ws_message is None:
@@ -712,7 +745,7 @@ def register(app):
 
     @app.callback(
         Output('active-devices-list', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_active_devices_list(ws_message):
         if ws_message is None:
@@ -794,7 +827,7 @@ def register(app):
 
     @app.callback(
         Output('alert-timeline', 'figure'),
-        [Input('ws', 'message'),
+        [Input('ws-data', 'data'),
          Input('global-severity-filter', 'data')],
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True
@@ -854,7 +887,7 @@ def register(app):
 
     @app.callback(
         Output('anomaly-distribution', 'figure'),
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # W15: skip page-load spike; WS data arrives shortly after
     )
@@ -883,7 +916,7 @@ def register(app):
 
     @app.callback(
         Output('bandwidth-chart', 'figure'),
-        Input('ws', 'message'),
+        Input('ws-data', 'data'),
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True  # W15: skip page-load spike
     )
@@ -912,7 +945,7 @@ def register(app):
 
     @app.callback(
         Output('device-heatmap', 'figure'),
-        [Input('ws', 'message'),
+        [Input('ws-data', 'data'),
          Input('global-device-filter', 'data')],
         State('resolved-theme-store', 'data'),
         prevent_initial_call=True
@@ -972,7 +1005,7 @@ def register(app):
 
     @app.callback(
         Output('security-summary-report', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_security_summary_report(ws_message):
         """Generate comprehensive Security Summary Report with real data"""
@@ -1311,7 +1344,7 @@ def register(app):
 
     @app.callback(
         Output('system-info', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_system_info(ws_message):
         if ws_message is None:
@@ -1509,7 +1542,7 @@ def register(app):
 
     @app.callback(
         Output('model-info', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_model_info(ws_message):
         if ws_message is None:
@@ -1525,7 +1558,7 @@ def register(app):
 
     @app.callback(
         Output('iot-security-widget', 'children'),
-        Input('ws', 'message')
+        Input('ws-data', 'data')
     )
     def update_iot_security_widget(ws_message):
         """Update IoT Security Status widget"""
@@ -2213,7 +2246,7 @@ def register(app):
          Output('ai-briefing-source-badge', 'className'),
          Output('ai-insights-content', 'children'),
          Output('ai-briefing-cache', 'data')],
-        [Input('ws', 'message'),
+        [Input('ws-data', 'data'),
          Input('ai-briefing-refresh-btn', 'n_clicks')],
         State('ai-briefing-cache', 'data'),
         prevent_initial_call=False,

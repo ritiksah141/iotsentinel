@@ -102,6 +102,20 @@ arm_hotspot() {
     log "hotspot ready — join '$HOTSPOT' (open, no password) and open http://10.42.0.1:$PORT/setup"
 }
 
+# Tear the setup hotspot down so wlan0 returns to being an ordinary Wi-Fi client.
+# Called after the wizard successfully joins home Wi-Fi: the AP and the client
+# share wlan0, so the lingering AP profile both blocks/confuses the client
+# connection and keeps the dashboard reachable only on 10.42.0.1. Best-effort.
+disarm_hotspot() {
+    log "tearing down '$HOTSPOT' (joined home Wi-Fi — wlan0 returns to client mode)"
+    nmcli connection down "$HOTSPOT" >/dev/null 2>&1 || true
+    nmcli connection delete "$HOTSPOT" >/dev/null 2>&1 || true
+    # Drop the captive port-80 redirect so normal browsing isn't bent to the dashboard.
+    iptables -t nat -D PREROUTING -i "$IFACE" -p tcp --dport 80 -j REDIRECT --to-port "$PORT" 2>/dev/null || true
+    # Reset the recovery watchdog so it doesn't immediately re-arm.
+    echo 0 > "$FAIL_FILE" 2>/dev/null || true
+}
+
 MODE="${1:-recover}"
 case "$MODE" in
     boot)
@@ -136,8 +150,11 @@ case "$MODE" in
             arm_hotspot
         fi
         ;;
+    disarm)
+        disarm_hotspot
+        ;;
     *)
-        log "usage: setup_hotspot.sh [boot|recover]"
+        log "usage: setup_hotspot.sh [boot|recover|disarm]"
         exit 2
         ;;
 esac

@@ -77,7 +77,7 @@ def register(app):
     # Store alerts data from websocket OR interval (fallback for Mac/websocket issues)
     @app.callback(
         Output('alerts-data-store', 'data'),
-        [Input('ws', 'message'), Input('refresh-interval', 'n_intervals')],
+        [Input('ws-data', 'data'), Input('refresh-interval', 'n_intervals')],
         prevent_initial_call=True  # W15: WS populates on connect; don't burst DB on page load
     )
     def store_alerts_data(ws_message, n_intervals):

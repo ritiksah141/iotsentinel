@@ -307,6 +307,13 @@ class IoTSentinelOrchestrator:
 
         self.running = True
 
+        # Self-heal the monitored subnet. The setup wizard can only guess the LAN
+        # while the Pi is still on its own 10.42.0.1 hotspot, so local_networks is
+        # often left as the hotspot range or the shipped default — which makes
+        # device discovery scan an empty network. Once the Pi is on home Wi-Fi we
+        # can read the real subnet off the interface.
+        self._autodetect_local_network()
+
         # In gateway mode, bring the IoT access point up FIRST so its interface
         # exists before Zeek targets it. No-op (and safe) in passive mode.
         self._ensure_ap_configured()
@@ -1592,6 +1599,38 @@ class IoTSentinelOrchestrator:
         finally:
             if self.upnp_scanner:
                 self.upnp_scanner.stop_passive_listener()
+
+    def _autodetect_local_network(self):
+        """Update network.local_networks to the subnet the Pi is actually on.
+
+        Only runs in passive mode and only overwrites a placeholder value (the
+        shipped default or the hotspot range), so a subnet the user set on
+        purpose is never clobbered. Best-effort — never fatal to startup.
+        """
+        try:
+            mode = config.get('network', 'capture_mode', default='passive')
+            if mode == 'gateway':
+                return  # gateway mode monitors the AP subnet, not the home LAN
+            from utils.net_detect import detect_active_cidr, PLACEHOLDER_CIDRS
+            current = config.get('network', {}).get('local_networks', ['192.168.1.0/24'])
+            current_first = current[0] if current else None
+            if current_first and current_first not in PLACEHOLDER_CIDRS:
+                return  # user/previous run already set a real subnet
+            iface = config.get('network', 'interface', default='wlan0') or 'wlan0'
+            detected = detect_active_cidr(iface)
+            if detected and detected != current_first:
+                config.update('network', 'local_networks', [detected])
+                logger.info(f"Auto-detected home subnet {detected} on {iface} "
+                            f"(was {current_first}) — updated network.local_networks")
+                # The ARP scanner cached its range at construction (before this
+                # ran), so refresh it now or it would keep scanning the old subnet.
+                if self.arp_scanner is not None:
+                    try:
+                        self.arp_scanner.network_range = detected
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning(f"Local-network auto-detection failed: {e}")
 
     def _active_scan_loop(self):
         """Background loop for active network scanning with nmap."""

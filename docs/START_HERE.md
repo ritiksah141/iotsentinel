@@ -110,7 +110,7 @@ Log in with the password you created.
 
 > On **Windows or Android**, if `iotsentinel.local` doesn't open, use the Pi's number address
 > (like `http://192.168.1.42:8050`). The last setup screen shows it, and it's always listed
-> under **Settings → Network**.
+> under **Quick Settings → Network**.
 
 ---
 
@@ -195,8 +195,8 @@ local AI in the wizard. Your data stays yours.
 |---|---|
 | `IoTSentinel-Setup` doesn't appear | Wait the full 2 minutes. Then unplug the Pi, wait 5 seconds, and power it back on. Use the official power supply. If it still doesn't show, power off, put the SD card back in your computer, and open **`iotsentinel-firstboot.txt`** on the card's small `bootfs` drive - it explains exactly what happened. |
 | The setup page won't load | Make sure your phone is connected to `IoTSentinel-Setup` (not your home Wi-Fi), then reload `http://10.42.0.1:8050/setup`. |
-| Can't reach `iotsentinel.local` later | Use the Pi's number address shown on the last setup screen and under **Settings → Network**. |
-| You moved house or changed Wi-Fi | The Pi re-opens `IoTSentinel-Setup` after a few minutes offline - reconnect and pick the new Wi-Fi, or change it under **Settings → Network**. |
+| Can't reach `iotsentinel.local` later | Use the Pi's number address shown on the last setup screen and under **Quick Settings → Network**. |
+| You moved house or changed Wi-Fi | The Pi re-opens `IoTSentinel-Setup` after a few minutes offline - reconnect and pick the new Wi-Fi, or change it under **Quick Settings → Network**. |
 | Forgot your password | Re-flash the SD card (Step 1) to start fresh. |
 
 **More help:** the full guide and project are online at
