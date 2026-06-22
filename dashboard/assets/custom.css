@@ -3178,14 +3178,10 @@ body.dark-mode .bg-smart-template {
   transition: all var(--transition-base) ease;
 }
 
+/* Expanded header: a subtle neutral highlight (NOT the full purple gradient) so the
+ * setup wizard and the notification setup read as calm, greyish panels. Used to be
+ * scoped to `.modal` only, which left the non-modal wizard accordion bright purple. */
 .accordion-button:not(.collapsed) {
-  background: var(--gradient-accent);
-  color: white;
-  box-shadow: 0 0 20px var(--accent-glow);
-}
-
-/* Modal accordions: use subtle highlight instead of the full purple gradient */
-.modal .accordion-button:not(.collapsed) {
   background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-tertiary));
   color: var(--text-primary);
   box-shadow: inset 0 -1px 0 rgba(255,255,255,0.08);

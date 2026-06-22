@@ -251,7 +251,10 @@ def _validate_groq(api_key: str) -> tuple[bool, str]:
             return True, "✓ Key verified!"
         return False, f"That key didn't work (status {r.status_code}). Check it and try again."
     except Exception:
-        return False, "Could not reach Groq. Check your internet connection."
+        # Expected during setup: the Pi is on the offline IoTSentinel-Setup hotspot and
+        # only joins home Wi-Fi (internet) on the last step. Don't show a red error —
+        # accept the key and verify it automatically once the Pi is online. ok=None.
+        return None, "Saved. Your Pi has no internet during setup, so we'll verify this key automatically once it's online."
 
 
 def _detect_ollama(url: str = "http://localhost:11434/api/tags",
@@ -377,7 +380,8 @@ def _validate_abuseipdb(api_key: str) -> tuple[bool, str]:
             return True, "✓ Key verified!"
         return False, f"That key didn't work (status {r.status_code}). Check it and try again."
     except Exception:
-        return False, "Could not reach AbuseIPDB. Check your internet connection."
+        # Offline during setup (hotspot, no uplink) — accept and verify once online. ok=None.
+        return None, "Saved. Your Pi has no internet during setup, so we'll verify this key automatically once it's online."
 
 
 def register(app):
@@ -480,6 +484,10 @@ def register(app):
         if triggered == "quick-settings-modal" and not is_open:
             raise dash.exceptions.PreventUpdate
 
+        # Reload .env so the remote-access URL (IOTSENTINEL_PUBLIC_URL) the wizard wrote
+        # is current in this process, not the stale value from dashboard startup.
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
         # "How to reach this device" — always useful, even without nmcli.
         addr = wifi_manager.get_reachable_addresses()
         reach = [html.I(className="fa fa-location-dot me-1"),
@@ -889,7 +897,8 @@ def register(app):
         if not api_key:
             return ""
         ok, msg = _validate_groq(api_key)
-        return html.Span(msg, className="text-success" if ok else "text-danger")
+        cls = "text-success" if ok else ("text-muted" if ok is None else "text-danger")
+        return html.Span(msg, className=cls)
 
     # ------------------------------------------------------------------
     # Local AI (Ollama) detection
@@ -934,7 +943,8 @@ def register(app):
         if not api_key:
             return ""
         ok, msg = _validate_abuseipdb(api_key)
-        return html.Span(msg, className="text-success" if ok else "text-danger")
+        cls = "text-success" if ok else ("text-muted" if ok is None else "text-danger")
+        return html.Span(msg, className=cls)
 
     # ------------------------------------------------------------------
     # ntfy QR code + URL live update (fires when the topic changes)

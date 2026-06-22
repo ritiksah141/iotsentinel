@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 import dash
 import dash_bootstrap_components as dbc
 from dash import (html, Input, Output, State, callback_context, ALL, no_update)
+from dotenv import load_dotenv
 from flask_login import login_required, current_user
 
 from dashboard.shared import (
@@ -64,6 +65,43 @@ def register(app):
             recipient_email = os.environ.get('EMAIL_RECIPIENT_EMAIL', '')
 
         return enabled, recipient_email
+
+    @app.callback(
+        [Output('notif-ntfy-topic', 'value'),
+         Output('notif-ntfy-server', 'value'),
+         Output('notif-telegram-token', 'value'),
+         Output('notif-telegram-chat', 'value'),
+         Output('notif-discord-webhook', 'value'),
+         Output('notif-webhook-url', 'value'),
+         Output('smtp-host-input', 'value'),
+         Output('smtp-port-input', 'value'),
+         Output('smtp-user-input', 'value'),
+         Output('smtp-password-input', 'value'),
+         Output('test-email-address', 'value')],
+        Input('email-modal', 'is_open'),
+        prevent_initial_call=True,
+    )
+    def load_notification_settings(is_open):
+        """Pre-fill the Notifications modal from the saved .env so channels configured in
+        the setup wizard (ntfy, email, Telegram, ...) show their values here instead of
+        blank fields. Reloads .env first so external/wizard writes are picked up live."""
+        if not is_open:
+            raise dash.exceptions.PreventUpdate
+        load_dotenv(override=True)
+        g = os.environ.get
+        return (
+            g('NOTIFICATIONS_NTFY_TOPIC', ''),
+            g('NOTIFICATIONS_NTFY_SERVER', '') or 'https://ntfy.sh',
+            g('NOTIFICATIONS_TELEGRAM_BOT_TOKEN', ''),
+            g('NOTIFICATIONS_TELEGRAM_CHAT_ID', ''),
+            g('NOTIFICATIONS_DISCORD_WEBHOOK_URL', ''),
+            g('NOTIFICATIONS_WEBHOOK_URL', ''),
+            g('EMAIL_SMTP_HOST', '') or 'smtp.gmail.com',
+            g('EMAIL_SMTP_PORT', '') or '587',
+            g('EMAIL_SMTP_USER', ''),
+            g('EMAIL_SMTP_PASSWORD', ''),
+            g('EMAIL_RECIPIENT_EMAIL', ''),
+        )
 
     @app.callback(
         [Output('toast-container', 'children', allow_duplicate=True),
@@ -172,15 +210,22 @@ def register(app):
     @app.callback(
         Output('toast-container', 'children', allow_duplicate=True),
         Input('test-email-btn', 'n_clicks'),
-        State('email-to', 'value'),
+        [State('test-email-address', 'value'),
+         State('email-to', 'value')],
         prevent_initial_call=True
     )
-    def send_test_email(n_clicks, recipient_email):
+    def send_test_email(n_clicks, test_recipient, recipient_email):
         """Send a test email to verify configuration from environment variables"""
         if n_clicks is None:
             raise dash.exceptions.PreventUpdate
 
         try:
+            # Pick up any creds the setup wizard / SMTP tab just wrote to .env, so the
+            # test isn't blocked by a stale in-process environment.
+            load_dotenv(override=True)
+            # Recipient: the Test-tab field first (it sits next to this button), then the
+            # Email-tab field, then the configured default.
+            recipient_email = test_recipient or recipient_email
             # Load SMTP settings from environment variables
             smtp_host = os.environ.get('EMAIL_SMTP_HOST')
             smtp_port = os.environ.get('EMAIL_SMTP_PORT')

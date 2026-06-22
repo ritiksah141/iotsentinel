@@ -557,7 +557,7 @@ def register(app):
 
             table_body = [html.Tbody(table_rows)]
 
-            return dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
+            return dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, className="mb-0 table-adaptive")
 
         except Exception as e:
             logger.error(f"Error loading segments list: {e}")
@@ -689,7 +689,7 @@ def register(app):
 
             table_body = [html.Tbody(table_rows)]
 
-            return dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
+            return dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, className="mb-0 table-adaptive")
 
         except Exception as e:
             logger.error(f"Error loading device mapping: {e}")
@@ -803,7 +803,7 @@ def register(app):
                 ]))
 
             table_body = [html.Tbody(table_rows)]
-            violations_table = dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, dark=False, className="mb-0 table-adaptive")
+            violations_table = dbc.Table(table_header + table_body, bordered=True, hover=True, responsive=True, className="mb-0 table-adaptive")
 
             return timeline_chart, violations_table
 

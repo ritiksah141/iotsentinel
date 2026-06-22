@@ -355,6 +355,11 @@ def _extract_brand(manufacturer: str) -> Optional[str]:
     """Extract a clean brand name from an OUI manufacturer string."""
     if not manufacturer or manufacturer.lower() in ('unknown', ''):
         return None
+    # A randomized/locally-administered MAC has no real vendor — don't mangle the
+    # sentinel string into a fake brand ("Private/Random Device"). _build_manufacturer
+    # _fallback handles these separately into a clean "Private device".
+    if 'private' in manufacturer.lower() or 'random' in manufacturer.lower():
+        return None
     low = manufacturer.lower()
     # Check known brand map first (longest match wins)
     for key, brand in _BRAND_MAP.items():
@@ -377,6 +382,13 @@ def _build_manufacturer_fallback(
     Build a friendly label like 'Samsung TV' or 'TP-Link Router'.
     Returns None if neither vendor nor type is known.
     """
+    # Privacy MAC randomization (common on modern phones/laptops) reports no real
+    # vendor. Give it a clean, honest label rather than a raw MAC or mangled string.
+    mfr_low = (manufacturer or '').lower()
+    if 'private' in mfr_low or 'random' in mfr_low:
+        tw = _TYPE_DISPLAY.get((device_type or '').lower())
+        return f"Private {tw}" if tw and tw not in ('Unknown', 'IoT Device') else "Private device"
+
     brand      = _extract_brand(manufacturer or '')
     type_word  = _TYPE_DISPLAY.get((device_type or '').lower())
 
@@ -411,6 +423,11 @@ def is_synthetic(name: Optional[str]) -> bool:
     if name.lower() in ('unknown', 'none'):
         return True
     if name.startswith('Device-') and len(name) == 13:
+        return True
+    # MAC-derived placeholders (e.g. 'MAC-C3D40B' from older builds / seed data) carry
+    # no human-readable info — treat as synthetic so they get re-resolved to a friendly
+    # vendor/hostname name instead of lingering in the device list and topology.
+    if name.upper().startswith('MAC-'):
         return True
     # Looks like a raw IP address
     parts = name.split('.')
