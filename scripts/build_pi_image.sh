@@ -329,13 +329,18 @@ step "Verifying IoTSentinel was actually installed into the image"
 # produced a "successful" build whose image had NO IoTSentinel services at all
 # (no hotspot, no dashboard on the real Pi). Assert against the built rootfs so a
 # broken install fails the build LOUDLY instead of shipping a dead image.
-# NOTE: the built rootfs is root-owned, so these must use sudo to traverse it; and
-# the find|head pipeline must not trip `set -o pipefail` (SIGPIPE/permission) and
-# abort the whole build — hence `|| true`.
-ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -path "*/export-image/rootfs" 2>/dev/null | head -1)" || true
+# Inspect the CUSTOM STAGE's rootfs — that is the real, populated filesystem on disk
+# (and exactly what gets packaged into the .img). NOT export-image/rootfs: pi-gen
+# unmounts that after writing the image, leaving an empty mountpoint that would make
+# every check fail. root-owned -> sudo; find|head must not trip pipefail -> `|| true`.
+ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -path "*/${STAGE_NAME}/rootfs" 2>/dev/null | head -1)" || true
+if [ -z "$ROOTFS" ]; then
+  ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -path "*/export-image/rootfs" 2>/dev/null | head -1)" || true
+fi
 if [ -z "$ROOTFS" ]; then
   ROOTFS="$(sudo find "$PIGEN_DIR/work" -type d -name rootfs 2>/dev/null | sort | tail -1)" || true
 fi
+[ -n "$ROOTFS" ] && echo "  Inspecting rootfs: $ROOTFS"
 if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
   APP="home/sentinel/iotsentinel"
   # Resolve the venv site-packages dir (don't hardcode the python minor version).
