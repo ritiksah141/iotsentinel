@@ -164,6 +164,9 @@ def test_setup_runs_as_root_not_su(staged):
 def test_setup_guide_html_is_offline_and_navigable(tmp_path):
     """The shipped HTML guide must be self-contained (offline) and navigable: a TOC,
     reading progress, theme toggle, and zero external script/style/img asset loads."""
+    # `markdown` is a build-only dependency (installed by the image-build + test
+    # workflows, not a runtime requirement). Skip rather than fail where it is absent.
+    pytest.importorskip("markdown")
     out = tmp_path / "guide.html"
     r = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "build_setup_guide_html.py"), str(out)],
