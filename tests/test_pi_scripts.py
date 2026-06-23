@@ -92,3 +92,14 @@ class TestSetupHotspotScript:
         # Inside the home-Wi-Fi branch we must call disarm_hotspot when one is active.
         assert "disarm_hotspot" in recover, \
             "recover) must tear down a lingering hotspot once on home Wi-Fi"
+
+    def test_recover_nudges_saved_home_profile_before_arming(self):
+        """Single-radio trap: once the AP is re-armed NM can never autoconnect, so while
+        offline AND the radio is free, recover must first try to activate the wizard's
+        saved home profile — and only arm the hotspot if that join fails."""
+        text = self.PATH.read_text()
+        assert "saved_home_profile" in text and "try_home_profile" in text
+        recover = text.split("recover)", 1)[1].split("disarm)", 1)[0]
+        # The nudge must run before the threshold counter / arm path.
+        assert recover.index("try_home_profile") < recover.index("arm_hotspot"), \
+            "must attempt the saved home profile before arming the setup hotspot"
