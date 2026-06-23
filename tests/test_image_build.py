@@ -384,9 +384,14 @@ def test_setup_pi_sudoers_grants_hotspot_teardown_and_backend_restart():
     assert "/usr/bin/systemctl restart iotsentinel-backend" in sudoers, "backend restart not granted"
     assert "nmcli connection down" in sudoers and "nmcli connection delete" in sudoers, \
         "nmcli teardown fallback not granted"
+    # Profile-first home-Wi-Fi join: the wizard persists an autoconnect client profile
+    # and activates it, so these grants MUST be present or the deferred join can't run
+    # and the Pi is stranded after the hotspot is torn down (the rc6 hardware bug).
+    assert "nmcli connection add" in sudoers and "nmcli connection up" in sudoers, \
+        "home Wi-Fi profile create/activate not granted"
     # The idempotency guard must key on a token unique to the current line, so an older
     # install's sudoers file is rewritten with the new grants rather than left stale.
-    assert 'grep -qF "setup_hotspot.sh disarm"' in text
+    assert 'grep -qF "nmcli connection up"' in text
 
 
 def test_deps_stage_fixes_apt_tmp():

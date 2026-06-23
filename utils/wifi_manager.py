@@ -155,72 +155,131 @@ def teardown_setup_hotspot(iface: str = "wlan0") -> None:
         logger.warning("Direct hotspot teardown failed: %s", e)
 
 
+# How many times to (re)activate the saved home profile before giving up on a live
+# confirmation. Each attempt allows the radio to finish leaving AP mode; the saved
+# autoconnect profile keeps NetworkManager trying afterwards regardless.
+_CONNECT_ATTEMPTS = 4
+
+
+def _iface_state(iface: str) -> str | None:
+    """Return NetworkManager's state for *iface* (e.g. 'connected', 'disconnected',
+    'connecting', 'unavailable'), or None if it can't be read."""
+    try:
+        r = subprocess.run(["nmcli", "-t", "-f", "DEVICE,STATE", "device", "status"],
+                           capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            dev, _, state = line.partition(":")
+            if dev.strip() == iface:
+                return state.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _create_home_profile(ssid: str, password: str, iface: str) -> bool:
+    """Persist a NetworkManager client profile for the home network with autoconnect
+    ON, BEFORE the setup hotspot comes down. Writing a profile needs no radio (it is
+    safe while wlan0 is still hosting the AP), so the credentials survive even if the
+    live activation below is slow or the request is cut off when wlan0 leaves the AP —
+    NM keeps retrying while the radio is free, and the join survives a reboot.
+
+    The same-named profile is deleted first so repeated setups never stack duplicates.
+    Returns True if the add succeeded.
+    """
+    # Drop any stale profile of the same name (best-effort).
+    subprocess.run(["sudo", "-n", "nmcli", "connection", "delete", ssid],
+                   capture_output=True, text=True, timeout=10)
+    add = ["sudo", "-n", "nmcli", "connection", "add", "type", "wifi",
+           "con-name", ssid, "ifname", iface, "ssid", ssid,
+           "connection.autoconnect", "yes", "connection.autoconnect-priority", "10"]
+    if password:
+        add += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
+    try:
+        r = subprocess.run(add, capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            logger.warning("home Wi-Fi profile add exited %s (%s)",
+                           r.returncode, (r.stderr or r.stdout or "").strip())
+        return r.returncode == 0
+    except Exception as e:
+        logger.warning("could not pre-create home Wi-Fi profile: %s", e)
+        return False
+
+
 def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, str]:
     """Switch the Pi to a WiFi network using nmcli. Returns (success, message).
 
-    A timeout is treated as a soft success: nmcli often does connect the Pi to the
-    new network but the response is lost because switching networks drops the very
-    connection this request came in on.
+    Profile-first / autoconnect model (the rc6 deferred join left the Pi stranded —
+    it deleted the setup AP and then ran a one-shot `nmcli dev wifi connect`; if that
+    single attempt failed, wlan0 was on neither the hotspot nor home Wi-Fi, and no
+    home profile had been saved). Instead we:
 
-    The provisioning hotspot is torn down FIRST: a radio hosting the AP is in AP mode
-    and cannot scan or associate, so nmcli would fail with "No network with SSID
-    '<ssid>' found". Bringing the AP down returns wlan0 to managed/client mode so the
-    scan + connect can actually happen. (This is why the join is deferred to the
-    wizard's final step — the teardown drops the session it came in on.)
+      1. PERSIST the home profile first (autoconnect yes) — no radio needed, so the
+         credentials are safe even before the AP comes down and survive a reboot.
+      2. Tear the setup AP down so wlan0 returns to managed/client mode (a radio in
+         AP mode can't associate). No-op when no hotspot is up (post-setup Change WiFi).
+      3. Wait for wlan0 to leave AP mode, then bring the profile up and VERIFY a real
+         connection, retrying across a short window — the first activation often races
+         the radio finishing its switch out of AP mode.
+
+    A timeout is treated as a soft success: `nmcli connection up` often does connect
+    the Pi but the reply is lost when wlan0 switches networks. The saved autoconnect
+    profile means NM completes/retries the join on its own.
     """
     if not ssid:
         return False, "Please select a WiFi network first."
     if not nmcli_available():
         return False, "nmcli not available on this device."
 
-    # 1) Drop the setup AP so wlan0 leaves AP mode (no-op if no hotspot is up, e.g. a
-    #    post-setup "Change WiFi" while already on home Wi-Fi).
-    teardown_setup_hotspot(iface)
-    # 2) Give NetworkManager a moment to return wlan0 to managed mode, then warm a
-    #    fresh scan so the target SSID is in range before we associate. Best-effort.
-    time.sleep(2)
-    try:
-        subprocess.run(
-            ["nmcli", "dev", "wifi", "list", "ifname", iface, "--rescan", "yes"],
-            capture_output=True, text=True, timeout=15,
-        )
-    except Exception:
-        pass
+    success_msg = (
+        f"Connected to “{ssid}”. Your Pi is now on this network. "
+        f"Reconnect this device to the same WiFi, then reopen "
+        f"http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT}."
+    )
+    soft_msg = (
+        f"Switching to “{ssid}”… Rejoin that network on this device and "
+        f"reopen http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT} to continue."
+    )
 
-    try:
-        # 3) Associate. nmcli will also rescan internally if needed now that wlan0 is
-        #    a client. A retry covers the case where the first scan landed just before
-        #    the radio settled and the SSID wasn't listed yet.
-        cmd = ["sudo", "nmcli", "dev", "wifi", "connect", ssid]
-        if password:
-            cmd += ["password", password]
-        cmd += ["ifname", iface]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode != 0 and "No network with SSID" in (
-            result.stderr + result.stdout
-        ):
-            time.sleep(3)
-            subprocess.run(
-                ["nmcli", "dev", "wifi", "list", "ifname", iface, "--rescan", "yes"],
-                capture_output=True, text=True, timeout=15,
-            )
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            return True, (
-                f"Connected to “{ssid}”. Your Pi is now on this network. "
-                f"Reconnect this device to the same WiFi, then reopen "
-                f"http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT}."
-            )
-        err = result.stderr.strip() or result.stdout.strip()
-        return False, err or "Connection failed. Check your WiFi password and try again."
-    except subprocess.TimeoutExpired:
-        # nmcli usually did connect; the reply was lost when wlan0 switched networks.
-        return True, (
-            f"Switching to “{ssid}”… Rejoin that network on this device and "
-            f"reopen http://{DEFAULT_MDNS_HOST}:{DASHBOARD_PORT} to continue."
-        )
-    except Exception as e:
-        return False, str(e)
+    # 1) Save the home profile while we still have the radio in a known state.
+    _create_home_profile(ssid, password, iface)
+
+    # 2) Drop the setup AP so wlan0 leaves AP mode (no-op if no hotspot is up).
+    teardown_setup_hotspot(iface)
+
+    # 3) Wait (best-effort) for wlan0 to come back to a managed state before activating.
+    for _ in range(10):
+        if _iface_state(iface) in ("disconnected", "connecting", "connected"):
+            break
+        time.sleep(1)
+
+    # 4) Bring the saved profile up and confirm we actually landed on the home network,
+    #    retrying a few times to ride out the AP→client transition.
+    up_cmd = ["sudo", "-n", "nmcli", "connection", "up", ssid, "ifname", iface]
+    last_err = ""
+    for _ in range(_CONNECT_ATTEMPTS):
+        try:
+            result = subprocess.run(up_cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            # Reply lost as wlan0 switched networks; the autoconnect profile finishes it.
+            return True, soft_msg
+        except Exception as e:
+            return False, str(e)
+        if result.returncode == 0 and current_wifi() == ssid:
+            return True, success_msg
+        last_err = (result.stderr or result.stdout or "").strip()
+        el = last_err.lower()
+        # A wrong password / missing secret will never fix itself with retries.
+        if "secrets were required" in el or "no secrets" in el:
+            return False, "Connection failed - check your WiFi password and try again."
+        time.sleep(4)
+
+    # Out of attempts. If we are in fact on the network now, call it a success;
+    # otherwise surface the error (or a soft "still switching" if NM is mid-activation).
+    if current_wifi() == ssid:
+        return True, success_msg
+    if last_err:
+        return False, last_err
+    return True, soft_msg
 
 
 def set_country(country: str) -> tuple[bool, str]:

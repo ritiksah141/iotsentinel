@@ -45,6 +45,25 @@ hotspot_active() {
     nmcli -t -f NAME connection show --active 2>/dev/null | grep -q "^${HOTSPOT}\$"
 }
 
+# Name of a saved Wi-Fi client profile that is NOT our setup AP, i.e. the home network
+# the wizard persisted with autoconnect. Empty if none exists yet.
+saved_home_profile() {
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+        | grep ":802-11-wireless\$" | grep -v "^${HOTSPOT}:" | head -1 | cut -d: -f1
+}
+
+# Give a saved home profile an explicit activation push. On a single radio, NM cannot
+# autoconnect while the AP is up, so the wizard's autoconnect profile can otherwise sit
+# idle. Called while offline and BEFORE arming the hotspot, so it never flaps a live AP.
+try_home_profile() {
+    local home
+    home="$(saved_home_profile)"
+    [ -n "$home" ] || return 1
+    log "offline with saved home profile '$home' — attempting to (re)join before arming AP"
+    nmcli --wait 20 connection up "$home" >/dev/null 2>&1 || true
+    [ -n "$(active_home_wifi)" ]
+}
+
 # Wait (best-effort, up to ~60s) for NetworkManager to be running and for the Wi-Fi
 # interface to be managed and available. On a cold first boot the provision one-shot
 # can otherwise fire before NM has taken over wlan0, so the AP creation silently
@@ -149,6 +168,14 @@ case "$MODE" in
         fi
         # No home Wi-Fi. If the recovery hotspot is already up, leave it (do not flap).
         if hotspot_active; then exit 0; fi
+        # The radio is free (no AP up): nudge a saved home profile up first. If it joins,
+        # we are back on home Wi-Fi and never arm the AP — this breaks the single-radio
+        # trap where a re-armed hotspot permanently blocks NM's autoconnect.
+        if try_home_profile; then
+            echo 0 > "$FAIL_FILE" 2>/dev/null || true
+            log "re-joined home WiFi via saved profile — hotspot not needed"
+            exit 0
+        fi
         count=$(cat "$FAIL_FILE" 2>/dev/null || echo 0)
         count=$((count + 1))
         echo "$count" > "$FAIL_FILE" 2>/dev/null || true
