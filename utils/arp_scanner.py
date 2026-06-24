@@ -29,6 +29,11 @@ from utils.name_resolver import resolve_name, is_synthetic
 
 logger = logging.getLogger(__name__)
 
+# Cap for the active ping sweep. /24=254, /23=510, /22=1022 hosts are swept fully;
+# anything larger (a misconfigured or unusually large home LAN) falls back to the
+# passive kernel neighbour table so discovery never hangs for minutes.
+_MAX_SWEEP_HOSTS = 1024
+
 # Always available — no privilege flag needed
 SCAPY_AVAILABLE = False  # kept for orchestrator import compatibility
 
@@ -95,6 +100,15 @@ class ARPScanner:
             return
 
         hosts = list(net.hosts())
+        # Most home LANs are /24 (254 hosts). Some routers hand out a larger range
+        # (/22, /20, /16); actively pinging tens of thousands of addresses would hang
+        # discovery for minutes. Cap the ACTIVE sweep — the passive 'ip neigh' read still
+        # surfaces everything the kernel already knows, so big subnets degrade gracefully.
+        if len(hosts) > _MAX_SWEEP_HOSTS:
+            logger.warning(
+                f"Subnet {self.network_range} is large ({len(hosts)} hosts) — skipping the "
+                f"active ping sweep and relying on the kernel neighbour table for discovery.")
+            return
         logger.info(f"Ping sweep: {len(hosts)} hosts in {self.network_range}")
 
         # Not a `with` block: on shutdown we break out and cancel the queued pings
@@ -211,10 +225,18 @@ class ARPScanner:
         at 10.42.0.x. Those are provisioning artifacts, not home-network devices, and must
         never enter the inventory — the Connected Devices list should reflect the home
         Wi-Fi (the monitored subnet), not the setup AP. Scoping to network_range also
-        naturally drops anything on another interface. Fails open on a bad range so a
-        mis-detected subnet never silently hides every device.
+        naturally drops anything on another interface.
+
+        CRITICAL: fail OPEN while the range is still a PLACEHOLDER (the shipped default or
+        the hotspot range) — i.e. before the orchestrator's subnet self-heal has locked
+        the real LAN. Otherwise, on a home network that isn't 192.168.1.0/24 (e.g. Virgin
+        Media's 192.168.0.x), filtering against the stale placeholder would drop EVERY real
+        device and the dashboard would show 0/0. Only scope once a real subnet is locked.
         """
         try:
+            from utils.net_detect import PLACEHOLDER_CIDRS
+            if self.network_range in PLACEHOLDER_CIDRS:
+                return True  # subnet not confirmed yet — never hide real devices
             return ipaddress.ip_address(ip) in ipaddress.ip_network(
                 self.network_range, strict=False)
         except Exception:

@@ -430,6 +430,15 @@ if [ -n "$ROOTFS" ] && [ -d "$ROOTFS" ]; then
     die "Image is INCOMPLETE — setup_pi.sh did not finish in the chroot. Missing:$(echo -e "$_missing")\n  Check $DEPLOY_DIR/build.log for the failure."
   fi
 
+  # Tailscale (remote access) — NON-fatal visibility: the installer is best-effort in the
+  # chroot, and remote access is enabled post-setup from Settings. Surface its presence so
+  # a missing binary is obvious in the build log rather than only discovered on hardware.
+  if sudo test -e "$ROOTFS/usr/bin/tailscale" || sudo test -e "$ROOTFS/usr/sbin/tailscale"; then
+    echo "  ✓ Tailscale present — remote access can be enabled from Settings"
+  else
+    warn "Tailscale NOT installed in image — remote access (Settings → Network) will be unavailable until it is installed on the device."
+  fi
+
   # Gateway sudoers MUST carry the inline-enforcement grants (block/unblock on the Pi).
   _sudoers_missing=""
   for grant in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh" "/opt/zeek/bin/zeekctl" \

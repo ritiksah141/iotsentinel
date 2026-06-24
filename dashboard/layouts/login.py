@@ -300,6 +300,10 @@ login_layout = dbc.Container([
 
                         # Verification code (hidden until sent)
                         html.Div([
+                            # When email/SMTP isn't configured, the code can't be emailed —
+                            # show it right here so registration still works on a LAN-only
+                            # appliance (the admin controls who can reach the dashboard).
+                            html.Div(id="verification-code-hint", className="small mb-2"),
                             html.Div([
                                 html.I(className="fa fa-key input-icon"),
                                 dbc.Input(id="verification-code", type="text",

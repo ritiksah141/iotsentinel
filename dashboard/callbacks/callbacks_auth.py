@@ -1660,13 +1660,14 @@ def register(app, login_layout, dashboard_layout):
         [Output('verification-code-container', 'style'),
          Output('verification-code-sent', 'data'),
          Output('send-verification-btn', 'disabled'),
-         Output('toast-container', 'children', allow_duplicate=True)],
+         Output('toast-container', 'children', allow_duplicate=True),
+         Output('verification-code-hint', 'children')],
         Input('send-verification-btn', 'n_clicks'),
         State('register-email', 'value'),
         prevent_initial_call=True
     )
     def send_verification_code(n_clicks, email):
-        """Send verification code to email"""
+        """Send verification code to email (or show it on-screen if email isn't set up)."""
         if n_clicks is None:
             raise dash.exceptions.PreventUpdate
 
@@ -1676,7 +1677,7 @@ def register(app, login_layout, dashboard_layout):
                 "Invalid Email",
                 detail_message="Please enter a valid email address"
             )
-            return {"display": "none"}, False, False, toast
+            return {"display": "none"}, False, False, toast, ""
 
         # Generate 6-digit code
         code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
@@ -1695,15 +1696,23 @@ def register(app, login_layout, dashboard_layout):
                 "Code Sent",
                 detail_message=f"Verification code sent to {email}"
             )
-            return {"display": "block"}, True, True, toast
+            return {"display": "block"}, True, True, toast, ""
         else:
-            # For development/testing - show code in toast if email fails
-            logger.warning(f"Email sending failed. Verification code for {email}: {code}")
+            # Email/SMTP not configured (common on a LAN appliance) — show the code on
+            # screen, PERSISTENTLY, so registration still works without Gmail set up.
+            logger.warning(f"Email not configured. Verification code for {email}: {code}")
+            hint = dbc.Alert([
+                html.I(className="fa fa-circle-info me-2"),
+                "Email isn't set up on this device, so here's your code: ",
+                html.Strong(code, className="fs-5 ms-1"),
+                html.Div("Enter it below to continue. (Set up email later in Settings to "
+                         "deliver codes by email instead.)", className="small text-muted mt-1"),
+            ], color=None, className="glass-alert-info small mb-2")
             toast = ToastManager.info(
-                "Email Service Down",
-                detail_message=f"Email service unavailable. Your verification code is: {code}"
+                "Your verification code",
+                detail_message=f"Email isn't configured — your code is {code}"
             )
-            return {"display": "block"}, True, True, toast
+            return {"display": "block"}, True, True, toast, hint
 
     # ------------------------------------------------------------------
     # Code verification
@@ -1916,10 +1925,11 @@ def register(app, login_layout, dashboard_layout):
          State('register-password-confirm', 'value'),
          State('register-role', 'data'),
          State('register-template-select', 'value'),
-         State('register-family-role-select', 'value')],
+         State('register-family-role-select', 'value'),
+         State('email-verified', 'data')],
         prevent_initial_call=True
     )
-    def handle_registration(n_clicks, email, username, password, password_confirm, role, template, family_role):
+    def handle_registration(n_clicks, email, username, password, password_confirm, role, template, family_role, email_verified):
         """Handle user registration"""
         if n_clicks is None:
             raise dash.exceptions.PreventUpdate
@@ -1981,6 +1991,18 @@ def register(app, login_layout, dashboard_layout):
 
                 if user_result:
                     new_user_id = user_result[0]
+
+                    # Mark the email verified: the register button is gated on a verified
+                    # code, so reaching here means the OTP was confirmed. Without this the
+                    # new user is created with email_verified=0 and the very next login is
+                    # rejected with "email not verified" (the registration bug).
+                    if email_verified:
+                        try:
+                            cursor.execute(
+                                "UPDATE users SET email_verified = 1 WHERE id = ?",
+                                (new_user_id,))
+                        except Exception as _ev:
+                            logger.warning(f"Could not set email_verified for new user: {_ev}")
 
                     # Determine user restrictions based on family role
                     is_kid_value = '1' if family_role == 'kid' else '0'

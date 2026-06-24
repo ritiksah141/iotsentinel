@@ -580,28 +580,33 @@ _step_3_optional = _build_step_3()
 _step_4_remote = html.Div([
     _step_header(4),
     html.P(
-        "Enable this to get a secure link that lets you open the dashboard "
-        "from any device, anywhere, even when you're not home.",
+        "Remote access gives you a secure link to open the dashboard from anywhere, "
+        "even when you're not home (free, powered by Tailscale).",
         className="text-muted small mb-3"
     ),
+    dbc.Alert([
+        html.I(className="fa fa-circle-info me-2"),
+        html.Strong("Set this up after setup finishes. "),
+        "Right now your Pi is on the offline setup hotspot, so it can't sign in to "
+        "Tailscale yet. Once your Pi is on your home WiFi (after you tap Launch), open ",
+        html.Strong("Quick Settings → Network → Enable Remote Access"),
+        " to get your private ",
+        html.Code("https://….ts.net"),
+        " link.",
+    ], color=None, className="glass-alert-info small mb-3"),
     dbc.Switch(
         id="setup-tailscale-toggle",
-        label="Enable remote access (free, powered by Tailscale)",
+        label="I'll set up remote access later (from Settings → Network)",
         value=False,
         className="mb-3",
     ),
+    # Components kept (referenced by callbacks); the live panel only does anything on the
+    # rare online-during-setup case (e.g. Ethernet). Hidden by default.
     html.Div(id="setup-tailscale-panel", children=[
-        dbc.Alert([
-            html.Strong("How it works: "),
-            "Click the button, sign in with Google, GitHub, or email. "
-            "Your dashboard gets a permanent private URL like ",
-            html.Code("https://iotsentinel.yourtailnet.ts.net"),
-            ", accessible from any network.",
-        ], color=None, className="glass-alert-info small mb-3"),
         dbc.Button(
-            [html.I(className="fa fa-link me-2"), "Start Tailscale setup"],
+            [html.I(className="fa fa-link me-2"), "Start now (only if your Pi has internet)"],
             id="setup-tailscale-start-btn",
-            color="primary", outline=True, className="mb-3",
+            color="secondary", outline=True, size="sm", className="mb-2",
         ),
         html.Div(id="setup-tailscale-status", className="mt-2"),
         dcc.Interval(id="setup-tailscale-interval", interval=3000,

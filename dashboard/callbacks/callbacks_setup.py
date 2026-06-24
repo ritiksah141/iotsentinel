@@ -911,6 +911,85 @@ def register(app):
         return dash.no_update, False, stored_url
 
     # ------------------------------------------------------------------
+    # POST-SETUP remote access (Quick Settings → Network). The wizard runs on the
+    # OFFLINE setup hotspot, so Tailscale can't authenticate there; this is where the
+    # user enables it once the Pi is online on home Wi-Fi. Reuses the same helpers and
+    # persists the public URL so it survives restarts and shows on the reachable card.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output("settings-remote-status", "children"),
+        Output("settings-remote-interval", "disabled"),
+        Input("settings-remote-enable-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def settings_remote_enable(_n):
+        if not _tailscale_available():
+            return (
+                dbc.Alert("Tailscale isn't installed on this device, so remote access "
+                          "can't be enabled.", color="warning", className="small mb-0"),
+                True,
+            )
+        with _ts_lock:
+            if _ts_state.get('running'):
+                return dash.no_update, False
+        threading.Thread(target=_tailscale_up_worker, daemon=True).start()
+        return (
+            html.Div([dbc.Spinner(size="sm", className="me-2"),
+                      html.Span("Starting Tailscale… waiting for the sign-in link…",
+                                className="text-muted small")]),
+            False,
+        )
+
+    @app.callback(
+        Output("settings-remote-status", "children", allow_duplicate=True),
+        Output("settings-remote-interval", "disabled", allow_duplicate=True),
+        Input("settings-remote-interval", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def settings_remote_poll(_n):
+        with _ts_lock:
+            login_url = _ts_state.get('url')
+        connected, public_url = _check_tailscale_connected()
+        if connected and public_url:
+            _app_port = int(os.getenv('IOTSENTINEL_PORT',
+                                      config.get('dashboard', 'port', default=8050)))
+            funnel_ok = _enable_tailscale_funnel(port=_app_port)
+            # Persist so the URL survives restarts and the reachable card surfaces it.
+            try:
+                config.write_env({
+                    "IOTSENTINEL_PUBLIC_URL": public_url,
+                    "IOTSENTINEL_HOST": "0.0.0.0",
+                    "IOTSENTINEL_BEHIND_PROXY": "true",
+                    "IOTSENTINEL_HTTPS": "true",
+                })
+                os.environ["IOTSENTINEL_PUBLIC_URL"] = public_url
+            except Exception as e:
+                logger.warning("Could not persist remote-access URL: %s", e)
+            note = (html.Small("Funnel active — reachable from anywhere.",
+                               className="text-muted d-block") if funnel_ok else
+                    html.Small("Connected, but Funnel wasn't enabled (check your Tailscale plan).",
+                               className="text-warning d-block"))
+            status = dbc.Alert([
+                html.Strong("Remote access is on. "), "Your URL: ",
+                html.A(public_url, href=public_url, target="_blank", className="fw-semibold"),
+                html.Br(), note,
+                html.Small("Bookmark it. Open Quick Settings → Network to see it again anytime.",
+                           className="text-muted d-block"),
+            ], color="success" if funnel_ok else "warning", className="small mb-0")
+            return status, True   # connected — stop polling
+        if login_url:
+            status = html.Div([
+                html.P("Open this link on any device and sign in to Tailscale:",
+                       className="small mb-1"),
+                html.A(login_url, href=login_url, target="_blank",
+                       className="small fw-semibold text-info d-block text-break mb-2"),
+                html.Div([dbc.Spinner(size="sm", className="me-2"),
+                          html.Span("Waiting for you to sign in…", className="text-muted small")]),
+            ])
+            return status, False
+        return dash.no_update, False
+
+    # ------------------------------------------------------------------
     # Live Groq key validation
     # ------------------------------------------------------------------
     @app.callback(
@@ -1218,6 +1297,22 @@ def _save_config(
 
         # Always write .env (even empty sentinel) so display_page exits the wizard
         config.write_env(env_vars)
+
+        # Hot-apply the AI/threat keys to the LIVE dashboard process so they take effect
+        # immediately. Without this, the ai_assistant singleton built at startup (before
+        # the wizard ran) keeps NO key, so the chatbot/explanations fall back to templates
+        # until a restart — the exact "set in wizard but didn't work" symptom. (The backend
+        # process picks them up via its restart on the Wi-Fi join / interface change.)
+        try:
+            if groq_key:
+                os.environ["GROQ_API_KEY"] = groq_key
+                from dashboard.shared import ai_assistant as _ai
+                _ai.groq_api_key = groq_key
+                _ai._groq_client = None  # force re-init with the new key
+            if abuseipdb_key:
+                os.environ["THREAT_INTELLIGENCE_ABUSEIPDB_API_KEY"] = abuseipdb_key
+        except Exception as _e:
+            logger.warning("Could not hot-apply AI/threat keys after setup: %s", _e)
 
         config.update("system", "is_configured", True)
         return True

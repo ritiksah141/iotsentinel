@@ -111,10 +111,10 @@ optional - you can change all of it later from the dashboard.
 
 | Step | What you do |
 |---|---|
-| **1 - Wi-Fi & password** | Tap **Scan**, choose your home Wi-Fi from the list, type its password, pick **your country** (sets the correct Wi-Fi rules for where you live), and tap **Save this WiFi** to save it (your Pi doesn't switch over yet). Then create a password for your IoTSentinel account (you'll use this to log in). |
+| **1 - Wi-Fi & password** | **Type your home Wi-Fi name** (tap **Scan** to pick from a list if nearby networks appear - but you can always just type it), enter its password, pick **your country** (sets the correct Wi-Fi rules for where you live), and tap **Save this WiFi** (your Pi doesn't switch over yet). Then create a password for your IoTSentinel account (you'll use this to log in). |
 | **2 - Who is this for?** | Pick **Household** (best for homes) or **Small Business**. You can switch later. |
 | **3 - Alerts & extras** | Choose how you want to be alerted: **ntfy** (easiest - scan a QR code with your phone), Telegram, Discord, or email. All optional. |
-| **4 - Use it away from home** | Optional: turn on remote access so you can check IoTSentinel from anywhere, not just at home. |
+| **4 - Use it away from home** | About remote access. You actually **enable it after setup** (the Pi needs internet to sign in), from **Quick Settings -> Network -> Enable Remote Access**. |
 | **5 - Review** | Check your choices and tap **Launch IoTSentinel**. |
 | **6 - All set** | The page shows the web address to use from now on. Bookmark it. |
 
@@ -138,11 +138,11 @@ are always available later under **Quick Settings → Network**.
 |---|---|
 | macOS / Linux / iPhone | `http://iotsentinel.local:8050` |
 | Windows / Android | The Pi's IP address shown on wizard Step 6 (or under **Quick Settings → Network**) |
-| Any device, any network | Your remote access URL (shown on wizard Step 6 if you enabled it in Step 4) |
+| Any device, any network | Your remote access URL, once you enable it in **Quick Settings -> Network** |
 
 > **Windows note:** `iotsentinel.local` requires Bonjour, which ships with iTunes. Without it, use the Pi's IP address - the wizard's last screen prints it for you.
 
-> **Remote access:** If you enabled remote access in Step 4, you'll have a permanent `https://<name>.ts.net` URL - bookmark it and use it from anywhere.
+> **Remote access:** Enable it after setup from **Quick Settings -> Network -> Enable Remote Access** (the Pi must be online on your home Wi-Fi). You then get a permanent `https://<name>.ts.net` URL - bookmark it and use it from anywhere.
 
 ---
 
@@ -203,7 +203,7 @@ bash scripts/setup_pi.sh
 | Pre-flight | Checks ARM64 architecture, RAM, disk space, Python 3.9+ |
 | Pi config | Expands filesystem, sets hostname to `iotsentinel`, enables SSH |
 | System packages | Installs NetworkManager, avahi-daemon, libpcap, build tools |
-| Tailscale | Installs Tailscale for optional remote access (wizard activates it) |
+| Tailscale | Installs Tailscale for optional remote access (you activate it after setup in Quick Settings -> Network) |
 | Zeek | Installs Zeek from the official OpenSUSE OBS repository for Debian 12 |
 | Clone / update | Clones the repo or pulls latest if already present |
 | Python env | Creates `venv/`, installs `requirements-pi.txt` |
@@ -295,7 +295,7 @@ See [GATEWAY_MODE.md](GATEWAY_MODE.md) for the full gateway-mode setup and troub
 > **Where is "Quick Settings → Network"?** On the dashboard, open the **Quick Settings** panel (the gear / "Quick Settings" card) and click the **Network** tab. That tab lists the Pi's exact local addresses, your remote-access link, and the **Change WiFi** controls.
 
 - **Local:** `http://iotsentinel.local:8050` (Pi) or `http://localhost:8050` (laptop). The Pi's exact addresses are always listed under **Quick Settings → Network**.
-- **Remote:** your `https://<name>.ts.net` URL (if you enabled remote access in Step 4). It's shown on wizard Step 6 and, afterwards, in **Quick Settings → Network** - bookmark it and open it from anywhere.
+- **Remote:** your `https://<name>.ts.net` URL, available once you enable remote access in **Quick Settings → Network → Enable Remote Access** (after setup, with the Pi online) - bookmark it and open it from anywhere.
 - **Change Wi-Fi:** **Quick Settings → Network → Change WiFi** moves the Pi to a different network without re-flashing
 - **Never locked out:** if the Pi ever loses Wi-Fi for more than a few minutes, it automatically re-opens the **`IoTSentinel-Setup`** hotspot so you can reconnect it (see Troubleshooting)
 - On the Pi, IoTSentinel restarts automatically after every reboot

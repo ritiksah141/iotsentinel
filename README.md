@@ -371,7 +371,7 @@ dashboard still works there, it just is not installable).
 
 ## Testing
 
-**1146 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
+**1167 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
 system, AI feature helpers, device intelligence, capture-mode and gateway logic, Wi-Fi / hotspot
 recovery, and the setup wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke
 test and an ARM64 dependency-install check.
@@ -386,7 +386,7 @@ test and an ARM64 dependency-install check.
 | Alert service | 78% |
 
 ```bash
-pytest tests/                          # all 1146 tests
+pytest tests/                          # all 1167 tests
 pytest tests/ -x                       # stop at first failure
 ./scripts/run_tests.sh report          # HTML coverage report
 ```

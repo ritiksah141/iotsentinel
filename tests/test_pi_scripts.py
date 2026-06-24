@@ -93,6 +93,18 @@ class TestSetupHotspotScript:
         assert "disarm_hotspot" in recover, \
             "recover) must tear down a lingering hotspot once on home Wi-Fi"
 
+    def test_boot_waits_for_home_profile_before_arming(self):
+        """On a REBOOT (saved home profile exists), boot must try/poll for home Wi-Fi
+        before arming the AP — otherwise it arms before NM finishes autoconnecting and
+        strands the Pi on the hotspot (single radio)."""
+        text = self.PATH.read_text()
+        arm = text.index("for attempt in 1 2 3")
+        pre = text[:arm]
+        # The reboot guard must reference the saved profile + the join nudge before arming.
+        assert "saved_home_profile" in pre
+        assert "try_home_profile" in pre
+        assert pre.rindex("try_home_profile") < arm, "must nudge home Wi-Fi before arming"
+
     def test_active_home_wifi_uses_valid_device_fields(self):
         """'nmcli device status' has NO 'NAME' field (that belongs to 'connection show').
         Querying NAME makes nmcli error and print nothing, so active_home_wifi ALWAYS

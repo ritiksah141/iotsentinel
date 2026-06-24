@@ -291,6 +291,37 @@ def connect_wifi(ssid: str, password: str, iface: str = "wlan0") -> tuple[bool, 
             return False, "Connection failed - check your WiFi password and try again."
         time.sleep(4)
 
+    # 5) Auto-negotiating fallback for security types our wpa-psk profile can't speak —
+    #    most importantly WPA3-only networks (which need SAE), but also anything else NM
+    #    can detect from a live scan. The setup AP is already down, so `nmcli dev wifi
+    #    connect` can scan + associate and pick the right key-mgmt itself. We drop our
+    #    pre-built profile first so NM creates a fresh one with the correct security.
+    if current_wifi() != ssid:
+        try:
+            subprocess.run(["sudo", "-n", "nmcli", "connection", "delete", ssid],
+                           capture_output=True, text=True, timeout=10)
+            cmd = ["sudo", "-n", "nmcli", "dev", "wifi", "connect", ssid]
+            if password:
+                cmd += ["password", password]
+            cmd += ["ifname", iface]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+            if r.returncode == 0 and current_wifi() == ssid:
+                return True, success_msg
+            _fb_err = (r.stderr or r.stdout or "").strip()
+            el = _fb_err.lower()
+            if "secrets were required" in el or "no secrets" in el or "password" in el:
+                return False, "Connection failed - check your WiFi password and try again."
+            last_err = _fb_err or last_err
+        except subprocess.TimeoutExpired:
+            return True, soft_msg
+        except Exception as e:
+            logger.warning("auto-negotiate Wi-Fi fallback failed: %s", e)
+        # The fallback deleted our pre-built profile; if it still didn't connect, RESTORE
+        # the autoconnect profile so the Pi is never left with no saved credentials (the
+        # rc7 "stranded after teardown" guarantee) — NM keeps retrying and a reboot recovers.
+        if current_wifi() != ssid:
+            _create_home_profile(ssid, password, iface)
+
     # Out of attempts. If we are in fact on the network now, call it a success;
     # otherwise surface the error (or a soft "still switching" if NM is mid-activation).
     if current_wifi() == ssid:

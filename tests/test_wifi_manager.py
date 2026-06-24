@@ -186,6 +186,38 @@ def test_connect_retries_activation_until_connected():
     assert up_results == []          # both activation attempts were consumed
 
 
+def _is_devconnect(cmd):
+    return cmd[:6] == ["sudo", "-n", "nmcli", "dev", "wifi", "connect"]
+
+
+def test_connect_wpa3_falls_back_to_auto_negotiate():
+    """A wpa-psk profile can't associate with a WPA3-only network (needs SAE). After the
+    profile `up` attempts fail with a non-secret error, connect_wifi must fall back to
+    `nmcli dev wifi connect`, which auto-negotiates the security and succeeds — so the app
+    works on WPA3 home networks, not just WPA2."""
+    state = {"connected": False}
+
+    def fake_run(cmd, **kw):
+        if _is_up(cmd):
+            return MagicMock(returncode=4, stdout="", stderr="Activation failed")
+        if _is_devconnect(cmd):
+            state["connected"] = True
+            return MagicMock(returncode=0, stdout="", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.time.sleep"), \
+         patch("utils.wifi_manager._iface_state", return_value="disconnected"), \
+         patch("utils.wifi_manager.current_wifi",
+               side_effect=lambda: "WPA3Net" if state["connected"] else None), \
+         patch("utils.wifi_manager.teardown_setup_hotspot"), \
+         patch("utils.wifi_manager.subprocess.run", side_effect=fake_run) as run:
+        ok, msg = wifi_manager.connect_wifi("WPA3Net", "secret")
+    assert ok is True and "WPA3Net" in msg
+    assert any(_is_devconnect(c[0][0]) for c in run.call_args_list), \
+        "must fall back to the auto-negotiating dev-wifi-connect for WPA3"
+
+
 def test_connect_wrong_password_fails_fast():
     """A missing-secret error won't fix itself with retries — fail immediately with a
     password hint rather than spinning the whole retry window."""
@@ -217,14 +249,18 @@ def test_connect_timeout_is_soft_success():
     assert ok is True and "HomeNet" in msg
 
 
-def test_connect_profile_not_deleted_on_failed_activation():
-    """On activation failure the autoconnect profile must be LEFT in place so NM keeps
-    retrying and a reboot recovers — only a stale same-named profile is removed up front."""
-    deletes = []
+def test_connect_profile_restored_when_all_attempts_fail():
+    """On a total failure (profile `up` AND the WPA3 auto-negotiate fallback) the
+    autoconnect profile must be RESTORED so the Pi is never left with no saved
+    credentials — NM keeps retrying and a reboot recovers (the rc7 'never stranded'
+    guarantee). I.e. the LAST profile op must be a re-create (add), not a delete."""
+    ops = []
 
     def fake_run(cmd, **kw):
-        if cmd[:5] == ["sudo", "-n", "nmcli", "connection", "delete"]:
-            deletes.append(cmd[-1])
+        if cmd[:5] == ["sudo", "-n", "nmcli", "connection", "add"]:
+            ops.append("add")
+        elif cmd[:5] == ["sudo", "-n", "nmcli", "connection", "delete"]:
+            ops.append("delete")
         if _is_up(cmd):
             return MagicMock(returncode=4, stdout="", stderr="Activation failed")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -237,9 +273,8 @@ def test_connect_profile_not_deleted_on_failed_activation():
          patch("utils.wifi_manager.subprocess.run", side_effect=fake_run):
         ok, msg = wifi_manager.connect_wifi("HomeNet", "secret")
     assert ok is False
-    # The only delete is the pre-create cleanup of a stale same-named profile, never a
-    # delete of the just-saved credentials after the join failed.
-    assert deletes == ["HomeNet"]
+    assert ops and ops[-1] == "add", \
+        "saved credentials must be restored (profile re-created) after a failed join"
 
 
 # ---------------------------------------------------------------------------
