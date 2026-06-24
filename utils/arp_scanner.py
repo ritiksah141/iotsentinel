@@ -203,6 +203,23 @@ class ARPScanner:
 
         return devices
 
+    def _in_monitored_subnet(self, ip: str) -> bool:
+        """True if *ip* belongs to the subnet we are monitoring.
+
+        The kernel ARP table ('ip neigh') lists neighbours on EVERY interface, so while
+        the Pi hosts the setup hotspot it also sees the phone/laptop used for the wizard
+        at 10.42.0.x. Those are provisioning artifacts, not home-network devices, and must
+        never enter the inventory — the Connected Devices list should reflect the home
+        Wi-Fi (the monitored subnet), not the setup AP. Scoping to network_range also
+        naturally drops anything on another interface. Fails open on a bad range so a
+        mis-detected subnet never silently hides every device.
+        """
+        try:
+            return ipaddress.ip_address(ip) in ipaddress.ip_network(
+                self.network_range, strict=False)
+        except Exception:
+            return True
+
     # ── Public API ───────────────────────────────────────────────────────────
 
     def get_network_interface(self) -> Optional[str]:
@@ -252,15 +269,18 @@ class ARPScanner:
             logger.debug("/proc/net/arp empty/unavailable, trying arp -a")
             devices = self._read_arp_a()
 
-        # Deduplicate by IP (keep first occurrence)
+        # Deduplicate by IP (keep first occurrence) and scope to the monitored subnet so
+        # setup-hotspot clients (10.42.0.x) and other-interface neighbours never enter the
+        # home-network inventory.
         seen: set = set()
         unique: List[Dict[str, str]] = []
         for d in devices:
-            if d['ip'] not in seen:
-                seen.add(d['ip'])
-                unique.append(d)
+            if d['ip'] in seen or not self._in_monitored_subnet(d['ip']):
+                continue
+            seen.add(d['ip'])
+            unique.append(d)
 
-        logger.info(f"ARP scan complete: {len(unique)} devices found")
+        logger.info(f"ARP scan complete: {len(unique)} devices found in {self.network_range}")
         return unique
 
     def scan_and_update_database(self) -> int:

@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1143 passing**, 9 skipped, 0 failing |
+| Total tests | **1146 passing**, 9 skipped, 0 failing |
 | Test files | 44 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1143
+pytest tests/                          # all 1146
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -256,7 +256,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ---
 
-#### `test_pi_scripts.py` - 13 tests
+#### `test_pi_scripts.py` - 14 tests
 **Covers:** the Raspberry Pi ops scripts in `config/` (`optimize_pi.sh`, `zeek_monitor.sh`, `zeek_cleanup.sh`).
 
 **Why it exists:** `scripts/setup_pi.sh` wires these into the shipped image behind `[ -f ]` guards; when they were missing the image silently lost Pi tuning, the Zeek watchdog, and log rotation. These tests pin that the files exist, are executable, pass `bash -n`, and that every path `setup_pi.sh` references resolves.

@@ -88,3 +88,37 @@ def test_arp_scanner_gateway_mode_uses_ap_subnet():
         ("database", "path"): ":memory:",
     })
     assert scanner.network_range == "10.42.0.0/24"
+
+
+def test_scan_excludes_setup_hotspot_clients():
+    """Connected Devices must reflect the home network, not the setup AP: a 10.42.0.x
+    hotspot client (the wizard phone/laptop) in the kernel ARP table must be filtered
+    out, while home-subnet devices (incl. the router) are kept."""
+    scanner = _make_scanner({
+        ("network", "capture_mode"): "passive",
+        ("network", "local_networks"): ["192.168.0.0/24"],
+        ("database", "path"): ":memory:",
+    })
+    neigh = [
+        {"ip": "192.168.0.1", "mac": "aa:aa:aa:aa:aa:aa", "manufacturer": "Router"},
+        {"ip": "192.168.0.50", "mac": "bb:bb:bb:bb:bb:bb", "manufacturer": "Phone"},
+        {"ip": "10.42.0.213", "mac": "cc:cc:cc:cc:cc:cc", "manufacturer": "SetupLaptop"},
+    ]
+    with patch.object(scanner, "_ping_sweep"), \
+         patch.object(scanner, "_read_ip_neigh", return_value=neigh):
+        ips = {d["ip"] for d in scanner.scan_network()}
+    assert ips == {"192.168.0.1", "192.168.0.50"}, "hotspot client must be excluded"
+
+
+def test_scan_fails_open_on_bad_range():
+    """A mis-detected/blank subnet must not hide every device (fail open, don't filter)."""
+    scanner = _make_scanner({
+        ("network", "capture_mode"): "passive",
+        ("network", "local_networks"): ["not-a-cidr"],
+        ("database", "path"): ":memory:",
+    })
+    neigh = [{"ip": "192.168.0.1", "mac": "aa:aa:aa:aa:aa:aa", "manufacturer": "Router"}]
+    with patch.object(scanner, "_ping_sweep"), \
+         patch.object(scanner, "_read_ip_neigh", return_value=neigh):
+        ips = {d["ip"] for d in scanner.scan_network()}
+    assert ips == {"192.168.0.1"}

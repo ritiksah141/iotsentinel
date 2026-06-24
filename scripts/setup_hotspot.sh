@@ -36,9 +36,14 @@ command -v nmcli >/dev/null 2>&1 || { log "nmcli not available — skipping"; ex
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 # An active Wi-Fi connection that is NOT our own setup hotspot.
+# NOTE: 'device status' has NO 'NAME' field (that's a 'connection show' field) — asking
+# for it makes nmcli error out and print nothing, so this ALWAYS reported "not on home
+# WiFi". The recovery timer then re-armed the setup hotspot ~6 min after the Pi joined
+# home Wi-Fi, kicking it off the LAN. Use the real device fields (DEVICE,TYPE,STATE,
+# CONNECTION) and match a connected wifi device whose connection isn't the hotspot.
 active_home_wifi() {
-    nmcli -t -f NAME,TYPE,STATE device status 2>/dev/null \
-        | grep ":wifi:" | grep ":connected:" | grep -v "$HOTSPOT" || true
+    nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status 2>/dev/null \
+        | grep ':wifi:connected:' | grep -v ":${HOTSPOT}\$" || true
 }
 
 hotspot_active() {
