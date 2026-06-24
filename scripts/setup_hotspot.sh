@@ -159,6 +159,23 @@ case "$MODE" in
     boot)
         wait_for_nm_wlan
         if [ -n "$(active_home_wifi)" ]; then log "already on home WiFi — hotspot not needed"; exit 0; fi
+        # A saved home profile means this is a REBOOT after setup, not first boot. On a
+        # single radio, arming the AP before NetworkManager finishes auto-joining home
+        # Wi-Fi (which can take 10-30s) strands the Pi on the hotspot. So nudge + wait for
+        # home Wi-Fi (~45s) before arming; only fall through to the AP if it never lands.
+        if [ -n "$(saved_home_profile)" ]; then
+            log "saved home profile present (reboot) — trying home Wi-Fi before arming AP"
+            if try_home_profile; then
+                log "joined home Wi-Fi via saved profile — hotspot not needed"; exit 0
+            fi
+            for _i in 1 2 3 4 5; do
+                if [ -n "$(active_home_wifi)" ]; then
+                    log "home Wi-Fi came up — hotspot not needed"; exit 0
+                fi
+                sleep 5
+            done
+            log "home Wi-Fi did not come up after wait — arming setup hotspot"
+        fi
         # Scan for nearby networks and cache them BEFORE arming the AP — once wlan0 is an
         # AP it can't scan, so this is the wizard's only source of SSID suggestions.
         cache_wifi_scan

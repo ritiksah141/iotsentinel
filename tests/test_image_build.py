@@ -181,7 +181,7 @@ def test_setup_guide_html_is_offline_and_navigable(tmp_path):
     assert re.search(r"<h2", html), "guide has no sections"
     # The long static flow diagram is replaced by an interactive tap-to-tick checklist.
     assert 'id="setupFlow"' in html, "interactive setup flow missing"
-    assert html.count('class="flow-step"') == 11, "expected 11 interactive flow steps"
+    assert html.count('class="flow-step"') == 12, "expected 12 interactive flow steps"
     assert 'aria-roledescription="flowchart' not in html, "long static flow SVG should not be inlined"
     # Offline-safe: no external scripts, stylesheets, or remote images.
     assert not re.search(r"<script[^>]+src=", html), "external script breaks offline use"
@@ -396,6 +396,18 @@ def test_setup_pi_sudoers_grants_hotspot_teardown_and_backend_restart():
     # The idempotency guard must key on a token unique to the current line, so an older
     # install's sudoers file is rewritten with the new grants rather than left stale.
     assert 'grep -qF "tailscale funnel"' in text
+
+
+def test_monitoring_ships_running_not_paused():
+    """Monitoring must be ACTIVE from first boot, like every other service. The Zeek
+    parser reads config/monitoring_status.json; if it ships 'paused' the Pi captures
+    nothing until the user clicks Resume (a dev's paused state must not leak into the
+    image). Users can still pause from the navbar afterwards."""
+    import json as _json
+    p = REPO / "config" / "monitoring_status.json"
+    if p.exists():
+        assert _json.loads(p.read_text()).get("status") != "paused", \
+            "monitoring_status.json ships 'paused' — monitoring would be off on first boot"
 
 
 def test_dashboard_service_restarts_always():

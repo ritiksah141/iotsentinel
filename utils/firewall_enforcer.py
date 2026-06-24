@@ -408,10 +408,16 @@ class _LocalBackend:
     def list_rules(self) -> list:
         if self._use_nft:
             ok, out = self._nft("list", "chain", "inet", self._NF_TABLE, self._NF_CHAIN)
+            # The chain is only created on the first block, so on a fresh system it
+            # doesn't exist yet. _nft maps that "No such file or directory" to ok=True
+            # with the error TEXT as output — never surface that as an "active rule".
+            # No chain == nothing blocked == no active rules.
+            if not ok or "No such" in out or out.lstrip().lower().startswith("error"):
+                return []
         else:
             ok, out = self._ipt("-L", CHAIN, "-n", "--line-numbers")
-        if not ok:
-            return []
+            if not ok:
+                return []
         return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
     def name(self) -> str:

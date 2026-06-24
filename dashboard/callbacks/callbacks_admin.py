@@ -3117,8 +3117,11 @@ def register(app):
 
             if env_updates:
                 config.write_env(env_updates)
-                # Reload keys on the live singleton so the change takes effect immediately
+                # Also push into the live process env so any os.getenv-based read (and the
+                # AI Engine health panel) sees the new keys without a restart.
                 import os
+                os.environ.update(env_updates)
+                # Reload keys on the live singleton so the change takes effect immediately
                 if 'GROQ_API_KEY' in env_updates:
                     _shared.ai_assistant.groq_api_key = env_updates['GROQ_API_KEY']
                     _shared.ai_assistant._groq_client = None  # force re-init
@@ -3132,10 +3135,9 @@ def register(app):
                     _shared.ai_assistant.gemini_api_key = env_updates['GEMINI_API_KEY']
 
             log_settings_change(
-                section='ai_assistant',
-                key='api_keys',
-                old_value='[redacted]',
-                new_value=f"updated providers: {list(env_updates.keys())}",
+                audit_logger,
+                'ai_api_keys',
+                f"updated providers: {list(env_updates.keys())}",
             )
             return dbc.Alert("AI API keys saved successfully.", color="success", duration=4000)
 
@@ -3214,10 +3216,14 @@ def register(app):
     @app.callback(
         Output('ai-health-card-body', 'children'),
         [Input('profile-edit-tabs', 'active_tab'),
-         Input('ai-health-refresh-btn', 'n_clicks')],
+         Input('ai-health-refresh-btn', 'n_clicks'),
+         # Refresh AFTER a save completes (depend on the save RESULT, not the button click,
+         # so this never races the save callback) — the providers card then reflects the
+         # newly-configured providers without a tab switch or manual refresh.
+         Input('ai-key-save-result', 'children')],
         prevent_initial_call=False,
     )
-    def render_ai_health_card(active_tab, n_clicks):
+    def render_ai_health_card(active_tab, n_clicks, _save_result):
         ctx_id = dash.callback_context.triggered[0]['prop_id'] if dash.callback_context.triggered else ''
         if 'profile-edit-tabs' in ctx_id and active_tab != 'ai-settings-tab':
             raise dash.exceptions.PreventUpdate

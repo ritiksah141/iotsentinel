@@ -606,8 +606,12 @@ def register(app):
             return fig
         traffic_data = ws_message.get('traffic_timeline', [])
         if not traffic_data:
+            from utils.capture_mode import is_passive_wifi
+            _empty_title = ("No traffic yet — passive Wi-Fi sees little device traffic "
+                            "(enable Gateway mode for full capture)"
+                            if is_passive_wifi() else "No traffic data available")
             fig = go.Figure()
-            fig.update_layout(title="No traffic data available", xaxis_title="Hour",
+            fig.update_layout(title=_empty_title, xaxis_title="Hour",
                               yaxis_title="Bytes", **base_layout)
             return fig
         df = pd.DataFrame(traffic_data)
@@ -637,7 +641,8 @@ def register(app):
         protocol_data = ws_message.get('protocol_distribution', [])
         if not protocol_data:
             fig = go.Figure()
-            fig.update_layout(title="No protocol data available",
+            from utils.capture_mode import empty_title
+            fig.update_layout(title=empty_title("No protocol data available"),
                               plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                               font={'color': text_color})
             return fig
@@ -901,7 +906,8 @@ def register(app):
         anomaly_data = ws_message.get('anomaly_distribution', [])
         if not anomaly_data:
             fig = go.Figure()
-            fig.update_layout(title="No anomaly data available", **base_layout)
+            from utils.capture_mode import empty_title
+            fig.update_layout(title=empty_title("No anomaly data available"), **base_layout)
             return fig
         df = pd.DataFrame(anomaly_data)
         fig = px.histogram(df, x="anomaly_score", title="Anomaly Score Distribution",
@@ -930,7 +936,8 @@ def register(app):
         bandwidth_data = ws_message.get('bandwidth_chart', [])
         if not bandwidth_data:
             fig = go.Figure()
-            fig.update_layout(title="No Bandwidth Data Available", **base_layout)
+            from utils.capture_mode import empty_title
+            fig.update_layout(title=empty_title("No Bandwidth Data Available"), **base_layout)
             return fig
         df = pd.DataFrame(bandwidth_data)
         fig = px.bar(df, x='device_ip', y='total_bytes',
@@ -960,7 +967,8 @@ def register(app):
         heatmap_data = ws_message.get('device_activity_heatmap', [])
         if not heatmap_data:
             fig = go.Figure()
-            fig.update_layout(title="No activity data available", **base_layout)
+            from utils.capture_mode import empty_title
+            fig.update_layout(title=empty_title("No activity data available"), **base_layout)
             return fig
 
         df = pd.DataFrame(heatmap_data)
@@ -1943,17 +1951,25 @@ def register(app):
             _MIN_PREDS = 5   # minimum predictions to trust the output
 
             if _total_preds == 0:
-                # Monitoring not started or no connections scored yet — static, no spinner
+                # Monitoring not started or no connections scored yet — static, no spinner.
+                # Be honest about WHY: on a passive Wi-Fi client there's very little traffic
+                # to score, so the forecast stays quiet until Gateway (AP) mode is enabled.
+                from utils.capture_mode import is_passive_wifi
+                if is_passive_wifi():
+                    _fc_head = "Limited traffic in passive Wi-Fi mode"
+                    _fc_detail = ("A Wi-Fi client can't see other devices' traffic, so there's "
+                                  "little to forecast. Switch to Gateway (AP) mode in "
+                                  "Settings → Network for full per-device analytics.")
+                else:
+                    _fc_head = "Waiting for traffic"
+                    _fc_detail = ("Forecast activates once the IoTSentinel service starts "
+                                  "scoring network connections.")
                 forecast = html.Div([
                     html.I(className="fa fa-brain fa-2x text-muted mb-2"),
                     html.Br(),
-                    html.Span("Waiting for traffic",
+                    html.Span(_fc_head,
                               className="text-muted small fw-semibold d-block"),
-                    html.Small(
-                        "Forecast activates once the IoTSentinel service "
-                        "starts scoring network connections.",
-                        className="text-muted"
-                    )
+                    html.Small(_fc_detail, className="text-muted")
                 ], className="text-center py-3")
             elif _total_preds < _MIN_PREDS:
                 # Data is flowing — actively building baseline, show progress
@@ -2109,7 +2125,8 @@ def register(app):
 
             if not flows:
                 fig = go.Figure()
-                fig.update_layout(title="No Traffic Data Available", height=500,
+                from utils.capture_mode import empty_title
+                fig.update_layout(title=empty_title("No Traffic Data Available"), height=500,
                                   paper_bgcolor='rgba(0,0,0,0)')
                 return fig
 

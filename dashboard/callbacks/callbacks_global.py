@@ -2269,11 +2269,21 @@ def register(app):
                 else:
                     diagnostics.append("✗ Database: FAILED")
 
-                zeek_script = project_root / "zeek_capture.py"
-                if zeek_script.exists():
-                    diagnostics.append("✓ Zeek: Available")
+                # Zeek check — look for the REAL binary. The old check looked for a
+                # non-existent 'zeek_capture.py' and so ALWAYS reported "Not configured"
+                # even though Zeek is installed (/opt/zeek/bin/zeek) and deployed by
+                # config/configure_zeek.sh.
+                from pathlib import Path as _ZPath
+                zeek_bin = shutil.which("zeek")
+                if zeek_bin or _ZPath("/opt/zeek/bin/zeek").exists():
+                    try:
+                        from utils.capture_mode import is_passive_wifi
+                        _zk_note = " (passive Wi-Fi — limited capture)" if is_passive_wifi() else ""
+                    except Exception:
+                        _zk_note = ""
+                    diagnostics.append(f"✓ Zeek: installed{_zk_note}")
                 else:
-                    diagnostics.append("✗ Zeek: Not configured")
+                    diagnostics.append("✗ Zeek: not installed")
 
                 total, used, free = shutil.disk_usage("/")
                 free_gb = free // (2**30)

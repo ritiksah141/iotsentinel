@@ -706,6 +706,25 @@ class HybridAIAssistant:
             "cache_hits": self.stats.get("cache_hits", 0)
         }
 
+    def _ollama_reachable(self) -> bool:
+        """Cached (~30 s) probe of the local Ollama server. Reports whether it is
+        ACTUALLY answering — not merely enabled in config — so the status never claims
+        'Local Ready' while the model is still provisioning on first boot."""
+        if not self.ollama_enabled:
+            return False
+        now = time.time()
+        cached = getattr(self, "_ollama_probe_cache", None)
+        if cached and now - cached[0] < 30:
+            return cached[1]
+        ok = False
+        try:
+            import requests
+            ok = requests.get("http://localhost:11434/api/tags", timeout=1).status_code == 200
+        except Exception:
+            ok = False
+        self._ollama_probe_cache = (now, ok)
+        return ok
+
     def get_status_message(self) -> str:
         stats = self.get_stats()
 
@@ -719,7 +738,9 @@ class HybridAIAssistant:
             elif self.gemini_available:
                 return "AI: Gemini Ready"
             elif self.ollama_enabled:
-                return "AI: Local Ready"
+                # Honest: only "Ready" once Ollama actually answers; otherwise it's still
+                # being installed/pulled in the background on first online boot.
+                return "AI: Local Ready" if self._ollama_reachable() else "AI: Local AI starting…"
             else:
                 return "AI: Rules Ready"
 

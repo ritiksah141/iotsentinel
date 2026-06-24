@@ -106,6 +106,7 @@ from dashboard.shared import (
 # Also need these for WebSocket/layout (re-export from shared)
 from dash_extensions import WebSocket
 import dash_cytoscape as cyto
+from utils.topology_icons import device_icon_uri, router_icon_uri
 
 # App-level logger (shows as __main__ when run directly)
 app_logger = logging.getLogger(__name__)
@@ -1283,7 +1284,12 @@ dashboard_layout = dbc.Container([
                                 "Privacy",
                                 html.I(className="fa fa-question-circle ms-1 text-muted u-pointer",
                                        id="privacy-score-tooltip-trigger")
-                            ], className="text-muted mb-0 small")
+                            ], className="text-muted mb-0 small"),
+                            dbc.Tooltip(
+                                "Your network privacy score (0-100). It reflects how much your "
+                                "devices leak to trackers, ad networks and cloud servers. Higher "
+                                "is better - tap the card for the per-device breakdown.",
+                                target="privacy-score-tooltip-trigger", placement="top"),
                         ], className="p-3 text-center")
                     ], className="metric-card glass-card border-0 shadow hover-lift h-100 u-pointer")
                 ], width=6, className="mb-2"),
@@ -1393,16 +1399,21 @@ dashboard_layout = dbc.Container([
                                 layout={'name': 'cose', 'animate': True},
                                 className="cytoscape-panel",
                                 stylesheet=[
-                                    # Labels sit BELOW the node as a soft rounded pill (white
-                                    # text on a translucent dark chip) — readable on both the
-                                    # light and dark graph surfaces and on-brand, instead of the
-                                    # old harsh black-outlined text stamped over the node.
+                                    # Each node renders a real device-type glyph on a light
+                                    # face, ringed by its status colour (green/amber/red).
+                                    # Label sits BELOW as a soft rounded pill — readable on
+                                    # both the light and dark graph surfaces.
                                     {'selector': 'node', 'style': {
                                         'content': 'data(label)',
                                         'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 7,
-                                        'background-color': 'data(color)',
+                                        'background-color': '#f8fafc',
+                                        'background-image': 'data(icon)',
+                                        'background-fit': 'none',
+                                        'background-clip': 'none',
+                                        'background-width': '58%', 'background-height': '58%',
+                                        'background-position-x': '50%', 'background-position-y': '50%',
                                         'border-width': 3, 'border-color': 'data(borderColor)',
-                                        'border-opacity': 0.9,
+                                        'border-opacity': 0.95,
                                         'font-size': '11px', 'font-weight': 600,
                                         'color': '#ffffff',
                                         'text-outline-width': 0,
@@ -1412,8 +1423,14 @@ dashboard_layout = dbc.Container([
                                         'text-background-padding': 3,
                                         'min-zoomed-font-size': 6,
                                     }},
-                                    {'selector': 'node[type="router"]', 'style': {'shape': 'diamond', 'width': 64, 'height': 64, 'font-size': '12px'}},
-                                    {'selector': 'node[type="device"]', 'style': {'width': 42, 'height': 42}},
+                                    # Central router/gateway hub: indigo face, white icon, larger.
+                                    {'selector': 'node[type="router"]', 'style': {
+                                        'shape': 'round-rectangle', 'width': 66, 'height': 66,
+                                        'background-color': '#6366f1', 'border-color': '#4f46e5',
+                                        'background-width': '52%', 'background-height': '52%',
+                                        'font-size': '12px',
+                                    }},
+                                    {'selector': 'node[type="device"]', 'style': {'width': 48, 'height': 48}},
                                     {'selector': 'edge', 'style': {
                                         'width': 2, 'line-color': '#94a3b8', 'opacity': 0.55,
                                         'target-arrow-shape': 'triangle', 'target-arrow-color': '#94a3b8',
@@ -7901,6 +7918,27 @@ dashboard_layout = dbc.Container([
                             html.Div(id="settings-reachable",
                                      className="small text-muted mb-4"),
 
+                            # Remote access (Tailscale Funnel) — set up POST-wizard, when the
+                            # Pi is online. The offline setup hotspot can't authenticate, so
+                            # this lives here (Settings) rather than in the wizard.
+                            html.Div([
+                                html.Label([
+                                    html.I(className="fa fa-globe me-2"),
+                                    "Remote Access"
+                                ], className="fw-bold mb-2"),
+                                html.Small(
+                                    "Reach this dashboard securely from anywhere via Tailscale. "
+                                    "Your Pi must be online (on home WiFi) to sign in.",
+                                    className="text-muted d-block mb-2"),
+                                dbc.Button([html.I(className="fa fa-globe me-2"),
+                                            "Enable Remote Access"],
+                                           id="settings-remote-enable-btn",
+                                           color="primary", outline=True, size="sm"),
+                                html.Div(id="settings-remote-status", className="small mt-2"),
+                                dcc.Interval(id="settings-remote-interval", interval=3000,
+                                             disabled=True),
+                            ], className="wizard-section-box mb-4"),
+
                             # Network Interface
                             html.Div([
                                 html.Label([
@@ -9500,7 +9538,9 @@ def background_thread():
             device['z'] = z * 10
 
         elements = []
-        elements.append({'data': {'id': 'router', 'label': 'Router', 'type': 'router', 'color': '#6366f1', 'borderColor': '#4f46e5'}})
+        elements.append({'data': {'id': 'router', 'label': 'Router', 'type': 'router',
+                                  'color': '#6366f1', 'borderColor': '#4f46e5',
+                                  'icon': router_icon_uri('#ffffff')}})
         device_ips = set()
         for device in devices_with_status:
             device_ip = device['device_ip']
@@ -9515,7 +9555,10 @@ def background_thread():
                     'type': 'device',
                     'color': color,
                     'borderColor': border_colors.get(status, '#545b62'),
-                    'status': status
+                    'status': status,
+                    # Real device-type glyph (laptop/phone/camera/...) so the topology
+                    # reads like a network diagram, not coloured blobs.
+                    'icon': device_icon_uri(device.get('device_type'), device.get('category')),
                 }
             })
             elements.append({'data': {'source': 'router', 'target': device_ip}})

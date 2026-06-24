@@ -85,7 +85,7 @@ TOTAL_RAM=$(free -m | awk 'NR==2{print $2}')
 if [ "$TOTAL_RAM" -ge 3500 ]; then
     ok "RAM: ${TOTAL_RAM} MB"
 else
-    warn "RAM: ${TOTAL_RAM} MB (< 4 GB — Ollama will be disabled)"
+    warn "RAM: ${TOTAL_RAM} MB (< 3.5 GB — on-device Ollama will be disabled; a 4 GB Pi is fine)"
     SKIP_OLLAMA=true
 fi
 

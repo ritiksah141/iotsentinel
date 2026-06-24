@@ -839,8 +839,13 @@ class IoTSentinelOrchestrator:
                     logger.error(f"Error in initial ARP scan: {e}")
 
             # Continue with periodic scans (interruptible wait — wakes instantly on stop)
+            from utils.net_detect import PLACEHOLDER_CIDRS
             while self.running:
-                if self._sleep(interval):
+                # Until the real LAN is locked in (still a placeholder — e.g. right after
+                # the wizard's Wi-Fi join), poll fast so discovery fills within ~1 min
+                # instead of a full 5-min interval. Slow back down once it's locked.
+                _locked = getattr(self.arp_scanner, 'network_range', None) not in PLACEHOLDER_CIDRS
+                if self._sleep(interval if _locked else min(interval, 20)):
                     break  # shutdown signalled during the wait
 
                 if not self.running:

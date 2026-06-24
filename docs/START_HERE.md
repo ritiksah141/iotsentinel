@@ -174,11 +174,13 @@ shows every step IoTSentinel took, in order.
 
 ## Step 8 - Use it away from home (optional)
 
-By default the dashboard works on your home Wi-Fi. If you turned on **remote access** in the
-wizard (or later under **Settings**), you get a private web address that works from anywhere -
-on mobile data, at work, on holiday. IoTSentinel uses **Tailscale** (free) to do this safely,
-so you can check in on your home network wherever you are. You can also "install" the
-dashboard to your phone's home screen so it behaves like a normal app.
+By default the dashboard works on your home Wi-Fi. To reach it from anywhere - on mobile data,
+at work, on holiday - turn on **remote access** *after* setup: open **Quick Settings -> Network
+-> Enable Remote Access** (your Pi needs to be online on your home Wi-Fi). You get a private
+web address that works from anywhere. IoTSentinel uses **Tailscale** (free) to do this safely,
+so you can check in on your home network wherever you are. (It's set up after the wizard, not
+during it, because the setup hotspot has no internet to sign in with.) You can also "install"
+the dashboard to your phone's home screen so it behaves like a normal app.
 
 ---
 

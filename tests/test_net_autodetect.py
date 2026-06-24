@@ -110,6 +110,49 @@ def test_scan_excludes_setup_hotspot_clients():
     assert ips == {"192.168.0.1", "192.168.0.50"}, "hotspot client must be excluded"
 
 
+def test_ping_sweep_skips_oversized_subnet():
+    """A large home LAN (/16 etc.) must NOT trigger a tens-of-thousands ping sweep that
+    hangs discovery — fall back to the passive neighbour table instead."""
+    scanner = _make_scanner({
+        ("network", "capture_mode"): "passive",
+        ("network", "local_networks"): ["10.0.0.0/16"],   # 65k hosts
+        ("database", "path"): ":memory:",
+    })
+    with patch.object(scanner, "_ping_host") as ping:
+        scanner._ping_sweep()
+    ping.assert_not_called()
+
+
+def test_ping_sweep_runs_on_normal_subnet():
+    scanner = _make_scanner({
+        ("network", "capture_mode"): "passive",
+        ("network", "local_networks"): ["192.168.0.0/24"],   # 254 hosts
+        ("database", "path"): ":memory:",
+    })
+    with patch.object(scanner, "_ping_host") as ping:
+        scanner._ping_sweep()
+    assert ping.call_count > 0, "a normal /24 must be actively swept"
+
+
+def test_scan_fails_open_on_placeholder_subnet():
+    """Before the self-heal locks the real LAN, network_range is a placeholder. The filter
+    must NOT scope to it — otherwise a home that isn't 192.168.1.0/24 (e.g. Virgin Media's
+    192.168.0.x) would have EVERY device dropped → 0/0. Fail open until a real subnet locks."""
+    scanner = _make_scanner({
+        ("network", "capture_mode"): "passive",
+        ("network", "local_networks"): ["192.168.1.0/24"],   # the shipped placeholder
+        ("database", "path"): ":memory:",
+    })
+    neigh = [
+        {"ip": "192.168.0.1", "mac": "aa:aa:aa:aa:aa:aa", "manufacturer": "Router"},
+        {"ip": "192.168.0.50", "mac": "bb:bb:bb:bb:bb:bb", "manufacturer": "Phone"},
+    ]
+    with patch.object(scanner, "_ping_sweep"), \
+         patch.object(scanner, "_read_ip_neigh", return_value=neigh):
+        ips = {d["ip"] for d in scanner.scan_network()}
+    assert ips == {"192.168.0.1", "192.168.0.50"}, "placeholder range must not hide devices"
+
+
 def test_scan_fails_open_on_bad_range():
     """A mis-detected/blank subnet must not hide every device (fail open, don't filter)."""
     scanner = _make_scanner({
