@@ -304,11 +304,12 @@ fi
 #  - nft / iptables      (firewall_enforcer inline block/unblock — the IPS path)
 #  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
 #  - systemctl restart iotsentinel-backend (re-run subnet self-heal after the Wi-Fi join)
+#  - tailscale up / funnel  (wizard: enable remote access — needs root, no operator set)
 # Scripts are invoked by absolute path (executable shebang) so the match is exact.
 CURRENT_USER="$TARGET_USER"
-SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, /usr/bin/nmcli connection add *, /usr/bin/nmcli connection modify *, /usr/bin/nmcli connection up *, /usr/bin/nmcli connection down *, /usr/bin/nmcli connection delete *, $PROJECT_DIR/scripts/setup_hotspot.sh disarm, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *, /usr/bin/systemctl restart iotsentinel-backend"
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, /usr/bin/nmcli connection add *, /usr/bin/nmcli connection modify *, /usr/bin/nmcli connection up *, /usr/bin/nmcli connection down *, /usr/bin/nmcli connection delete *, $PROJECT_DIR/scripts/setup_hotspot.sh disarm, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *, /usr/bin/systemctl restart iotsentinel-backend, /usr/bin/tailscale up *, /usr/bin/tailscale funnel *"
 # Guard keys on a token only the current line has, so an older install's file is rewritten.
-if ! grep -qF "nmcli connection up" /etc/sudoers.d/iotsentinel 2>/dev/null; then
+if ! grep -qF "tailscale funnel" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
     sudo chmod 440 /etc/sudoers.d/iotsentinel
     ok "sudoers rules added for $CURRENT_USER (nmcli + hotspot disarm + AP/Zeek + nft/iptables + backend restart)"

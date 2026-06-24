@@ -165,6 +165,47 @@ class TestSetupWizardLayout:
         for category in ("Notifications", "AI explanations", "Security & advanced"):
             assert category in s, f"Step 3 category heading missing: {category}"
 
+    def test_wifi_ssid_is_typeable_with_datalist(self):
+        """Step 1 SSID must be a typeable Input (not a dropdown Select) wired to a
+        datalist, so a single-radio Pi that can't scan in AP mode can still enter the
+        home network by typing it."""
+        import dash_bootstrap_components as dbc
+        from dashboard.layouts.setup_wizard import setup_wizard_layout
+
+        def _children(node):
+            ch = getattr(node, "children", None)
+            if ch is None:
+                return []
+            return ch if isinstance(ch, (list, tuple)) else [ch]
+
+        def _find(node, cid):
+            if getattr(node, "id", None) == cid:
+                return node
+            for c in _children(node):
+                if hasattr(c, "id") or hasattr(c, "children"):
+                    r = _find(c, cid)
+                    if r is not None:
+                        return r
+            return None
+
+        field = _find(setup_wizard_layout, "setup-wifi-ssid")
+        assert field is not None, "setup-wifi-ssid missing"
+        assert isinstance(field, dbc.Input), "SSID field must be a typeable Input, not a Select"
+        assert getattr(field, "list", None) == "setup-wifi-ssid-list"
+        assert "setup-wifi-ssid-list" in str(setup_wizard_layout), "datalist missing"
+
+    def test_tailscale_remote_access_uses_bg_and_sudo(self):
+        """Funnel must run with --bg (a foreground serve is killed by the subprocess
+        timeout, so the URL never persists) and via sudo (the dashboard runs as the
+        unprivileged service user and no Tailscale operator is configured)."""
+        import inspect
+        from dashboard.callbacks import callbacks_setup as cs
+        funnel_src = inspect.getsource(cs._enable_tailscale_funnel)
+        assert "--bg" in funnel_src, "tailscale funnel must use --bg to persist"
+        assert "sudo" in funnel_src, "tailscale funnel must run via sudo"
+        up_src = inspect.getsource(cs._tailscale_up_worker)
+        assert "sudo" in up_src, "tailscale up must run via sudo"
+
     def test_do_wifi_join_connects_when_ssid_set(self):
         """The deferred join (Step 6) reaches wifi_manager.connect_wifi for a real SSID."""
         from dashboard.callbacks import callbacks_setup as cs

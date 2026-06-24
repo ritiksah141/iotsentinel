@@ -14,7 +14,10 @@ WorkingDirectory=/home/sentinel/iotsentinel
 # the same value to .env when remote access is enabled; this guarantees it always.
 Environment=IOTSENTINEL_HOST=0.0.0.0
 ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel/dashboard/app.py
-Restart=on-failure
+# Always restart (not just on-failure): on a fresh first boot the dashboard may exit
+# while waiting on first-boot setup; always-restart guarantees it self-heals without
+# the manual reboot that the rc7 first-boot race required.
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal

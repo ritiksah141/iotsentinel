@@ -71,12 +71,29 @@ def _parse_wifi_list(stdout: str) -> list[dict]:
     return options
 
 
+# Pre-AP scan cached by setup_hotspot.sh (boot mode) just before the setup hotspot
+# comes up. The radio can't scan while hosting the AP, so this file is what lets the
+# wizard still offer nearby-network suggestions during setup.
+_SCAN_CACHE = Path("/run/iotsentinel/wifi_scan")
+
+
+def _read_cached_scan() -> list[dict]:
+    """Parse the pre-AP scan file written by setup_hotspot.sh, or return []."""
+    try:
+        if _SCAN_CACHE.exists():
+            return _parse_wifi_list(_SCAN_CACHE.read_text())
+    except Exception:
+        pass
+    return []
+
+
 def scan_wifi_networks() -> list[dict]:
     """Return a list of {label, value} dicts for visible SSIDs (value == SSID).
 
     Tries an active rescan first; if that yields nothing (common when the radio
     is busy — e.g. wlan0 still hosting the setup AP — or the rescan errors), it
-    falls back to NetworkManager's cached list so the dropdown isn't empty.
+    falls back to NetworkManager's cached list, and finally to the pre-AP scan
+    file cached at boot so the suggestions aren't empty during setup.
     """
     if not nmcli_available():
         return []
@@ -92,7 +109,8 @@ def scan_wifi_networks() -> list[dict]:
                 return options
         except Exception:
             continue
-    return []
+    # Live scan came back empty (radio in AP mode) — use the boot-time cached scan.
+    return _read_cached_scan()
 
 
 def current_wifi() -> str | None:

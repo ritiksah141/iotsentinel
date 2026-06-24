@@ -83,7 +83,8 @@ _step_1 = html.Div([
             html.Span("Connect to home WiFi", className="fw-semibold small"),
         ], className="d-flex align-items-center mb-2"),
         html.P(
-            "If you're on the IoTSentinel-Setup hotspot, pick your home WiFi here. "
+            "If you're on the IoTSentinel-Setup hotspot, enter your home WiFi here — "
+            "type the network name (tap Scan to fill in nearby networks if they appear). "
             "Your Pi stays on the setup hotspot through the whole wizard and only "
             "joins this network on the last step, so you won't lose the dashboard "
             "partway through. On a spare PC or virtual machine wired by Ethernet, "
@@ -91,11 +92,16 @@ _step_1 = html.Div([
             className="small text-muted mb-2"
         ),
         dbc.InputGroup([
-            dbc.Select(id="setup-wifi-ssid", options=[], placeholder="Select network...",
-                       className="mb-0"),
+            # A typeable field (not a dropdown): a single-radio Pi hosting the setup AP
+            # often can't scan for other networks, so the user MUST be able to type the
+            # SSID. Scan results, when available, are offered as datalist suggestions.
+            dbc.Input(id="setup-wifi-ssid", type="text", list="setup-wifi-ssid-list",
+                      placeholder="Your WiFi network name", autocomplete="off",
+                      className="mb-0 login-form-input"),
             dbc.Button("Scan", id="setup-wifi-scan-btn",
                        color="secondary", outline=True, size="sm", className="ms-1"),
         ], className="mb-2"),
+        html.Datalist(id="setup-wifi-ssid-list"),
         dbc.Input(id="setup-wifi-password", type="password",
                   placeholder="WiFi password (blank for open networks)",
                   autocomplete="off", className="mb-2 login-form-input"),

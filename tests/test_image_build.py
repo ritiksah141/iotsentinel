@@ -389,9 +389,28 @@ def test_setup_pi_sudoers_grants_hotspot_teardown_and_backend_restart():
     # and the Pi is stranded after the hotspot is torn down (the rc6 hardware bug).
     assert "nmcli connection add" in sudoers and "nmcli connection up" in sudoers, \
         "home Wi-Fi profile create/activate not granted"
+    # Remote access: the dashboard runs as the unprivileged service user, so enabling
+    # Tailscale (up + funnel) needs these grants or the public URL never comes up.
+    assert "tailscale up" in sudoers and "tailscale funnel" in sudoers, \
+        "tailscale up/funnel not granted (remote access would fail silently)"
     # The idempotency guard must key on a token unique to the current line, so an older
     # install's sudoers file is rewritten with the new grants rather than left stale.
-    assert 'grep -qF "nmcli connection up"' in text
+    assert 'grep -qF "tailscale funnel"' in text
+
+
+def test_dashboard_service_restarts_always():
+    """First-boot resilience: the dashboard must self-heal (Restart=always) so a fresh
+    boot never needs the manual reboot the rc7 first-boot race required."""
+    text = (REPO / "services" / "iotsentinel-dashboard.service").read_text()
+    assert "Restart=always" in text
+
+
+def test_firstboot_diag_captures_dashboard_log():
+    """The headless escape hatch must dump the dashboard journal + any traceback to the
+    SD card, since the journal is volatile and a first-boot 500 is otherwise invisible."""
+    text = (REPO / "scripts" / "firstboot_diag.sh").read_text()
+    assert "journalctl -u iotsentinel-dashboard" in text
+    assert "traceback" in text.lower()
 
 
 def test_deps_stage_fixes_apt_tmp():
