@@ -93,6 +93,18 @@ class TestSetupHotspotScript:
         assert "disarm_hotspot" in recover, \
             "recover) must tear down a lingering hotspot once on home Wi-Fi"
 
+    def test_active_home_wifi_uses_valid_device_fields(self):
+        """'nmcli device status' has NO 'NAME' field (that belongs to 'connection show').
+        Querying NAME makes nmcli error and print nothing, so active_home_wifi ALWAYS
+        reported 'offline' and the recovery timer re-armed the hotspot ~6 min after the
+        Pi joined home Wi-Fi. Must use the real DEVICE/TYPE/STATE/CONNECTION fields."""
+        text = self.PATH.read_text()
+        fn = text.split("active_home_wifi()", 1)[1].split("\n}", 1)[0]
+        assert "device status" in fn
+        assert "NAME,TYPE,STATE device status" not in fn, \
+            "NAME is not a valid 'device status' field — nmcli would error to empty"
+        assert "DEVICE,TYPE,STATE,CONNECTION" in fn
+
     def test_boot_caches_wifi_scan_before_arming_ap(self):
         """A radio in AP mode can't scan, so boot must cache a Wi-Fi scan BEFORE arming
         the hotspot — that file is the wizard's only source of SSID suggestions."""
