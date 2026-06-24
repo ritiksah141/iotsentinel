@@ -352,7 +352,9 @@ def not_found(_e):
 
 @server.errorhandler(500)
 def internal_error(_e):
-    logger.error(f"Unhandled 500 error: {_e}")
+    # Log the FULL traceback (not just str(e)) so a first-boot 500 is diagnosable from
+    # the journal / firstboot report — the generic message still goes to the client.
+    logger.error("Unhandled 500 error on %s %s", request.method, request.path, exc_info=True)
     return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
@@ -7867,12 +7869,19 @@ dashboard_layout = dbc.Container([
                                 html.Div(id="settings-wifi-current",
                                          className="small text-muted mb-2"),
                                 dbc.InputGroup([
-                                    dbc.Select(id="settings-wifi-ssid", options=[],
-                                               placeholder="Select a network..."),
+                                    # Typeable (not a dropdown): if the Pi lost home Wi-Fi and
+                                    # re-armed the setup AP, the radio can't scan, so the user
+                                    # must be able to type the SSID to recover. Scan results
+                                    # populate the datalist as suggestions when available.
+                                    dbc.Input(id="settings-wifi-ssid", type="text",
+                                              list="settings-wifi-ssid-list",
+                                              placeholder="WiFi network name",
+                                              autocomplete="off"),
                                     dbc.Button("Scan", id="settings-wifi-scan-btn",
                                                color="secondary", outline=True, size="sm",
                                                className="ms-1"),
                                 ], className="mb-2"),
+                                html.Datalist(id="settings-wifi-ssid-list"),
                                 dbc.Input(id="settings-wifi-password", type="password",
                                           placeholder="WiFi password (blank for open networks)",
                                           autocomplete="off", className="mb-2"),
@@ -10161,29 +10170,42 @@ def main():
     logger.info("=" * 70)
 
     # ── Startup Self-Test ─────────────────────────────────────────────────
-    # Verify that critical DB tables exist before accepting traffic.
+    # Verify that critical DB tables exist before accepting traffic. On a FRESH first
+    # boot the backend (orchestrator) creates the schema, and it may still be doing so
+    # when the dashboard starts (it is only ordered After= the backend's *start*, not
+    # its readiness). Rather than exit(1) immediately — which crash-loops the service
+    # and previously left the Pi serving errors until a manual reboot — WAIT for the
+    # tables to appear, re-opening the connection each try, then continue.
+    import time as _time
     _required_tables = ['devices', 'alerts', 'users', 'connections']
-    try:
-        _conn = get_db_connection()
-        _cur = _conn.cursor()
-        _cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        _existing = {row[0] for row in _cur.fetchall()}
-        _missing = [t for t in _required_tables if t not in _existing]
-        if _missing:
-            logger.error(f"❌ Missing required DB tables: {_missing}. "
-                         "Run 'python config/init_database.py' first!")
-            sys.exit(1)
+    _deadline = _time.time() + 90
+    _missing = list(_required_tables)
+    _cur = None
+    while _time.time() < _deadline:
+        try:
+            _conn = get_db_connection()
+            _cur = _conn.cursor()
+            _cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            _existing = {row[0] for row in _cur.fetchall()}
+            _missing = [t for t in _required_tables if t not in _existing]
+            if not _missing:
+                break
+        except Exception as e:
+            logger.warning(f"DB not ready yet ({e}) — waiting for the backend…")
+        logger.info(f"Waiting for backend to create DB tables (missing: {_missing})…")
+        _time.sleep(3)
+    if _missing:
+        logger.error(f"❌ Required DB tables still missing after wait: {_missing}. "
+                     "Is the backend (orchestrator) service running?")
+        sys.exit(1)
 
-        # Admin user check (warning only — admin created by init_database.py)
+    # Admin user check (warning only — admin is created during the setup wizard)
+    try:
         _cur.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
         if _cur.fetchone()[0] == 0:
-            logger.warning("⚠️  No admin user found! Run 'python config/init_database.py' "
-                           "or 'python orchestrator.py' to create one.")
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Startup self-test failed: {e}")
-        sys.exit(1)
+            logger.warning("⚠️  No admin user found yet (created during the setup wizard).")
+    except Exception:
+        pass
 
     # ── Graceful Shutdown ──────────────────────────────────────────────────
     import signal

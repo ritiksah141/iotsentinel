@@ -93,6 +93,17 @@ class TestSetupHotspotScript:
         assert "disarm_hotspot" in recover, \
             "recover) must tear down a lingering hotspot once on home Wi-Fi"
 
+    def test_boot_caches_wifi_scan_before_arming_ap(self):
+        """A radio in AP mode can't scan, so boot must cache a Wi-Fi scan BEFORE arming
+        the hotspot — that file is the wizard's only source of SSID suggestions."""
+        text = self.PATH.read_text()
+        assert "cache_wifi_scan()" in text, "cache_wifi_scan function not defined"
+        # The boot-case arm-retry loop ("for attempt in 1 2 3") is unique to boot mode;
+        # the scan must be cached before it runs.
+        arm = text.index("for attempt in 1 2 3")
+        assert text[:arm].rfind("cache_wifi_scan") != -1, \
+            "boot must call cache_wifi_scan before arming the AP"
+
     def test_recover_nudges_saved_home_profile_before_arming(self):
         """Single-radio trap: once the AP is re-armed NM can never autoconnect, so while
         offline AND the radio is free, recover must first try to activate the wizard's

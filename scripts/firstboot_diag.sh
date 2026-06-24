@@ -68,6 +68,17 @@ OUT="$BOOTDIR/iotsentinel-firstboot.txt"
     echo; echo "## Dashboard bind (want 0.0.0.0:8050, not 127.0.0.1)"
     ss -tlnp 2>&1 | grep 8050 || echo "nothing listening on 8050"
 
+    echo; echo "## Dashboard service log (last errors / traceback — why /setup might 500)"
+    # The headless escape hatch for a first-boot dashboard crash: surface the tail and any
+    # Python traceback off the SD card, since the journal is volatile and lost on reboot.
+    journalctl -u iotsentinel-dashboard --no-pager 2>&1 | tail -50
+    echo "--- traceback lines (if any) ---"
+    journalctl -u iotsentinel-dashboard --no-pager 2>&1 \
+        | grep -iA25 -E 'traceback|error|exception' | tail -60 || true
+
+    echo; echo "## Backend service log (DB/schema creation the dashboard waits on)"
+    journalctl -u iotsentinel-backend --no-pager 2>&1 | tail -25
+
     echo; echo "## Kernel Wi-Fi / brcmfmac messages"
     dmesg 2>&1 | grep -iE 'brcmfmac|cfg80211|regulatory|wlan' | tail -25
 

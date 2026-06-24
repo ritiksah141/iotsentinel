@@ -43,8 +43,11 @@ def _tailscale_up_worker():
     with _ts_lock:
         _ts_state.update({'url': None, 'connected': False, 'public_url': None, 'running': True})
     try:
+        # sudo -n: the dashboard runs as the unprivileged 'sentinel' user, but
+        # `tailscale up` needs root (no operator is configured on the image). The
+        # grant is in setup_pi.sh's sudoers line; -n never blocks on a password.
         proc = subprocess.Popen(
-            ['tailscale', 'up', '--accept-routes'],
+            ['sudo', '-n', 'tailscale', 'up', '--accept-routes'],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
         for line in proc.stdout:
@@ -81,14 +84,30 @@ def _check_tailscale_connected() -> tuple[bool, str | None]:
 
 
 def _enable_tailscale_funnel(port: int = 8050) -> bool:
-    """Enable Tailscale Funnel for the given port. Returns True on success."""
+    """Enable Tailscale Funnel for the given port (persistently). Returns True on success.
+
+    MUST use --bg: a bare `tailscale funnel <port>` runs in the FOREGROUND and serves
+    only until the process is killed, so the old timeout=10 invocation tore the funnel
+    down the moment it returned — the public URL never actually worked. `--bg` writes the
+    serve config to tailscaled (which restores it across reboots) and returns immediately.
+    """
     try:
         result = subprocess.run(
-            ['tailscale', 'funnel', str(port)],
-            capture_output=True, text=True, timeout=10
+            ['sudo', '-n', 'tailscale', 'funnel', '--bg', str(port)],
+            capture_output=True, text=True, timeout=15
         )
-        return result.returncode == 0
-    except Exception:
+        if result.returncode == 0:
+            return True
+        # Some tailscale versions report an already-enabled funnel as a non-zero "already
+        # serving" message — treat that as success rather than a failure.
+        blob = (result.stderr or "") + (result.stdout or "")
+        if "already" in blob.lower():
+            return True
+        logger.warning("tailscale funnel --bg exited %s: %s",
+                       result.returncode, blob.strip())
+        return False
+    except Exception as e:
+        logger.warning("tailscale funnel enable failed: %s", e)
         return False
 
 _ENV_PATH = Path(__file__).parent.parent.parent / '.env'
@@ -391,12 +410,16 @@ def register(app):
     # WiFi network scan
     # ------------------------------------------------------------------
     @app.callback(
-        Output("setup-wifi-ssid", "options"),
+        Output("setup-wifi-ssid-list", "children"),
         Input("setup-wifi-scan-btn", "n_clicks"),
         prevent_initial_call=True,
     )
     def scan_wifi_networks(_n):
-        return _scan_wifi_networks()
+        # The SSID field is a typeable text input with this datalist for suggestions —
+        # so the user can always type their network even when the radio can't scan in
+        # AP mode (an empty scan just means no autocomplete, not a dead end).
+        nets = _scan_wifi_networks()
+        return [html.Option(value=n["value"]) for n in nets]
 
     # ------------------------------------------------------------------
     # WiFi connect
@@ -472,7 +495,7 @@ def register(app):
     # ------------------------------------------------------------------
     @app.callback(
         Output("settings-wifi-current", "children"),
-        Output("settings-wifi-ssid", "options"),
+        Output("settings-wifi-ssid-list", "children"),
         Output("settings-reachable", "children"),
         Input("quick-settings-modal", "is_open"),
         Input("settings-wifi-scan-btn", "n_clicks"),
@@ -520,15 +543,17 @@ def register(app):
         # Rescanning is slow (~15s), so only do it on an explicit Scan click; on a
         # plain modal-open just refresh the current-network line.
         if triggered == "settings-wifi-scan-btn":
-            options = wifi_manager.scan_wifi_networks()
-            if not options:
-                # Empty result looks like a broken button — tell the user why and
-                # what to do (common while wlan0 is still hosting the setup AP).
+            nets = wifi_manager.scan_wifi_networks()
+            options = [html.Option(value=n["value"]) for n in nets]
+            if not nets:
+                # The field is typeable, so an empty scan isn't a dead end — tell the
+                # user they can just type the name (common while wlan0 hosts the AP).
                 current_txt = html.Div([
                     current_txt,
                     html.Div([
                         html.I(className="fa fa-circle-info me-1"),
-                        "No networks found. Wait a moment and tap Scan again.",
+                        "No networks found (the radio can't scan while hosting the setup "
+                        "hotspot). Just type your WiFi name above.",
                     ], className="text-warning mt-1"),
                 ])
         else:

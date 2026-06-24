@@ -84,6 +84,20 @@ wait_for_nm_wlan() {
     return 0
 }
 
+# Capture a Wi-Fi scan to a file BEFORE the AP comes up. Once wlan0 is an access point
+# it can no longer scan for other networks, so this is the ONLY chance to give the setup
+# wizard a list of nearby SSIDs. The wizard's field is typeable regardless, but this
+# restores the autocomplete suggestions reliably (instead of depending on whatever
+# NetworkManager happened to cache before the AP armed). Best-effort, never fatal.
+cache_wifi_scan() {
+    local out="$STATE_DIR/wifi_scan"
+    nmcli dev wifi rescan 2>/dev/null || true
+    sleep 3
+    nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null \
+        | grep -v "^${HOTSPOT}:" | grep -v '^:' > "$out" 2>/dev/null || true
+    log "cached pre-AP Wi-Fi scan to $out ($(wc -l < "$out" 2>/dev/null || echo 0) networks)"
+}
+
 arm_hotspot() {
     if hotspot_active; then log "hotspot already active"; return 0; fi
     log "no home WiFi — starting open '$HOTSPOT' hotspot on $IFACE"
@@ -140,6 +154,9 @@ case "$MODE" in
     boot)
         wait_for_nm_wlan
         if [ -n "$(active_home_wifi)" ]; then log "already on home WiFi — hotspot not needed"; exit 0; fi
+        # Scan for nearby networks and cache them BEFORE arming the AP — once wlan0 is an
+        # AP it can't scan, so this is the wizard's only source of SSID suggestions.
+        cache_wifi_scan
         # Retry: cold-boot Wi-Fi firmware / regulatory settling can make the first
         # arm fail. Confirm the AP is actually active before giving up.
         for attempt in 1 2 3; do

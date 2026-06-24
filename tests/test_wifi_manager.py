@@ -312,6 +312,29 @@ def test_get_reachable_addresses_includes_remote_url():
     assert addr["remote"] == "https://demo.ts.net"
 
 
+def test_scan_falls_back_to_boot_cache_file(tmp_path):
+    """When the live scan is empty (radio in AP mode), the wizard suggestions come from
+    the pre-AP scan file setup_hotspot.sh cached at boot — hotspot SSID excluded."""
+    cache = tmp_path / "wifi_scan"
+    cache.write_text(f"HomeNet:70:WPA2\n{wifi_manager.HOTSPOT_SSID}:99:\n")
+
+    def fake_run(cmd, **kw):
+        return MagicMock(stdout="")   # live nmcli scan returns nothing in AP mode
+
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", side_effect=fake_run), \
+         patch("utils.wifi_manager._SCAN_CACHE", cache):
+        opts = wifi_manager.scan_wifi_networks()
+    assert [o["value"] for o in opts] == ["HomeNet"]
+
+
+def test_scan_cache_absent_returns_empty(tmp_path):
+    with patch("utils.wifi_manager.nmcli_available", return_value=True), \
+         patch("utils.wifi_manager.subprocess.run", return_value=MagicMock(stdout="")), \
+         patch("utils.wifi_manager._SCAN_CACHE", tmp_path / "missing"):
+        assert wifi_manager.scan_wifi_networks() == []
+
+
 def test_scan_falls_back_to_cached_when_rescan_empty():
     cached = "HomeNet:80:WPA2\n"
 
