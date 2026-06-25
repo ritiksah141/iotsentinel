@@ -107,6 +107,7 @@ from dashboard.shared import (
 from dash_extensions import WebSocket
 import dash_cytoscape as cyto
 from utils.topology_icons import device_icon_uri, router_icon_uri
+from utils.capture_mode import capture_mode_name
 
 # App-level logger (shows as __main__ when run directly)
 app_logger = logging.getLogger(__name__)
@@ -1377,7 +1378,13 @@ dashboard_layout = dbc.Container([
                             html.Span("Network Topology", className="fw-bold"),
                         ], className="d-flex align-items-center"),
                         html.Div([
-                            html.Small("Zeek Analysis", className="badge bg-success me-2 badge-pad"),
+                            # Honest mode badge: Gateway sees all traffic; Passive shows the
+                            # device map only (traffic cards say so until Gateway is enabled).
+                            (html.Small("Gateway · full traffic", className="badge bg-success me-2 badge-pad")
+                             if capture_mode_name() == 'gateway' else
+                             html.Small("Passive · device map", className="badge bg-light text-dark me-2 badge-pad",
+                                        title="Passive mode maps your devices. Enable Gateway mode "
+                                              "(Settings → Network) for live per-device traffic flows.")),
                             dbc.Switch(id="graph-view-toggle", label="3D View", value=False,
                                      className="d-inline-flex align-items-center u-text-sm"),
                             html.I(className="fa fa-question-circle ms-2 text-white u-pointer",
@@ -1398,6 +1405,11 @@ dashboard_layout = dbc.Container([
                                 id='network-graph',
                                 layout={'name': 'cose', 'animate': True},
                                 className="cytoscape-panel",
+                                # Keep the graph well-framed: clamp how far it can zoom
+                                # so a small home network can't auto-fit to an extreme
+                                # zoom where the node icons look oversized or tiny.
+                                minZoom=0.5,
+                                maxZoom=2.0,
                                 stylesheet=[
                                     # Each node renders a real device-type glyph on a light
                                     # face, ringed by its status colour (green/amber/red).
@@ -8254,7 +8266,12 @@ dashboard_layout = dbc.Container([
 
     # Hidden Components & Modals
     html.Div(id='dummy-output-card-clicks', style={'display': 'none'}),
-    WebSocket(id="ws", url="ws://127.0.0.1:8050/ws"),
+    # No hardcoded url: dash-extensions defaults the socket to the page's OWN host
+    # (ws://<location.host>/ws), and the clientside callback in callbacks_global.py
+    # immediately rewrites it to ws://|wss://<window.location.host>/ws. A hardcoded
+    # 127.0.0.1 made every remote browser (iotsentinel.local / Tailscale) dial its own
+    # localhost and fail, so the dashboard never received live data over the LAN.
+    WebSocket(id="ws"),
     # dash-extensions delivers ws.message as {data: "<raw json>"}, but every
     # consumer wants the parsed payload. A clientside callback JSON-parses each
     # message into this Store, and all callbacks read ws-data.data instead of the
@@ -9511,8 +9528,21 @@ def background_thread():
         if conn:
             try:
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM devices WHERE last_seen > datetime('now', '-5 minutes')")
+                # "Connected" window. 5 min was too twitchy on a home LAN: a passive ARP
+                # sweep only runs every few minutes and sleeping devices don't answer every
+                # cycle, so the headline read far below the real device list. Use a more
+                # forgiving, configurable window (default 30 min) and also expose the total
+                # known-device count so the full inventory is never hidden by the window.
+                try:
+                    _win = int(config.get('network', 'online_window_minutes', default=30))
+                except Exception:
+                    _win = 30
+                cursor.execute(
+                    "SELECT COUNT(*) FROM devices WHERE last_seen > datetime('now', ?)",
+                    (f'-{_win} minutes',))
                 data_payload['device_count'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM devices")
+                data_payload['device_count_total'] = cursor.fetchone()[0]
                 cursor.execute("SELECT COUNT(*) FROM alerts WHERE timestamp > datetime('now', '-24 hours') AND acknowledged = 0")
                 data_payload['alert_count'] = cursor.fetchone()[0]
                 cursor.execute("SELECT COUNT(*) FROM connections WHERE timestamp > datetime('now', '-1 hour')")

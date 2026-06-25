@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1167 passing**, 9 skipped, 0 failing |
+| Total tests | **1188 passing**, 9 skipped, 0 failing |
 | Test files | 44 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1167
+pytest tests/                          # all 1188
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -196,7 +196,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Setup wizard
 
-#### `test_setup_wizard.py` - 115 tests
+#### `test_setup_wizard.py` - 118 tests
 **Covers:** `dashboard/layouts/setup_wizard.py`, `dashboard/callbacks/callbacks_setup.py`, `config/config_manager.py`.
 
 **Why it exists:** The wizard is the first thing every user sees on a fresh Pi install. A broken step-progression or a silent config-write failure would leave every new install broken. This is the most comprehensive callback test file - the `navigate_steps` logic was extracted to a module-level function specifically to make it testable without a running browser.

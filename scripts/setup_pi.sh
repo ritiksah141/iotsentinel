@@ -140,9 +140,16 @@ else
     sudo apt-get install -y --no-install-recommends \
         curl git python3 python3-venv python3-pip \
         build-essential libssl-dev gnupg2 libpcap-dev \
-        tcpdump net-tools iputils-ping openssl \
+        tcpdump net-tools iputils-ping openssl nmap \
         network-manager dnsmasq-base avahi-daemon iptables nftables
     ok "System packages installed"
+    # Let nmap do ARP/ICMP host-discovery without root (the dashboard runs as an
+    # unprivileged user). Scoped capability, not a sudoers grant. Non-fatal.
+    if command -v nmap &>/dev/null; then
+        sudo setcap cap_net_raw,cap_net_admin,cap_net_bind_service+ep "$(command -v nmap)" 2>/dev/null \
+            && ok "nmap granted net_raw capability (root-free host discovery)" \
+            || warn "Could not setcap nmap — active scans will use TCP-connect fallback"
+    fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ import threading
 import time
 from collections import OrderedDict
 import requests
-from typing import Optional, Tuple, List, Dict
+from typing import Any, Optional, Tuple, List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +249,57 @@ class HybridAIAssistant:
                 "ttl_seconds": self.cache_ttl,
             },
         }
+
+    def ollama_status(self) -> Dict[str, Any]:
+        """Actively probe the local Ollama server so the UI can tell the user whether
+        privacy mode genuinely keeps AI on-device (Ollama installed, running, and the
+        configured model pulled) or will fall back to cloud.
+
+        Returns a dict: enabled / reachable / model_present / model / detail.
+        Cheap and safe to call from a Dash callback — a refused localhost connection
+        returns immediately; the 3s timeout only bites if the server hangs.
+        """
+        status = {
+            "enabled": self.ollama_enabled,
+            "reachable": False,
+            "model_present": False,
+            "model": self.ollama_model,
+            "detail": "",
+        }
+        if not self.ollama_enabled:
+            status["detail"] = "On-device AI is turned off in the configuration."
+            return status
+
+        base = self.ollama_url.split("/api/", 1)[0] if "/api/" in self.ollama_url else self.ollama_url
+        try:
+            resp = requests.get(base.rstrip("/") + "/api/tags", timeout=3)
+            if resp.status_code != 200:
+                status["detail"] = f"Ollama responded with status {resp.status_code}."
+                return status
+            status["reachable"] = True
+            names = [m.get("name", "") for m in (resp.json().get("models") or [])]
+            want = (self.ollama_model or "").strip()
+            want_family = want.split(":")[0]
+            status["model_present"] = any(
+                n == want or (want_family and n.split(":")[0] == want_family)
+                for n in names if n
+            )
+            if status["model_present"]:
+                status["detail"] = (
+                    f"Ollama is running and the {want} model is ready on this device.")
+            else:
+                status["detail"] = (
+                    f"Ollama is running but the {want} model has not finished downloading, "
+                    "so AI uses cloud providers until it is ready.")
+            return status
+        except requests.exceptions.RequestException:
+            status["detail"] = (
+                "Ollama is not reachable on this device, so privacy mode falls back to "
+                "cloud providers. On-device AI may still be installing on first boot.")
+            return status
+        except Exception:
+            status["detail"] = "Could not check the on-device Ollama status."
+            return status
 
     # Fallback order: paid tier (OpenAI, Claude) before free tier (Groq, Gemini).
     _CLOUD_ORDER = ("openai", "anthropic", "groq", "gemini")

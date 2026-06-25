@@ -187,8 +187,8 @@
   },
   "discovery": {
     "mode": "passive",
-    "active_scan_enabled": false,
-    "nmap_enabled": false,
+    "active_scan_enabled": true,
+    "nmap_enabled": true,
     "upnp_active_enabled": false,
     "mdns_active_enabled": false,
     "active_scan_interval": 3600,

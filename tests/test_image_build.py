@@ -146,6 +146,15 @@ def test_deps_run_in_chroot_not_host(staged):
     assert "iw" in body and "rfkill" in body, "iw/rfkill needed to start the AP"
 
 
+def test_nmap_installed_for_active_discovery(staged):
+    """nmap powers active device discovery (firewalled/silent hosts) in passive mode,
+    and must run root-free via a scoped setcap (the backend is unprivileged)."""
+    deps = (_stage(staged) / "00-install-deps" / "00-run-chroot.sh").read_text()
+    assert "nmap" in deps, "nmap must be installed for active discovery"
+    assert "setcap" in deps and "cap_net_raw" in deps, \
+        "nmap needs cap_net_raw to do host discovery without root"
+
+
 # ---------------------------------------------------------------------------
 # THE big regressions: setup must run as root (not su), placeholders substituted
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ Extracted from app.py.  All callbacks are registered via ``register(app)``.
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -2669,7 +2670,25 @@ def register(app):
                         details={'settings_type': 'discovery', 'settings': discovery_settings},
                         severity='high', resource_type='system_settings', result='success'
                     )
-                    toast = ToastManager.success("💾 Settings Saved", detail_message="All settings have been saved successfully")
+                    # The orchestrator only reads discovery config (mode + mDNS/UPnP/nmap)
+                    # at startup, so persisting alone has no live effect. Bounce the backend
+                    # so it re-initialises discovery with the new settings. Best-effort;
+                    # `sudo -n` never blocks, and the unit only exists on the Pi image.
+                    restarted = False
+                    try:
+                        _unit = "/etc/systemd/system/iotsentinel-backend.service"
+                        if os.path.exists(_unit):
+                            subprocess.run(
+                                ["sudo", "-n", "systemctl", "restart", "iotsentinel-backend"],
+                                check=False, capture_output=True, timeout=15)
+                            restarted = True
+                    except Exception as _e:
+                        logger.warning(f"Could not restart backend after discovery save: {_e}")
+                    _detail = ("Saved. Monitoring restarts to apply the new scan settings - "
+                               "live data resumes in a few seconds."
+                               if restarted else
+                               "All settings have been saved successfully.")
+                    toast = ToastManager.success("💾 Settings Saved", detail_message=_detail)
                 else:
                     logger.error("Failed to save discovery settings")
                     toast = ToastManager.warning("⚠️ Settings Partially Saved", detail_message="Some settings may not have been saved properly")

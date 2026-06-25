@@ -194,9 +194,9 @@ class IoTSentinelOrchestrator:
             logger.info(f"API Integration Hub initialized ({enabled_count} integrations enabled)")
 
             # Initialize NVD vulnerability sync if enabled
-            if config.get('nvd', {}).get('enabled', True):
+            if config.get_section('nvd').get('enabled', True):
                 # Read API key from environment variable
-                nvd_api_key = os.getenv('NVD_API_KEY', config.get('nvd', {}).get('api_key', ''))
+                nvd_api_key = os.getenv('NVD_API_KEY', config.get_section('nvd').get('api_key', ''))
                 self.vuln_sync = get_vulnerability_sync(
                     db_path=db_path,
                     nvd_api_key=nvd_api_key if nvd_api_key else None
@@ -215,7 +215,7 @@ class IoTSentinelOrchestrator:
                 logger.warning("Domain blocklist sync init failed: %s", _dbl_err)
 
             # Initialize discovery features based on mode
-            discovery_mode = config.get('discovery', {}).get('mode', 'passive')
+            discovery_mode = config.get_section('discovery').get('mode', 'passive')
 
             # Device discovered callback
             def on_device_discovered(device_info):
@@ -232,7 +232,7 @@ class IoTSentinelOrchestrator:
                 logger.info(f"Passive discovery initialized (mDNS, UPnP)")
 
             # Initialize active discovery (nmap) if enabled
-            if discovery_mode in ['active', 'hybrid'] or config.get('discovery', {}).get('active_scan_enabled', False):
+            if discovery_mode in ['active', 'hybrid'] or config.get_section('discovery').get('active_scan_enabled', False):
                 self.active_scanner = get_active_scanner(on_device_discovered=on_device_discovered)
                 logger.info("Active scanner initialized (nmap)")
 
@@ -454,7 +454,7 @@ class IoTSentinelOrchestrator:
             logger.info("Sustainability metrics logging started (every 6 hours).")
 
         # Start NVD Vulnerability Sync Thread (daily)
-        if self.vuln_sync and config.get('nvd', {}).get('enabled', True):
+        if self.vuln_sync and config.get_section('nvd').get('enabled', True):
             nvd_sync_thread = threading.Thread(
                 target=self._nvd_sync_loop,
                 name="NVDSyncThread",
@@ -509,7 +509,7 @@ class IoTSentinelOrchestrator:
             logger.info("UPnP passive discovery started.")
 
         # Start Active Network Scan Thread (if enabled)
-        if self.active_scanner and config.get('discovery', {}).get('active_scan_enabled', False):
+        if self.active_scanner and config.get_section('discovery').get('active_scan_enabled', False):
             active_scan_thread = threading.Thread(
                 target=self._active_scan_loop,
                 name="ActiveScanThread",
@@ -1501,7 +1501,7 @@ class IoTSentinelOrchestrator:
 
     def _nvd_sync_loop(self):
         """Background loop for NVD vulnerability synchronization (daily)."""
-        interval = config.get('nvd', {}).get('sync_interval_hours', 24) * 3600  # Convert to seconds
+        interval = config.get_section('nvd').get('sync_interval_hours', 24) * 3600  # Convert to seconds
         initial_delay = 300  # 5 minutes
 
         logger.info(f"NVD sync loop started (interval: {interval/3600:.1f} hours)")
@@ -1627,7 +1627,7 @@ class IoTSentinelOrchestrator:
             if mode == 'gateway':
                 return  # gateway mode monitors the AP subnet, not the home LAN
             from utils.net_detect import detect_active_cidr, PLACEHOLDER_CIDRS
-            current = config.get('network', {}).get('local_networks', ['192.168.1.0/24'])
+            current = config.get_section('network').get('local_networks', ['192.168.1.0/24'])
             current_first = current[0] if current else None
             if current_first and current_first not in PLACEHOLDER_CIDRS:
                 return  # user/previous run already set a real subnet
@@ -1649,28 +1649,35 @@ class IoTSentinelOrchestrator:
 
     def _active_scan_loop(self):
         """Background loop for active network scanning with nmap."""
-        interval = config.get('discovery', {}).get('active_scan_interval', 3600)  # Default 1 hour
-        network = config.get('network', {}).get('local_networks', ['192.168.1.0/24'])[0]
+        interval = config.get_section('discovery').get('active_scan_interval', 3600)  # Default 1 hour
+        from utils.net_detect import PLACEHOLDER_CIDRS
 
-        logger.info(f"Active scan loop started (interval: {interval}s, network: {network})")
+        logger.info(f"Active scan loop started (interval: {interval}s)")
 
+        scanned_once = False
         while self.running:
             try:
-                if self.active_scanner:
+                # Re-read the subnet every cycle so the scan FOLLOWS the subnet self-heal
+                # instead of pinning to the placeholder captured at startup (the Pi boots
+                # on the hotspot/placeholder subnet, which locks to the real LAN later).
+                network = config.get_section('network').get('local_networks', ['192.168.1.0/24'])[0]
+                if self.active_scanner and network not in PLACEHOLDER_CIDRS:
                     capabilities = self.active_scanner.get_capabilities()
-
                     if not capabilities['nmap_available']:
                         logger.warning("nmap not available, active scanning disabled")
                         break
-
                     logger.info(f"Starting active network scan of {network}...")
                     devices = self.active_scanner.scan_network(network, scan_type='ping')
-
                     logger.info(f"Active scan found {len(devices)} devices")
+                    scanned_once = True
+                elif network in PLACEHOLDER_CIDRS:
+                    logger.debug("Active scan waiting for the real home subnet to lock in.")
             except Exception as e:
                 logger.error(f"Error in active scan: {e}")
 
-            self._sleep(interval)
+            # Re-check quickly until the first real scan completes (subnet still settling),
+            # then fall back to the configured interval.
+            self._sleep(interval if scanned_once else 60)
 
     def _sleep(self, seconds: float) -> bool:
         """Interruptible sleep for worker loops. Returns immediately once stop() has

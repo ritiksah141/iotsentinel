@@ -137,8 +137,17 @@ class NetworkSecurityScorer:
             ''')
             no_firmware_info = cursor.fetchone()[0]
 
-            # Get devices last seen recently (within 24 hours)
-            cutoff_time = (datetime.now() - timedelta(hours=24)).isoformat()
+            # Get devices last seen recently. 24h was too aggressive for a passive Wi-Fi
+            # client: a device may only re-announce (ARP/mDNS) every few hours, so on a
+            # quiet network every device could flip to "offline" and the card read 0/N.
+            # Default to a more forgiving 72h window; configurable via
+            # network.online_window_hours.
+            try:
+                from config.config_manager import config as _cfg
+                _window_h = int(_cfg.get('network', 'online_window_hours', default=72))
+            except Exception:
+                _window_h = 72
+            cutoff_time = (datetime.now() - timedelta(hours=_window_h)).isoformat()
             cursor.execute('''
                 SELECT COUNT(*) FROM devices
                 WHERE last_seen > ?

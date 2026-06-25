@@ -317,6 +317,54 @@ class TestGeminiProvider:
 
 
 # ---------------------------------------------------------------------------
+# On-device Ollama status probe (drives the privacy-mode UI honesty)
+# ---------------------------------------------------------------------------
+
+class TestOllamaStatus:
+    """ollama_status() actively probes the local Ollama server so privacy mode can
+    tell the user whether AI truly stays on-device or will fall back to cloud."""
+
+    def _tags(self, models, status=200):
+        resp = MagicMock()
+        resp.status_code = status
+        resp.json.return_value = {"models": [{"name": n} for n in models]}
+        return resp
+
+    def test_disabled_when_ollama_off(self):
+        st = HybridAIAssistant(ollama_enabled=False).ollama_status()
+        assert st["enabled"] is False
+        assert st["reachable"] is False and st["model_present"] is False
+
+    def test_ready_when_running_and_model_present(self):
+        a = HybridAIAssistant(ollama_enabled=True, ollama_model="gemma2:2b")
+        with patch.object(ai_mod.requests, "get",
+                          return_value=self._tags(["gemma2:2b", "llama3:8b"])):
+            st = a.ollama_status()
+        assert st["reachable"] is True and st["model_present"] is True
+        assert "ready" in st["detail"].lower()
+
+    def test_running_but_model_not_pulled(self):
+        a = HybridAIAssistant(ollama_enabled=True, ollama_model="gemma2:2b")
+        with patch.object(ai_mod.requests, "get", return_value=self._tags(["llama3:8b"])):
+            st = a.ollama_status()
+        assert st["reachable"] is True and st["model_present"] is False
+
+    def test_model_family_tag_counts_as_present(self):
+        a = HybridAIAssistant(ollama_enabled=True, ollama_model="gemma2:2b")
+        with patch.object(ai_mod.requests, "get", return_value=self._tags(["gemma2:latest"])):
+            st = a.ollama_status()
+        assert st["model_present"] is True
+
+    def test_not_reachable_falls_back_to_cloud(self):
+        a = HybridAIAssistant(ollama_enabled=True)
+        with patch.object(ai_mod.requests, "get",
+                          side_effect=ai_mod.requests.exceptions.ConnectionError()):
+            st = a.ollama_status()
+        assert st["reachable"] is False and st["model_present"] is False
+        assert "not reachable" in st["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
 # Fallback order
 # ---------------------------------------------------------------------------
 
@@ -378,6 +426,9 @@ class TestFallbackOrder:
         a._try_groq.assert_not_called()
 
     def test_privacy_mode_cloud_fallback_after_ollama_fails(self):
+        # Privacy mode is local-FIRST, not local-only: when on-device Ollama is
+        # unavailable the cloud chain is still used as a fallback (by design — see
+        # setup_local_ai.sh / the wizard's "Local first" vs "Cloud first" choice).
         a = HybridAIAssistant(groq_api_key="g", ollama_enabled=True, privacy_mode=True)
         a._try_groq = MagicMock(return_value="groq says")
         a._try_ollama = MagicMock(return_value=None)
