@@ -1,0 +1,22 @@
+[Unit]
+Description=IoTSentinel Model Evaluation (offline P/R/F1) + optional demo traffic
+# Runs after the backend/dashboard so the DB schema and inference engine are up.
+Wants=network-online.target
+After=network-online.target iotsentinel-backend.service iotsentinel-dashboard.service
+# Skip entirely once provisioned (stamped by the script).
+ConditionPathExists=!/var/lib/iotsentinel/model-eval-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+TimeoutStartSec=900
+# Keep first-boot interactive performance snappy — lowest CPU/IO priority.
+Nice=15
+IOSchedulingClass=idle
+User=sentinel
+StandardOutput=journal
+StandardError=journal
+ExecStart=/bin/bash /home/sentinel/iotsentinel/scripts/run_model_eval.sh
+
+[Install]
+WantedBy=multi-user.target

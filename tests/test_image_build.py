@@ -42,6 +42,7 @@ REQUIRED_SERVICES = [
     "iotsentinel-connectivity.service",
     "iotsentinel-connectivity.timer",
     "iotsentinel-firstboot-report.service",
+    "iotsentinel-model-eval.service",
 ]
 
 # Front-end SOURCE assets the dashboard needs. These must be tracked (the gitignored
@@ -281,6 +282,7 @@ def test_service_execstart_targets_exist():
     checks = {
         "iotsentinel-firstboot-report.service": "scripts/firstboot_diag.sh",
         "iotsentinel-connectivity.service": "scripts/setup_hotspot.sh",
+        "iotsentinel-model-eval.service": "scripts/run_model_eval.sh",
     }
     for unit, target in checks.items():
         text = (SERVICES / unit).read_text()

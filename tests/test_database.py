@@ -605,7 +605,7 @@ class TestTransactionIntegrity:
 
 # Test Summary Report Generator
 def generate_test_report():
-    """Generate test coverage report for AT3 documentation."""
+    """Generate test coverage report for release documentation."""
     import json
 
     report = {

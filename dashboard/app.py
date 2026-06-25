@@ -2660,6 +2660,21 @@ dashboard_layout = dbc.Container([
                             ])
                         ], className="glass-card border-0 shadow-sm mb-3"),
 
+                        # Model Performance — Precision / Recall / F1 from the offline
+                        # holdout evaluation (River HalfSpaceTrees vs Isolation Forest comparator).
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.Div([
+                                    html.H6([html.I(className="fa fa-chart-line me-2 text-info"),
+                                             "Model Performance (Precision / Recall / F1)"], className="mb-0"),
+                                    dbc.Button(html.I(className="fa fa-rotate"),
+                                               id='ml-metrics-refresh-btn', color="link", size="sm",
+                                               className="p-0 text-muted", title="Refresh"),
+                                ], className="d-flex justify-content-between align-items-center mb-2"),
+                                html.Div(id='ml-metrics-card-body'),
+                            ])
+                        ], className="glass-card border-0 shadow-sm mb-3"),
+
                         dbc.Card([
                             dbc.CardBody([
                                 html.H6([html.I(className="fa fa-cog me-2 text-warning"), "Model Actions"], className="mb-3"),
