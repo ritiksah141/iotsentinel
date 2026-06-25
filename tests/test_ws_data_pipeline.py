@@ -63,3 +63,11 @@ def test_ws_url_is_set_from_browser_location():
     assert 'Output("ws", "url")' in GLOBAL
     assert "window.location.host" in GLOBAL
     assert "wss://" in GLOBAL and "ws://" in GLOBAL
+
+
+def test_websocket_component_is_not_hardcoded_to_localhost():
+    # A hardcoded url made the component connect to 127.0.0.1 on mount (before the
+    # clientside override fired), so every remote browser dialed its own localhost.
+    # Leaving url unset lets dash-extensions default to the page's own host.
+    assert "ws://127.0.0.1:8050/ws" not in APP
+    assert 'WebSocket(id="ws")' in APP

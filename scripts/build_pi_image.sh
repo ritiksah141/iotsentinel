@@ -162,7 +162,13 @@ apt-get update || true
 apt-get install -y zeek python3.11 python3.11-venv python3.11-dev python3-pip python3-dev \
     build-essential libssl-dev libffi-dev \
     network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base iw rfkill \
-    curl git gnupg2 libpcap-dev tcpdump net-tools iputils-ping openssl
+    curl git gnupg2 libpcap-dev tcpdump net-tools iputils-ping openssl nmap
+
+# Let nmap do ARP/ICMP host-discovery without root — the backend runs as the
+# unprivileged 'sentinel' user, so active device discovery needs this capability
+# (a scoped setcap, not a broad sudoers grant). Non-fatal if unavailable.
+setcap cap_net_raw,cap_net_admin,cap_net_bind_service+ep "$(command -v nmap)" 2>/dev/null \
+    || echo "WARN: could not setcap nmap; active scans fall back to TCP-connect discovery"
 
 # Enable avahi for iotsentinel.local mDNS discovery
 systemctl enable avahi-daemon 2>/dev/null || true

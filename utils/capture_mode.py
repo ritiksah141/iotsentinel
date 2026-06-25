@@ -32,5 +32,17 @@ def empty_title(base: str) -> str:
     """Annotate a chart's 'no data' title with the passive-Wi-Fi reason when applicable,
     so a sparse chart reads as expected (not broken). Returns *base* unchanged otherwise."""
     if is_passive_wifi():
-        return base + " — passive Wi-Fi sees little device traffic (enable Gateway mode for full capture)"
+        return base + " - passive Wi-Fi sees little device traffic (enable Gateway mode for full capture)"
     return base
+
+
+def capture_mode_name() -> str:
+    """The configured capture mode ('passive' or 'gateway'), for UI badges/labels.
+
+    Reads the config directly (not the is_passive_wifi() interface heuristic) so the
+    label is correct on dev machines and demo installs too."""
+    try:
+        from config.config_manager import config
+        return (config.get('network', 'capture_mode', default='passive') or 'passive').lower()
+    except Exception:
+        return 'passive'

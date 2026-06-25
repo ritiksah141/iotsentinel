@@ -206,6 +206,15 @@ class TestSetupWizardLayout:
         up_src = inspect.getsource(cs._tailscale_up_worker)
         assert "sudo" in up_src, "tailscale up must run via sudo"
 
+    def test_remote_access_callbacks_are_exception_safe(self):
+        """settings_remote_poll runs on a dcc.Interval, so an unhandled exception
+        becomes a recurring 500 on settings-remote-status. Both remote callbacks must
+        wrap their bodies and log the traceback instead of letting it escape."""
+        src = (Path(__file__).parent.parent / "dashboard" / "callbacks"
+               / "callbacks_setup.py").read_text()
+        assert 'logger.exception("settings_remote_poll failed")' in src
+        assert 'logger.exception("settings_remote_enable failed")' in src
+
     def test_do_wifi_join_connects_when_ssid_set(self):
         """The deferred join (Step 6) reaches wifi_manager.connect_wifi for a real SSID."""
         from dashboard.callbacks import callbacks_setup as cs

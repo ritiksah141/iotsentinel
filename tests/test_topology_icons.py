@@ -21,6 +21,15 @@ def test_all_glyphs_are_wellformed_svg():
         minidom.parseString(svg)  # raises on malformed markup
 
 
+def test_svg_has_intrinsic_width_height():
+    """An SVG with only a viewBox has no intrinsic size and defaults to ~300x150,
+    so Cytoscape rasterises the glyph huge at some zoom levels (icons balloon/break).
+    Explicit width/height pins the natural size to the 24x24 viewBox."""
+    svg = unquote(ti.device_icon_uri("laptop").split(",", 1)[1])
+    assert 'width="24"' in svg and 'height="24"' in svg
+    assert 'viewBox="0 0 24 24"' in svg
+
+
 def test_device_icon_is_offline_data_uri():
     uri = ti.device_icon_uri("mobile")
     # A data: URI is inherently offline (no network fetch); the only URL inside is the

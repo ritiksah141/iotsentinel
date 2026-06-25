@@ -85,8 +85,13 @@ _DEFAULT_ICON_COLOR = "#334155"   # slate — legible on the light node face
 
 def _svg_uri(inner: str, color: str) -> str:
     """Wrap glyph markup in a themed SVG and return a urlencoded data: URI."""
+    # width/height are REQUIRED: an SVG with only a viewBox has no intrinsic size,
+    # so it defaults to ~300x150 and Cytoscape (background-fit: none) rasterises the
+    # glyph at that huge natural size at some zoom levels — the icons balloon and
+    # look broken. Explicit 24x24 pins the natural size to the viewBox.
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+        'viewBox="0 0 24 24" fill="none" '
         f'stroke="{color}" stroke-width="2" stroke-linecap="round" '
         f'stroke-linejoin="round">{inner}</svg>'
     )

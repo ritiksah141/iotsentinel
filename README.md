@@ -58,20 +58,26 @@ in plain English.
 | | **IoTSentinel** | Firewalla | Fing | Pi-hole |
 |---|---|---|---|---|
 | **Price** | ~$75 (Pi hardware) | $179 to $349 | $99/yr subscription | Free (DNS only) |
-| **Traffic analysis** | Deep (Zeek C++ engine) | Yes | Limited | No |
-| **Unsupervised ML** | Yes, River, on-device | No | No | No |
-| **Autonomous IDS/IPS** | Yes, auto-blocks threats | Basic | No | No |
-| **AI investigation timeline** | Yes, 5-step, transparent | No | No | No |
+| **Device discovery + inventory** | Yes (ARP + nmap + mDNS + UPnP) | Yes | Yes | No |
 | **CVE scanning on join** | Yes, NVD pipeline | No | No | No |
 | **Plain-English alerts** | Yes, proactive LLM rewrite | Beta, cloud-only | No | No |
 | **Per-alert AI chat** | Yes, grounded in your network | Beta, cloud-only | No | No |
 | **AI works fully on-device** | Yes, preinstalled in the Pi image | No, requires their cloud | No | No |
 | **Choose your AI provider** | Yes: OpenAI, Claude, Groq, Gemini, local | No, theirs only | No | No |
 | **Weekly AI security story** | Yes, auto-narrated | No | No | No |
-| **Per-device AI personality** | Yes, from learned baselines | No | No | No |
 | **AI source transparency** | Yes, badge per explanation | No | No | No |
 | **Privacy** | 100% on-device | Cloud sync | Cloud | Local |
 | **Open source** | Yes (MIT) | Partial | No | Yes |
+| **Traffic analysis** ᴳ | Deep (Zeek C++ engine) | Yes | Limited | No |
+| **Unsupervised ML** ᴳ | Yes, River, on-device | No | No | No |
+| **Autonomous IDS/IPS** ᴳ | Yes, auto-blocks threats | Basic | No | No |
+| **AI investigation timeline** ᴳ | Yes, 5-step, transparent | No | No | No |
+| **Per-device AI personality** ᴳ | Yes, from learned baselines | No | No | No |
+
+**ᴳ = Gateway mode.** The rows above the divider work out of the box in the default **Passive
+mode** (no extra hardware). The rows marked **ᴳ** analyse per-device traffic, so they require
+**Gateway mode** (the Pi becomes a Wi-Fi access point via one USB adapter and sees all device
+traffic). See [Monitoring modes](#monitoring-modes) for exactly what each mode delivers.
 
 ---
 
@@ -97,6 +103,22 @@ its own internet, so your home Wi-Fi is never changed. See
 [`docs/GATEWAY_MODE.md`](docs/GATEWAY_MODE.md) for setup, and [`docs/ROADMAP.md`](docs/ROADMAP.md)
 for how the modes map to the product roadmap.
 
+**What each mode delivers:**
+
+| Capability | Passive (default, no extra hardware) | Gateway (one USB Wi-Fi adapter) |
+|---|---|---|
+| Device discovery + inventory (ARP + nmap + mDNS + UPnP) | Yes | Yes |
+| New-device triage + CVE-on-join (NVD) | Yes | Yes |
+| DNS-level threat intelligence | Yes | Yes |
+| On-device AI: explanations, Ask Why, weekly story, source badges | Yes | Yes |
+| Per-device traffic analysis (Zeek) | No | Yes |
+| Unsupervised ML anomaly detection (River) | No | Yes |
+| Autonomous IDS/IPS, inline blocking, data-exfil / C2 detection | No | Yes |
+
+Passive mode is a complete device-inventory, vulnerability, and on-device-AI product on its own.
+Gateway mode adds the per-device traffic intelligence. Because a Wi-Fi *client* physically cannot
+see other devices' traffic, the traffic-based cards honestly say so until Gateway mode is enabled.
+
 ```mermaid
 flowchart TD
   NET([Internet]) --> R["Home router"]
@@ -120,7 +142,7 @@ flowchart TD
 
 ## What it does
 
-### Active intrusion detection and prevention
+### Active intrusion detection and prevention (Gateway mode)
 
 An autonomous `SecurityAgent` polls every 60 seconds. When it detects a threat it does not just
 notify, it **investigates**, in five transparent steps shown as a color-coded timeline:
@@ -177,7 +199,7 @@ When a device first joins, IoTSentinel matches its manufacturer, model, and type
 vulnerability database. Matched CVEs surface immediately in the device Security tab with CVSS
 scores and descriptions. No manual scanning.
 
-### Real-time ML anomaly detection
+### Real-time ML anomaly detection (Gateway mode)
 
 [River ML](https://riverml.xyz), incremental online learning, scores every device on every
 connection, with **no training phase**. Two ensemble algorithms (HalfSpaceTrees and
@@ -371,7 +393,7 @@ dashboard still works there, it just is not installable).
 
 ## Testing
 
-**1167 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
+**1188 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
 system, AI feature helpers, device intelligence, capture-mode and gateway logic, Wi-Fi / hotspot
 recovery, and the setup wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke
 test and an ARM64 dependency-install check.
@@ -386,7 +408,7 @@ test and an ARM64 dependency-install check.
 | Alert service | 78% |
 
 ```bash
-pytest tests/                          # all 1167 tests
+pytest tests/                          # all 1188 tests
 pytest tests/ -x                       # stop at first failure
 ./scripts/run_tests.sh report          # HTML coverage report
 ```

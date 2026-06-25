@@ -923,22 +923,31 @@ def register(app):
         prevent_initial_call=True,
     )
     def settings_remote_enable(_n):
-        if not _tailscale_available():
+        try:
+            if not _tailscale_available():
+                return (
+                    dbc.Alert("Tailscale isn't installed on this device, so remote access "
+                              "can't be enabled.", color="warning", className="small mb-0"),
+                    True,
+                )
+            with _ts_lock:
+                if _ts_state.get('running'):
+                    return dash.no_update, False
+            threading.Thread(target=_tailscale_up_worker, daemon=True).start()
             return (
-                dbc.Alert("Tailscale isn't installed on this device, so remote access "
-                          "can't be enabled.", color="warning", className="small mb-0"),
+                html.Div([dbc.Spinner(size="sm", className="me-2"),
+                          html.Span("Starting Tailscale… waiting for the sign-in link…",
+                                    className="text-muted small")]),
+                False,
+            )
+        except Exception:
+            # Never let an exception here surface as a 500 on settings-remote-status.
+            logger.exception("settings_remote_enable failed")
+            return (
+                dbc.Alert("Could not start remote access. Please try again.",
+                          color="danger", className="small mb-0"),
                 True,
             )
-        with _ts_lock:
-            if _ts_state.get('running'):
-                return dash.no_update, False
-        threading.Thread(target=_tailscale_up_worker, daemon=True).start()
-        return (
-            html.Div([dbc.Spinner(size="sm", className="me-2"),
-                      html.Span("Starting Tailscale… waiting for the sign-in link…",
-                                className="text-muted small")]),
-            False,
-        )
 
     @app.callback(
         Output("settings-remote-status", "children", allow_duplicate=True),
@@ -947,6 +956,10 @@ def register(app):
         prevent_initial_call=True,
     )
     def settings_remote_poll(_n):
+      # Top-level guard: this runs on a dcc.Interval, so an unhandled exception here
+      # becomes a recurring 500 on settings-remote-status. logger.exception records the
+      # real traceback in iotsentinel.log for diagnosis on hardware.
+      try:
         with _ts_lock:
             login_url = _ts_state.get('url')
         connected, public_url = _check_tailscale_connected()
@@ -988,6 +1001,13 @@ def register(app):
             ])
             return status, False
         return dash.no_update, False
+      except Exception:
+        logger.exception("settings_remote_poll failed")
+        return (
+            dbc.Alert("Remote access ran into a problem. Check the device logs and try again.",
+                      color="danger", className="small mb-0"),
+            True,   # stop the polling interval so it doesn't keep erroring
+        )
 
     # ------------------------------------------------------------------
     # Live Groq key validation

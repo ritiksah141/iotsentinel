@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
 Tests for the home-subnet self-detection path that fixes the "Pi monitors the
-empty 10.42.0.1 hotspot net instead of the home LAN" bug:
+empty 10.42.0.1 hotspot net instead of the home LAN" bug, plus the ConfigManager.get
+contract the orchestrator depends on:
 
   - utils.net_detect    — interface -> CIDR helpers
   - utils.arp_scanner   — reads network.local_networks (not the dead local_subnet)
+  - orchestrator        — _autodetect_local_network self-heals the placeholder subnet,
+                          and must use config.get_section('x') (NOT config.get('x', {}),
+                          which passes {} as an unhashable KEY -> TypeError and silently
+                          broke discovery + subnet self-heal on hardware)
 
 Run: pytest tests/test_net_autodetect.py -v
 """
 
+import re
 import socket
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -165,3 +173,109 @@ def test_scan_fails_open_on_bad_range():
          patch.object(scanner, "_read_ip_neigh", return_value=neigh):
         ips = {d["ip"] for d in scanner.scan_network()}
     assert ips == {"192.168.0.1"}
+
+
+# ---------------------------------------------------------------------------
+# ConfigManager.get contract + orchestrator subnet self-heal
+#
+# config.get('section', {}) passed {} as the KEY (get(section, key, default)), so it
+# ran dict.get({}, ...) -> TypeError: unhashable type: 'dict'. That threw inside the
+# orchestrator's innovation-feature init and _autodetect_local_network every cycle,
+# silently disabling mDNS/UPnP/nmap discovery and pinning the subnet to the placeholder.
+# ---------------------------------------------------------------------------
+class _RealishConfig:
+    """Mirrors config.config_manager.ConfigManager.get / get_section / update exactly,
+    so the OLD buggy `config.get('x', {})` raises here just as it would in production."""
+
+    def __init__(self, data):
+        self._config = data
+
+    def get(self, section, key, default=None):
+        return self._config.get(section, {}).get(key, default)
+
+    def get_section(self, section):
+        return self._config.get(section, {})
+
+    def update(self, section, key, value):
+        self._config.setdefault(section, {})[key] = value
+        return True
+
+
+_BAD_CONFIG_GET = re.compile(r"""config\.get\(['"][a-z_]+['"]\s*,\s*\{\}\)""")
+
+
+def test_orchestrator_has_no_unhashable_config_get_pattern():
+    src = (Path(__file__).parent.parent / "orchestrator.py").read_text()
+    hits = _BAD_CONFIG_GET.findall(src)
+    assert not hits, f"orchestrator still uses config.get('x', {{}}) (unhashable key): {hits}"
+
+
+def test_realish_config_reproduces_the_old_bug():
+    cfg = _RealishConfig({"discovery": {"mode": "passive"}})
+    with pytest.raises(TypeError):
+        cfg.get("discovery", {})                       # the bug
+    assert cfg.get_section("discovery") == {"mode": "passive"}  # the fix
+
+
+def test_autodetect_local_network_heals_placeholder_subnet():
+    """Self-heal must replace the placeholder CIDR with the detected home subnet
+    without raising (the config.get bug used to throw every cycle)."""
+    from orchestrator import IoTSentinelOrchestrator
+
+    cfg = _RealishConfig({"network": {
+        "capture_mode": "passive", "interface": "wlan0",
+        "local_networks": ["192.168.1.0/24"]}})  # the shipped placeholder
+    fake_self = SimpleNamespace(arp_scanner=SimpleNamespace(network_range="192.168.1.0/24"))
+    with patch("orchestrator.config", cfg), \
+         patch("utils.net_detect.detect_active_cidr", return_value="192.168.8.0/24"):
+        IoTSentinelOrchestrator._autodetect_local_network(fake_self)
+    assert cfg.get_section("network")["local_networks"] == ["192.168.8.0/24"]
+    assert fake_self.arp_scanner.network_range == "192.168.8.0/24"
+
+
+def test_autodetect_keeps_user_set_real_subnet():
+    """A non-placeholder subnet the user set must never be clobbered."""
+    from orchestrator import IoTSentinelOrchestrator
+
+    cfg = _RealishConfig({"network": {
+        "capture_mode": "passive", "interface": "wlan0",
+        "local_networks": ["10.0.5.0/24"]}})
+    fake_self = SimpleNamespace(arp_scanner=None)
+    with patch("orchestrator.config", cfg), \
+         patch("utils.net_detect.detect_active_cidr", return_value="192.168.8.0/24"):
+        IoTSentinelOrchestrator._autodetect_local_network(fake_self)
+    assert cfg.get_section("network")["local_networks"] == ["10.0.5.0/24"]
+
+
+def test_discovery_settings_save_restarts_backend():
+    """Saving discovery/scan toggles must bounce the backend so the orchestrator
+    re-reads discovery config (it only reads at startup)."""
+    src = (Path(__file__).parent.parent / "dashboard" / "callbacks"
+           / "callbacks_global.py").read_text()
+    assert "iotsentinel-backend" in src
+    assert "systemctl" in src and "restart" in src
+
+
+def test_active_discovery_enabled_by_default():
+    """v1 passive mode ships with active (nmap) discovery ON so the device list is
+    complete out of the box, not just the always-on ARP sweep."""
+    import json
+    cfg = json.loads((Path(__file__).parent.parent / "config"
+                      / "default_config.json").read_text())
+    disc = cfg["discovery"]
+    assert disc["active_scan_enabled"] is True
+    assert disc["nmap_enabled"] is True
+    assert disc["mode"] == "passive"  # capture mode unchanged; only discovery is active
+
+
+def test_active_scan_loop_follows_subnet_heal_and_skips_placeholder():
+    """The nmap active-scan loop must re-read the subnet every cycle (so it follows the
+    self-heal) and skip the placeholder, mirroring the ARP scanner — otherwise it pins to
+    the wrong subnet captured at startup, the same bug that under-counted devices."""
+    import inspect
+    from orchestrator import IoTSentinelOrchestrator
+    src = inspect.getsource(IoTSentinelOrchestrator._active_scan_loop)
+    assert "PLACEHOLDER_CIDRS" in src, "active scan must skip the placeholder subnet"
+    # the subnet read must be INSIDE the while loop, not captured once before it
+    body = src.split("while self.running", 1)[1]
+    assert "local_networks" in body, "subnet must be re-read each cycle, not once at start"

@@ -607,7 +607,7 @@ def register(app):
         traffic_data = ws_message.get('traffic_timeline', [])
         if not traffic_data:
             from utils.capture_mode import is_passive_wifi
-            _empty_title = ("No traffic yet — passive Wi-Fi sees little device traffic "
+            _empty_title = ("No traffic yet - passive Wi-Fi sees little device traffic "
                             "(enable Gateway mode for full capture)"
                             if is_passive_wifi() else "No traffic data available")
             fig = go.Figure()

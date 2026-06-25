@@ -6,12 +6,19 @@
 |---|---|---|---|---|
 | **Who** | Home users who want a dedicated always-on monitor | Anyone who wants to explore the dashboard first | Developers / advanced users | Home users with a spare PC or VM instead of a Pi |
 | **Effort** | Flash SD card → boot → browser wizard | One command | Terminal steps | One command on Debian/Ubuntu |
-| **Network capture** | Full (Zeek on the Pi) | Simulated / demo data | Full (Zeek on the Pi) | Full (Zeek), real passive capture |
+| **Network capture** | Device discovery + DNS (full per-device traffic in Gateway mode) | Simulated / demo data | Same as Path A | Same as Path A |
 
 > **Demo vs real monitoring.** Path B (your everyday Mac/Windows/Linux computer) runs
 > the dashboard on **simulated data** so you can try the interface with zero risk. To
 > actually watch your network without a Raspberry Pi, use **Path D** (a spare PC or a
 > Linux virtual machine), which installs Zeek and captures for real.
+>
+> **Passive vs Gateway capture.** In the default **Passive** mode the Pi is a Wi-Fi
+> *client*, so Zeek sees device discovery, DNS, and broadcast traffic, enough for the
+> device inventory, CVE scanning, and DNS threat intelligence. Capturing every device's
+> per-device traffic (for ML anomaly detection and inline IDS/IPS) requires **Gateway
+> mode**, where the Pi is the access point and all device traffic flows through it. See
+> the [README capability matrix](../README.md#monitoring-modes).
 
 ---
 

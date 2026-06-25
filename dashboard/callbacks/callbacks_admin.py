@@ -3177,10 +3177,21 @@ def register(app):
         try:
             db_manager.set_setting('ai_privacy_mode', '1' if enabled else '0')
             _shared.ai_assistant.privacy_mode = bool(enabled)
-            msg = ("Privacy mode ON. Ollama used first. Cloud providers are fallback only."
-                   if enabled else
-                   "Privacy mode OFF. Cloud providers used in standard priority order.")
-            return enabled, dbc.Alert(msg, color="success" if enabled else "secondary", duration=4000)
+            if not enabled:
+                return enabled, dbc.Alert(
+                    "Privacy mode OFF. Cloud providers are used first, in standard priority order.",
+                    color="secondary", duration=4000)
+            # Privacy mode is local-first, so verify on-device Ollama actually works on
+            # this Pi — otherwise the user thinks data stays local when it silently falls
+            # back to cloud.
+            st = _shared.ai_assistant.ollama_status()
+            if st["reachable"] and st["model_present"]:
+                msg = "Privacy mode ON. " + st["detail"] + " Your network data stays on the Pi."
+                color = "success"
+            else:
+                msg = "Privacy mode ON, but on-device AI isn't ready yet. " + st["detail"]
+                color = "warning"
+            return enabled, dbc.Alert(msg, color=color, duration=8000)
         except Exception as exc:
             logger.error(f"Failed to save ai_privacy_mode: {exc}")
             return enabled, dbc.Alert(f"Error: {exc}", color="danger", duration=5000)
@@ -3259,8 +3270,15 @@ def register(app):
             pass
 
         if health.get('privacy_mode'):
-            extras.append(html.P("Privacy mode is ON. Local AI is tried first.",
-                                 className="text-muted small mb-0"))
+            # Show the REAL on-device state so "privacy mode" can't silently fall back to
+            # cloud without the admin knowing: is Ollama installed, running, model pulled?
+            st = _shared.ai_assistant.ollama_status()
+            _dot = "text-success" if (st["reachable"] and st["model_present"]) else "text-warning"
+            extras.append(html.P([
+                html.I(className=f"fa fa-circle me-2 small {_dot}"),
+                html.Span("Privacy mode ON. ", className="fw-semibold"),
+                html.Span(st["detail"], className="text-muted small"),
+            ], className="mb-0 mt-1"))
 
         return rows + extras
 

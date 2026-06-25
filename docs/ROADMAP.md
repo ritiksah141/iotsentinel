@@ -16,7 +16,7 @@ effort for the user.
 
 ## Product tiers (good, better, best)
 
-### Tier 1: Passive monitor (plug-and-play, ships in v1.0.0)
+### Tier 1: Passive monitor (plug-and-play, the v1.0.0 public release)
 - **Hardware:** a Raspberry Pi, or a spare PC or Linux VM with bridged networking. (A
   regular laptop can run the dashboard on demo data to try it first; real capture needs
   the Pi or a bridged PC/VM. See the setup guide.)
@@ -26,13 +26,16 @@ effort for the user.
   explanations (Ask-Why, agent timeline).
 - **Who it is for:** every non-technical user. Real, differentiated value out of the box.
 
-### Tier 2: Gateway / Access Point (cable-free full IDS/IPS, ships in v1.0.0)
+### Tier 2: Gateway / Access Point (cable-free full IDS/IPS, available in v1.0.0, hardened + gate-tested in v1.1)
 - **Hardware:** Pi plus one AP-capable USB Wi-Fi adapter. No cables.
 - **Setup:** in the same wizard, choose Gateway, pick the adapter, name the IoT network,
   then move IoT devices onto that network.
 - **Features:** everything in Tier 1 plus full per-device flow capture, ML anomaly detection
   (exfiltration, C2, scanning), MITRE kill-chain mapping, and inline block and allow of any
   device.
+- **Status:** the engine ships in v1.0.0 and is selectable in the wizard, but it is labelled
+  **advanced** and is not part of the v1.0.0 hardware gate. v1.1 makes Gateway a first-class,
+  fully hardware-tested path (AP + DHCP + routing + Zeek on the AP interface).
 - **Who it is for:** prosumers willing to add a low-cost adapter and move their IoT devices
   onto a dedicated network.
 
@@ -60,16 +63,27 @@ of payoff:
    instant-rollback safety already in place.
 
 ## How it maps to releases
-- **v1.0.0:** Tiers 1 and 2, both driven entirely by the on-screen wizard. Non-technical users
-  get the full plug-and-play passive experience; prosumers get full IDS/IPS by adding one USB
-  adapter. No feature requires the command line.
-- **v1.x:** the Tier 3 appliance image and whole-network gateway mode (no re-pairing).
-- **later:** safe DHCP-insertion simple mode, curated threat-intel feeds, and a mobile companion.
+- **v1.0.0 (passive-first public release):** Tier 1, polished and hardware-gate-tested. Complete
+  device discovery out of the box (ARP + nmap + mDNS + UPnP), CVE-on-join (NVD), DNS-level threat
+  intelligence, new-device triage, and the full on-device AI layer (Ask-Why, agent timeline,
+  weekly story, privacy mode with a real Ollama status check). The UI and docs honestly mark which
+  features need Gateway mode, so nothing reads as empty-by-surprise. Gateway is selectable but
+  labelled advanced.
+- **v1.1 (Gateway hardened):** Tier 2 becomes a first-class, hardware-gated path. Full per-device
+  traffic capture lights up the already-built engine: River ML anomaly detection, autonomous
+  IDS/IPS with inline blocking, MITRE kill-chain mapping, and the traffic/threat-map dashboards.
+  Focus is on making AP + DHCP + routing + Zeek-on-AP reliable on first boot across adapters.
+- **v1.2 (appliance + whole-network):** the Tier 3 pre-flashed appliance image and whole-network
+  gateway mode (inline / router) so full protection needs no device re-pairing.
+- **later:** safe DHCP-gateway insertion (simple mode), curated threat-intel feeds, and a mobile
+  companion app.
 
 ## How this stands against competitors
-Architecturally IoTSentinel now plays in the same category as the commercial inline
-home-security boxes (for example Firewalla): real per-device IDS/IPS with inline blocking. Its
-differentiators are open source on commodity hardware, local AI plain-English explanations,
-unsupervised on-device ML (no cloud training), and data that stays local. The gaps it is
-closing on the roadmap are appliance polish, whole-network coverage without re-pairing, and
-throughput.
+v1.0.0 ships in the network-visibility category (think Fing) but goes well beyond it: CVE-on-join,
+DNS-level threat intelligence, and a local AI plain-English layer, all on open commodity hardware
+with data that stays on-device. The full per-device IDS/IPS that puts IoTSentinel in the
+commercial inline-box category (for example Firewalla) is built and ships as the Gateway engine;
+v1.1 hardens it into a first-class, hardware-gated path. Its enduring differentiators are open
+source, local AI explanations, unsupervised on-device ML (no cloud training), and local-only data.
+The gaps it is closing on the roadmap are Gateway first-boot reliability, appliance polish,
+whole-network coverage without re-pairing, and throughput.
