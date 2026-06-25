@@ -460,7 +460,7 @@ class TestErrorRecovery:
 
 # Integration Test Report
 def generate_integration_test_report():
-    """Generate integration test report for AT3."""
+    """Generate integration test report for release documentation."""
     import json
 
     report = {

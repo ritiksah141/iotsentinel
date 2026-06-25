@@ -3282,6 +3282,72 @@ def register(app):
 
         return rows + extras
 
+    # Model Performance card (System & ML Models -> ML Models tab) — Precision / Recall /
+    # F1 from the offline holdout evaluation. Reads model_performance written by
+    # scripts/evaluate_models.py (River HalfSpaceTrees vs Isolation Forest comparator).
+    @app.callback(
+        Output('ml-metrics-card-body', 'children'),
+        [Input('system-modal', 'is_open'),
+         Input('ml-metrics-refresh-btn', 'n_clicks')],
+        prevent_initial_call=False,
+    )
+    def render_ml_metrics_card(is_open, _n):
+        ctx_id = dash.callback_context.triggered[0]['prop_id'] if dash.callback_context.triggered else ''
+        if 'system-modal' in ctx_id and not is_open:
+            raise dash.exceptions.PreventUpdate
+
+        try:
+            rows = db_manager.get_model_performance_metrics(days=3650)
+        except Exception as exc:
+            logger.error(f"Could not load model performance metrics: {exc}")
+            rows = []
+
+        if not rows:
+            return html.P([
+                "No evaluation yet. Run ",
+                html.Code("python scripts/evaluate_models.py"),
+                " to score the models on a labelled holdout (IoT-23 / BOT-IoT) and populate "
+                "Precision, Recall, and F1.",
+            ], className="text-muted small mb-0")
+
+        # Latest entry per model_type (rows are newest-first from the query).
+        latest = {}
+        for r in rows:
+            mt = r.get('model_type', 'model')
+            if mt not in latest:
+                latest[mt] = r
+
+        def _pct(v):
+            try:
+                return f"{float(v) * 100:.1f}%"
+            except Exception:
+                return "-"
+
+        cards = []
+        for mt, r in latest.items():
+            f1 = r.get('f1_score', 0) or 0
+            dot = "text-success" if f1 >= 0.70 else ("text-warning" if f1 >= 0.5 else "text-danger")
+            ts = str(r.get('timestamp', ''))[:16].replace('T', ' ')
+            cards.append(html.Div([
+                html.Div([
+                    html.I(className=f"fa fa-circle me-2 small {dot}"),
+                    html.Span(mt, className="fw-semibold"),
+                    html.Span(f"  evaluated {ts}" if ts else "", className="text-muted small ms-2"),
+                ], className="mb-1"),
+                html.Div([
+                    dbc.Badge(f"Precision {_pct(r.get('precision'))}", color="light", text_color="dark", className="me-1"),
+                    dbc.Badge(f"Recall {_pct(r.get('recall'))}", color="light", text_color="dark", className="me-1"),
+                    dbc.Badge(f"F1 {_pct(f1)}", color="success" if f1 >= 0.70 else "secondary"),
+                ], className="mb-2"),
+            ]))
+
+        note = html.P(
+            "F1 target >= 70%. Isolation Forest is the offline comparator only (not run on the "
+            "Pi at runtime). Re-run the evaluation script against the full datasets for the "
+            "headline figure.",
+            className="text-muted small mb-0 mt-1")
+        return cards + [note]
+
     # ------------------------------------------------------------------
     # Credentials tab — redirect URI display
     # ------------------------------------------------------------------

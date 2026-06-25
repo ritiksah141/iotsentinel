@@ -325,7 +325,7 @@ fi
 # Systemd services — substitute actual username and home dir into service files
 SERVICES_SRC="$PROJECT_DIR/services"
 if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
-    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity iotsentinel-firstboot-report; do
+    for svc in iotsentinel-backend iotsentinel-dashboard iotsentinel-provision iotsentinel-localai iotsentinel-connectivity iotsentinel-firstboot-report iotsentinel-model-eval; do
         [ -f "$SERVICES_SRC/${svc}.service" ] || continue
         sed "s|/home/sentinel|$TARGET_HOME|g; s|User=sentinel|User=$CURRENT_USER|g" \
             "$SERVICES_SRC/${svc}.service" \
@@ -347,12 +347,15 @@ if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
     sudo systemctl enable iotsentinel-firstboot-report 2>/dev/null || true
     # localai pulls the on-device model on first boot; enable for next boot (no --now).
     sudo systemctl enable iotsentinel-localai 2>/dev/null || true
+    # model-eval populates the ML model-performance card (and seeds demo traffic in demo
+    # mode) on first boot; enable for next boot (no --now).
+    sudo systemctl enable iotsentinel-model-eval 2>/dev/null || true
     # Fallback: guarantee the autostart symlinks exist even if `systemctl enable` could
     # not talk to systemd in the chroot, so the image always boots the services.
     sudo mkdir -p /etc/systemd/system/multi-user.target.wants \
                   /etc/systemd/system/timers.target.wants 2>/dev/null || true
     for _u in iotsentinel-provision iotsentinel-backend iotsentinel-dashboard \
-              iotsentinel-firstboot-report iotsentinel-localai; do
+              iotsentinel-firstboot-report iotsentinel-localai iotsentinel-model-eval; do
         sudo ln -sf "/etc/systemd/system/${_u}.service" \
             "/etc/systemd/system/multi-user.target.wants/${_u}.service" 2>/dev/null || true
     done

@@ -278,6 +278,7 @@ cp "${SERVICES_SRC}/iotsentinel-localai.service"       /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-connectivity.service"  /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-connectivity.timer"    /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-firstboot-report.service" /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-model-eval.service"    /etc/systemd/system/
 
 # Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
 # the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,
@@ -306,6 +307,9 @@ systemctl enable iotsentinel-firstboot-report.service
 # AI in the box: installs Ollama + pulls the on-device model in the background
 # on first boot (skips on <3 GB RAM or when ollama_enabled=false in config).
 systemctl enable iotsentinel-localai.service
+# Model evaluation: writes Precision/Recall/F1 to model_performance on first boot (and
+# seeds demo traffic in demo mode) so the ML Models card is populated without any SSH.
+systemctl enable iotsentinel-model-eval.service
 
 # SECURITY: every image ships with the same default login (sentinel / iotsentinel).
 # We deliberately DO NOT force-expire it with `chage -d 0`: the dashboard runs as

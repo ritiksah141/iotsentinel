@@ -199,5 +199,9 @@
       "dns_timeout": 1.0,
       "cache_ttl_seconds": 3600
     }
+  },
+  "demo": {
+    "seed_traffic": true,
+    "note_seed_traffic": "DEMO BUILD ONLY: on first boot, inject sample anomaly traffic so the dashboard shows live alerts for the demonstration video, with zero manual steps. Set this to false for the public/production release so real installs are never seeded with synthetic traffic."
   }
 }

@@ -206,6 +206,12 @@ connection, with **no training phase**. Two ensemble algorithms (HalfSpaceTrees 
 HoeffdingAdaptive) score traffic against a rolling baseline in real time. The Overview shows the
 current anomaly index, risk badge, trend arrow, and per-device breakdown, wired to live data.
 
+Detection quality is measured offline with `scripts/evaluate_models.py`, which scores the
+detector on a labelled holdout (IoT-23 / BOT-IoT) and reports **Precision, Recall, and F1** in the
+System & ML Models -> ML Models tab (target F1 >= 0.70). A scikit-learn **Isolation Forest** is run
+there as an independent comparator; it is offline-only (not loaded into the live engine on the Pi,
+so it adds no continuous memory cost).
+
 ### Frosted-glass dashboard
 
 A mobile-responsive web UI with Apple-vibrancy frosted-glass design, full dark mode, low-power
@@ -393,7 +399,7 @@ dashboard still works there, it just is not installable).
 
 ## Testing
 
-**1188 tests** across 44 files cover the full data pipeline, ML engine, security flows, alert
+**1199 tests** across 51 files cover the full data pipeline, ML engine, security flows, alert
 system, AI feature helpers, device intelligence, capture-mode and gateway logic, Wi-Fi / hotspot
 recovery, and the setup wizard. CI runs the suite on Python 3.11 and 3.12, plus an app-boot smoke
 test and an ARM64 dependency-install check.
@@ -408,7 +414,7 @@ test and an ARM64 dependency-install check.
 | Alert service | 78% |
 
 ```bash
-pytest tests/                          # all 1188 tests
+pytest tests/                          # all 1199 tests
 pytest tests/ -x                       # stop at first failure
 ./scripts/run_tests.sh report          # HTML coverage report
 ```

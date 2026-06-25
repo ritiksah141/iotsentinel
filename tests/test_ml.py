@@ -572,7 +572,7 @@ class TestPerformance:
 
 # Test Report Generator
 def generate_ml_test_report():
-    """Generate ML test report for AT3 documentation."""
+    """Generate ML test report for release documentation."""
     import json
 
     report = {
