@@ -1328,6 +1328,24 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_actions_status ON agent_actions(status, created_at DESC)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_actions_device ON agent_actions(device_ip, created_at DESC)')
 
+    # IoT protocol usage stats (MQTT/CoAP/Z-Wave/mDNS). Written by utils.iot_protocol_analyzer;
+    # the UNIQUE(device_ip, protocol) backs its ON CONFLICT upsert. Without this table the
+    # dashboard's protocol summary errored every cycle ("no such table: protocol_stats").
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS protocol_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_ip TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            total_messages INTEGER DEFAULT 0,
+            total_bytes INTEGER DEFAULT 0,
+            encryption_used INTEGER DEFAULT 0,
+            UNIQUE(device_ip, protocol)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_protocol_stats_device ON protocol_stats(device_ip, protocol)')
+
     conn.commit()
     # No need to close - using shared connection from db_manager
 

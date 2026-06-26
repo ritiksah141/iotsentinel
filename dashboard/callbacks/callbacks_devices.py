@@ -2918,7 +2918,7 @@ def register(app):
                         ]),
                         html.Div([
                             html.Small(conn_data['device_ip'], className="text-muted me-2"),
-                            dbc.Badge(concern.capitalize(), color=badge_color, size="sm")
+                            dbc.Badge(concern.capitalize(), color=badge_color, className="small")
                         ])
                     ], className="d-flex justify-content-between py-2 border-bottom")
                 )

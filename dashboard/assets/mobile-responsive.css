@@ -547,8 +547,11 @@
    TOUCH IMPROVEMENTS
    ============================================================================ */
 @media (hover: none) and (pointer: coarse) {
-    /* Increase touch target sizes */
-    a, button, .btn, input, select, textarea {
+    /* Increase touch target sizes. EXCLUDE .form-check-input: switches/checkboxes have
+       their own compact sizing (the Apple-style 51x31 pill), and a 44px min-height here
+       overrides the switch height (min-height beats height regardless of !important),
+       turning the pill into a circle on mobile. Their label row stays tappable. */
+    a, button, .btn, input:not(.form-check-input), select, textarea {
         min-height: 44px;
         min-width: 44px;
     }
