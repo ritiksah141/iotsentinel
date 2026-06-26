@@ -557,8 +557,7 @@ class ChartFactory:
                 'colorscale': colorscale,
                 'hoverongaps': False,
                 'colorbar': {
-                    'title': 'Count',
-                    'titleside': 'right'
+                    'title': {'text': 'Count', 'side': 'right'}
                 }
             }],
             'layout': layout

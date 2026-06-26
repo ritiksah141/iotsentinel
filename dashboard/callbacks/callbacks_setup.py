@@ -852,7 +852,7 @@ def register(app):
         threading.Thread(target=_tailscale_up_worker, daemon=True).start()
         return (
             html.Div([
-                dbc.Spinner(size="sm", className="me-2"),
+                dbc.Spinner(size="sm", spinner_class_name="me-2"),
                 html.Span("Starting Tailscale… waiting for the sign-in page…",
                            className="text-muted small"),
             ]),
@@ -902,7 +902,7 @@ def register(app):
                 html.A(login_url, href=login_url, target="_blank",
                        className="small fw-semibold text-info d-block text-break mb-2"),
                 html.Div([
-                    dbc.Spinner(size="sm", className="me-2"),
+                    dbc.Spinner(size="sm", spinner_class_name="me-2"),
                     html.Span("Waiting for you to sign in…", className="text-muted small"),
                 ]),
             ])
@@ -935,7 +935,7 @@ def register(app):
                     return dash.no_update, False
             threading.Thread(target=_tailscale_up_worker, daemon=True).start()
             return (
-                html.Div([dbc.Spinner(size="sm", className="me-2"),
+                html.Div([dbc.Spinner(size="sm", spinner_class_name="me-2"),
                           html.Span("Starting Tailscale… waiting for the sign-in link…",
                                     className="text-muted small")]),
                 False,
@@ -996,7 +996,7 @@ def register(app):
                        className="small mb-1"),
                 html.A(login_url, href=login_url, target="_blank",
                        className="small fw-semibold text-info d-block text-break mb-2"),
-                html.Div([dbc.Spinner(size="sm", className="me-2"),
+                html.Div([dbc.Spinner(size="sm", spinner_class_name="me-2"),
                           html.Span("Waiting for you to sign in…", className="text-muted small")]),
             ])
             return status, False

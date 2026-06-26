@@ -189,3 +189,63 @@ def test_no_dbc_table_uses_dark_kwarg():
             if re.search(r"\bdark\s*=", m.group(1)):
                 offenders.append(py.name)
     assert not offenders, f"dbc.Table(dark=...) is invalid in dbc 2.0.4: {set(offenders)}"
+
+
+def test_no_dbc_spinner_uses_classname():
+    """dash_bootstrap_components 2.0.4's Spinner has no `className` (only
+    spinner_class_name); `dbc.Spinner(className=...)` raises at render time — it broke the
+    remote-access status poll. Guard so it can't creep back into any callback."""
+    from pathlib import Path
+    import re
+    repo = Path(__file__).resolve().parent.parent
+    offenders = []
+    for py in (repo / "dashboard").rglob("*.py"):
+        for m in re.finditer(r"dbc\.Spinner\((.*?)\)", py.read_text(), re.DOTALL):
+            if re.search(r"\bclassName\s*=", m.group(1)):
+                offenders.append(py.name)
+    assert not offenders, f"dbc.Spinner(className=...) is invalid in dbc 2.0.4: {set(offenders)}"
+
+
+def test_no_plotly_colorbar_titleside():
+    """Plotly moved colorbar `titleside` under `title.side`; a bare `titleside` raises at
+    render time — it broke the device activity heatmap. Guard the chart code + callbacks."""
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    offenders = [py.name for d in ("dashboard", "utils")
+                 for py in (repo / d).rglob("*.py") if "titleside" in py.read_text()]
+    assert not offenders, f"plotly colorbar 'titleside' is invalid; use title.side: {set(offenders)}"
+
+
+def test_protocol_stats_table_is_created():
+    """iot_protocol_analyzer upserts into protocol_stats; init_database must create it or
+    the dashboard's protocol summary errors every cycle ('no such table: protocol_stats')."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "config" / "init_database.py").read_text()
+    assert "CREATE TABLE IF NOT EXISTS protocol_stats" in src
+
+
+def test_no_invalid_component_keywords():
+    """Run scripts/check_component_props.py: no dbc/dcc/html component is passed a keyword it
+    doesn't accept. This is the class of bug that broke Remote Access (dbc.Spinner(className=))
+    and the device badge (dbc.Badge(size=)) — invisible to the suite because callbacks aren't
+    rendered, so this static AST check guards it."""
+    import importlib.util
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "check_component_props", repo / "scripts" / "check_component_props.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    offenders = [o for f in sorted((repo / "dashboard").rglob("*.py")) for o in mod.scan_file(f)]
+    assert not offenders, "Invalid component keywords (crash at render):\n" + "\n".join(offenders)
+
+
+def test_touch_target_rule_excludes_switches():
+    """The mobile touch-target sizing must NOT hit .form-check-input: a 44px min-height
+    overrides the Apple switch's 31px height (min-height beats height even with !important),
+    turning the compact pill into a circle on mobile. Guard the exclusion."""
+    from pathlib import Path
+    css = (Path(__file__).resolve().parent.parent / "dashboard" / "assets"
+           / "mobile-responsive.css").read_text()
+    assert "input:not(.form-check-input)" in css, \
+        "touch-target min-height rule must exclude .form-check-input (switches)"
