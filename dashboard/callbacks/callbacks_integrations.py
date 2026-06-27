@@ -1302,9 +1302,13 @@ This is an automated weekly report from IoTSentinel.'''
                         resource_id=str(integration_id),
                         result='success'
                     )
-                    return False, dash.no_update, dash.no_update, None
+                    saved_msg = dbc.Alert(
+                        [html.I(className="fa fa-check-circle me-2"), "Configuration saved."],
+                        color="success", className="mb-0"
+                    )
+                    return True, dash.no_update, saved_msg, None
                 else:
-                    return True, dash.no_update, dbc.Alert("Failed to save configuration", color="danger"), store_data
+                    return True, dash.no_update, dbc.Alert("Failed to save configuration. Check that the integration exists and the database has space.", color="danger"), store_data
 
             except Exception as e:
                 logger.error(f"Error saving integration config: {e}")
@@ -1344,18 +1348,24 @@ This is an automated weekly report from IoTSentinel.'''
                 ])
             )
 
+            has_saved_key = integration_data.get('has_api_key', False) if integration_data else False
+
             # Add fields based on integration requirements
             for field in integration_info.get('setup_fields', []):
                 field_label = field.replace('_', ' ').title()
-                field_type = "password" if field in ['password', 'api_key', 'api_secret', 'api_token',
-                                                      'personal_access_token', 'bot_token', 'webhook_key',
-                                                      'user_key'] else "text"
+                is_sensitive = field in ['password', 'api_key', 'api_secret', 'api_token',
+                                         'personal_access_token', 'bot_token', 'webhook_key',
+                                         'user_key']
+                field_type = "password" if is_sensitive else "text"
 
-                placeholder = f"Enter your {field_label.lower()}"
-                if field == 'webhook_url':
-                    placeholder = f"https://..."
+                if is_sensitive and has_saved_key:
+                    placeholder = "•••••••• (saved - enter new value to update)"
+                elif field == 'webhook_url':
+                    placeholder = "https://..."
                 elif field == 'smtp_port':
                     placeholder = "587"
+                else:
+                    placeholder = f"Enter your {field_label.lower()}"
 
                 form_fields.append(
                     dbc.Row([

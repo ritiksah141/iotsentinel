@@ -392,7 +392,8 @@ class IntegrationManager:
             # Get database info
             cursor.execute('''
                 SELECT is_enabled, health_status, last_health_check,
-                       total_requests, successful_requests, failed_requests, last_error
+                       total_requests, successful_requests, failed_requests, last_error,
+                       api_key_encrypted IS NOT NULL AS has_api_key
                 FROM api_integrations
                 WHERE integration_name = ?
             ''', (integration_id,))
@@ -409,6 +410,7 @@ class IntegrationManager:
                 'successful_requests': row[4] if row else 0,
                 'failed_requests': row[5] if row else 0,
                 'last_error': row[6] if row else None,
+                'has_api_key': bool(row[7]) if row else False,
             }
 
             integrations.append(integration)
@@ -491,6 +493,9 @@ class IntegrationManager:
             ))
 
             self.db.conn.commit()
+            if cursor.rowcount == 0:
+                logger.warning(f"configure_integration: no row matched for '{integration_name}' — row may not have been initialised yet")
+                return False
             logger.info(f"Configured integration: {integration_name}")
             return True
 

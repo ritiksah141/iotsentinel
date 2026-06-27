@@ -173,12 +173,17 @@ def ensure_pwa_icons(assets_dir: str):
             return
         logo_mtime = os.path.getmtime(logo_path)
 
+        favicon_path = os.path.join(assets_dir, 'favicon.ico')
+        favicon_missing_or_stale = (
+            not os.path.isfile(favicon_path)
+            or os.path.getmtime(favicon_path) < logo_mtime
+        )
         stale = [
             spec for spec in _PWA_ICONS
             if not os.path.isfile(os.path.join(assets_dir, spec[0]))
             or os.path.getmtime(os.path.join(assets_dir, spec[0])) < logo_mtime
         ]
-        if not stale:
+        if not stale and not favicon_missing_or_stale:
             return
 
         logo = Image.open(logo_path).convert('RGBA')
@@ -189,5 +194,13 @@ def ensure_pwa_icons(assets_dir: str):
             icon.save(tmp, 'PNG', optimize=True)
             os.replace(tmp, dst)
             logger.info("asset_build: generated %s (%dx%d)", name, size, size)
+
+        if favicon_missing_or_stale:
+            icon_32 = _render_icon(logo, 32, _BRAND_DARK, 0.88)
+            icon_16 = _render_icon(logo, 16, _BRAND_DARK, 0.88)
+            tmp = favicon_path + '.tmp'
+            icon_32.save(tmp, format='ICO', sizes=[(16, 16), (32, 32)])
+            os.replace(tmp, favicon_path)
+            logger.info("asset_build: generated favicon.ico")
     except Exception as exc:
         logger.warning("asset_build: PWA icon generation failed (%s)", exc)

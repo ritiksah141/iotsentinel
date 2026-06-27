@@ -137,16 +137,16 @@ class NetworkSecurityScorer:
             ''')
             no_firmware_info = cursor.fetchone()[0]
 
-            # Get devices last seen recently. 24h was too aggressive for a passive Wi-Fi
-            # client: a device may only re-announce (ARP/mDNS) every few hours, so on a
-            # quiet network every device could flip to "offline" and the card read 0/N.
-            # Default to a more forgiving 72h window; configurable via
-            # network.online_window_hours.
+            # 72h window for SCORING: a passive Wi-Fi client may only re-announce
+            # every few hours, so a short cutoff makes every device look "offline".
+            # Configurable via network.online_window_hours.
             try:
                 from config.config_manager import config as _cfg
                 _window_h = int(_cfg.get('network', 'online_window_hours', default=72))
+                _display_min = int(_cfg.get('network', 'online_window_minutes', default=30))
             except Exception:
                 _window_h = 72
+                _display_min = 30
             cutoff_time = (datetime.now() - timedelta(hours=_window_h)).isoformat()
             cursor.execute('''
                 SELECT COUNT(*) FROM devices
@@ -154,6 +154,14 @@ class NetworkSecurityScorer:
             ''', (cutoff_time,))
             recently_seen = cursor.fetchone()[0]
 
+            # Short window for the "X/Y online" display label (default 30 min).
+            # This reflects devices actively communicating right now, not just known devices.
+            display_cutoff = (datetime.now() - timedelta(minutes=_display_min)).isoformat()
+            cursor.execute('''
+                SELECT COUNT(*) FROM devices
+                WHERE last_seen > ?
+            ''', (display_cutoff,))
+            active_now = cursor.fetchone()[0]
 
             # Calculate score
             firmware_score = ((total_devices - no_firmware_info) / total_devices) * 100
@@ -167,7 +175,7 @@ class NetworkSecurityScorer:
                 'firmware_score': round(firmware_score, 1),
                 'connectivity_score': round(connectivity_score, 1),
                 'devices_with_firmware': total_devices - no_firmware_info,
-                'devices_online': recently_seen,
+                'devices_online': active_now,
                 'total_devices': total_devices
             }
 

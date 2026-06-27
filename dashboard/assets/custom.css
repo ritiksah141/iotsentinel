@@ -3492,6 +3492,7 @@ body.dark-mode .bg-smart-template {
  * ENHANCED NAVBAR
  * ============================================================================ */
 
+
 .navbar {
   background: var(--glass-bg-light);
   backdrop-filter: blur(var(--blur-heavy)) saturate(180%);

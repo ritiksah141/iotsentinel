@@ -162,6 +162,57 @@ def _action_card(action: dict) -> dbc.Card:
        style={'borderLeft': f'4px solid var(--bs-{risk_color})'})
 
 
+def _build_panel_content():
+    """Return (content, badge_text, badge_style) for the agent panel — shared by the
+    interval/open refresh and by action callbacks that need an immediate update."""
+    try:
+        pending = db_manager.get_pending_agent_actions()
+        recent = db_manager.get_agent_actions(limit=20)
+    except Exception as e:
+        logger.error(f"Agent panel DB error: {e}")
+        return [html.P("Error loading agent actions.", className="text-danger")], "", {'display': 'none'}
+
+    badge_text = str(len(pending)) if pending else ""
+    badge_style = {} if pending else {'display': 'none'}
+
+    pending_cards = [
+        html.H6([html.I(className="fa fa-clock me-2 text-warning"),
+                 f"Awaiting Approval ({len(pending)})"],
+                className="mb-2") if pending else None
+    ]
+    for a in pending:
+        pending_cards.append(_action_card(a))
+
+    recent_non_pending = [a for a in recent if a.get('status') != 'pending']
+    history_section = []
+    if recent_non_pending:
+        history_section.append(html.Hr())
+        history_section.append(
+            html.H6([html.I(className="fa fa-history me-2"),
+                     "Recent Actions"], className="mb-2 text-muted")
+        )
+        for a in recent_non_pending[:10]:
+            history_section.append(_action_card(a))
+
+    if not pending and not recent_non_pending:
+        pending_cards = [
+            html.Div([
+                html.I(className="fa fa-robot fa-3x text-info mb-3 d-block"),
+                html.P("All clear. No pending actions.",
+                       className="fw-semibold mb-1"),
+                html.P([
+                    "The agent scans for new high/critical alerts every 60 seconds. ",
+                    "When it detects a threat it will either auto-remediate low-risk actions ",
+                    "(mark device suspicious, acknowledge alerts) or queue high-risk actions ",
+                    "(firewall blocks) here for your approval."
+                ], className="text-muted small mb-0 mx-auto", style={"maxWidth": "380px"}),
+            ], className="py-4 text-center")
+        ]
+
+    content = [c for c in pending_cards if c is not None] + history_section
+    return content, badge_text, badge_style
+
+
 def register(app):
     """Register AI Agent callbacks."""
 
@@ -178,54 +229,7 @@ def register(app):
         prevent_initial_call=False,
     )
     def refresh_agent_panel(is_open, _n):
-        try:
-            pending = db_manager.get_pending_agent_actions()
-            recent = db_manager.get_agent_actions(limit=20)
-        except Exception as e:
-            logger.error(f"Agent panel DB error: {e}")
-            return [html.P("Error loading agent actions.", className="text-danger")], "", {'display': 'none'}
-
-        badge_text = str(len(pending)) if pending else ""
-        badge_style = {} if pending else {'display': 'none'}
-
-        # --- pending section ---
-        pending_cards = [
-            html.H6([html.I(className="fa fa-clock me-2 text-warning"),
-                     f"Awaiting Approval ({len(pending)})"],
-                    className="mb-2") if pending else None
-        ]
-        for a in pending:
-            pending_cards.append(_action_card(a))
-
-        # --- recent (non-pending) ---
-        recent_non_pending = [a for a in recent if a.get('status') != 'pending']
-        history_section = []
-        if recent_non_pending:
-            history_section.append(html.Hr())
-            history_section.append(
-                html.H6([html.I(className="fa fa-history me-2"),
-                         "Recent Actions"], className="mb-2 text-muted")
-            )
-            for a in recent_non_pending[:10]:
-                history_section.append(_action_card(a))
-
-        if not pending and not recent_non_pending:
-            pending_cards = [
-                html.Div([
-                    html.I(className="fa fa-robot fa-3x text-info mb-3 d-block"),
-                    html.P("All clear. No pending actions.",
-                           className="fw-semibold mb-1"),
-                    html.P([
-                        "The agent scans for new high/critical alerts every 60 seconds. ",
-                        "When it detects a threat it will either auto-remediate low-risk actions ",
-                        "(mark device suspicious, acknowledge alerts) or queue high-risk actions ",
-                        "(firewall blocks) here for your approval."
-                    ], className="text-muted small mb-0 mx-auto", style={"maxWidth": "380px"}),
-                ], className="py-4 text-center")
-            ]
-
-        content = [c for c in pending_cards if c is not None] + history_section
-        return content, badge_text, badge_style
+        return _build_panel_content()
 
     # ------------------------------------------------------------------
     # Open / close modal
@@ -422,7 +426,10 @@ def register(app):
     # ------------------------------------------------------------------
 
     @app.callback(
-        Output('agent-action-result', 'children', allow_duplicate=True),
+        [Output('agent-action-result', 'children', allow_duplicate=True),
+         Output('agent-panel-content', 'children', allow_duplicate=True),
+         Output('agent-pending-badge', 'children', allow_duplicate=True),
+         Output('agent-pending-badge', 'style', allow_duplicate=True)],
         Input({'type': 'agent-trust-btn', 'index': ALL}, 'n_clicks'),
         prevent_initial_call=True,
     )
@@ -439,12 +446,12 @@ def register(app):
             raise dash.exceptions.PreventUpdate
 
         if not current_user.is_authenticated:
-            return dbc.Alert("Login required.", color="danger", duration=4000)
+            return dbc.Alert("Login required.", color="danger", duration=4000), dash.no_update, dash.no_update, dash.no_update
 
         actions = db_manager.get_pending_agent_actions()
         action = next((a for a in actions if a['id'] == action_id), None)
         if not action:
-            return dbc.Alert("Action not found or already resolved.", color="warning", duration=4000)
+            return dbc.Alert("Action not found or already resolved.", color="warning", duration=4000), dash.no_update, dash.no_update, dash.no_update
 
         device_ip = action.get('device_ip', '')
         try:
@@ -456,17 +463,22 @@ def register(app):
         db_manager.update_agent_action_status(action_id, 'executed',
                                                getattr(current_user, 'username', 'user'))
         name = action.get('device_name') or device_ip
-        return dbc.Alert(
+        toast = dbc.Alert(
             [html.I(className="fa fa-shield-check me-2"), f"{name} has been trusted."],
             color="success", duration=5000,
         )
+        content, badge_text, badge_style = _build_panel_content()
+        return toast, content, badge_text, badge_style
 
     # ------------------------------------------------------------------
     # Block device (new-device triage)
     # ------------------------------------------------------------------
 
     @app.callback(
-        Output('agent-action-result', 'children', allow_duplicate=True),
+        [Output('agent-action-result', 'children', allow_duplicate=True),
+         Output('agent-panel-content', 'children', allow_duplicate=True),
+         Output('agent-pending-badge', 'children', allow_duplicate=True),
+         Output('agent-pending-badge', 'style', allow_duplicate=True)],
         Input({'type': 'agent-block-btn', 'index': ALL}, 'n_clicks'),
         prevent_initial_call=True,
     )
@@ -483,12 +495,12 @@ def register(app):
             raise dash.exceptions.PreventUpdate
 
         if not current_user.is_authenticated or not current_user.is_admin():
-            return dbc.Alert("Admin access required.", color="danger", duration=4000)
+            return dbc.Alert("Admin access required.", color="danger", duration=4000), dash.no_update, dash.no_update, dash.no_update
 
         actions = db_manager.get_pending_agent_actions()
         action = next((a for a in actions if a['id'] == action_id), None)
         if not action:
-            return dbc.Alert("Action not found or already resolved.", color="warning", duration=4000)
+            return dbc.Alert("Action not found or already resolved.", color="warning", duration=4000), dash.no_update, dash.no_update, dash.no_update
 
         device_ip = action.get('device_ip', '')
         mac = action.get('mac_address', '')
@@ -501,7 +513,9 @@ def register(app):
         db_manager.update_agent_action_status(action_id, 'executed',
                                                getattr(current_user, 'username', 'admin'))
         name = action.get('device_name') or device_ip
-        return dbc.Alert(
+        toast = dbc.Alert(
             [html.I(className="fa fa-ban me-2"), f"{name} has been blocked."],
             color="warning", duration=5000,
         )
+        content, badge_text, badge_style = _build_panel_content()
+        return toast, content, badge_text, badge_style

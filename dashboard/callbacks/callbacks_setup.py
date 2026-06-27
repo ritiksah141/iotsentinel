@@ -83,6 +83,9 @@ def _check_tailscale_connected() -> tuple[bool, str | None]:
     return False, None
 
 
+_last_funnel_error: str = ""
+
+
 def _enable_tailscale_funnel(port: int = 8050) -> bool:
     """Enable Tailscale Funnel for the given port (persistently). Returns True on success.
 
@@ -91,22 +94,27 @@ def _enable_tailscale_funnel(port: int = 8050) -> bool:
     down the moment it returned — the public URL never actually worked. `--bg` writes the
     serve config to tailscaled (which restores it across reboots) and returns immediately.
     """
+    global _last_funnel_error
     try:
         result = subprocess.run(
             ['sudo', '-n', 'tailscale', 'funnel', '--bg', str(port)],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0:
+            _last_funnel_error = ""
             return True
         # Some tailscale versions report an already-enabled funnel as a non-zero "already
         # serving" message — treat that as success rather than a failure.
         blob = (result.stderr or "") + (result.stdout or "")
         if "already" in blob.lower():
+            _last_funnel_error = ""
             return True
+        _last_funnel_error = blob.strip()
         logger.warning("tailscale funnel --bg exited %s: %s",
                        result.returncode, blob.strip())
         return False
     except Exception as e:
+        _last_funnel_error = str(e)
         logger.warning("tailscale funnel enable failed: %s", e)
         return False
 
@@ -978,10 +986,23 @@ def register(app):
                 os.environ["IOTSENTINEL_PUBLIC_URL"] = public_url
             except Exception as e:
                 logger.warning("Could not persist remote-access URL: %s", e)
-            note = (html.Small("Funnel active — reachable from anywhere.",
-                               className="text-muted d-block") if funnel_ok else
-                    html.Small("Connected, but Funnel wasn't enabled (check your Tailscale plan).",
-                               className="text-warning d-block"))
+            if funnel_ok:
+                note = html.Small("Funnel active - reachable from anywhere.",
+                                  className="text-muted d-block")
+            else:
+                note = html.Div([
+                    html.Small(
+                        "Your Tailscale devices can reach this Pi, but Funnel (public internet "
+                        "access) could not be enabled. Funnel requires a Tailscale Personal or "
+                        "Business plan - enable it at tailscale.com/admin, then re-click Enable.",
+                        className="text-warning d-block"
+                    ),
+                    html.Small(
+                        _last_funnel_error if _last_funnel_error else "",
+                        className="text-muted d-block font-monospace small",
+                        style={'fontSize': '0.75em'}
+                    ) if _last_funnel_error else None,
+                ])
             status = dbc.Alert([
                 html.Strong("Remote access is on. "), "Your URL: ",
                 html.A(public_url, href=public_url, target="_blank", className="fw-semibold"),

@@ -482,6 +482,14 @@ class WebAuthnHandler:
 
 # Helper function to check if WebAuthn is supported
 def is_webauthn_available() -> bool:
-    """Check if WebAuthn can be used (requires HTTPS or localhost)."""
+    """Check if WebAuthn can be used (requires HTTPS or http://localhost / http://127.0.0.1).
+
+    mDNS names like iotsentinel.local are HTTP-only; browsers block navigator.credentials
+    on non-secure origins that aren't exactly localhost/127.0.0.1.
+    """
     origin = _effective_origin()
-    return origin.startswith('https://') or 'localhost' in origin
+    return (
+        origin.startswith('https://') or
+        origin.startswith('http://localhost') or
+        origin.startswith('http://127.0.0.1')
+    )
