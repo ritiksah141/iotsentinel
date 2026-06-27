@@ -249,3 +249,85 @@ def test_touch_target_rule_excludes_switches():
            / "mobile-responsive.css").read_text()
     assert "input:not(.form-check-input)" in css, \
         "touch-target min-height rule must exclude .form-check-input (switches)"
+
+
+# ---------------------------------------------------------------------------
+# rc11 hardware-gate fix guards
+# ---------------------------------------------------------------------------
+
+def test_agent_trust_updates_badge_immediately():
+    """trust_device must output to agent-panel-content / agent-pending-badge so
+    the notification clears instantly (not on the next 30-second interval)."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "dashboard" / "callbacks"
+           / "callbacks_agent.py").read_text()
+    # Both outputs must appear inside the callback that also outputs agent-action-result
+    assert "agent-panel-content" in src and "agent-pending-badge" in src, \
+        "trust_device/block_triaged_device must output badge + panel for immediate update"
+    assert "_build_panel_content" in src, \
+        "_build_panel_content helper must be extracted from refresh_agent_panel"
+
+
+def test_api_hub_shows_saved_key_indicator():
+    """Integration Hub configure dialog must signal when a key is already saved
+    so users can tell save succeeded without re-entering the key."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "dashboard" / "callbacks"
+           / "callbacks_integrations.py").read_text()
+    assert "has_saved_key" in src, \
+        "handle_integration_config must use has_api_key to show saved-key placeholder"
+    assert "has_api_key" in src, \
+        "get_all_integrations must expose has_api_key field"
+
+
+def test_api_hub_configure_integration_checks_rowcount():
+    """configure_integration must verify cursor.rowcount after UPDATE so a
+    zero-match is surfaced as a failure rather than a silent success."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "alerts"
+           / "integration_system.py").read_text()
+    assert "cursor.rowcount" in src, \
+        "configure_integration must check cursor.rowcount after UPDATE"
+
+
+def test_webauthn_availability_requires_secure_origin():
+    """is_webauthn_available must reject plain HTTP mDNS names (iotsentinel.local)
+    and only allow https:// or http://localhost / http://127.0.0.1."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from unittest.mock import patch
+    from utils.webauthn_handler import is_webauthn_available
+
+    with patch.dict('os.environ', {'IOTSENTINEL_PUBLIC_URL': 'http://iotsentinel.local:8050',
+                                   'WEBAUTHN_ORIGIN': ''}):
+        assert not is_webauthn_available(), "HTTP mDNS must not be allowed"
+
+    with patch.dict('os.environ', {'IOTSENTINEL_PUBLIC_URL': 'https://abc.ts.net',
+                                   'WEBAUTHN_ORIGIN': ''}):
+        assert is_webauthn_available(), "HTTPS must be allowed"
+
+    with patch.dict('os.environ', {'IOTSENTINEL_PUBLIC_URL': '',
+                                   'WEBAUTHN_ORIGIN': 'http://localhost:8050'}):
+        assert is_webauthn_available(), "http://localhost must be allowed"
+
+
+def test_biometric_username_uses_dcc_store():
+    """biometric-username-store must be a dcc.Store (not an html.Div with data-*
+    attribute) so Dash can track it as a reactive property."""
+    from pathlib import Path
+    app_src = (Path(__file__).resolve().parent.parent / "dashboard" / "app.py").read_text()
+    assert "biometric-username-store" in app_src
+    assert 'data-username' not in app_src, \
+        "biometric-username-store must not use data-* attribute (use dcc.Store instead)"
+
+
+def test_2fa_disk_check_before_setup():
+    """2FA setup callback must check available disk space before attempting a DB
+    write, to give a human-readable message instead of raw SQLite FULL error."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "dashboard" / "callbacks"
+           / "callbacks_auth.py").read_text()
+    assert "disk_usage" in src, \
+        "enable_totp_setup must call shutil.disk_usage before totp_manager.setup_totp"

@@ -784,25 +784,29 @@ def register(app, login_layout, dashboard_layout):
                 result='success'
             )
 
-            # Query last login from history (before recording current one)
-            conn = db_manager.conn
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT login_timestamp, ip_address, login_method
-                FROM user_login_history
-                WHERE user_id = ? AND success = 1
-                ORDER BY login_timestamp DESC
-                LIMIT 1
-            """, (user.id,))
-            last_login = cursor.fetchone()
-
-            # Record current login in history
-            cursor.execute("""
-                INSERT INTO user_login_history
-                (user_id, login_timestamp, ip_address, user_agent, login_method, success)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user.id, datetime.now(), user_ip, user_agent, 'password' + ('+2fa' if totp_enabled else ''), 1))
-            conn.commit()
+            # Query last login from history and record current login.
+            # Both are best-effort: a full disk or locked DB must never break login itself.
+            last_login = None
+            try:
+                conn = db_manager.conn
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT login_timestamp, ip_address, login_method
+                    FROM user_login_history
+                    WHERE user_id = ? AND success = 1
+                    ORDER BY login_timestamp DESC
+                    LIMIT 1
+                """, (user.id,))
+                last_login = cursor.fetchone()
+                cursor.execute("""
+                    INSERT INTO user_login_history
+                    (user_id, login_timestamp, ip_address, user_agent, login_method, success)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (user.id, datetime.now(), user_ip, user_agent,
+                      'password' + ('+2fa' if totp_enabled else ''), 1))
+                conn.commit()
+            except Exception as _hist_err:
+                logger.warning("Login history write failed (non-fatal): %s", _hist_err)
 
             # Create personalized welcome message
             if last_login:
@@ -1051,6 +1055,21 @@ def register(app, login_layout, dashboard_layout):
             raise dash.exceptions.PreventUpdate
 
         try:
+            import shutil
+            db_path = '/var/lib/iotsentinel'
+            try:
+                free_mb = shutil.disk_usage(db_path).free / (1024 * 1024)
+            except OSError:
+                free_mb = shutil.disk_usage('.').free / (1024 * 1024)
+            if free_mb < 50:
+                toast = ToastManager.error(
+                    f"Not enough disk space ({free_mb:.0f} MB free, 50 MB needed). "
+                    "Free up space on the device and try again.",
+                    header="2FA Setup Error",
+                    duration="long"
+                )
+                return {'display': 'none'}, None, "", None, None, toast
+
             # Generate TOTP secret, QR code, and backup codes
             secret, qr_code, backup_codes = totp_manager.setup_totp(current_user.id, current_user.username)
 
@@ -2112,18 +2131,23 @@ def register(app, login_layout, dashboard_layout):
     @app.callback(
         [Output('biometric-security-section', 'style'),
          Output('biometric-devices-list', 'children'),
-         Output('biometric-username-store', 'data-username')],
+         Output('biometric-username-store', 'data')],
         Input('profile-edit-modal', 'is_open'),
         prevent_initial_call=False
     )
     def manage_biometric_section(is_open):
         """Show biometric section if WebAuthn available and load registered devices"""
         if not is_open or not current_user.is_authenticated:
-            return {"display": "none"}, [], ''
+            return {"display": "none"}, [], None
 
-        # Check if WebAuthn is available
+        # WebAuthn requires HTTPS or localhost — show a clear message over plain HTTP
         if not webauthn_handler or not is_webauthn_available():
-            return {"display": "none"}, [], ''
+            https_note = html.P([
+                html.I(className="fa fa-lock me-2 text-warning"),
+                "Biometric login requires a secure (HTTPS) connection or localhost access. "
+                "Enable Tailscale Funnel to get an HTTPS URL, then return here."
+            ], className="text-warning small mb-0")
+            return {"display": "block"}, https_note, None
 
         # Get current username
         username = current_user.username
@@ -2164,24 +2188,25 @@ def register(app, login_layout, dashboard_layout):
                     )
                 device_list = html.Div(device_items)
 
-            return {"display": "block"}, device_list, username
+            return {"display": "block"}, device_list, {'username': username}
 
         except Exception as e:
             logger.error(f"Error loading biometric devices: {e}")
-            return {"display": "block"}, html.P("Error loading devices", className="text-danger"), username
+            return {"display": "block"}, html.P("Error loading devices", className="text-danger"), {'username': username}
 
     # ------------------------------------------------------------------
     # WebAuthn register (clientside)
     # ------------------------------------------------------------------
     app.clientside_callback(
         """
-        function(n_clicks, username) {
+        function(n_clicks, storeData) {
             if (!n_clicks) {
                 return window.dash_clientside.no_update;
             }
 
+            var username = (storeData && storeData.username) ? storeData.username : null;
             if (!username) {
-                alert('Username not available. Please try again.');
+                alert('Username not available. Please close and reopen the profile modal.');
                 return window.dash_clientside.no_update;
             }
 
@@ -2189,7 +2214,6 @@ def register(app, login_layout, dashboard_layout):
             if (window.WebAuthnClient && window.WebAuthnClient.register) {
                 window.WebAuthnClient.register(username)
                     .then(result => {
-                        // Success - reload page to refresh device list
                         console.log('Biometric registration successful:', result);
                         alert('Biometric credential registered successfully! Please close and reopen the profile to see it.');
                         window.location.reload();
@@ -2207,7 +2231,7 @@ def register(app, login_layout, dashboard_layout):
         """,
         Output('biometric-status-message', 'children'),
         [Input('register-biometric-btn', 'n_clicks'),
-         Input('biometric-username-store', 'data-username')],
+         Input('biometric-username-store', 'data')],
         prevent_initial_call=True
     )
 

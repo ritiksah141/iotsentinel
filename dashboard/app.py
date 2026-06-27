@@ -3611,8 +3611,8 @@ dashboard_layout = dbc.Container([
                                 # Registered Devices List
                                 html.Div(id='biometric-devices-list', className="mb-3"),
 
-                                # Hidden div to store username for WebAuthn
-                                html.Div(id='biometric-username-store', **{'data-username': ''}, style={'display': 'none'}),
+                                # In-memory store for username passed to the WebAuthn clientside callback
+                                dcc.Store(id='biometric-username-store', storage_type='memory'),
 
                                 # Register New Biometric Button
                                 dbc.Button([

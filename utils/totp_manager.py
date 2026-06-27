@@ -12,6 +12,7 @@ import io
 import base64
 import secrets
 import logging
+import sqlite3
 from typing import (Tuple, List)
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,14 @@ class TOTPManager:
             VALUES (?, ?, 0, ?)
         ''', (user_id, secret, backup_codes_str))
 
-        conn.commit()
+        try:
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            if 'disk' in str(e).lower() or 'full' in str(e).lower():
+                raise RuntimeError(
+                    "Insufficient disk space on the device — free up space and retry."
+                ) from e
+            raise
 
         logger.info(f"TOTP setup initiated for user {username} (ID: {user_id})")
 

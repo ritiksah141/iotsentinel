@@ -1796,15 +1796,15 @@ def create_header():
                             dbc.Button(
                                 html.I(className="fa fa-robot"),
                                 color="link", id="open-agent-button",
-                                className="text-white px-2 position-relative",
+                                className="text-white px-2",
                                 title="AI Security Agent"
                             ),
                             dbc.Badge(
-                                "", id="agent-pending-badge", color="danger", pill=True,
-                                className="position-absolute top-0 start-100 translate-middle",
-                                style={"fontSize": "0.6rem", "display": "none"}
+                                "", id="agent-pending-badge", pill=True,
+                                className="position-absolute top-0 start-100 translate-middle u-text-badge bg-transparent text-danger",
+                                style={"display": "none", "zIndex": 1}
                             ),
-                        ], className="position-relative"),
+                        ], className="position-relative d-inline-flex"),
                         # Secondary actions: visible inline on desktop, collapsed behind the
                         # "More" toggle on mobile (see #dashboard-navbar in mobile-responsive.css).
                         html.Div([
