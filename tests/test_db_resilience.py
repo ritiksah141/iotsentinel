@@ -269,6 +269,31 @@ class TestHttpsRedirect:
         unit = (Path(__file__).parent.parent / "services" / "iotsentinel-dashboard.service").read_text()
         assert "AmbientCapabilities=CAP_NET_BIND_SERVICE" in unit
 
+    def test_no_capability_bounding_set_breaks_sudo(self):
+        """Regression: a CapabilityBoundingSet=CAP_NET_BIND_SERVICE line caps the whole
+        process tree to that single capability, stripping sudo of CAP_SETUID/SETGID/
+        AUDIT_WRITE. The final wizard step shells out to `sudo -n` (Wi-Fi join, hotspot
+        teardown, backend restart); under the restricted bounding set those fail with
+        'unable to change to root gid' and 'error initializing audit plugin sudoers_audit',
+        so the home-Wi-Fi join and the IoTSentinel-Setup hotspot teardown never happen.
+        The ambient grant alone (default full bounding set) keeps the :80 bind working."""
+        unit = (Path(__file__).parent.parent / "services" / "iotsentinel-dashboard.service").read_text()
+        active = [ln.strip() for ln in unit.splitlines()
+                  if ln.strip() and not ln.lstrip().startswith("#")]
+        assert not any(ln.startswith("CapabilityBoundingSet=") for ln in active), (
+            "CapabilityBoundingSet on the dashboard unit breaks sudo in the setup wizard")
+
+    def test_setup_reach_urls_are_scheme_aware(self):
+        """HTTPS-on-LAN is default-on, so the first-boot wizard's reach/handoff URLs must
+        not be hardcoded http. The dynamic links derive the scheme from _dashboard_scheme()
+        and the static handoff line uses https."""
+        cb = (Path(__file__).parent.parent / "dashboard" / "callbacks" / "callbacks_setup.py").read_text()
+        assert "_dashboard_scheme" in cb
+        assert "f\"http://{addr['mdns']}" not in cb and 'f"http://{addr[\'ip\']}' not in cb
+        wiz = (Path(__file__).parent.parent / "dashboard" / "layouts" / "setup_wizard.py").read_text()
+        assert "https://iotsentinel.local:8050" in wiz
+        assert "http://iotsentinel.local:8050" not in wiz
+
     def test_no_hardcoded_http_dashboard_url_log(self):
         """The startup 'Dashboard URL' log must be scheme-aware, not hardcoded http."""
         app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()

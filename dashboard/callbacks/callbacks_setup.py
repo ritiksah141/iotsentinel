@@ -25,6 +25,21 @@ from dashboard.shared import config, db_manager, auth_manager
 
 logger = logging.getLogger(__name__)
 
+
+def _dashboard_scheme() -> str:
+    """'https' or 'http' for the reach URLs shown in the wizard, matching how the
+    dashboard actually binds (config security.https_enabled, or the IOTSENTINEL_HTTPS
+    env). HTTPS-on-LAN is default-on, so first-boot reach links must say https, not
+    the old hardcoded http."""
+    try:
+        _https = bool(config.get('security', 'https_enabled', default=False))
+    except Exception:
+        _https = False
+    if os.getenv('IOTSENTINEL_HTTPS', 'false').lower() in ('true', '1', 'yes'):
+        _https = True
+    return 'https' if _https else 'http'
+
+
 # Module-level state for Tailscale setup (shared across callbacks)
 _ts_state = {'url': None, 'connected': False, 'public_url': None, 'running': False}
 _ts_lock = threading.Lock()
@@ -384,12 +399,16 @@ def _connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
     ok, msg = wifi_manager.connect_wifi(ssid, password)
     if ok:
         # First-run wizard sends the user back to the /setup route to continue.
+        # The match side stays http (it is what wifi_manager emits); the rewrite uses
+        # the live scheme so HTTPS-on-LAN shows https://… on the reconnect hint.
+        _scheme = _dashboard_scheme()
+        _base = f"{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}"
         msg = msg.replace(
-            f"reopen http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}.",
-            f"continue at http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}/setup.",
+            f"reopen http://{_base}.",
+            f"continue at {_scheme}://{_base}/setup.",
         ).replace(
-            f"reopen http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT} to continue.",
-            f"open http://{wifi_manager.DEFAULT_MDNS_HOST}:{wifi_manager.DASHBOARD_PORT}/setup to continue.",
+            f"reopen http://{_base} to continue.",
+            f"open {_scheme}://{_base}/setup to continue.",
         )
     return ok, msg
 
@@ -580,11 +599,12 @@ def register(app):
         load_dotenv(override=True)
         # "How to reach this device" — always useful, even without nmcli.
         addr = wifi_manager.get_reachable_addresses()
+        _scheme = _dashboard_scheme()
         reach = [html.I(className="fa fa-location-dot me-1"),
                  "Reach this dashboard at ",
-                 html.Code(f"http://{addr['mdns']}:{addr['port']}")]
+                 html.Code(f"{_scheme}://{addr['mdns']}:{addr['port']}")]
         if addr["ip"]:
-            reach += [" or ", html.Code(f"http://{addr['ip']}:{addr['port']}")]
+            reach += [" or ", html.Code(f"{_scheme}://{addr['ip']}:{addr['port']}")]
         if addr.get("remote"):
             reach += [html.Br(),
                       html.I(className="fa fa-globe me-1"),
@@ -773,7 +793,8 @@ def register(app):
         from utils import wifi_manager
         addr = wifi_manager.get_reachable_addresses()
         port = addr["port"]
-        mdns_url = f"http://{addr['mdns']}:{port}"
+        _scheme = _dashboard_scheme()
+        mdns_url = f"{_scheme}://{addr['mdns']}:{port}"
         rows = [
             html.Strong("On your home network, reach IoTSentinel at:"),
             html.Br(),
@@ -781,7 +802,7 @@ def register(app):
             html.Span(" (works on most phones and computers)", className="text-muted"),
         ]
         if addr["ip"]:
-            ip_url = f"http://{addr['ip']}:{port}"
+            ip_url = f"{_scheme}://{addr['ip']}:{port}"
             rows += [
                 html.Br(),
                 html.A(ip_url, href=ip_url, className="text-info fw-semibold"),
