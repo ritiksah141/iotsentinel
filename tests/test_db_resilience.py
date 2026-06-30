@@ -274,6 +274,14 @@ class TestHttpsRedirect:
         app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
         assert 'Dashboard URL: http://{host}' not in app_src
 
+    def test_tls_handshake_noise_is_suppressed(self):
+        """Self-signed TLS makes browsers/probes abort handshakes; eventlet would dump
+        a traceback per dropped connection. A filter must wrap squelch_exception (which
+        prints unconditionally) so the journal is not flooded."""
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert "_quiet_eventlet_tls_noise" in app_src
+        assert "squelch_exception" in app_src and "SSLError" in app_src
+
 
 class TestTailscaleRelink:
     def test_relink_worker_and_callback_exist(self):
