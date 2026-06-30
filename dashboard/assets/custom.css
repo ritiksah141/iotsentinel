@@ -3016,6 +3016,42 @@ body.dark-mode .bg-smart-template {
   margin-left: auto;       /* push to right edge in flex row */
 }
 
+/* ----------------------------------------------------------------------------
+ * Narrow desktop sidebar fix (lg+, the Connected Devices column is only 2/12
+ * wide). On a single-line flex row the device NAME (flex:1; min-width:0)
+ * collapses to an ellipsis while the IP chip (flex-shrink:0) keeps full width,
+ * so the panel reads as bare IP addresses + a ❓ type icon. Below 992px the
+ * column is full-width (xs=12) and the row fits — which is why mobile already
+ * shows names first. At lg+, break the IP onto its own line so the NAME is
+ * always shown first (consistent with mobile), and let the Device List rows
+ * wrap instead of overflowing and clipping the narrow column (no side-scroll
+ * needed — every status badge stays visible).
+ * -------------------------------------------------------------------------- */
+@media (min-width: 992px) {
+  /* Quick Status: keep dot + icon + name on line 1; drop the IP chip to line 2.
+     The ::after is a zero-height, full-width flex item that forces a wrap before
+     the IP, which then hugs its own content on the next line. */
+  .device-item-compact { flex-wrap: wrap; }
+  .device-item-compact::after {
+    content: "";
+    flex-basis: 100%;
+    order: 50;
+    height: 0;
+  }
+  .device-ip-compact {
+    order: 99;             /* lands after the forced break -> its own line */
+    margin-left: 0;        /* override the ms-auto right-push */
+    margin-top: 4px;
+  }
+
+  /* Device List: name + status badges wrap to a second line instead of
+     overflowing the narrow column and getting clipped. */
+  .active-device-item > .d-flex {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
+
 /* ============================================================================
  * ENHANCED ALERTS
  * ============================================================================ */

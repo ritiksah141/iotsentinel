@@ -1,0 +1,19 @@
+[Unit]
+Description=IoTSentinel: guarantee sshd is enabled and listening (headless SSH self-heal)
+# Run early but after the filesystem and basic system are up so systemctl works.
+# Before the dashboard so a wedged dashboard never blocks remote recovery access.
+After=network-pre.target
+Before=iotsentinel-dashboard.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Idempotent and cheap; runs every boot so SSH self-heals if anything ever masks,
+# disables, or stops it (chroot enable no-op, OS update, hardening, userconf regen).
+ExecStart=/home/sentinel/iotsentinel/scripts/ensure_ssh.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

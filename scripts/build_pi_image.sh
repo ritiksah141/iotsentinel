@@ -279,6 +279,7 @@ cp "${SERVICES_SRC}/iotsentinel-connectivity.service"  /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-connectivity.timer"    /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-firstboot-report.service" /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-model-eval.service"    /etc/systemd/system/
+cp "${SERVICES_SRC}/iotsentinel-ssh.service"           /etc/systemd/system/
 
 # Cap the systemd journal so it can never fill the SD card. Default SystemMaxUse
 # is 10% of the filesystem; on a small card, combined with a crash-loop that
@@ -311,6 +312,10 @@ echo "[build] sudoers validated (gateway nft/iptables/configure_ap present)"
 # fallback Raspberry Pi OS honours even if the unit symlink is missing.
 systemctl enable ssh 2>/dev/null || systemctl enable ssh.socket 2>/dev/null || true
 touch /boot/firmware/ssh 2>/dev/null || touch /boot/ssh 2>/dev/null || true
+# Runtime self-heal: iotsentinel-ssh.service re-guarantees sshd is unmasked, enabled
+# AND listening on EVERY boot, so a chroot enable that silently no-op'd (or a later
+# mask/hardening pass) can never leave a headless device with port 22 refused.
+systemctl enable iotsentinel-ssh.service 2>/dev/null || true
 
 systemctl enable iotsentinel-provision.service
 systemctl enable iotsentinel-backend.service

@@ -420,16 +420,25 @@ if ("requestIdleCallback" in window) {
 // button/card to its own GPU layer exhausts the Pi 4's Mali GPU; layers are
 // created on-demand via .glass-card:hover in custom.css instead.
 
-// Optimize Dash callbacks
-window.dash_clientside = Object.assign({}, window.dash_clientside, {
-  clientside: {
+// Register a clientside namespace WITHOUT reassigning window.dash_clientside.
+// Reassigning it (Object.assign({}, window.dash_clientside, {...})) creates a NEW
+// object: dash_renderer registers its inline clientside callbacks asynchronously
+// against the original reference, so replacing the global mid-init makes those
+// lookups resolve to undefined and the renderer crashes with
+// "TypeError: Cannot read properties of undefined (reading 'apply')".
+// Mutate in place to keep the reference dash_renderer already holds.
+window.dash_clientside = window.dash_clientside || {};
+window.dash_clientside.clientside = Object.assign(
+  {},
+  window.dash_clientside.clientside,
+  {
     // Optimized state updates
     optimized_update: function () {
       // Use requestAnimationFrame for smooth updates
       return window.dash_clientside.no_update;
     },
-  },
-});
+  }
+);
 
 // Monitor performance metrics (consolidated and optimized)
 if ("PerformanceObserver" in window) {
