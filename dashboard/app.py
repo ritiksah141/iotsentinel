@@ -168,14 +168,32 @@ html.iot-dark,html.iot-dark body{background-color:#0f172a}
 {%renderer%}
 </footer>
 <script>
-// Register the PWA service worker. Service workers require a secure context, so
-// this only runs over HTTPS (e.g. the Tailscale Funnel URL) or on localhost. On
-// plain-LAN http it silently no-ops and the dashboard works as a normal site.
-if ('serviceWorker' in navigator &&
-    (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
-  });
+// Register the PWA service worker only on origins with browser-trusted TLS:
+// - localhost / 127.0.0.1: always trusted
+// - *.ts.net: Tailscale-issued cert, trusted by all browsers
+// NOT on iotsentinel.local or LAN IPs: those use a self-signed cert. Even when
+// the user clicks "proceed" through the cert warning on the main frame, the
+// service worker's own fetch() calls run in a background context that does NOT
+// inherit that decision -- the browser blocks them with "SSL certificate error
+// when fetching the script", preventing Dash component bundles from loading and
+// causing TypeError: Cannot read properties of undefined (reading 'apply') in
+// the Dash renderer. On untrusted domains we actively unregister any stale
+// worker that may have been installed on a previous visit.
+if ('serviceWorker' in navigator) {
+  var host = location.hostname;
+  var trustedOrigin = (host === 'localhost' || host === '127.0.0.1' ||
+                       host.endsWith('.ts.net'));
+  if (trustedOrigin && location.protocol === 'https:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+    });
+  } else {
+    // Unregister any stale service worker so it cannot intercept script fetches
+    // and cause SSL cert errors on self-signed HTTPS or plain HTTP.
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      regs.forEach(function (r) { r.unregister(); });
+    }).catch(function () {});
+  }
 }
 </script>
 </body>

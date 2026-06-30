@@ -331,6 +331,20 @@ class TestHttpsRedirect:
         assert ".ts.net" in src, (
             "The WebAuthn cert-error handler must suggest the Tailscale ts.net URL")
 
+    def test_service_worker_not_registered_on_self_signed_cert_origins(self):
+        """Regression: the service worker's fetch() calls run in a background context
+        that does NOT inherit the user's 'proceed anyway' decision for self-signed certs.
+        The browser blocks those fetches with SSL cert errors, which prevents Dash
+        component bundles from loading and causes TypeError in the Dash renderer.
+        The SW must only register on trusted origins (localhost, .ts.net) and must
+        unregister any stale worker on self-signed-cert domains."""
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert "trustedOrigin" in app_src, (
+            "Service worker registration must be gated behind a trustedOrigin check")
+        assert ".ts.net" in app_src and "unregister" in app_src, (
+            "Service worker must unregister on non-trusted-cert origins to avoid "
+            "SSL cert errors blocking Dash script loads")
+
 
 class TestTailscaleRelink:
     def test_relink_worker_and_callback_exist(self):
