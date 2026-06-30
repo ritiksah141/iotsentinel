@@ -10205,6 +10205,40 @@ except Exception:
 # MAIN ENTRY POINT
 # ============================================================================
 
+def _quiet_eventlet_tls_noise():
+    """Stop eventlet from dumping a traceback for every benign per-connection TLS or
+    socket error. A self-signed cert makes browsers and OS probes routinely abort the
+    handshake (SSLV3_ALERT_CERTIFICATE_UNKNOWN, HTTP_REQUEST when plain http hits the
+    TLS port, connection resets). eventlet's hub prints these unconditionally via
+    squelch_exception ('Removing descriptor: N'), flooding the journal even though the
+    server is fine. We wrap squelch_exception to silently drop ssl/connection errors
+    and delegate anything unexpected to the original handler, and turn off the
+    timer-path debug tracebacks too. Real request errors are handled by Flask/Dash."""
+    try:
+        import ssl as _ssl
+        import eventlet.debug as _ev_debug
+        import eventlet.hubs as _ev_hubs
+
+        _benign = (_ssl.SSLError, ConnectionError, BrokenPipeError, ConnectionResetError, OSError)
+        hub = _ev_hubs.get_hub()
+        if hasattr(hub, 'squelch_exception'):
+            _orig = hub.squelch_exception
+
+            def _filtered(fileno, exc_info):
+                if exc_info and exc_info[0] is not None and issubclass(exc_info[0], _benign):
+                    try:
+                        hub.remove_descriptor(fileno)
+                    except Exception:
+                        pass
+                    return
+                return _orig(fileno, exc_info)
+
+            hub.squelch_exception = _filtered
+        _ev_debug.hub_exceptions(False)  # also quiet the timer-path tracebacks
+    except Exception as e:
+        logger.debug(f"Could not install eventlet TLS-noise filter: {e}")
+
+
 def _spawn_https_redirector(target_port):
     """Best-effort HTTP->HTTPS redirect on port 80, so a user who types the bare
     hostname (e.g. iotsentinel.local -> http on port 80) is bounced to the HTTPS
@@ -10421,17 +10455,15 @@ def main():
             server.config['REMEMBER_COOKIE_SECURE'] = False
 
     if certfile and keyfile:
-        # When a browser (or an OS background probe) hits the TLS port with a plain
-        # HTTP request, eventlet's green SSL socket raises SSLError[HTTP_REQUEST] and
-        # the hub prints a full traceback for that dropped connection. It is harmless
-        # (HTTPS keeps serving), but it spams the journal. Silence hub-level greenthread
-        # connection errors -- real application errors are handled by Flask/Dash and are
-        # unaffected.
-        try:
-            import eventlet.debug as _ev_debug
-            _ev_debug.hub_exceptions(False)
-        except Exception as _e:
-            logger.debug(f"Could not quiet eventlet hub exceptions: {_e}")
+        # Serving a self-signed cert means browsers/probes constantly abort TLS
+        # handshakes -- SSLV3_ALERT_CERTIFICATE_UNKNOWN (client rejects the cert),
+        # HTTP_REQUEST (plain http hits the TLS port), connection resets. eventlet's
+        # hub prints a full traceback for EACH of these dropped connections ("Removing
+        # descriptor: N"), which is harmless (HTTPS keeps serving) but floods the log.
+        # squelch_exception prints unconditionally, so hub_exceptions(False) alone is
+        # not enough -- wrap it to drop these benign per-connection errors quietly.
+        # Real application errors are handled by Flask/Dash and are untouched.
+        _quiet_eventlet_tls_noise()
 
         # Bounce plain-HTTP visitors (bare hostname / port 80) to the HTTPS dashboard.
         _spawn_https_redirector(port)
