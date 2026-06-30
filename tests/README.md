@@ -4,7 +4,7 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1245 passing**, 9 skipped, 0 failing |
+| Total tests | **1247 passing**, 9 skipped, 0 failing |
 | Test files | 52 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1245
+pytest tests/                          # all 1247
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -627,10 +627,10 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 **Why it exists:** inline enforcement runs as a non-root service, so nft and iptables must be elevated. These tests pin the sudo wrapper (and the no-sudo-as-root path), the validation script checks, the dongle picker persistence, and the provisioning and service-ordering guarantees.
 
-#### `test_db_resilience.py` - 29 tests
-**Covers:** `database/db_manager._connect()` degrade-not-crash behaviour, `utils/net_detect` gateway/host helpers, infrastructure-device seeding, log rotation, the systemd / journald disk-safety guards, the self-signed-cert generator, HTTPS-serving wiring, the request-derived WebAuthn origin, the dashboard-unit capability sanity, and the scheme-aware setup-wizard URLs.
+#### `test_db_resilience.py` - 31 tests
+**Covers:** `database/db_manager._connect()` degrade-not-crash behaviour, `utils/net_detect` gateway/host helpers, infrastructure-device seeding, log rotation, the systemd / journald disk-safety guards, the self-signed-cert generator, HTTPS-serving wiring, the request-derived WebAuthn origin, the dashboard-unit capability sanity, the scheme-aware setup-wizard URLs, Tailscale Funnel HTTPS backend, and WebAuthn cert-error guidance.
 
-**Why it exists:** a full or failing SD card made `PRAGMA journal_mode = WAL` raise "disk I/O error", which crashed the backend and dashboard at import and tripped systemd's start-limit, leaving the dashboard permanently unreachable. These tests pin the WAL->rollback-journal fallback (so the app comes up degraded instead of bricking), the stale-WAL cleanup, the gateway/host seeding that stops the dashboard showing "0/N online" at boot, the rotating log handlers, the `StartLimitIntervalSec=0` units, and the journald size cap. They also pin the HTTPS-on-LAN path (self-signed cert loads into an SSL context and covers the right SANs; cert/keyfile are passed to the server with a Secure-cookie downgrade on HTTP fallback) and that the WebAuthn ceremony follows the browser's real origin. Two guards prevent the rc13 setup-wizard regressions: the dashboard unit must carry **no** `CapabilityBoundingSet` line (it would cap the process tree to `CAP_NET_BIND_SERVICE` and strip sudo of `CAP_SETUID/SETGID/AUDIT_WRITE`, breaking the final-step Wi-Fi join and hotspot teardown), and the wizard's reach/handoff URLs must be scheme-aware `https` (HTTPS-on-LAN is default-on) rather than hardcoded `http`.
+**Why it exists:** a full or failing SD card made `PRAGMA journal_mode = WAL` raise "disk I/O error", which crashed the backend and dashboard at import and tripped systemd's start-limit, leaving the dashboard permanently unreachable. These tests pin the WAL->rollback-journal fallback (so the app comes up degraded instead of bricking), the stale-WAL cleanup, the gateway/host seeding that stops the dashboard showing "0/N online" at boot, the rotating log handlers, the `StartLimitIntervalSec=0` units, and the journald size cap. They also pin the HTTPS-on-LAN path (self-signed cert loads into an SSL context and covers the right SANs; cert/keyfile are passed to the server with a Secure-cookie downgrade on HTTP fallback) and that the WebAuthn ceremony follows the browser's real origin. Two guards prevent the rc13 setup-wizard regressions: the dashboard unit must carry **no** `CapabilityBoundingSet` line (it would cap the process tree to `CAP_NET_BIND_SERVICE` and strip sudo of `CAP_SETUID/SETGID/AUDIT_WRITE`, breaking the final-step Wi-Fi join and hotspot teardown), and the wizard's reach/handoff URLs must be scheme-aware `https` (HTTPS-on-LAN is default-on) rather than hardcoded `http`. Two rc15 guards prevent the Tailscale 502 regression (`_enable_tailscale_funnel` must use `https+insecure://` so Tailscale accepts the self-signed backend cert) and ensure the WebAuthn error handler surfaces a cert-specific message directing users to their Tailscale ts.net URL.
 
 ## Coverage notes
 
