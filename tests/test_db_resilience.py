@@ -307,6 +307,30 @@ class TestHttpsRedirect:
         assert "_quiet_eventlet_tls_noise" in app_src
         assert "squelch_exception" in app_src and "SSLError" in app_src
 
+    def test_tailscale_funnel_uses_https_insecure_backend(self):
+        """Regression: `tailscale funnel --bg <port>` assumes an HTTP backend; since
+        rc14 the dashboard serves HTTPS on that port, which returns 502 at the ts.net
+        URL. The funnel helper must use `tailscale serve https+insecure://` so Tailscale
+        connects to the local HTTPS backend without rejecting the self-signed cert."""
+        src = (Path(__file__).parent.parent / "dashboard" / "callbacks" /
+               "callbacks_setup.py").read_text()
+        assert "https+insecure://" in src, (
+            "_enable_tailscale_funnel must use https+insecure:// backend; the old "
+            "tailscale funnel --bg <port> shorthand assumes HTTP and returns 502 "
+            "when the dashboard serves HTTPS")
+
+    def test_webauthn_cert_error_hint_present(self):
+        """Regression: WebAuthn registration throws NotAllowedError with 'TLS certificate
+        errors' when the browser does not trust the self-signed cert. The error handler
+        must surface a clear message directing the user to the Tailscale ts.net URL which
+        has a browser-trusted certificate."""
+        src = (Path(__file__).parent.parent / "dashboard" / "callbacks" /
+               "callbacks_auth.py").read_text()
+        assert "tls certificate" in src.lower() or "certificate error" in src.lower(), (
+            "callbacks_auth.py must contain a cert-error hint in the WebAuthn error handler")
+        assert ".ts.net" in src, (
+            "The WebAuthn cert-error handler must suggest the Tailscale ts.net URL")
+
 
 class TestTailscaleRelink:
     def test_relink_worker_and_callback_exist(self):

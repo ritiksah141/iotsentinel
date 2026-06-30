@@ -2205,13 +2205,29 @@ def register(app, login_layout, dashboard_layout):
         """
         function(is_open) {
             if (!is_open) { return [false, ""]; }
-            var secure = (window.isSecureContext === true) &&
-                         (typeof window.PublicKeyCredential !== "undefined");
-            if (secure) { return [false, ""]; }
-            return [true,
-                "Touch ID / Face ID need a secure (HTTPS) connection. Open this " +
-                "dashboard at its https:// address (your Tailscale https://<name>.ts.net " +
-                "URL) and try again — plain http:// cannot use biometrics."];
+            var hasPKC = (typeof window.PublicKeyCredential !== "undefined");
+            var isSecure = (window.isSecureContext === true);
+            if (!hasPKC || !isSecure) {
+                return [true,
+                    "Touch ID / Face ID need a secure (HTTPS) connection. Open this " +
+                    "dashboard at its https:// address (your Tailscale https://<name>.ts.net " +
+                    "URL) and try again -- plain http:// cannot use biometrics."];
+            }
+            // isSecureContext is true even for self-signed certs, but Chrome additionally
+            // blocks WebAuthn when the TLS certificate has errors (NotAllowedError). Warn
+            // when on iotsentinel.local or a LAN IP (self-signed) vs a browser-trusted
+            // domain (.ts.net has Tailscale-issued certs; localhost is always trusted).
+            var host = location.hostname;
+            var isTrustedCert = (host === 'localhost' || host === '127.0.0.1' ||
+                                  host.endsWith('.ts.net'));
+            if (!isTrustedCert) {
+                return [false,
+                    "Note: Touch ID / Face ID may fail here if your browser does not trust " +
+                    "this device's TLS certificate. If registration fails with a certificate " +
+                    "error, use your Tailscale https://<name>.ts.net URL -- it has a " +
+                    "browser-trusted certificate."];
+            }
+            return [false, ""];
         }
         """,
         [Output('register-biometric-btn', 'disabled'),
@@ -2246,7 +2262,19 @@ def register(app, login_layout, dashboard_layout):
                     })
                     .catch(error => {
                         console.error('Biometric registration failed:', error);
-                        alert('Biometric registration failed: ' + error.message);
+                        var msg = (error.message || '').toLowerCase();
+                        if (msg.includes('tls certificate') || msg.includes('certificate error') ||
+                                (error.name === 'NotAllowedError' && msg.includes('certificate'))) {
+                            alert(
+                                'Biometric registration failed: your browser blocked WebAuthn ' +
+                                'because this site uses a self-signed TLS certificate.\n\n' +
+                                'To register your biometrics, use your Tailscale URL ' +
+                                '(https://xxxxxx.ts.net) which has a browser-trusted certificate. ' +
+                                'Once registered there, you can authenticate from any URL.'
+                            );
+                        } else {
+                            alert('Biometric registration failed: ' + error.message);
+                        }
                     });
             } else {
                 alert('WebAuthn is not supported on this device/browser');

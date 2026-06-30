@@ -165,20 +165,41 @@ def _enable_tailscale_funnel(port: int = 8050) -> bool:
 
     MUST use --bg: a bare `tailscale funnel <port>` runs in the FOREGROUND and serves
     only until the process is killed, so the old timeout=10 invocation tore the funnel
-    down the moment it returned — the public URL never actually worked. `--bg` writes the
-    serve config to tailscaled (which restores it across reboots) and returns immediately.
+    down the moment it returned -- the public URL never actually worked. `--bg` writes
+    the serve config to tailscaled (which restores it across reboots) and returns
+    immediately.
+
+    Two-step since rc14 (HTTPS-on-LAN default): the dashboard now serves HTTPS with a
+    self-signed cert on the target port. The old `tailscale funnel --bg <port>` shorthand
+    assumes an HTTP backend and returns 502 at the ts.net URL when the backend is HTTPS.
+    We now use `tailscale serve --bg https+insecure://localhost:<port>` to tell Tailscale
+    to connect to the local HTTPS backend while skipping self-signed cert verification,
+    then `tailscale funnel --bg on` to expose it. Falls back to the HTTP path if the
+    installed Tailscale does not support https+insecure (< v1.44).
     """
     global _last_funnel_error
     try:
-        # _run_tailscale prefers no sudo (so this works on macOS localhost, where
-        # `sudo -n tailscale` fails with "a password is required") and falls back
-        # to passwordless sudo on the Pi image where root is required.
-        result = _run_tailscale(['funnel', '--bg', str(port)], timeout=15)
+        # Step 1: configure the serve backend.
+        # https+insecure:// tells Tailscale to connect via HTTPS without verifying the
+        # self-signed cert (supported since Tailscale v1.44, 2023-07).
+        # _run_tailscale prefers no sudo (macOS) and falls back to passwordless sudo on Pi.
+        serve = _run_tailscale(
+            ['serve', '--bg', f'https+insecure://localhost:{port}'], timeout=15)
+        blob = (serve.stderr or '') + (serve.stdout or '')
+        if serve.returncode != 0 and 'already' not in blob.lower():
+            # Tailscale < v1.44 does not understand https+insecure; fall back to plain
+            # HTTP. The ts.net -> local leg will be HTTP, but the public ts.net URL
+            # still serves HTTPS (Tailscale terminates TLS at the edge).
+            logger.debug("https+insecure not supported, falling back to http: %s", blob.strip())
+            _run_tailscale(['serve', '--bg', f'http://localhost:{port}'], timeout=15)
+
+        # Step 2: expose the serve endpoint to the internet via Funnel.
+        result = _run_tailscale(['funnel', '--bg', 'on'], timeout=15)
         if result.returncode == 0:
             _last_funnel_error = ""
             return True
         # Some tailscale versions report an already-enabled funnel as a non-zero "already
-        # serving" message — treat that as success rather than a failure.
+        # serving" message -- treat that as success rather than a failure.
         blob = (result.stderr or "") + (result.stdout or "")
         if "already" in blob.lower():
             _last_funnel_error = ""
