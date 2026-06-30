@@ -137,7 +137,7 @@ arm_hotspot() {
     iptables -t nat -C PREROUTING -i "$IFACE" -p tcp --dport 80 -j REDIRECT --to-port "$PORT" 2>/dev/null \
         || iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport 80 -j REDIRECT --to-port "$PORT" 2>/dev/null || true
     sleep 2
-    log "hotspot ready — join '$HOTSPOT' (open, no password) and open http://10.42.0.1:$PORT/setup"
+    log "hotspot ready — join '$HOTSPOT' (open, no password) and open https://10.42.0.1:$PORT/setup (accept the one-time 'not private' warning -> Advanced -> Proceed)"
 }
 
 # Tear the setup hotspot down so wlan0 returns to being an ordinary Wi-Fi client.

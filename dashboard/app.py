@@ -243,9 +243,25 @@ login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
 
-# Remember Me cookie configuration (7-day duration)
-_use_https = os.getenv('IOTSENTINEL_HTTPS', 'false').lower() in ('true', '1', 'yes')
-server.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=7)
+# Remember Me cookie configuration. 30 days by default (was 7) so users on the
+# LAN-over-HTTP path, where biometrics can't run (WebAuthn needs HTTPS/localhost),
+# are not forced to re-enter their password every week. Tunable via config.
+#
+# HTTPS-on-LAN: when enabled (config security.https_enabled or env IOTSENTINEL_HTTPS),
+# the dashboard serves a self-signed cert so biometrics + the PWA service worker
+# work and passwords are encrypted on the LAN. The launch block generates the cert
+# and downgrades these Secure flags if cert generation fails (so HTTP login still
+# works). Default OFF until verified on hardware.
+try:
+    _https_cfg = bool(config.get('security', 'https_enabled', default=False))
+except Exception:
+    _https_cfg = False
+_use_https = _https_cfg or os.getenv('IOTSENTINEL_HTTPS', 'false').lower() in ('true', '1', 'yes')
+try:
+    _remember_days = int(config.get('security', 'remember_cookie_days', default=30))
+except Exception:
+    _remember_days = 30
+server.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=_remember_days)
 server.config['REMEMBER_COOKIE_SECURE'] = _use_https  # Only True when served over HTTPS
 server.config['REMEMBER_COOKIE_HTTPONLY'] = True
 server.config['REMEMBER_COOKIE_SAMESITE'] = 'Strict'
@@ -3619,6 +3635,11 @@ dashboard_layout = dbc.Container([
                                     html.I(className="fa fa-plus-circle me-2"),
                                     "Register New Biometric Device"
                                 ], id='register-biometric-btn', color="primary", outline=True, className="w-100 mb-2"),
+
+                                # Secure-context note: WebAuthn only works over HTTPS/localhost.
+                                # Filled + the button disabled by a clientside callback when the
+                                # browser is on a plain-http origin (e.g. http://iotsentinel.local).
+                                html.Div(id='biometric-secure-note', className="small text-warning mb-1"),
 
                                 # Status messages
                                 html.Div(id='biometric-status-message')
@@ -7961,6 +7982,15 @@ dashboard_layout = dbc.Container([
                                             "Enable Remote Access"],
                                            id="settings-remote-enable-btn",
                                            color="primary", outline=True, size="sm"),
+                                dbc.Button([html.I(className="fa fa-rotate me-2"),
+                                            "Re-link this device"],
+                                           id="settings-remote-relink-btn",
+                                           color="secondary", outline=True, size="sm",
+                                           className="ms-2"),
+                                html.Small(
+                                    "Deleted this Pi from your Tailscale admin? Use Re-link to "
+                                    "sign in again as a fresh device.",
+                                    className="text-muted d-block mt-2"),
                                 html.Div(id="settings-remote-status", className="small mt-2"),
                                 dcc.Interval(id="settings-remote-interval", interval=3000,
                                              disabled=True),
@@ -10330,11 +10360,43 @@ def main():
     signal.signal(signal.SIGTERM, _graceful_shutdown)
     signal.signal(signal.SIGINT, _graceful_shutdown)
 
+    # HTTPS-on-LAN: generate a self-signed cert so WebAuthn/biometrics + the PWA
+    # service worker work and passwords are encrypted on the LAN. Best-effort: if
+    # anything fails we serve plain HTTP and downgrade the Secure cookie flags so
+    # login still works (the dashboard must ALWAYS come up).
+    certfile = keyfile = None
+    if _use_https:
+        try:
+            from utils.self_signed_cert import ensure_self_signed_cert
+            from utils.net_detect import get_local_ip
+            lan_ip = get_local_ip()
+            cert_ips = ['127.0.0.1', '10.42.0.1'] + ([lan_ip] if lan_ip else [])
+            pair = ensure_self_signed_cert(
+                Path(project_root) / 'data' / 'certs',
+                hostnames=['localhost', 'iotsentinel.local'],
+                ips=cert_ips,
+            )
+            if pair:
+                certfile, keyfile = pair
+                logger.info(f"HTTPS enabled — serving self-signed cert on {host}:{port}")
+            else:
+                raise RuntimeError("cert generation returned None")
+        except Exception as e:
+            logger.error(f"HTTPS requested but unavailable ({e}); serving plain HTTP")
+            certfile = keyfile = None
+            # Secure cookies would never be sent over HTTP -> downgrade so login works.
+            server.config['SESSION_COOKIE_SECURE'] = False
+            server.config['REMEMBER_COOKIE_SECURE'] = False
+
     # Try running with SocketIO, fall back if needed
     try:
         # Note: use_reloader=False prevents double initialization in debug mode
-        socketio.run(app.server, host=host, port=port, debug=debug,
-                    allow_unsafe_werkzeug=debug, log_output=False, use_reloader=False)
+        run_kwargs = dict(host=host, port=port, debug=debug,
+                          allow_unsafe_werkzeug=debug, log_output=False, use_reloader=False)
+        if certfile and keyfile:
+            run_kwargs['certfile'] = certfile
+            run_kwargs['keyfile'] = keyfile
+        socketio.run(app.server, **run_kwargs)
     except Exception as e:
         logger.error(f"SocketIO failed to start: {e}")
         logger.info("Falling back to standard Dash server (WebSockets disabled)...")
@@ -10345,7 +10407,10 @@ def main():
         werkzeug_log.setLevel(log.ERROR)
 
         # Note: use_reloader=False prevents double initialization in debug mode
-        app.run(host=host, port=port, debug=debug, use_reloader=False)
+        fallback_kwargs = dict(host=host, port=port, debug=debug, use_reloader=False)
+        if certfile and keyfile:
+            fallback_kwargs['ssl_context'] = (certfile, keyfile)
+        app.run(**fallback_kwargs)
 
 
 # WEBAUTHN / PASSKEY API ENDPOINTS

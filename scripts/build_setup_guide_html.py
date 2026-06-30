@@ -42,11 +42,11 @@ FLOW_STEPS = [
     ("Put the card in the Pi and power on", "No screen or keyboard needed"),
     ("Wait about 2 minutes", "First-boot setup runs on its own"),
     ("Join the open Wi-Fi on your phone", "Network name: IoTSentinel-Setup"),
-    ("Open the setup page", "http://10.42.0.1:8050/setup"),
+    ("Open the setup page", "https://10.42.0.1:8050/setup - your browser warns the connection is not private (expected for a local device); tap Advanced then Proceed"),
     ("Run the whole wizard", "Set your password, type your home Wi-Fi name, choose alerts and mode - all while staying on the setup hotspot"),
     ("Finish setup", "Only now does the Pi join your home Wi-Fi and close the setup hotspot"),
     ("Reconnect your phone to your home Wi-Fi", "The setup hotspot is gone now"),
-    ("Open the dashboard", "http://iotsentinel.local:8050"),
+    ("Open the dashboard", "https://iotsentinel.local:8050 (accept the one-time not-private warning)"),
     ("Live monitoring", "Devices, alerts, security score"),
     ("Turn on remote access (optional)", "Quick Settings -> Network -> Enable Remote Access - reach the dashboard from anywhere"),
 ]

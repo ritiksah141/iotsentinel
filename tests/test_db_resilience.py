@@ -197,3 +197,110 @@ class TestImageDiskSafety:
     def test_journald_capped_in_setup(self):
         text = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
         assert "SystemMaxUse" in text and "journald.conf.d" in text
+
+
+class TestSelfSignedCert:
+    def test_generates_loadable_cert_with_sans(self, tmp_path):
+        """The self-signed cert must load into an SSL context and cover the
+        requested hostnames + IPs (so https://iotsentinel.local works)."""
+        import ssl
+        from utils.self_signed_cert import ensure_self_signed_cert
+        pair = ensure_self_signed_cert(
+            tmp_path / "certs",
+            hostnames=["localhost", "iotsentinel.local"],
+            ips=["127.0.0.1", "10.42.0.1"],
+        )
+        assert pair is not None
+        cert, key = pair
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)  # raises if cert/key are invalid
+
+    def test_reuses_existing_cert(self, tmp_path):
+        """A second call with the same SANs reuses the cert (no churn each boot)."""
+        from utils.self_signed_cert import ensure_self_signed_cert
+        args = dict(hostnames=["localhost", "iotsentinel.local"], ips=["127.0.0.1"])
+        first = ensure_self_signed_cert(tmp_path / "c", **args)
+        second = ensure_self_signed_cert(tmp_path / "c", **args)
+        assert first == second
+
+    def test_https_serving_wired_with_http_fallback(self):
+        """app.py must pass certfile/keyfile to socketio.run when HTTPS is enabled
+        and downgrade the Secure cookie flags if cert generation fails."""
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert "ensure_self_signed_cert" in app_src
+        assert "certfile" in app_src and "keyfile" in app_src
+        assert "REMEMBER_COOKIE_SECURE'] = False" in app_src, \
+            "must downgrade Secure cookies when falling back to HTTP"
+
+
+class TestHttpsDefaultAndSetup:
+    def test_https_enabled_by_default(self):
+        """The shipped config serves HTTPS by default so biometrics + PWA work."""
+        import json
+        cfg = json.loads((Path(__file__).parent.parent / "config" / "default_config.json").read_text())
+        assert cfg["security"]["https_enabled"] is True
+
+    def test_setup_messaging_uses_https(self):
+        """Setup messaging must point users at https:// (the dashboard is HTTPS)."""
+        root = Path(__file__).parent.parent
+        hotspot = (root / "scripts" / "setup_hotspot.sh").read_text()
+        assert "https://10.42.0.1" in hotspot
+        start_here = (root / "docs" / "START_HERE.md").read_text()
+        assert "https://iotsentinel.local:8050" in start_here
+
+
+class TestSshAlwaysEnabled:
+    def test_ssh_enabled_in_image_build(self):
+        """SSH must be enabled three ways so a headless user is never locked out."""
+        build = (Path(__file__).parent.parent / "scripts" / "build_pi_image.sh").read_text()
+        assert "systemctl enable ssh" in build
+        assert "/boot/firmware/ssh" in build or "/boot/ssh" in build
+        setup = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
+        assert "systemctl enable ssh" in setup
+
+
+class TestTailscaleRelink:
+    def test_relink_worker_and_callback_exist(self):
+        """A UI re-link path (logout + up) must exist so a Pi deleted from the
+        tailnet can be re-added as a fresh device without SSH."""
+        import inspect
+        from dashboard.callbacks import callbacks_setup as cs
+        worker = inspect.getsource(cs._tailscale_relink_worker)
+        assert "logout" in worker and "_tailscale_up_worker" in worker
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert "settings-remote-relink-btn" in app_src
+
+    def test_sudoers_allows_tailscale_logout(self):
+        """sudo -n tailscale logout must be permitted (the relink path needs it)."""
+        setup = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
+        assert "tailscale logout" in setup
+
+
+class TestWebAuthnRequestOrigin:
+    def test_origin_and_rp_id_follow_the_request(self):
+        """The ceremony must use the browser's actual host/origin so biometrics
+        work on whatever HTTPS URL the user is on (not a fixed env value)."""
+        import os
+        from unittest.mock import patch
+        from flask import Flask
+        import utils.webauthn_handler as wh
+
+        app = Flask(__name__)
+        with patch.dict(os.environ, {"WEBAUTHN_RP_ID": "", "WEBAUTHN_ORIGIN": "",
+                                     "IOTSENTINEL_PUBLIC_URL": ""}):
+            with app.test_request_context(
+                "/", base_url="https://iotsentinel.local:8050",
+                headers={"Origin": "https://iotsentinel.local:8050"},
+            ):
+                assert wh._effective_rp_id() == "iotsentinel.local"
+                assert wh._effective_origin() == "https://iotsentinel.local:8050"
+
+    def test_falls_back_to_env_outside_request(self):
+        """Outside a request (no browser), fall back to the configured public URL."""
+        import os
+        from unittest.mock import patch
+        import utils.webauthn_handler as wh
+        with patch.dict(os.environ, {"WEBAUTHN_RP_ID": "", "WEBAUTHN_ORIGIN": "",
+                                     "IOTSENTINEL_PUBLIC_URL": "https://abc.ts.net"}):
+            assert wh._effective_rp_id() == "abc.ts.net"
+            assert wh._effective_origin() == "https://abc.ts.net"

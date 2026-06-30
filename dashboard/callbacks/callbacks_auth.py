@@ -2195,6 +2195,32 @@ def register(app, login_layout, dashboard_layout):
             return {"display": "block"}, html.P("Error loading devices", className="text-danger"), {'username': username}
 
     # ------------------------------------------------------------------
+    # Secure-context gate (clientside): WebAuthn needs HTTPS or localhost.
+    # The server-side is_webauthn_available() only sees the configured public_url,
+    # not the browser's real origin, so a user on http://iotsentinel.local could
+    # still see an enabled button and hit a raw "not supported" error. This checks
+    # the BROWSER's actual context and disables the button with a clear note.
+    # ------------------------------------------------------------------
+    app.clientside_callback(
+        """
+        function(is_open) {
+            if (!is_open) { return [false, ""]; }
+            var secure = (window.isSecureContext === true) &&
+                         (typeof window.PublicKeyCredential !== "undefined");
+            if (secure) { return [false, ""]; }
+            return [true,
+                "Touch ID / Face ID need a secure (HTTPS) connection. Open this " +
+                "dashboard at its https:// address (your Tailscale https://<name>.ts.net " +
+                "URL) and try again — plain http:// cannot use biometrics."];
+        }
+        """,
+        [Output('register-biometric-btn', 'disabled'),
+         Output('biometric-secure-note', 'children')],
+        Input('profile-edit-modal', 'is_open'),
+        prevent_initial_call=False
+    )
+
+    # ------------------------------------------------------------------
     # WebAuthn register (clientside)
     # ------------------------------------------------------------------
     app.clientside_callback(

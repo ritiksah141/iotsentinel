@@ -305,6 +305,13 @@ for needed in "/usr/sbin/nft" "/usr/sbin/iptables" "configure_ap.sh"; do
 done
 echo "[build] sudoers validated (gateway nft/iptables/configure_ap present)"
 
+# SSH: enable it belt-and-suspenders so a headless user is never locked out
+# (raspi-config's do_ssh has silently no-op'd in some chroot builds). systemctl
+# enable works offline in the chroot; the boot-partition flag is the first-boot
+# fallback Raspberry Pi OS honours even if the unit symlink is missing.
+systemctl enable ssh 2>/dev/null || systemctl enable ssh.socket 2>/dev/null || true
+touch /boot/firmware/ssh 2>/dev/null || touch /boot/ssh 2>/dev/null || true
+
 systemctl enable iotsentinel-provision.service
 systemctl enable iotsentinel-backend.service
 systemctl enable iotsentinel-dashboard.service
