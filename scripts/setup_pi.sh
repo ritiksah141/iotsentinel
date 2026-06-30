@@ -361,6 +361,13 @@ if [ -f "$SERVICES_SRC/iotsentinel-backend.service" ]; then
     done
     sudo ln -sf /etc/systemd/system/iotsentinel-connectivity.timer \
         /etc/systemd/system/timers.target.wants/iotsentinel-connectivity.timer 2>/dev/null || true
+    # Cap the systemd journal so it can never fill the SD card. A full disk makes
+    # SQLite raise "disk I/O error" and bricks the app; the default 10% cap plus
+    # crash-loop traceback spam is enough to get there on a small card.
+    sudo mkdir -p /etc/systemd/journald.conf.d 2>/dev/null || true
+    printf '[Journal]\nSystemMaxUse=200M\nSystemKeepFree=200M\nRuntimeMaxUse=64M\n' \
+        | sudo tee /etc/systemd/journald.conf.d/00-iotsentinel-size.conf > /dev/null 2>&1 || true
+    sudo systemctl restart systemd-journald 2>/dev/null || true
     ok "Systemd services installed and enabled (autostart on boot)"
 else
     warn "Service files not found in $SERVICES_SRC — skipping systemd"

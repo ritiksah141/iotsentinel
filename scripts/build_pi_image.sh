@@ -280,6 +280,18 @@ cp "${SERVICES_SRC}/iotsentinel-connectivity.timer"    /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-firstboot-report.service" /etc/systemd/system/
 cp "${SERVICES_SRC}/iotsentinel-model-eval.service"    /etc/systemd/system/
 
+# Cap the systemd journal so it can never fill the SD card. Default SystemMaxUse
+# is 10% of the filesystem; on a small card, combined with a crash-loop that
+# spews tracebacks, that is enough to push the disk to the point where SQLite
+# raises "disk I/O error" and the app bricks. Hard-cap at 200 MB.
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/00-iotsentinel-size.conf <<'JOURNALD'
+[Journal]
+SystemMaxUse=200M
+SystemKeepFree=200M
+RuntimeMaxUse=64M
+JOURNALD
+
 # Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
 # the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,
 # zeekctl). This stage must NOT overwrite that file — doing so previously dropped the

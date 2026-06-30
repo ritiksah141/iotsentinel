@@ -4,8 +4,8 @@
 
 | Metric | Value |
 |---|---|
-| Total tests | **1204 passing**, 9 skipped, 0 failing |
-| Test files | 51 |
+| Total tests | **1227 passing**, 9 skipped, 0 failing |
+| Test files | 52 |
 | Core-module coverage | db_manager 72% - feature_extractor 81% - zeek_parser 68% - name_resolver 79% - email_notifier 73% - alert_service 78% - config_manager 69% - alert_explainer 100% - ai_health 100% - weekly_story 94% - device_personality 88% - ai_assistant 83% |
 | Dash callbacks coverage | 0% (by design - require a live browser; tested manually) |
 | CI | `test.yml` runs the suite on Python 3.11 + 3.12 (plus an app-boot smoke test); `pi-deps.yml` checks the Pi requirement set installs on ARM64; `lint.yml` (ruff) and `security.yml` (bandit + pip-audit) gate every push to `main` |
@@ -13,7 +13,7 @@
 Run the full suite:
 
 ```bash
-pytest tests/                          # all 1204
+pytest tests/                          # all 1227
 pytest tests/ -x                       # stop at first failure
 pytest tests/ -k "db"                  # run only db-related tests
 ./scripts/run_tests.sh report          # with HTML coverage report
@@ -196,7 +196,7 @@ The test suite prioritises the paths where bugs have real consequences - default
 
 ### Setup wizard
 
-#### `test_setup_wizard.py` - 118 tests
+#### `test_setup_wizard.py` - 120 tests
 **Covers:** `dashboard/layouts/setup_wizard.py`, `dashboard/callbacks/callbacks_setup.py`, `config/config_manager.py`.
 
 **Why it exists:** The wizard is the first thing every user sees on a fresh Pi install. A broken step-progression or a silent config-write failure would leave every new install broken. This is the most comprehensive callback test file - the `navigate_steps` logic was extracted to a module-level function specifically to make it testable without a running browser.
@@ -626,6 +626,11 @@ The test suite prioritises the paths where bugs have real consequences - default
 **Covers:** the wizard access-point picker, `scripts/validate_gateway.sh`, the privileged nft and iptables wrapper, the sudoers grants, and systemd ordering.
 
 **Why it exists:** inline enforcement runs as a non-root service, so nft and iptables must be elevated. These tests pin the sudo wrapper (and the no-sudo-as-root path), the validation script checks, the dongle picker persistence, and the provisioning and service-ordering guarantees.
+
+#### `test_db_resilience.py` - 14 tests
+**Covers:** `database/db_manager._connect()` degrade-not-crash behaviour, `utils/net_detect` gateway/host helpers, infrastructure-device seeding, log rotation, and the systemd / journald disk-safety guards.
+
+**Why it exists:** a full or failing SD card made `PRAGMA journal_mode = WAL` raise "disk I/O error", which crashed the backend and dashboard at import and tripped systemd's start-limit, leaving the dashboard permanently unreachable. These tests pin the WAL->rollback-journal fallback (so the app comes up degraded instead of bricking), the stale-WAL cleanup, the gateway/host seeding that stops the dashboard showing "0/N online" at boot, the rotating log handlers, the `StartLimitIntervalSec=0` units, and the journald size cap.
 
 ## Coverage notes
 

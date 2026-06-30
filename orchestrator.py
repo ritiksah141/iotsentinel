@@ -72,11 +72,17 @@ from dotenv import load_dotenv
 log_dir = Path(config.get('logging', 'log_dir'))
 log_dir.mkdir(parents=True, exist_ok=True)
 
+# Rotating file handler so a crash-loop / chatty run can never fill the SD card
+# (a full disk makes SQLite raise "disk I/O error" and bricks the app). Cap ~8 MB.
+from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_dir / 'orchestrator.log'),
+        RotatingFileHandler(
+            log_dir / 'orchestrator.log',
+            maxBytes=2 * 1024 * 1024, backupCount=3),
         logging.StreamHandler()
     ]
 )
@@ -778,37 +784,110 @@ class IoTSentinelOrchestrator:
 
         logger.info("Plain-English rewrite worker stopped.")
 
+    def _free_disk_mb(self):
+        """Free space (MB) on the filesystem holding the database, or None on error."""
+        try:
+            import shutil
+            db_path = config.get('database', 'path', default=None)
+            target = Path(db_path).parent if db_path else Path('.')
+            if not target.exists():
+                target = Path('.')
+            return shutil.disk_usage(str(target)).free / (1024 * 1024)
+        except Exception as e:
+            logger.debug(f"Could not determine free disk space: {e}")
+            return None
+
     def _cleanup_loop(self):
-        """Periodically cleans up old database records (daily) and optimises the
-        database (weekly: ANALYZE + WAL checkpoint + size-guarded VACUUM)."""
+        """Prune old DB records (daily) and optimise the database (weekly:
+        ANALYZE + WAL checkpoint + size-guarded VACUUM). ALSO checks disk
+        pressure hourly and runs an emergency prune if free space is low, so a
+        filling SD card self-corrects long before it gets full enough to make
+        SQLite raise 'disk I/O error' and brick the app (the rc12 failure)."""
         logger.info("Database cleanup loop started.")
         try:
-            cleanup_interval = 24 * 60 * 60  # 24 hours in seconds
             retention_days = config.get('database', 'retention_days', default=30)
-            _days_since_optimize = 0  # count daily cycles; optimize every 7th
+            # Emergency prune trigger: below this many MB free, prune hard now.
+            min_free_mb = config.get('database', 'min_free_mb', default=500)
+            emergency_retention_days = config.get(
+                'database', 'emergency_retention_days', default=2)
+            CHECK_INTERVAL = 60 * 60  # re-check disk pressure hourly
+            HOURS_PER_DAY = 24
+
+            _hours = 0
+            _days_since_optimize = 0
+
+            # Initial cleanup at startup.
+            logger.info(f"Running database cleanup (retention: {retention_days} days)...")
+            self.db.cleanup_old_data(days=retention_days)
 
             while self.running:
-                logger.info(f"Running daily database cleanup (retention: {retention_days} days)...")
-                self.db.cleanup_old_data(days=retention_days)
-
-                _days_since_optimize += 1
-                if _days_since_optimize >= 7:
-                    logger.info("Running weekly database optimization (ANALYZE + WAL checkpoint)...")
-                    try:
-                        self.db.optimize_database()
-                    except Exception as e:
-                        logger.error(f"Weekly database optimization failed: {e}")
-                    _days_since_optimize = 0
-
-                # Sleep for 24 hours, but check for shutdown every second
-                for _ in range(cleanup_interval):
+                # Sleep an hour, in 1-second chunks for clean shutdown.
+                for _ in range(CHECK_INTERVAL):
                     if not self.running:
                         break
                     time.sleep(1)
+                if not self.running:
+                    break
+
+                # Hourly: emergency prune if the disk is under pressure. This
+                # targets connections/ml_predictions (the high-volume tables).
+                free_mb = self._free_disk_mb()
+                if free_mb is not None and free_mb < min_free_mb:
+                    logger.warning(
+                        f"Low disk space ({free_mb:.0f} MB free < {min_free_mb} MB); "
+                        f"emergency prune (retention {emergency_retention_days} days).")
+                    try:
+                        self.db.cleanup_old_data(days=emergency_retention_days)
+                    except Exception as e:
+                        logger.error(f"Emergency prune failed: {e}")
+
+                _hours += 1
+                if _hours >= HOURS_PER_DAY:
+                    _hours = 0
+                    logger.info(
+                        f"Running daily database cleanup (retention: {retention_days} days)...")
+                    self.db.cleanup_old_data(days=retention_days)
+
+                    _days_since_optimize += 1
+                    if _days_since_optimize >= 7:
+                        logger.info(
+                            "Running weekly database optimization (ANALYZE + WAL checkpoint)...")
+                        try:
+                            self.db.optimize_database()
+                        except Exception as e:
+                            logger.error(f"Weekly database optimization failed: {e}")
+                        _days_since_optimize = 0
 
         except Exception as e:
             logger.error(f"Error in cleanup loop: {e}", exc_info=True)
         logger.info("Database cleanup loop stopped.")
+
+    def _seed_infrastructure_devices(self):
+        """Register the router (default gateway) and the Pi's own host as devices
+        immediately, so the dashboard shows >=1 online device on first view
+        instead of '0/N' while the first ARP sweep is still running. Both are
+        online by definition; the normal scans enrich them (MAC, vendor) later.
+        add_device() upserts, so this is idempotent and safe to call each boot."""
+        try:
+            from utils.net_detect import get_local_ip, get_default_gateway
+            seeds = []
+            gw = get_default_gateway()
+            if gw and self.db.validate_ip(gw):
+                seeds.append((gw, 'Router / Gateway', 'router'))
+            host_ip = get_local_ip()
+            if host_ip and self.db.validate_ip(host_ip):
+                seeds.append((host_ip, 'IoTSentinel (this device)', 'raspberry_pi'))
+            for ip, name, dtype in seeds:
+                try:
+                    self.db.add_device(ip, device_name=name, device_type=dtype)
+                except Exception as e:
+                    logger.debug(f"Could not seed infrastructure device {ip}: {e}")
+            if seeds:
+                logger.info(
+                    "Seeded infrastructure device(s) so the dashboard is never "
+                    f"empty at boot: {', '.join(ip for ip, _, _ in seeds)}")
+        except Exception as e:
+            logger.debug(f"Infrastructure device seeding skipped: {e}")
 
     def _arp_scan_loop(self):
         """Periodically scan network with ARP to discover devices."""
@@ -831,6 +910,9 @@ class IoTSentinelOrchestrator:
                 # no-op once a real subnet is locked in) keeps discovery pointed at
                 # the live LAN regardless of when the join landed.
                 self._autodetect_local_network()
+                # Seed the gateway + this host first so the dashboard shows at
+                # least 1-2 online devices instantly, before the sweep finishes.
+                self._seed_infrastructure_devices()
                 logger.info("Performing initial ARP network scan...")
                 try:
                     count = self.arp_scanner.scan_and_update_database()

@@ -133,9 +133,29 @@ os.makedirs(log_dir, exist_ok=True)
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 audit_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
+# Rotating handlers so the logs can NEVER fill the SD card. Plain FileHandlers
+# grow unbounded; a crash-loop or chatty subsystem would eventually exhaust the
+# disk, which on the Pi makes SQLite raise "disk I/O error" and bricks the app.
+# Each logger is capped at maxBytes * (backupCount + 1) ~= 8 MB.
+from logging.handlers import RotatingFileHandler
+
+_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB per file
+_LOG_BACKUPS = 3                  # keep 3 rotations (~8 MB max per logger)
+
+
+def _make_log_handler(filename, formatter):
+    """Create a size-capped rotating file handler under log_dir."""
+    handler = RotatingFileHandler(
+        os.path.join(log_dir, filename),
+        maxBytes=_LOG_MAX_BYTES,
+        backupCount=_LOG_BACKUPS,
+    )
+    handler.setFormatter(formatter)
+    return handler
+
+
 # 1. Main application logger (dashboard & general operations)
-main_handler = logging.FileHandler(os.path.join(log_dir, 'iotsentinel.log'))
-main_handler.setFormatter(log_formatter)
+main_handler = _make_log_handler('iotsentinel.log', log_formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 
@@ -148,43 +168,37 @@ logger = logging.getLogger(__name__)
 # 2. Audit logger (authentication, user actions, security events)
 audit_file_logger = logging.getLogger('audit')
 audit_file_logger.setLevel(logging.INFO)
-audit_handler = logging.FileHandler(os.path.join(log_dir, 'audit.log'))
-audit_handler.setFormatter(audit_formatter)
+audit_handler = _make_log_handler('audit.log', audit_formatter)
 audit_file_logger.addHandler(audit_handler)
 
 # 3. ML logger (machine learning, anomaly detection, forecasting)
 ml_logger = logging.getLogger('ml')
 ml_logger.setLevel(logging.INFO)
-ml_handler = logging.FileHandler(os.path.join(log_dir, 'ml.log'))
-ml_handler.setFormatter(log_formatter)
+ml_handler = _make_log_handler('ml.log', log_formatter)
 ml_logger.addHandler(ml_handler)
 
 # 4. Alerts logger (alert generation, notifications, integrations)
 alerts_logger = logging.getLogger('alerts')
 alerts_logger.setLevel(logging.INFO)
-alerts_handler = logging.FileHandler(os.path.join(log_dir, 'alerts.log'))
-alerts_handler.setFormatter(log_formatter)
+alerts_handler = _make_log_handler('alerts.log', log_formatter)
 alerts_logger.addHandler(alerts_handler)
 
 # 5. Database logger (DB operations, maintenance, queries)
 db_logger = logging.getLogger('database')
 db_logger.setLevel(logging.INFO)
-db_handler = logging.FileHandler(os.path.join(log_dir, 'database.log'))
-db_handler.setFormatter(log_formatter)
+db_handler = _make_log_handler('database.log', log_formatter)
 db_logger.addHandler(db_handler)
 
 # 7. Error logger (centralized ERROR and CRITICAL from all modules)
 error_logger = logging.getLogger('errors')
 error_logger.setLevel(logging.ERROR)
-error_handler = logging.FileHandler(os.path.join(log_dir, 'error.log'))
-error_handler.setFormatter(log_formatter)
+error_handler = _make_log_handler('error.log', log_formatter)
 error_logger.addHandler(error_handler)
 
 # 8. API logger (external API calls, webhooks, integrations)
 api_logger = logging.getLogger('api')
 api_logger.setLevel(logging.INFO)
-api_handler = logging.FileHandler(os.path.join(log_dir, 'api.log'))
-api_handler.setFormatter(log_formatter)
+api_handler = _make_log_handler('api.log', log_formatter)
 api_logger.addHandler(api_handler)
 
 # Configure root logger to also send ERROR+ to error.log

@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -38,25 +39,70 @@ def _tailscale_available() -> bool:
     return shutil.which("tailscale") is not None
 
 
+# Substrings in tailscale's error output that mean "this needs root" — only then
+# do we retry under sudo. Lets us prefer the no-sudo path (macOS, or any host with
+# a tailscale operator set) and fall back to passwordless sudo on the Pi image.
+_TS_NEEDS_ROOT_HINTS = (
+    "access denied", "permission denied", "must be run as root",
+    "needs to be run as", "operator", "a password is required",
+)
+
+
+def _ts_needs_root(output: str) -> bool:
+    blob = (output or "").lower()
+    return any(h in blob for h in _TS_NEEDS_ROOT_HINTS)
+
+
+def _run_tailscale(args: list[str], timeout: int = 15) -> subprocess.CompletedProcess:
+    """Run `tailscale <args>`, preferring no sudo and falling back to passwordless
+    sudo only when the plain call fails because root is required.
+
+    Why: on macOS the CLI talks to a privileged helper and must NOT use sudo
+    (`sudo -n tailscale ...` fails with "a password is required"). On the Pi image
+    the dashboard runs as the unprivileged 'sentinel' user with no tailscale
+    operator, so root IS required there -- granted passwordless in setup_pi.sh
+    sudoers. Trying plain first makes the same code work in both places.
+    """
+    base = ['tailscale', *args]
+    plain = subprocess.run(base, capture_output=True, text=True, timeout=timeout)
+    if plain.returncode == 0:
+        return plain
+    # macOS never needs (or accepts) sudo for tailscale.
+    if sys.platform == 'darwin':
+        return plain
+    if _ts_needs_root((plain.stderr or '') + (plain.stdout or '')):
+        return subprocess.run(['sudo', '-n', *base],
+                              capture_output=True, text=True, timeout=timeout)
+    return plain
+
+
 def _tailscale_up_worker():
     """Run 'tailscale up' in background; capture the login URL from stdout."""
     with _ts_lock:
         _ts_state.update({'url': None, 'connected': False, 'public_url': None, 'running': True})
-    try:
-        # sudo -n: the dashboard runs as the unprivileged 'sentinel' user, but
-        # `tailscale up` needs root (no operator is configured on the image). The
-        # grant is in setup_pi.sh's sudoers line; -n never blocks on a password.
+
+    def _stream(cmd):
+        """Run cmd, scan stdout for the login URL. Returns (found, exit_code)."""
         proc = subprocess.Popen(
-            ['sudo', '-n', 'tailscale', 'up', '--accept-routes'],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        found = False
         for line in proc.stdout:
             m = re.search(r'https://login\.tailscale\.com/\S+', line)
             if m:
                 with _ts_lock:
                     _ts_state['url'] = m.group(0)
+                found = True
                 break
         proc.wait()
+        return found, proc.returncode
+
+    try:
+        # Prefer the no-sudo path (macOS / operator-configured hosts); fall back
+        # to passwordless sudo on the Pi image where root is required.
+        base = ['tailscale', 'up', '--accept-routes']
+        found, rc = _stream(base)
+        if not found and rc != 0 and sys.platform != 'darwin':
+            _stream(['sudo', '-n', *base])
     except Exception as exc:
         logger.warning(f"Tailscale up worker error: {exc}")
     finally:
@@ -96,10 +142,10 @@ def _enable_tailscale_funnel(port: int = 8050) -> bool:
     """
     global _last_funnel_error
     try:
-        result = subprocess.run(
-            ['sudo', '-n', 'tailscale', 'funnel', '--bg', str(port)],
-            capture_output=True, text=True, timeout=15
-        )
+        # _run_tailscale prefers no sudo (so this works on macOS localhost, where
+        # `sudo -n tailscale` fails with "a password is required") and falls back
+        # to passwordless sudo on the Pi image where root is required.
+        result = _run_tailscale(['funnel', '--bg', str(port)], timeout=15)
         if result.returncode == 0:
             _last_funnel_error = ""
             return True
