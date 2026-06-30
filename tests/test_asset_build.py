@@ -174,6 +174,42 @@ def _brace_count_outside_strings_and_comments(css):
     return _strip_strings(css).count('{')
 
 
+def test_performance_js_does_not_reassign_dash_clientside():
+    """Reassigning `window.dash_clientside = Object.assign({}, window.dash_clientside, ...)`
+    swaps the global for a NEW object. dash_renderer registers its inline clientside
+    callbacks asynchronously against the original reference, so replacing the global
+    mid-init makes those lookups resolve to undefined and the renderer crashes with
+    'TypeError: Cannot read properties of undefined (reading 'apply')'. Namespaces must
+    be added by mutating window.dash_clientside in place."""
+    from pathlib import Path
+    import re
+    repo = Path(__file__).resolve().parent.parent
+    js = (repo / "dashboard" / "assets" / "performance.js").read_text()
+    # The destructive pattern: assigning the global from an Object.assign with a fresh {} base.
+    assert not re.search(r"window\.dash_clientside\s*=\s*Object\.assign\(\s*\{\}", js), (
+        "performance.js must not reassign window.dash_clientside via Object.assign({}, ...); "
+        "mutate it in place or dash_renderer crashes with undefined.apply")
+
+
+def test_quick_status_stacks_ip_on_narrow_desktop_sidebar():
+    """In the lg=2 'Connected Devices' sidebar the single-line flex row collapses the
+    device NAME (flex:1; min-width:0) to an ellipsis while the IP chip (flex-shrink:0)
+    keeps full width, so the panel reads as bare IPs + a type icon. The fix is an
+    lg+ (min-width:992px) media query that breaks the IP onto its own line (name-first,
+    matching mobile) and wraps the Device List rows so badges never clip. Guard that the
+    rule and its key declarations survive future edits/minification."""
+    from pathlib import Path
+    import re
+    repo = Path(__file__).resolve().parent.parent
+    css = (repo / "dashboard" / "assets" / "custom.css").read_text()
+    assert re.search(r"@media\s*\(\s*min-width:\s*992px\s*\)", css), (
+        "lg+ (min-width:992px) device-panel media query missing from custom.css")
+    # IP must wrap to its own line via a full-width ::after flex break, and the Device
+    # List inner row must wrap so status badges stay visible (no clip / side-scroll).
+    assert ".device-item-compact::after" in css and "flex-basis: 100%" in css
+    assert ".active-device-item > .d-flex" in css
+
+
 def test_no_dbc_table_uses_dark_kwarg():
     """dash_bootstrap_components 2.0.4's Table dropped the `dark` argument; any
     `dbc.Table(... dark=...)` raises at render time (hit on Network Segmentation's

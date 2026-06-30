@@ -258,6 +258,35 @@ class TestSshAlwaysEnabled:
         setup = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
         assert "systemctl enable ssh" in setup
 
+    def test_ssh_runtime_selfheal_unit_shipped_and_enabled(self):
+        """A chroot `systemctl enable ssh` has silently no-op'd in some builds, and a
+        later mask/hardening/userconf pass can leave sshd stopped — so the image also
+        ships iotsentinel-ssh.service, a oneshot that unmasks+enables+starts sshd on
+        EVERY boot. It must run ensure_ssh.sh, be copied into the image, and be enabled
+        by both the image build and setup_pi.sh, so a headless device can never end up
+        with port 22 refused (no new image needed to recover)."""
+        root = Path(__file__).parent.parent
+        unit = (root / "services" / "iotsentinel-ssh.service").read_text()
+        assert "ExecStart=" in unit and "ensure_ssh.sh" in unit
+        assert "Type=oneshot" in unit
+        assert "WantedBy=multi-user.target" in unit
+
+        script = (root / "scripts" / "ensure_ssh.sh")
+        body = script.read_text()
+        # Self-heal must cover both the daemon and the Bookworm socket-activated form,
+        # and undo any prior mask.
+        assert "systemctl unmask" in body
+        assert "ssh.service" in body and "ssh.socket" in body
+        assert "enable --now" in body
+        # Best-effort: it must never brick the boot.
+        assert "exit 0" in body
+
+        build = (root / "scripts" / "build_pi_image.sh").read_text()
+        assert "iotsentinel-ssh.service" in build
+        assert "systemctl enable iotsentinel-ssh" in build
+        setup = (root / "scripts" / "setup_pi.sh").read_text()
+        assert "iotsentinel-ssh" in setup
+
 
 class TestHttpsRedirect:
     def test_redirector_and_capability_wired(self):
