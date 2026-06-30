@@ -259,6 +259,22 @@ class TestSshAlwaysEnabled:
         assert "systemctl enable ssh" in setup
 
 
+class TestHttpsRedirect:
+    def test_redirector_and_capability_wired(self):
+        """An HTTP->HTTPS redirector on :80 must exist, redirect to https, and the
+        dashboard unit must grant CAP_NET_BIND_SERVICE so the service user can bind 80."""
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert "_spawn_https_redirector" in app_src
+        assert "307" in app_src and 'f"https://{host}:{target_port}' in app_src
+        unit = (Path(__file__).parent.parent / "services" / "iotsentinel-dashboard.service").read_text()
+        assert "AmbientCapabilities=CAP_NET_BIND_SERVICE" in unit
+
+    def test_no_hardcoded_http_dashboard_url_log(self):
+        """The startup 'Dashboard URL' log must be scheme-aware, not hardcoded http."""
+        app_src = (Path(__file__).parent.parent / "dashboard" / "app.py").read_text()
+        assert 'Dashboard URL: http://{host}' not in app_src
+
+
 class TestTailscaleRelink:
     def test_relink_worker_and_callback_exist(self):
         """A UI re-link path (logout + up) must exist so a Pi deleted from the
