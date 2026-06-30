@@ -18,6 +18,7 @@ import sqlite3
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import (List, Dict, Optional)
@@ -115,6 +116,8 @@ class DatabaseManager:
         self._write_lock = threading.RLock()
 
         self.conn = None
+        self.degraded = False       # True when WAL could not be enabled (disk problem)
+        self.journal_mode = 'WAL'   # actual journal mode in use ('WAL' or 'DELETE')
         self._connect()
 
         # Run schema migrations if needed
@@ -124,33 +127,127 @@ class DatabaseManager:
         logger.info(f"Database manager initialized: {self.db_path}")
 
     def _connect(self):
-        """Establish database connection with optimizations and security."""
+        """Establish the database connection, resilient to disk/WAL failures.
+
+        A full or failing SD card makes `PRAGMA journal_mode = WAL` raise
+        sqlite3.OperationalError ("disk I/O error"). Crashing here is fatal in
+        production: on the Pi both backend and dashboard build a DatabaseManager
+        at import, so the exception kills the process; systemd restarts it, the
+        crash repeats, and after ~5 restarts in 10s systemd's start-limit leaves
+        the service dead -> the dashboard is permanently unreachable. To avoid
+        that we degrade instead of dying:
+          1. retry a few times for transient contention at boot,
+          2. clear a stale -wal/-shm sidecar left by an unclean power-off,
+          3. fall back to journal_mode=DELETE (rollback journal, no -shm/mmap),
+          4. only raise if even a bare connect + trivial query is impossible.
+        `self.degraded` records that WAL could not be enabled so the health UI
+        can surface a real disk problem instead of silently limping.
+        """
+        self.degraded = False
+        self.journal_mode = 'WAL'
+
+        last_err = None
+        for attempt in range(3):
+            try:
+                self._open_connection()
+                self._apply_base_pragmas()
+                if self._enable_wal():
+                    self.journal_mode = 'WAL'
+                    self.degraded = False
+                else:
+                    self.journal_mode = 'DELETE'
+                    self.degraded = True
+                return
+            except sqlite3.OperationalError as e:
+                last_err = e
+                logger.warning(
+                    f"DB connect attempt {attempt + 1}/3 failed: {e}")
+                self._close_quietly()
+                # A wedged WAL is unreadable anyway; clearing the sidecars lets
+                # the next attempt re-create them on a healthy filesystem.
+                self._remove_stale_wal_files()
+                time.sleep(0.5 * (attempt + 1))
+            except sqlite3.Error as e:
+                last_err = e
+                break
+
+        # Last resort: a bare rollback-journal connection so the app can still
+        # boot in degraded mode and report the disk problem to the operator.
         try:
-            self.conn = sqlite3.connect(
-                str(self.db_path),
-                check_same_thread=False,
-                timeout=30.0,  # 30 second timeout for busy database
-                isolation_level='DEFERRED'  # Explicit transaction control
-            )
-            self.conn.row_factory = sqlite3.Row
-
-            # Security and performance pragmas
-            self.conn.execute("PRAGMA foreign_keys = ON")  # Enforce referential integrity
-            self.conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for concurrency
-            self.conn.execute("PRAGMA synchronous = NORMAL")  # Balance safety/speed
-            self.conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
-            self.conn.execute("PRAGMA temp_store = MEMORY")  # Faster temp operations
-
-            # Security: Prevent recursive triggers
-            self.conn.execute("PRAGMA recursive_triggers = OFF")
-
-            # Checkpoint WAL automatically every 1000 pages (~4 MB).
-            # Without this the WAL file grows unbounded between manual checkpoints.
-            self.conn.execute("PRAGMA wal_autocheckpoint = 1000")
-
+            self._open_connection()
+            self.conn.execute("PRAGMA journal_mode = DELETE")
+            self.conn.execute("PRAGMA busy_timeout = 30000")
+            self.conn.execute("SELECT 1")
+            self.journal_mode = 'DELETE'
+            self.degraded = True
+            logger.error(
+                "Database opened in DEGRADED mode (rollback journal). The "
+                "storage device is likely full or failing -- check `df -h` and "
+                f"`dmesg`. WAL was unavailable: {last_err}")
+            return
         except sqlite3.Error as e:
             logger.critical(f"Failed to connect to database: {e}")
             raise DatabaseError(f"Database connection failed: {e}")
+
+    def _open_connection(self):
+        """Open the raw sqlite3 connection (no WAL/-shm-touching pragmas)."""
+        self.conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            timeout=30.0,  # 30 second timeout for busy database
+            isolation_level='DEFERRED'  # Explicit transaction control
+        )
+        self.conn.row_factory = sqlite3.Row
+
+    def _apply_base_pragmas(self):
+        """Pragmas that do NOT create the -wal/-shm sidecars, so they are safe
+        even on a filesystem that can no longer support WAL."""
+        self.conn.execute("PRAGMA foreign_keys = ON")  # Enforce referential integrity
+        self.conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
+        self.conn.execute("PRAGMA temp_store = MEMORY")  # Faster temp operations
+        self.conn.execute("PRAGMA recursive_triggers = OFF")  # Prevent recursive triggers
+
+    def _enable_wal(self) -> bool:
+        """Switch to WAL for concurrency. Returns False (without raising) when
+        the filesystem cannot support it, so the caller falls back gracefully."""
+        try:
+            cur = self.conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
+            mode = (cur.fetchone() or [''])[0]
+            if str(mode).upper() != 'WAL':
+                logger.warning(
+                    f"WAL not enabled (mode={mode!r}); using rollback journal.")
+                return False
+            self.conn.execute("PRAGMA synchronous = NORMAL")  # Balance safety/speed
+            # Checkpoint WAL automatically every 1000 pages (~4 MB) so it does
+            # not grow unbounded between manual checkpoints.
+            self.conn.execute("PRAGMA wal_autocheckpoint = 1000")
+            return True
+        except sqlite3.OperationalError as e:
+            logger.warning(
+                f"Could not enable WAL ({e}); using rollback journal.")
+            return False
+
+    def _remove_stale_wal_files(self):
+        """Delete -wal/-shm sidecars left by an unclean shutdown. Only called
+        after a failed open (no live connection holds them), and only matters
+        when the WAL is already unreadable -- so no committed data is at risk."""
+        for suffix in ('-wal', '-shm'):
+            side = Path(str(self.db_path) + suffix)
+            try:
+                if side.exists():
+                    side.unlink()
+                    logger.warning(f"Removed stale WAL sidecar {side.name}")
+            except OSError as e:
+                logger.warning(f"Could not remove {side.name}: {e}")
+
+    def _close_quietly(self):
+        """Close the connection, swallowing any error (used between retries)."""
+        try:
+            if self.conn is not None:
+                self.conn.close()
+        except Exception:
+            pass
+        self.conn = None
 
     def transaction(self):
         """Context manager for explicit transactions with automatic rollback on error.

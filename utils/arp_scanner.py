@@ -368,11 +368,14 @@ def main():
     log_dir = Path(config.get('logging', 'log_dir'))
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    from logging.handlers import RotatingFileHandler
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_dir / 'arp_scanner.log'),
+            RotatingFileHandler(
+                log_dir / 'arp_scanner.log',
+                maxBytes=2 * 1024 * 1024, backupCount=3),
             logging.StreamHandler(),
         ]
     )

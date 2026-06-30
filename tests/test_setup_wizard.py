@@ -194,17 +194,62 @@ class TestSetupWizardLayout:
         assert getattr(field, "list", None) == "setup-wifi-ssid-list"
         assert "setup-wifi-ssid-list" in str(setup_wizard_layout), "datalist missing"
 
-    def test_tailscale_remote_access_uses_bg_and_sudo(self):
+    def test_tailscale_remote_access_uses_bg_and_sudo_fallback(self):
         """Funnel must run with --bg (a foreground serve is killed by the subprocess
-        timeout, so the URL never persists) and via sudo (the dashboard runs as the
-        unprivileged service user and no Tailscale operator is configured)."""
+        timeout, so the URL never persists). Root access is handled by _run_tailscale,
+        which prefers NO sudo (so it works on macOS localhost, where `sudo -n` fails
+        with "a password is required") and falls back to passwordless sudo on the Pi
+        image where the unprivileged service user needs root."""
         import inspect
         from dashboard.callbacks import callbacks_setup as cs
         funnel_src = inspect.getsource(cs._enable_tailscale_funnel)
         assert "--bg" in funnel_src, "tailscale funnel must use --bg to persist"
-        assert "sudo" in funnel_src, "tailscale funnel must run via sudo"
+        assert "_run_tailscale" in funnel_src, "funnel must go through _run_tailscale"
+        # The sudo fallback lives in the shared helper, gated on platform != darwin.
+        helper_src = inspect.getsource(cs._run_tailscale)
+        assert "sudo" in helper_src and "darwin" in helper_src, \
+            "_run_tailscale must fall back to sudo only off macOS"
         up_src = inspect.getsource(cs._tailscale_up_worker)
-        assert "sudo" in up_src, "tailscale up must run via sudo"
+        assert "sudo" in up_src and "darwin" in up_src, \
+            "tailscale up must fall back to sudo only off macOS"
+
+    def test_run_tailscale_prefers_plain_then_sudo(self, monkeypatch):
+        """_run_tailscale tries plain first; retries under sudo only when the
+        plain call fails for lack of root AND the platform is not macOS."""
+        import subprocess as sp
+        from dashboard.callbacks import callbacks_setup as cs
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == 'tailscale':
+                # plain call fails because root is required
+                return sp.CompletedProcess(cmd, 1, stdout='', stderr='access denied')
+            return sp.CompletedProcess(cmd, 0, stdout='ok', stderr='')
+
+        monkeypatch.setattr(cs.sys, 'platform', 'linux')
+        monkeypatch.setattr(cs.subprocess, 'run', fake_run)
+        res = cs._run_tailscale(['funnel', '--bg', '8050'])
+        assert res.returncode == 0
+        assert calls[0][0] == 'tailscale'           # tried plain first
+        assert calls[1][:2] == ['sudo', '-n']        # then fell back to sudo
+
+    def test_run_tailscale_no_sudo_on_macos(self, monkeypatch):
+        """On macOS we never retry under sudo (it would fail with a password prompt)."""
+        import subprocess as sp
+        from dashboard.callbacks import callbacks_setup as cs
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return sp.CompletedProcess(cmd, 1, stdout='', stderr='access denied')
+
+        monkeypatch.setattr(cs.sys, 'platform', 'darwin')
+        monkeypatch.setattr(cs.subprocess, 'run', fake_run)
+        cs._run_tailscale(['funnel', '--bg', '8050'])
+        assert all(c[0] == 'tailscale' for c in calls), "must not invoke sudo on macOS"
 
     def test_remote_access_callbacks_are_exception_safe(self):
         """settings_remote_poll runs on a dcc.Interval, so an unhandled exception

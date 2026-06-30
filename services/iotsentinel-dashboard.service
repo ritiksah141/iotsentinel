@@ -2,6 +2,12 @@
 Description=IoTSentinel Web Dashboard
 After=iotsentinel-backend.service
 Wants=iotsentinel-backend.service
+# Never permanently give up. The DB connect can fail transiently on a full or
+# recovering SD card; without this, ~5 quick crashes trip systemd's DEFAULT
+# start limit and the dashboard ends up dead ("nothing listening on 8050")
+# until a manual reboot. Disabling the limit lets it keep retrying and recover
+# on its own once the storage is healthy.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -18,7 +24,11 @@ ExecStart=/home/sentinel/iotsentinel/venv/bin/python3 /home/sentinel/iotsentinel
 # while waiting on first-boot setup; always-restart guarantees it self-heals without
 # the manual reboot that the rc7 first-boot race required.
 Restart=always
-RestartSec=5
+# 10s (was 5s) so a crash-loop does not spam the journal and fill the disk.
+RestartSec=10
+LimitNOFILE=8192
+# NOTE: deliberately no MemoryMax -- the Pi kernel cmdline sets
+# cgroup_disable=memory, so memory cgroup limits are a no-op on this hardware.
 StandardOutput=journal
 StandardError=journal
 

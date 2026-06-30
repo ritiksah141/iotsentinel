@@ -5,6 +5,7 @@ Logs all security-relevant events for compliance and forensics
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -22,9 +23,12 @@ security_audit_file_logger.setLevel(logging.INFO)
 log_dir = Path('data/logs')
 log_dir.mkdir(parents=True, exist_ok=True)
 
-# Add file handler for security audit logs
+# Add a rotating file handler for security audit logs. Plain FileHandler grows
+# unbounded; on the Pi a full SD card makes SQLite raise "disk I/O error" and
+# bricks the app, so cap this at ~8 MB (2 MB * 4 files).
 security_audit_log_file = log_dir / 'security_audit.log'
-file_handler = logging.FileHandler(security_audit_log_file)
+file_handler = RotatingFileHandler(
+    security_audit_log_file, maxBytes=2 * 1024 * 1024, backupCount=3)
 file_handler.setLevel(logging.INFO)
 
 # Create formatter for security audit logs

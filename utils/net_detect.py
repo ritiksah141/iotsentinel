@@ -37,6 +37,48 @@ def guess_cidr(iface: str) -> str | None:
     return None
 
 
+def get_local_ip() -> str | None:
+    """Best-effort primary outbound IPv4 address of this host (the Pi itself).
+
+    Uses the standard UDP-connect trick: opening a datagram socket toward a
+    public address makes the kernel pick the source IP for the default route
+    without actually sending anything. Never raises; returns None on failure.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if ip and not ip.startswith(("127.", "169.254.")):
+            return ip
+    except Exception:
+        pass
+    return None
+
+
+def get_default_gateway() -> str | None:
+    """Best-effort IPv4 default gateway (the home router) from /proc/net/route.
+
+    Linux-only (the Pi); returns None on platforms without /proc (e.g. macOS dev
+    machines) or any parse error. Never raises.
+    """
+    try:
+        with open("/proc/net/route") as fh:
+            for line in fh.readlines()[1:]:
+                fields = line.strip().split()
+                # Destination 00000000 == default route; field[2] is the gateway
+                # as a little-endian hex IPv4.
+                if len(fields) >= 3 and fields[1] == "00000000":
+                    gw_hex = fields[2]
+                    octets = [str(int(gw_hex[i:i + 2], 16)) for i in (6, 4, 2, 0)]
+                    return ".".join(octets)
+    except Exception:
+        pass
+    return None
+
+
 def detect_active_cidr(preferred_iface: str | None = None) -> str | None:
     """Best-effort detection of the LAN CIDR the Pi is currently on.
 

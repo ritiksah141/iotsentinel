@@ -81,6 +81,8 @@
     "path": "data/database/iotsentinel.db",
     "retention_days": 30,
     "vacuum_threshold_mb": 100,
+    "min_free_mb": 500,
+    "emergency_retention_days": 2,
     "retention": {
       "connections":           30,
       "ml_predictions":        30,
