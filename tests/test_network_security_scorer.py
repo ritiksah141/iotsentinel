@@ -64,3 +64,28 @@ def test_long_absent_device_is_offline(db):
 def test_no_devices_scores_full_health(db):
     health = NetworkSecurityScorer(db_manager=db)._calculate_device_health_score()
     assert health["score"] == 100
+
+
+def test_online_count_uses_utc_like_stored_timestamps(db):
+    """Real devices store last_seen as CURRENT_TIMESTAMP (UTC). The display query
+    must compare against SQLite datetime('now') (also UTC) -- NOT a Python local
+    datetime.now() cutoff, which skews by the local UTC offset (e.g. +1h in BST)
+    and zeroes the count ('0/N online' while Network Activity shows real devices)."""
+    # Insert exactly how production does it: UTC via SQLite, not Python local time.
+    db.conn.execute(
+        "INSERT INTO devices (device_ip, device_name, firmware_version, last_seen) "
+        "VALUES (?, ?, ?, datetime('now'))",
+        ("192.168.8.20", "Live Device", "1.0"),
+    )
+    db.conn.commit()
+    health = NetworkSecurityScorer(db_manager=db)._calculate_device_health_score()
+    assert health["total_devices"] == 1
+    assert health["devices_online"] == 1, "UTC-stored 'now' device must count as online"
+
+
+def test_health_score_query_uses_sqlite_now_not_python_local():
+    """Source guard: the online/recently-seen queries must use SQLite datetime('now')
+    so they match UTC-stored last_seen, not a timezone-skewed Python cutoff."""
+    import inspect
+    src = inspect.getsource(NetworkSecurityScorer._calculate_device_health_score)
+    assert "datetime('now'" in src, "must use SQLite UTC datetime('now') for last_seen windows"

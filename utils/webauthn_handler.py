@@ -31,11 +31,43 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _request_host_origin():
+    """(rp_id, origin) from the live Flask request, or (None, None) outside one.
+
+    WebAuthn binds credentials to the RP ID (the effective domain) and verifies the
+    Origin. The user can reach the dashboard by several URLs (https://iotsentinel.local,
+    the LAN IP, a Tailscale https://*.ts.net name), so the ceremony must use whatever
+    host the BROWSER is actually on -- not a single fixed env value -- or registration
+    done on one URL fails to verify. Both the register and authenticate ceremonies run
+    in a request context on the same page, so they derive a consistent pair.
+    """
+    try:
+        from flask import request, has_request_context
+        if not has_request_context():
+            return None, None
+        origin = request.headers.get('Origin')
+        if origin:
+            origin = origin.rstrip('/')
+            from urllib.parse import urlparse
+            return (urlparse(origin).hostname or None), origin
+        if request.host:
+            rp_id = request.host.split(':')[0]  # RP ID is the host WITHOUT the port
+            origin = request.host_url.rstrip('/') if request.host_url else None
+            return rp_id, origin
+    except Exception:
+        pass
+    return None, None
+
+
 def _effective_rp_id() -> str:
-    """Return the WebAuthn RP ID, deriving from IOTSENTINEL_PUBLIC_URL when not set explicitly."""
+    """WebAuthn RP ID: explicit env override, else the live request host, else
+    IOTSENTINEL_PUBLIC_URL, else localhost."""
     explicit = os.getenv('WEBAUTHN_RP_ID', '')
     if explicit:
         return explicit
+    rp_id, _ = _request_host_origin()
+    if rp_id:
+        return rp_id
     public_url = os.getenv('IOTSENTINEL_PUBLIC_URL', '').rstrip('/')
     if public_url:
         from urllib.parse import urlparse
@@ -44,10 +76,14 @@ def _effective_rp_id() -> str:
 
 
 def _effective_origin() -> str:
-    """Return the WebAuthn expected origin, deriving from IOTSENTINEL_PUBLIC_URL when not set explicitly."""
+    """WebAuthn expected origin: explicit env override, else the live request origin,
+    else IOTSENTINEL_PUBLIC_URL, else localhost."""
     explicit = os.getenv('WEBAUTHN_ORIGIN', '')
     if explicit:
         return explicit
+    _, origin = _request_host_origin()
+    if origin:
+        return origin
     public_url = os.getenv('IOTSENTINEL_PUBLIC_URL', '').rstrip('/')
     return public_url or 'http://localhost:8050'
 

@@ -112,8 +112,15 @@ if command -v raspi-config &>/dev/null; then
         || warn "Filesystem expand skipped (may already be full size)"
     sudo raspi-config nonint do_hostname iotsentinel 2>/dev/null \
         && ok "Hostname set to 'iotsentinel'" || true
-    sudo raspi-config nonint do_ssh 0 2>/dev/null \
-        && ok "SSH enabled" || true
+    # Enable SSH three ways so it is ALWAYS on after flash (raspi-config's do_ssh
+    # alone has silently no-op'd in some chroot builds, leaving sshd off and the
+    # headless user locked out). 1) raspi-config, 2) explicit systemctl enable,
+    # 3) the boot-partition flag file Raspberry Pi OS checks on first boot.
+    sudo raspi-config nonint do_ssh 0 2>/dev/null || true
+    sudo systemctl enable ssh 2>/dev/null || sudo systemctl enable ssh.socket 2>/dev/null || true
+    if [ -d /boot/firmware ]; then sudo touch /boot/firmware/ssh 2>/dev/null || true
+    elif [ -d /boot ]; then sudo touch /boot/ssh 2>/dev/null || true; fi
+    ok "SSH enabled (raspi-config + service unit + boot flag)"
     # Wi-Fi country: on a Pi the radio is rfkill-blocked and won't do AP (hotspot)
     # mode until a country is set. Without this the IoTSentinel-Setup hotspot never
     # appears on a headless first boot. GB by default; change to your ISO country.
@@ -311,10 +318,10 @@ fi
 #  - nft / iptables      (firewall_enforcer inline block/unblock — the IPS path)
 #  - zeekctl deploy      (health watchdog restarts Zeek if it crashes)
 #  - systemctl restart iotsentinel-backend (re-run subnet self-heal after the Wi-Fi join)
-#  - tailscale up / funnel  (wizard: enable remote access — needs root, no operator set)
+#  - tailscale up / funnel / logout  (wizard: enable + re-link remote access — needs root, no operator set)
 # Scripts are invoked by absolute path (executable shebang) so the match is exact.
 CURRENT_USER="$TARGET_USER"
-SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, /usr/bin/nmcli connection add *, /usr/bin/nmcli connection modify *, /usr/bin/nmcli connection up *, /usr/bin/nmcli connection down *, /usr/bin/nmcli connection delete *, $PROJECT_DIR/scripts/setup_hotspot.sh disarm, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *, /usr/bin/systemctl restart iotsentinel-backend, /usr/bin/tailscale up *, /usr/bin/tailscale funnel *"
+SUDOERS_LINE="$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli dev wifi connect *, /usr/bin/nmcli dev wifi list *, /usr/bin/nmcli dev wifi hotspot *, /usr/bin/nmcli connection add *, /usr/bin/nmcli connection modify *, /usr/bin/nmcli connection up *, /usr/bin/nmcli connection down *, /usr/bin/nmcli connection delete *, $PROJECT_DIR/scripts/setup_hotspot.sh disarm, $PROJECT_DIR/config/configure_ap.sh, $PROJECT_DIR/config/configure_ap.sh --down, $PROJECT_DIR/config/configure_zeek.sh, $PROJECT_DIR/config/configure_zeek.sh *, /usr/sbin/nft *, /usr/sbin/iptables *, /opt/zeek/bin/zeekctl deploy, /usr/sbin/iw reg set *, /usr/bin/raspi-config nonint do_wifi_country *, /usr/bin/systemctl restart iotsentinel-backend, /usr/bin/tailscale up *, /usr/bin/tailscale funnel *, /usr/bin/tailscale logout"
 # Guard keys on a token only the current line has, so an older install's file is rewritten.
 if ! grep -qF "tailscale funnel" /etc/sudoers.d/iotsentinel 2>/dev/null; then
     echo "$SUDOERS_LINE" | sudo tee /etc/sudoers.d/iotsentinel > /dev/null
@@ -461,7 +468,8 @@ echo ""
 PI_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo "  Open your browser on the same network and go to:"
 echo ""
-echo -e "     ${BLUE}http://${PI_IP:-<pi-ip>}:8050/setup${NC}"
+echo -e "     ${BLUE}https://${PI_IP:-<pi-ip>}:8050/setup${NC}"
+echo "     (accept the one-time 'not private' warning: Advanced -> Proceed)"
 echo ""
 echo "  Complete the 6-step wizard to finish configuration."
 echo "  The dashboard autostarts on every reboot."

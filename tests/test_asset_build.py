@@ -323,6 +323,22 @@ def test_biometric_username_uses_dcc_store():
         "biometric-username-store must not use data-* attribute (use dcc.Store instead)"
 
 
+def test_biometric_button_gated_on_secure_context():
+    """The Register button must be disabled with a clear note on insecure origins,
+    based on the BROWSER's window.isSecureContext (not the server-side public_url),
+    so a user on http://iotsentinel.local doesn't hit a raw 'not supported' error."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    app_src = (root / "dashboard" / "app.py").read_text()
+    cb_src = (root / "dashboard" / "callbacks" / "callbacks_auth.py").read_text()
+    # the note element exists in the layout
+    assert "biometric-secure-note" in app_src
+    # a clientside callback gates the button on the real browser secure context
+    assert "isSecureContext" in cb_src, "must check window.isSecureContext"
+    assert "register-biometric-btn" in cb_src and "'disabled'" in cb_src, \
+        "register button must be disabled when the context is not secure"
+
+
 def test_2fa_disk_check_before_setup():
     """2FA setup callback must check available disk space before attempting a DB
     write, to give a human-readable message instead of raw SQLite FULL error."""

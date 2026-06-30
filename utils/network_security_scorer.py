@@ -147,20 +147,24 @@ class NetworkSecurityScorer:
             except Exception:
                 _window_h = 72
                 _display_min = 30
-            cutoff_time = (datetime.now() - timedelta(hours=_window_h)).isoformat()
+            # IMPORTANT: compare against SQLite datetime('now', ...) (UTC), NOT a
+            # Python datetime.now() cutoff. last_seen is stored as CURRENT_TIMESTAMP
+            # (UTC); a Python LOCAL-time cutoff skews by the UTC offset (e.g. +1h in
+            # BST), pushing the cutoff into the future so every device looks offline
+            # and the card shows "0/N". The Network Activity card already uses the
+            # UTC form, which is why it shows the real count and this one did not.
             cursor.execute('''
                 SELECT COUNT(*) FROM devices
-                WHERE last_seen > ?
-            ''', (cutoff_time,))
+                WHERE last_seen > datetime('now', ?)
+            ''', (f'-{_window_h} hours',))
             recently_seen = cursor.fetchone()[0]
 
             # Short window for the "X/Y online" display label (default 30 min).
             # This reflects devices actively communicating right now, not just known devices.
-            display_cutoff = (datetime.now() - timedelta(minutes=_display_min)).isoformat()
             cursor.execute('''
                 SELECT COUNT(*) FROM devices
-                WHERE last_seen > ?
-            ''', (display_cutoff,))
+                WHERE last_seen > datetime('now', ?)
+            ''', (f'-{_display_min} minutes',))
             active_now = cursor.fetchone()[0]
 
             # Calculate score

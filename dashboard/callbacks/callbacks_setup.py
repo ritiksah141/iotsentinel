@@ -76,6 +76,19 @@ def _run_tailscale(args: list[str], timeout: int = 15) -> subprocess.CompletedPr
     return plain
 
 
+def _tailscale_relink_worker():
+    """Force a clean re-authentication: log the (possibly deleted) node out, then
+    bring Tailscale up again so a FRESH sign-in link is produced. Used when the Pi
+    was removed from the tailnet admin -- its tailscaled keeps the tombstoned
+    identity (can't get an HTTPS cert -> Funnel fails), and a plain 'up' won't
+    re-auth. logout + up re-adds it as a new device, all from the UI (no SSH)."""
+    try:
+        _run_tailscale(['logout'], timeout=20)
+    except Exception as exc:
+        logger.warning(f"Tailscale logout before relink failed: {exc}")
+    _tailscale_up_worker()
+
+
 def _tailscale_up_worker():
     """Run 'tailscale up' in background; capture the login URL from stdout."""
     with _ts_lock:
@@ -999,6 +1012,40 @@ def register(app):
             logger.exception("settings_remote_enable failed")
             return (
                 dbc.Alert("Could not start remote access. Please try again.",
+                          color="danger", className="small mb-0"),
+                True,
+            )
+
+    @app.callback(
+        Output("settings-remote-status", "children", allow_duplicate=True),
+        Output("settings-remote-interval", "disabled", allow_duplicate=True),
+        Input("settings-remote-relink-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def settings_remote_relink(_n):
+        """Log out + sign in again so a Pi deleted from the tailnet can be re-added
+        as a fresh device, producing a new sign-in link in the status area."""
+        try:
+            if not _tailscale_available():
+                return (
+                    dbc.Alert("Tailscale isn't installed on this device.",
+                              color="warning", className="small mb-0"),
+                    True,
+                )
+            with _ts_lock:
+                if _ts_state.get('running'):
+                    return dash.no_update, False
+            threading.Thread(target=_tailscale_relink_worker, daemon=True).start()
+            return (
+                html.Div([dbc.Spinner(size="sm", spinner_class_name="me-2"),
+                          html.Span("Re-linking… signing out, then waiting for a new "
+                                    "sign-in link…", className="text-muted small")]),
+                False,
+            )
+        except Exception:
+            logger.exception("settings_remote_relink failed")
+            return (
+                dbc.Alert("Could not re-link remote access. Please try again.",
                           color="danger", className="small mb-0"),
                 True,
             )

@@ -62,7 +62,8 @@ screen on your phone.
 4. On your **phone or laptop**, open the Wi-Fi list. A new network called
    **`IoTSentinel-Setup`** appears - it has **no password**. Tap it to connect.
 5. A setup page should open automatically. If it doesn't, open your web browser and go to
-   **`http://10.42.0.1:8050/setup`**.
+   **`https://10.42.0.1:8050/setup`**. Your browser will warn the connection is "not private" -
+   that is expected for a local device with its own certificate. Tap **Advanced -> Proceed**.
 
 > Don't see `IoTSentinel-Setup` after a couple of minutes? Unplug the Pi, wait 5 seconds,
 > plug it back in, and wait again. Use a proper Raspberry Pi power supply.
@@ -97,7 +98,7 @@ required - you can change everything else later from the dashboard.
 > page partway through. Only when you tap **Launch IoTSentinel** on the last step does the
 > Pi join your home Wi-Fi and close the `IoTSentinel-Setup` network. Your phone then drops
 > off `IoTSentinel-Setup` - that's normal. **Reconnect your phone to your usual home Wi-Fi**,
-> then open `http://iotsentinel.local:8050` to log in.
+> then open `https://iotsentinel.local:8050` to log in.
 
 ---
 
@@ -106,12 +107,14 @@ required - you can change everything else later from the dashboard.
 When the wizard finishes it shows the web address for your dashboard. From any device on
 your home Wi-Fi, open:
 
-**`http://iotsentinel.local:8050`**
+**`https://iotsentinel.local:8050`**
 
-Log in with the password you created.
+Log in with the password you created. The first time, your browser warns the connection is
+"not private" - that's expected for a local device with its own certificate. Tap
+**Advanced -> Proceed** once and it's remembered. (HTTPS is what lets you use Touch ID / Face ID.)
 
 > On **Windows or Android**, if `iotsentinel.local` doesn't open, use the Pi's number address
-> (like `http://192.168.1.42:8050`). The last setup screen shows it, and it's always listed
+> (like `https://192.168.1.42:8050`). The last setup screen shows it, and it's always listed
 > under **Quick Settings → Network**.
 
 ---
@@ -198,7 +201,7 @@ local AI in the wizard. Your data stays yours.
 | Problem | What to do |
 |---|---|
 | `IoTSentinel-Setup` doesn't appear | Wait the full 2 minutes. Then unplug the Pi, wait 5 seconds, and power it back on. Use the official power supply. If it still doesn't show, power off, put the SD card back in your computer, and open **`iotsentinel-firstboot.txt`** on the card's small `bootfs` drive - it explains exactly what happened. |
-| The setup page won't load | Make sure your phone is connected to `IoTSentinel-Setup` (not your home Wi-Fi), then reload `http://10.42.0.1:8050/setup`. |
+| The setup page won't load | Make sure your phone is connected to `IoTSentinel-Setup` (not your home Wi-Fi), then reload `https://10.42.0.1:8050/setup` and accept the "not private" warning (Advanced -> Proceed). |
 | Can't reach `iotsentinel.local` later | Use the Pi's number address shown on the last setup screen and under **Quick Settings → Network**. |
 | You moved house or changed Wi-Fi | The Pi re-opens `IoTSentinel-Setup` after a few minutes offline - reconnect and pick the new Wi-Fi, or change it under **Quick Settings → Network**. |
 | Forgot your password | Re-flash the SD card (Step 1) to start fresh. |

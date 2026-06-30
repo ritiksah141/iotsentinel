@@ -205,5 +205,11 @@
   "demo": {
     "seed_traffic": true,
     "note_seed_traffic": "DEMO BUILD ONLY: on first boot, inject sample anomaly traffic so the dashboard shows live alerts for the demonstration video, with zero manual steps. Set this to false for the public/production release so real installs are never seeded with synthetic traffic."
+  },
+  "security": {
+    "remember_cookie_days": 30,
+    "note_remember_cookie": "How long 'Remember Me' keeps you signed in. Longer = fewer logins on the LAN-over-HTTP path where biometrics (which need HTTPS) cannot run.",
+    "https_enabled": true,
+    "note_https": "Serve the dashboard over HTTPS with a self-signed cert (generated at boot in data/certs). Enables biometrics (Touch ID/Face ID) and the PWA on the LAN and encrypts password login. The browser shows a one-time 'not private' warning to accept (tap Advanced -> Proceed). If cert generation ever fails the dashboard falls back to plain HTTP automatically. Access via https://iotsentinel.local:8050. Set false (or env IOTSENTINEL_HTTPS=false) to force plain HTTP."
   }
 }

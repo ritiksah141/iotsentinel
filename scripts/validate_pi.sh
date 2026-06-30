@@ -178,9 +178,10 @@ fi
 # ── 8. Dashboard reachability ────────────────────────────────────────────────
 section "8/8  Dashboard"
 
-if curl -s --max-time 5 "http://localhost:8050/health" >/dev/null 2>&1; then
-    pass "Dashboard responding at http://localhost:8050"
-elif curl -s --max-time 5 "http://localhost:8050/" >/dev/null 2>&1; then
+# HTTPS by default (self-signed, hence -k); fall back to http if HTTPS is disabled.
+if curl -sk --max-time 5 "https://localhost:8050/health" >/dev/null 2>&1; then
+    pass "Dashboard responding at https://localhost:8050"
+elif curl -s --max-time 5 "http://localhost:8050/health" >/dev/null 2>&1; then
     pass "Dashboard responding at http://localhost:8050"
 else
     warn "Dashboard not responding yet (may still be starting up)"
@@ -197,7 +198,7 @@ except: print('unknown')
 if [ "$CONFIGURED" = "True" ]; then
     pass "is_configured: true (wizard completed)"
 else
-    warn "is_configured: false (wizard not yet completed — open http://${PI_IP:-<pi-ip>}:8050/setup)"
+    warn "is_configured: false (wizard not yet completed — open https://${PI_IP:-<pi-ip>}:8050/setup)"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
