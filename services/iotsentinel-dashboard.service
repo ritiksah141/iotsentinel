@@ -30,8 +30,15 @@ LimitNOFILE=8192
 # Let the unprivileged service user bind port 80 for the HTTP->HTTPS redirector
 # (so http://iotsentinel.local bounces to the HTTPS dashboard). Granted via systemd
 # ambient capabilities -- no setcap on the Python binary, no root.
+# Do NOT add CapabilityBoundingSet=CAP_NET_BIND_SERVICE here: it caps the whole
+# process tree to that single capability, which strips sudo of CAP_SETUID/CAP_SETGID/
+# CAP_AUDIT_WRITE. The final wizard step shells out to `sudo -n` (nmcli Wi-Fi join,
+# hotspot teardown, backend restart); under the restricted bounding set those fail with
+# "sudo: unable to change to root gid: Operation not permitted" and
+# "error initializing audit plugin sudoers_audit", so the home-Wi-Fi join and the
+# IoTSentinel-Setup hotspot teardown never happen. The default (full) bounding set still
+# contains CAP_NET_BIND_SERVICE, so the ambient grant below keeps working.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # NOTE: deliberately no MemoryMax -- the Pi kernel cmdline sets
 # cgroup_disable=memory, so memory cgroup limits are a no-op on this hardware.
 StandardOutput=journal

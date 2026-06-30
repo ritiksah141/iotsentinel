@@ -643,7 +643,7 @@ _step_6_final = html.Div([
         "If you set this up over the IoTSentinel-Setup hotspot, your Pi is now "
         "leaving it to join your home network, so this hotspot closes in a few "
         "seconds. On THIS device, reconnect to your home Wi-Fi, then open ",
-        html.Code("http://iotsentinel.local:8050"),
+        html.Code("https://iotsentinel.local:8050"),
         " (or the Pi's LAN address) to log in.",
     ], color=None, className="glass-alert-info mb-3 small", id="setup-wifi-handoff"),
     html.Div(id="setup-wifi-handoff-status", className="small mb-2"),
