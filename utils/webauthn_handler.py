@@ -115,7 +115,10 @@ class WebAuthnHandler:
         # In-memory challenge storage (use Redis in production)
         self.challenges = {}
 
-        logger.info(f"WebAuthn handler initialized (RP ID: {self.rp_id}, Origin: {self.origin})")
+        # NOTE: rp_id/origin are derived per-request from the browser's host at
+        # ceremony time; this boot-time value is just the no-request fallback.
+        logger.info("WebAuthn handler initialized (RP ID / origin derived per-request "
+                    f"from the browser; boot fallback: {self.rp_id})")
 
     @property
     def rp_id(self) -> str:

@@ -10205,6 +10205,38 @@ except Exception:
 # MAIN ENTRY POINT
 # ============================================================================
 
+def _spawn_https_redirector(target_port):
+    """Best-effort HTTP->HTTPS redirect on port 80, so a user who types the bare
+    hostname (e.g. iotsentinel.local -> http on port 80) is bounced to the HTTPS
+    dashboard instead of hitting a dead/cert-error page. Runs as an eventlet green
+    thread. If port 80 can't be bound (no CAP_NET_BIND_SERVICE, not root, or it is
+    already taken) it is skipped -- never fatal; the HTTPS dashboard is unaffected.
+    The dashboard systemd unit grants AmbientCapabilities=CAP_NET_BIND_SERVICE so
+    the unprivileged service user can bind 80 on the Pi."""
+    try:
+        import eventlet
+        import eventlet.wsgi
+
+        def _redirect_app(environ, start_response):
+            host = (environ.get('HTTP_HOST', '') or 'localhost').split(':')[0]
+            path = environ.get('PATH_INFO', '/') or '/'
+            qs = environ.get('QUERY_STRING', '')
+            target = f"https://{host}:{target_port}{path}" + (f"?{qs}" if qs else "")
+            # 307 (temporary) so browsers don't cache it -- avoids a stale redirect
+            # if HTTPS is ever turned back off.
+            start_response('307 Temporary Redirect',
+                           [('Location', target), ('Content-Length', '0')])
+            return [b'']
+
+        sock = eventlet.listen(('0.0.0.0', 80))
+        eventlet.spawn_n(eventlet.wsgi.server, sock, _redirect_app, log_output=False)
+        logger.info(f"HTTP->HTTPS redirector active on :80 -> https://<host>:{target_port}")
+    except PermissionError:
+        logger.info("HTTP->HTTPS redirector skipped (port 80 needs CAP_NET_BIND_SERVICE); not fatal")
+    except Exception as e:
+        logger.info(f"HTTP->HTTPS redirector skipped ({e}); not fatal")
+
+
 def main():
     host = os.getenv('IOTSENTINEL_HOST', '127.0.0.1')
     port = int(os.getenv('IOTSENTINEL_PORT', config.get('dashboard', 'port', default=8050)))
@@ -10219,7 +10251,7 @@ def main():
     logger.info("=" * 70)
     logger.info("IoTSentinel Dashboard - Enhanced Educational Edition")
     logger.info("=" * 70)
-    logger.info(f"Dashboard URL: http://{host}:{port}")
+    logger.info(f"Dashboard URL: {'https' if _use_https else 'http'}://{host}:{port}")
     logger.info(f"Debug Mode: {'ON' if debug else 'OFF'}")
     logger.info("")
 
@@ -10387,6 +10419,22 @@ def main():
             # Secure cookies would never be sent over HTTP -> downgrade so login works.
             server.config['SESSION_COOKIE_SECURE'] = False
             server.config['REMEMBER_COOKIE_SECURE'] = False
+
+    if certfile and keyfile:
+        # When a browser (or an OS background probe) hits the TLS port with a plain
+        # HTTP request, eventlet's green SSL socket raises SSLError[HTTP_REQUEST] and
+        # the hub prints a full traceback for that dropped connection. It is harmless
+        # (HTTPS keeps serving), but it spams the journal. Silence hub-level greenthread
+        # connection errors -- real application errors are handled by Flask/Dash and are
+        # unaffected.
+        try:
+            import eventlet.debug as _ev_debug
+            _ev_debug.hub_exceptions(False)
+        except Exception as _e:
+            logger.debug(f"Could not quiet eventlet hub exceptions: {_e}")
+
+        # Bounce plain-HTTP visitors (bare hostname / port 80) to the HTTPS dashboard.
+        _spawn_https_redirector(port)
 
     # Try running with SocketIO, fall back if needed
     try:

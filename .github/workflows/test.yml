@@ -60,8 +60,11 @@ jobs:
           python dashboard/app.py > /tmp/app-boot.log 2>&1 &
           APP_PID=$!
           ok=0
+          # HTTPS is the default (self-signed cert -> -k); fall back to HTTP if a
+          # build disables it. Either scheme serving /login proves the app booted.
           for i in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:8050/login >/dev/null 2>&1; then ok=1; break; fi
+            if curl -fsSk https://127.0.0.1:8050/login >/dev/null 2>&1 \
+               || curl -fsS http://127.0.0.1:8050/login >/dev/null 2>&1; then ok=1; break; fi
             sleep 1
           done
           kill "$APP_PID" 2>/dev/null || true
@@ -70,7 +73,7 @@ jobs:
             tail -40 /tmp/app-boot.log
             exit 1
           fi
-          echo "App booted and served /login (HTTP 200)."
+          echo "App booted and served /login."
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
