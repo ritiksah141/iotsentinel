@@ -583,7 +583,9 @@ def register(app):
         [Output('alert-details-modal', 'is_open'),
          Output('alert-details-title', 'children'),
          Output('alert-details-body', 'children'),
-         Output('current-alert-id', 'data')],
+         Output('current-alert-id', 'data'),
+         Output('notification-drawer', 'is_open', allow_duplicate=True),
+         Output('notification-drawer-body', 'children', allow_duplicate=True)],
         [Input({'type': 'alert-detail-btn', 'index': dash.dependencies.ALL}, 'n_clicks')],
         [State('alert-details-modal', 'is_open')],
         prevent_initial_call=True
@@ -591,7 +593,7 @@ def register(app):
     def toggle_alert_details(btn_clicks, is_open):
         ctx = callback_context
         if not ctx.triggered:
-            return False, "", "", None
+            return False, "", "", None, dash.no_update, dash.no_update
 
         trigger_id = ctx.triggered[0]['prop_id']
 
@@ -606,16 +608,23 @@ def register(app):
                 trigger_data = json.loads(trigger_id.split('.')[0])
                 alert_id = trigger_data['index']
             except (json.JSONDecodeError, KeyError):
-                return False, "", "", None
+                return False, "", "", None, dash.no_update, dash.no_update
 
             alert = get_alert_with_context(alert_id)
             if not alert:
-                return True, "Alert Not Found", html.P("Could not load alert details."), None
+                return True, "Alert Not Found", html.P("Could not load alert details."), None, False, None
 
             device_name = alert.get('device_name') or alert.get('device_ip', 'Unknown')
             title = f"🔍 Alert Details: {device_name}"
             body = create_educational_explanation(alert)
-            return True, title, body, alert_id
+            # Close the notification drawer AND clear its body (not just hide it) —
+            # a dbc.Modal stays mounted in the DOM when is_open=False, so its
+            # "View Details" buttons keep their stale n_clicks. Any later remount of
+            # the same pattern-matched button id elsewhere (e.g. the live-refreshing
+            # alerts panel) re-triggers this callback, which then sees that stale
+            # non-None click and reopens the same alert. Clearing the children
+            # unmounts the button entirely so no stale click state can linger.
+            return True, title, body, alert_id, False, None
 
         return dash.no_update
 
