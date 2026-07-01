@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Checkout IoTSentinel
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0   # needed so git describe can find the tag
 
