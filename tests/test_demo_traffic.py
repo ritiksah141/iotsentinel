@@ -50,11 +50,11 @@ def test_home_hosts_are_valid_ips():
         ipaddress.ip_address(h)  # raises if invalid
 
 
-def test_demo_seed_enabled_in_this_build():
-    """This (demo) build seeds anomaly traffic at first boot with zero manual steps;
-    the first-boot wrapper reads the same flag. (Set false for the public release.)"""
+def test_demo_seed_disabled_in_public_release():
+    """Public/production builds must never seed synthetic demo traffic on first boot;
+    only the demo/showcase build flips this flag on."""
     import json
     cfg = json.loads((ROOT / "config" / "default_config.json").read_text())
-    assert cfg.get("demo", {}).get("seed_traffic") is True
+    assert cfg.get("demo", {}).get("seed_traffic") is False
     wrapper = (ROOT / "scripts" / "run_model_eval.sh").read_text()
     assert "seed_traffic" in wrapper and "demo_traffic.py" in wrapper
