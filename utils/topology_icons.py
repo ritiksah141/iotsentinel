@@ -34,10 +34,18 @@ _GLYPHS = {
     # mobile
     "phone": '<rect x="7" y="3" width="10" height="18" rx="2"/>'
              '<line x1="11" y1="18" x2="13" y2="18"/>',
+    "tablet": '<rect x="5" y="3" width="14" height="18" rx="2"/>'
+              '<line x1="10.5" y1="18" x2="13.5" y2="18"/>',
+    "watch": '<rect x="7" y="7" width="10" height="10" rx="2.5"/>'
+             '<path d="M9.6 7l.6-3.1a1 1 0 0 1 1-.9h1.6a1 1 0 0 1 1 .9L15.4 7"/>'
+             '<path d="M9.6 17l.6 3.1a1 1 0 0 0 1 .9h1.6a1 1 0 0 0 1-.9l.6-3.1"/>',
     # entertainment
     "tv": '<rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/>',
     "speaker": '<rect x="6" y="3" width="12" height="18" rx="2"/>'
                '<circle cx="12" cy="14" r="3"/><line x1="12" y1="7" x2="12.01" y2="7"/>',
+    "game": '<rect x="2" y="8" width="20" height="9" rx="4.5"/>'
+            '<path d="M6.5 12.5h3M8 11v3"/>'
+            '<circle cx="16" cy="11.5" r="1"/><circle cx="18" cy="13.8" r="1"/>',
     # security
     "camera": '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
     "lock": '<rect x="5" y="11" width="14" height="10" rx="2"/>'
@@ -54,24 +62,60 @@ _GLYPHS = {
     # fallback — a generic monitor/box
     "device": '<rect x="3" y="4" width="18" height="12" rx="2"/>'
               '<line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>',
+    # private / unidentified — laptop + phone with a padlock in the screen. Shared with
+    # the dashboard Device List (dashboard.shared.create_device_icon) so both surfaces
+    # render the SAME glyph. Replaces the old red question-mark emoji.
+    "private": '<rect x="2.3" y="4.3" width="12.2" height="8.4" rx="1.4"/>'
+               '<path d="M1.3 16H14.7M3.4 12.7L2.2 16M13.4 12.7L14.6 16"/>'
+               '<rect x="15.4" y="7.8" width="6.6" height="12.2" rx="1.4"/>'
+               '<path d="M17.6 18.3H19.8"/>'
+               '<rect x="6.5" y="8.6" width="3.9" height="3.1" rx="0.6"/>'
+               '<path d="M7.35 8.6V7.7a1.1 1.1 0 0 1 2.2 0V8.6"/>',
 }
 
-# device_classifier device_type -> glyph key
+# device_type -> glyph key. Keys are normalised (lower-case, spaces -> underscores),
+# matching both the ML device_classifier output and dashboard.shared.DEVICE_TYPE_ICONS.
 _TYPE_MAP = {
+    # networking
     "router": "wifi", "hub": "wifi", "access_point": "wifi", "gateway": "wifi",
-    "network": "wifi", "modem": "wifi",
+    "network": "wifi", "modem": "wifi", "switch": "wifi",
+    # computers
     "computer": "laptop", "laptop": "laptop", "desktop": "laptop", "pc": "laptop",
-    "raspberry_pi": "chip", "iot": "chip", "microcontroller": "chip",
-    "server": "server", "nas": "server",
-    "mobile": "phone", "phone": "phone", "smartphone": "phone", "tablet": "phone",
-    "tv": "tv", "streaming": "tv", "media": "tv", "game_console": "tv",
-    "speaker": "speaker", "voice_assistant": "speaker",
-    "camera": "camera", "doorbell": "camera",
-    "lock": "lock",
-    "light": "bulb", "bulb": "bulb",
-    "plug": "plug", "outlet": "plug", "switch_plug": "plug",
+    "mac": "laptop", "workstation": "laptop",
+    # single-board / iot / sensors
+    "raspberry_pi": "chip", "iot": "chip", "iot_hub": "chip",
+    "microcontroller": "chip", "sensor": "chip",
+    # storage
+    "server": "server", "nas": "server", "storage": "server",
+    # mobile
+    "mobile": "phone", "phone": "phone", "smartphone": "phone",
+    "iphone": "phone", "android": "phone",
+    "tablet": "tablet", "ipad": "tablet",
+    # wearables
+    "watch": "watch", "smartwatch": "watch", "fitness_tracker": "watch",
+    # entertainment
+    "tv": "tv", "smart_tv": "tv", "streaming": "tv", "streaming_device": "tv",
+    "media": "tv", "roku": "tv", "apple_tv": "tv", "fire_stick": "tv",
+    "chromecast": "tv",
+    # audio
+    "speaker": "speaker", "smart_speaker": "speaker", "voice_assistant": "speaker",
+    "alexa": "speaker", "echo": "speaker", "google_home": "speaker", "homepod": "speaker",
+    # gaming
+    "game_console": "game", "gaming_console": "game", "gaming": "game",
+    "playstation": "game", "xbox": "game", "nintendo": "game",
+    # security
+    "camera": "camera", "smart_camera": "camera", "security_camera": "camera",
+    "doorbell": "camera",
+    # locks
+    "lock": "lock", "smart_lock": "lock",
+    # lighting
+    "light": "bulb", "bulb": "bulb", "smart_bulb": "bulb", "light_bulb": "bulb",
+    # power
+    "plug": "plug", "smart_plug": "plug", "outlet": "plug", "switch_plug": "plug",
+    # climate
     "thermostat": "thermostat",
-    "printer": "printer",
+    # print
+    "printer": "printer", "scanner": "printer",
 }
 
 # classifier category -> glyph key (coarser fallback when the exact type is unknown)
@@ -99,10 +143,19 @@ def _svg_uri(inner: str, color: str) -> str:
 
 
 def _glyph_key(device_type: str | None, category: str | None) -> str:
-    key = _TYPE_MAP.get((device_type or "").strip().lower())
+    dt = (device_type or "").strip().lower().replace(" ", "_").replace("-", "_")
+    key = _TYPE_MAP.get(dt)
+    if not key and dt:
+        # Loose contains-match (e.g. "apple_tv_4k" -> "apple_tv" -> tv).
+        for k, v in _TYPE_MAP.items():
+            if k in dt or dt in k:
+                key = v
+                break
     if not key:
-        key = _CATEGORY_MAP.get((category or "").strip().lower())
-    return key or "device"
+        cat = (category or "").strip().lower().replace(" ", "_")
+        key = _CATEGORY_MAP.get(cat)
+    # Unidentified / private device gets the padlock-device glyph, never a blank blob.
+    return key or "private"
 
 
 def device_icon_uri(device_type: str | None = None, category: str | None = None,

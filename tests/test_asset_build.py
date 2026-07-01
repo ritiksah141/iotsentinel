@@ -174,21 +174,24 @@ def _brace_count_outside_strings_and_comments(css):
     return _strip_strings(css).count('{')
 
 
-def test_performance_js_does_not_reassign_dash_clientside():
-    """Reassigning `window.dash_clientside = Object.assign({}, window.dash_clientside, ...)`
-    swaps the global for a NEW object. dash_renderer registers its inline clientside
-    callbacks asynchronously against the original reference, so replacing the global
-    mid-init makes those lookups resolve to undefined and the renderer crashes with
-    'TypeError: Cannot read properties of undefined (reading 'apply')'. Namespaces must
-    be added by mutating window.dash_clientside in place."""
+def test_performance_js_never_touches_dash_clientside():
+    """Dash registers all 31 inline `clientside_callback(...)` functions onto
+    window.dash_clientside.clientside. ANY assignment to window.dash_clientside or its
+    .clientside namespace in performance.js (a reassignment, OR an Object.assign merge
+    that swaps the object reference dash_renderer holds) makes those lookups resolve to
+    undefined and crashes the renderer app-wide with
+    'TypeError: Cannot read properties of undefined (reading 'apply')' — taking down
+    login and WebAuthn on every URL. performance.js must leave the namespace entirely to
+    dash_renderer; it must not assign to window.dash_clientside at all."""
     from pathlib import Path
     import re
     repo = Path(__file__).resolve().parent.parent
     js = (repo / "dashboard" / "assets" / "performance.js").read_text()
-    # The destructive pattern: assigning the global from an Object.assign with a fresh {} base.
-    assert not re.search(r"window\.dash_clientside\s*=\s*Object\.assign\(\s*\{\}", js), (
-        "performance.js must not reassign window.dash_clientside via Object.assign({}, ...); "
-        "mutate it in place or dash_renderer crashes with undefined.apply")
+    # Strip line comments so the explanatory note (which names the pattern) doesn't match.
+    code = "\n".join(re.sub(r"//.*$", "", ln) for ln in js.splitlines())
+    assert not re.search(r"window\.dash_clientside\s*(\.\w+\s*)?=", code), (
+        "performance.js must not assign to window.dash_clientside or its .clientside "
+        "namespace; doing so wipes the inline clientside callbacks and crashes dash_renderer")
 
 
 def test_quick_status_stacks_ip_on_narrow_desktop_sidebar():

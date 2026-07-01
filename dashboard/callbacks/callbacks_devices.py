@@ -335,7 +335,6 @@ def register(app):
             manufacturer = device.get('manufacturer', 'Unknown')
             custom_name = device.get('custom_name') or device.get('device_name') or device_ip
             category = device.get('category', 'other')
-            icon = device.get('icon', '❓')
 
             # Get device groups
             groups = db_manager.get_device_groups(device_ip)
@@ -359,7 +358,9 @@ def register(app):
                         # Icon & Name
                         dbc.Col([
                             html.Div([
-                                html.Span(icon, className="u-icon-lg"),
+                                html.Span(create_device_icon(device_type, use_emoji=True,
+                                                              use_fa=False, size="1.5rem"),
+                                          className="u-icon-lg"),
                                 html.Div([
                                     html.Strong(custom_name),
                                     html.Br(),
@@ -978,13 +979,14 @@ def register(app):
             device_name = device.get('custom_name') or device.get('device_name') or device_ip
             manufacturer = device.get('manufacturer', 'Unknown')
             device_type = device.get('device_type', 'Unknown')
-            icon = device.get('icon', '❓')
 
             card = dbc.Card([
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            html.Span(icon, className="u-icon-lg"),
+                            html.Span(create_device_icon(device_type, use_emoji=True,
+                                                          use_fa=False, size="1.5rem"),
+                                      className="u-icon-lg"),
                             html.Strong(device_name),
                             html.Br(),
                             html.Small(f"{manufacturer} • {device_type}", className="text-muted")

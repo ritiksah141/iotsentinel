@@ -46,9 +46,13 @@ def test_type_and_category_mapping():
     assert ti._glyph_key("raspberry_pi", None) == "chip"
     # exact type unknown -> fall back to category
     assert ti._glyph_key("weird-thing", "smart_home") == "bulb"
-    # neither known -> generic device glyph
-    assert ti._glyph_key(None, None) == "device"
-    assert ti._glyph_key("nope", "nope") == "device"
+    # neither known -> the private (padlock-device) glyph, never a blank blob
+    assert ti._glyph_key(None, None) == "private"
+    assert ti._glyph_key("nope", "nope") == "private"
+    # spaces / underscores normalise to the same glyph
+    assert ti._glyph_key("smart tv", None) == ti._glyph_key("smart_tv", None) == "tv"
+    assert ti._glyph_key("gaming console", None) == "game"
+    assert ti._glyph_key("smartwatch", None) == "watch"
 
 
 def test_router_hub_icon():
@@ -56,3 +60,38 @@ def test_router_hub_icon():
     assert uri.startswith("data:image/svg+xml,")
     svg = unquote(uri.split(",", 1)[1])
     minidom.parseString(svg)
+
+
+# ---------------------------------------------------------------------------
+# Private/unknown device glyph (dashboard.shared) — the Quick Status, Device List
+# and Devices-page cards used to render the red ❓ emoji (U+2753) for every
+# unfingerprinted device, so a home network (mostly private devices) looked
+# alarmed. They now render a "devices + padlock" glyph meaning 'private'.
+# ---------------------------------------------------------------------------
+def test_private_glyph_is_wellformed_offline_svg():
+    # The private glyph lives in topology_icons and is shared with the Device List.
+    uri = ti.device_icon_uri(None)  # unknown type -> private glyph
+    assert uri.startswith("data:image/svg+xml")
+    svg = unquote(uri.split(",", 1)[1])
+    minidom.parseString(svg)  # raises on malformed markup
+    assert "href" not in svg and "src=" not in svg  # fully offline
+    # laptop rect + phone rect + lock body = >= 3 rects
+    assert svg.count("<rect") >= 3
+
+
+def test_device_list_and_topology_use_the_same_glyph():
+    """The Device List (dashboard.shared) must render the SAME SVG as the topology
+    graph (utils.topology_icons) for a given device type — that's the whole point of
+    unifying them. Emoji must be gone; unknown -> private glyph, never ❓."""
+    from dashboard.shared import create_device_icon
+    import re
+    for t in ("smartphone", "smart tv", "camera", "printer", "gaming console",
+              None, "unknown", "brand-new-type"):
+        comp = create_device_icon(t, use_emoji=True, use_fa=False, size="1rem")
+        s = str(comp)
+        assert "device-glyph" in s and "❓" not in s
+        # The masked span's URI must equal the topology graph's URI for the same type.
+        m = re.search(r"data:image/svg\+xml[^\"')]+", s)
+        assert m, f"no SVG data URI rendered for {t!r}"
+        assert m.group(0) == ti.device_icon_uri(t), (
+            f"Device List glyph for {t!r} differs from the topology glyph")

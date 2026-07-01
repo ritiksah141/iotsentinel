@@ -41,6 +41,14 @@ jobs:
           # build-only deps exercised by the setup-guide generator test
           pip install --quiet markdown pillow
 
+      # Guarantee a Chrome is present so the headless render gate
+      # (tests/test_browser_render.py) actually runs instead of skipping; Selenium
+      # Manager resolves the matching chromedriver automatically.
+      - name: Set up Chrome (headless render gate)
+        uses: browser-actions/setup-chrome@v1
+        with:
+          install-dependencies: true
+
       - name: Initialise database
         run: python config/init_database.py </dev/null
 
