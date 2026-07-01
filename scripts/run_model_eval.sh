@@ -41,6 +41,15 @@ if [ "$DEMO_CFG" = "True" ] || [ "${IOTSENTINEL_DEMO_TRAFFIC:-0}" = "1" ] \
    || [ -f /boot/firmware/iotsentinel-demo ] || [ -f /boot/iotsentinel-demo ]; then
     echo "$LOG demo mode: seeding live anomaly traffic…"
     "$PY" "$REPO_DIR/scripts/demo_traffic.py" --seed || true
+    # Curated, plain-English-ready security alerts so the Alerts feed + the AI plain-
+    # English feature have deterministic data on camera with ZERO manual steps. The
+    # seeder is first-boot-safe (swallows DB-not-ready/locked errors); the background
+    # LLM worker rewrites each plain line with the real model shortly after.
+    if "$PY" "$REPO_DIR/scripts/seed_demo_alerts.py"; then
+        echo "$LOG demo alerts seeded."
+    else
+        echo "$LOG demo alert seeding reported an issue (non-fatal); continuing."
+    fi
 fi
 
 touch "$STAMP" 2>/dev/null || true

@@ -162,6 +162,7 @@ apt-get update || true
 apt-get install -y zeek python3.11 python3.11-venv python3.11-dev python3-pip python3-dev \
     build-essential libssl-dev libffi-dev \
     network-manager avahi-daemon avahi-utils iptables nftables dnsmasq-base iw rfkill \
+    openssh-server \
     curl git gnupg2 libpcap-dev tcpdump net-tools iputils-ping openssl nmap
 
 # Let nmap do ARP/ICMP host-discovery without root — the backend runs as the
@@ -292,6 +293,16 @@ SystemMaxUse=200M
 SystemKeepFree=200M
 RuntimeMaxUse=64M
 JOURNALD
+
+# Disable Wi-Fi power management. On an idle overnight LAN the Pi's wlan0 enters
+# power-save, which drops the Tailscale node off the tailnet — so the Funnel URL goes
+# offline until traffic wakes the radio. NetworkManager owns wlan0 here, so set
+# wifi.powersave = 2 (2 = disable) as a conf.d drop-in that survives reboots.
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/00-iotsentinel-wifi-powersave-off.conf <<'NMPS'
+[connection]
+wifi.powersave = 2
+NMPS
 
 # Sudoers are written by setup_pi.sh (stage 01) as the single source of truth, with
 # the FULL gateway-mode set (nmcli, configure_ap.sh, configure_zeek.sh, nft, iptables,

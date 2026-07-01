@@ -71,3 +71,26 @@ def test_reset_only_touches_demo_alerts(db):
     cur = db.conn.cursor()
     cur.execute("SELECT COUNT(*) FROM alerts WHERE device_ip = '10.0.0.9'")
     assert cur.fetchone()[0] == 1, "reset must not delete real alerts"
+
+
+def test_first_boot_demo_block_invokes_the_seeder():
+    """The demo-mode block in run_model_eval.sh must call the seeder so alerts land on
+    first boot with zero manual steps (config demo.seed_traffic=True gates it)."""
+    from pathlib import Path
+    rme = (Path(__file__).resolve().parent.parent / "scripts" / "run_model_eval.sh").read_text()
+    assert "seed_demo_alerts.py" in rme, "run_model_eval.sh must seed demo alerts on first boot"
+
+
+def test_seeder_is_first_boot_safe_on_db_errors():
+    """main() must swallow DB errors (return 0) by default so a first-boot hiccup never
+    blocks boot; --strict returns non-zero for CLI/tests."""
+    import subprocess, sys
+    from pathlib import Path
+    script = Path(__file__).resolve().parent.parent / "scripts" / "seed_demo_alerts.py"
+    # A read-only/nonexistent DB path forces a failure.
+    r = subprocess.run([sys.executable, str(script), "--db", "/nonexistent/x.db"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, "default run must be non-fatal on DB error"
+    r2 = subprocess.run([sys.executable, str(script), "--db", "/nonexistent/x.db", "--strict"],
+                        capture_output=True, text=True)
+    assert r2.returncode != 0, "--strict must fail loudly on DB error"
