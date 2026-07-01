@@ -2,55 +2,55 @@
 # Pins carry cp311 + cp312 wheels (3.12 support: numpy>=1.26, pandas>=2.1, scikit-learn>=1.3.2).
 # numpy stays <2 so scikit-learn 1.3.x and River 0.21 keep their ABI.
 numpy==1.26.4
-pandas==2.3.2
-scikit-learn==1.3.2
+pandas==2.3.3
+scikit-learn==1.9.0
 
 # Machine Learning - River for incremental learning (Pi-optimized)
-river==0.21.0  # Lightweight ML for anomaly detection
+river==0.25.0  # Lightweight ML for anomaly detection
 
 # AI Assistant - Hybrid cloud/local LLM (optional)
-groq>=0.13.0  # Free cloud API (14,400 requests/day); older pins break with httpx>=0.28
-openai>=1.0.0  # Optional: OpenAI cloud API (business tier)
-anthropic>=0.40.0  # Optional: Claude cloud API (paid)
+groq>=1.5.0  # Free cloud API (14,400 requests/day); older pins break with httpx>=0.28
+openai>=2.44.0  # Optional: OpenAI cloud API (business tier)
+anthropic>=0.115.0  # Optional: Claude cloud API (paid)
 
 # Network Analysis - Using scapy instead of pypcap (easier to install)
-scapy==2.5.0
+scapy==2.7.0
 
 # Web Dashboard
-dash==2.14.0
-dash-bootstrap-components==1.5.0
+dash==2.18.2
+dash-bootstrap-components==1.7.1
 dash-cytoscape==0.3.0
-plotly==5.18.0
-Flask-Compress==1.14  # Gzip compression for better performance
+plotly==5.24.1
+Flask-Compress==1.24  # Gzip compression for better performance
 
 # Database
 # sqlite3 is built into Python
 
 # Authentication & Security
-Authlib==1.3.0                 # OAuth 2.0 client
+Authlib==1.7.2                 # OAuth 2.0 client
 webauthn==1.11.1               # WebAuthn/FIDO2 support
-zxcvbn==4.4.28                  # Password strength meter
-email-validator==2.1.0          # Email validation
-cryptography==41.0.7            # Required by WebAuthn
-bcrypt==4.1.2                   # Password hashing (if not already installed)
+zxcvbn==4.5.0                  # Password strength meter
+email-validator==2.3.0          # Email validation
+cryptography==49.0.0            # Required by WebAuthn
+bcrypt==5.0.0                   # Password hashing (if not already installed)
 Flask-Login==0.6.3              # Session management
-pyotp==2.9.0                    # TOTP/2FA token generation
+pyotp==2.10.0                    # TOTP/2FA token generation
 qrcode[pil]==8.2                # QR code generation for 2FA
 
 # Utilities
-python-dateutil==2.8.2
-requests==2.31.0
-paramiko==3.4.0
+python-dateutil==2.9.0.post0
+requests==2.34.2
+paramiko==5.0.0
 manuf==1.1.5
 
 # Development
-pytest==7.4.3
-pytest-cov==4.1.0
+pytest==9.1.1
+pytest-cov==7.1.0
 selenium==4.45.0
-psutil==5.9.6
-black==23.12.0
-pylint==3.0.3
-ipython==8.18.1
+psutil==7.2.2
+black==26.5.1
+pylint==4.0.6
+ipython==9.15.0
 python-dotenv
 apscheduler
 Flask-SocketIO
@@ -59,12 +59,12 @@ eventlet
 dash-extensions
 
 # Export & Reporting (Added 2026-01-04)
-reportlab==4.0.7          # PDF generation
-openpyxl==3.1.2           # Excel file generation
-Pillow==10.1.0            # Image processing for PDF charts
+reportlab==5.0.0          # PDF generation
+openpyxl==3.1.5           # Excel file generation
+Pillow==12.2.0            # Image processing for PDF charts
 
 # IoT Discovery & Vulnerability Management (Added 2026-01-06)
-zeroconf>=0.112.0         # mDNS/Zeroconf service discovery
+zeroconf>=0.150.0         # mDNS/Zeroconf service discovery
 python-nmap>=0.7.1        # nmap integration for network scanning
 fuzzywuzzy>=0.18.0        # Fuzzy string matching for CVE matching
-python-Levenshtein>=0.21.0  # Fast fuzzy matching backend
+python-Levenshtein>=0.27.3  # Fast fuzzy matching backend
