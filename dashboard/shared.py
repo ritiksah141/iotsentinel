@@ -1818,10 +1818,14 @@ def create_header():
                 ], xs=12, md=6, className="d-flex align-items-center"),
                 dbc.Col([
                     html.Div([
-                        dbc.Button([
-                            html.I(className="fa fa-bell"),
-                            dbc.Badge(id="notification-badge", color="danger", className="position-absolute top-0 start-100 translate-middle u-text-badge")
-                        ], color="link", id="notification-bell-button", className="text-white position-relative px-2"),
+                        html.Span([
+                            dbc.Button(
+                                html.I(className="fa fa-bell"),
+                                color="link", id="notification-bell-button",
+                                className="text-white px-2"
+                            ),
+                            dbc.Badge(id="notification-badge", pill=True, className="position-absolute top-0 start-100 translate-middle u-text-badge bg-transparent text-danger")
+                        ], className="position-relative d-inline-flex"),
                         dbc.Button(html.I(className="fa fa-comments"), color="link", id="open-chat-button", className="text-white px-2"),
                         html.Span([
                             dbc.Button(
