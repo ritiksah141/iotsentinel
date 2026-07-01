@@ -2267,7 +2267,7 @@ def register(app, login_layout, dashboard_layout):
                                 (error.name === 'NotAllowedError' && msg.includes('certificate'))) {
                             alert(
                                 'Biometric registration failed: your browser blocked WebAuthn ' +
-                                'because this site uses a self-signed TLS certificate.\n\n' +
+                                'because this site uses a self-signed TLS certificate.\\n\\n' +
                                 'To register your biometrics, use your Tailscale URL ' +
                                 '(https://xxxxxx.ts.net) which has a browser-trusted certificate. ' +
                                 'Once registered there, you can authenticate from any URL.'

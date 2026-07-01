@@ -43,6 +43,9 @@ from database.db_manager import DatabaseManager
 VERSION: str = config.get("system", "version", default="1.0.0")
 from utils.threat_intel import ThreatIntelligence
 from utils.auth import AuthManager, User
+# Single source of device glyphs, shared with the Network Topology graph so the Device
+# List and the topology render the SAME icon per device type.
+from utils.topology_icons import device_icon_uri
 from utils.rate_limiter import LoginRateLimiter, RateLimiter
 from utils.audit_logger import (
     AuditLogger, log_device_action, log_bulk_action,
@@ -1129,27 +1132,41 @@ def get_device_icon_data(device_type: Optional[str]) -> Dict[str, str]:
     return DEVICE_TYPE_ICONS['unknown']
 
 
+def render_device_glyph(device_type: Optional[str], size: str = "1.2rem",
+                        category: Optional[str] = None) -> html.Span:
+    """Render a device's SVG glyph as a currentColor-tinted <span>.
+
+    The glyph comes from utils.topology_icons — the SAME source the Network Topology
+    graph uses — so the Device List, Quick Status and topology all show identical icons
+    per device type. Emoji are gone: they rendered inconsistently across platforms and
+    could not match the topology's line-art SVGs. Unidentified / private devices get the
+    padlock-device glyph (see topology_icons "private"), not the old red ❓.
+
+    A CSS mask + backgroundColor:currentColor tints the line-art to the surrounding text
+    colour, so it adapts to light and dark themes.
+    """
+    uri = device_icon_uri(device_type, category)
+    mask = f"url(\"{uri}\") no-repeat center / contain"
+    return html.Span(
+        style={
+            'display': 'inline-block', 'width': size, 'height': size,
+            'marginRight': '6px', 'verticalAlign': 'middle',
+            'backgroundColor': 'currentColor',
+            'WebkitMask': mask, 'mask': mask, 'opacity': '0.85',
+        },
+        title=device_type or 'Private / unidentified device',
+        className='device-glyph',
+    )
+
+
 def create_device_icon(device_type: Optional[str], use_emoji: bool = True,
                        use_fa: bool = False, size: str = "1.2rem") -> html.Span:
-    """Create device icon component."""
-    icon_data = get_device_icon_data(device_type)
-    children = []
-    if use_emoji:
-        children.append(
-            html.Span(icon_data['emoji'], style={'fontSize': size, 'marginRight': '6px'},
-                      title=device_type or 'Unknown Device')
-        )
-    if use_fa:
-        children.append(
-            html.I(className=f"fa {icon_data['fa']}",
-                   style={'color': icon_data['color'], 'fontSize': size, 'marginRight': '6px'},
-                   title=device_type or 'Unknown Device')
-        )
-    if not children:
-        children.append(
-            html.Span(icon_data['emoji'], style={'fontSize': size, 'marginRight': '6px'})
-        )
-    return html.Span(children)
+    """Device icon = the shared SVG glyph (identical to the Network Topology graph).
+
+    `use_emoji` / `use_fa` are kept for signature compatibility with existing callers;
+    every caller now receives the unified SVG glyph regardless.
+    """
+    return html.Span(render_device_glyph(device_type, size))
 
 
 def create_threat_intel_badge(reputation_data: Dict[str, Any]) -> html.Div:
