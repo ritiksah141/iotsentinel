@@ -258,6 +258,24 @@ class TestSshAlwaysEnabled:
         setup = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
         assert "systemctl enable ssh" in setup
 
+    def test_openssh_server_is_installed(self):
+        """Enabling ssh does nothing if the daemon package is absent — `systemctl enable
+        --now ssh` silently no-ops when there is no ssh unit, leaving port 22 refused on
+        every flash (exactly the headless lockout seen on rc15/rc16). The image must
+        install openssh-server explicitly rather than relying on the pi-gen base."""
+        build = (Path(__file__).parent.parent / "scripts" / "build_pi_image.sh").read_text()
+        setup = (Path(__file__).parent.parent / "scripts" / "setup_pi.sh").read_text()
+        assert "openssh-server" in build, "build_pi_image.sh must apt-install openssh-server"
+        assert "openssh-server" in setup, "setup_pi.sh must apt-install openssh-server"
+
+    def test_wifi_powersave_disabled_for_stable_tailnet(self):
+        """Wi-Fi power-save on an idle overnight LAN drops the Pi off the tailnet, so the
+        Tailscale Funnel URL goes offline. NetworkManager owns wlan0, so the image must
+        ship a wifi.powersave = 2 (disable) conf.d drop-in."""
+        build = (Path(__file__).parent.parent / "scripts" / "build_pi_image.sh").read_text()
+        assert "wifi.powersave = 2" in build or "wifi.powersave=2" in build
+        assert "NetworkManager/conf.d" in build
+
     def test_ssh_runtime_selfheal_unit_shipped_and_enabled(self):
         """A chroot `systemctl enable ssh` has silently no-op'd in some builds, and a
         later mask/hardening/userconf pass can leave sshd stopped — so the image also

@@ -147,7 +147,7 @@ else
     sudo apt-get install -y --no-install-recommends \
         curl git python3 python3-venv python3-pip \
         build-essential libssl-dev gnupg2 libpcap-dev \
-        tcpdump net-tools iputils-ping openssl nmap \
+        tcpdump net-tools iputils-ping openssl nmap openssh-server \
         network-manager dnsmasq-base avahi-daemon iptables nftables
     ok "System packages installed"
     # Let nmap do ARP/ICMP host-discovery without root (the dashboard runs as an

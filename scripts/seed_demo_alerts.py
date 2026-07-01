@@ -109,9 +109,13 @@ def _reset(db: DatabaseManager) -> int:
 
 
 def _demo_alerts_present(db: DatabaseManager) -> int:
-    cur = db.conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM alerts WHERE top_features LIKE ?", (f"%{_DEMO_MARKER}%",))
-    return cur.fetchone()[0]
+    try:
+        cur = db.conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM alerts WHERE top_features LIKE ?", (f"%{_DEMO_MARKER}%",))
+        return cur.fetchone()[0]
+    except Exception:
+        # alerts table not created yet (DB not initialised) — treat as "none present".
+        return 0
 
 
 def seed(db: DatabaseManager, reset: bool = False) -> dict:
@@ -121,24 +125,30 @@ def seed(db: DatabaseManager, reset: bool = False) -> dict:
         return {"skipped": True, "reason": "demo alerts already present (use --reset)"}
 
     for ip, name, dtype, maker in DEMO_DEVICES:
-        db.add_device(ip, device_name=name, device_type=dtype, manufacturer=maker)
+        try:
+            db.add_device(ip, device_name=name, device_type=dtype, manufacturer=maker)
+        except Exception as exc:            # a bad row must never abort the whole seed
+            print(f"[seed_demo_alerts] device {ip} skipped: {exc}", file=sys.stderr)
 
     now = datetime.now()
     created = []
     for ip, severity, score, tactic, feats, tech, plain, hours_ago in DEMO_ALERTS:
-        feats = {**feats, "_demo": True}
-        alert_id = db.create_alert(
-            device_ip=ip, severity=severity, anomaly_score=score,
-            explanation=tech, top_features=json.dumps(feats),
-            plain_explanation=plain, mitre_tactic=tactic,
-        )
-        if alert_id:
-            # Spread timestamps so the "alerts by day" chart and recency sort look real.
-            ts = (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S")
-            with db._write_lock:
-                db.conn.execute("UPDATE alerts SET timestamp = ? WHERE id = ?", (ts, alert_id))
-                db.conn.commit()
-            created.append(alert_id)
+        try:
+            feats = {**feats, "_demo": True}
+            alert_id = db.create_alert(
+                device_ip=ip, severity=severity, anomaly_score=score,
+                explanation=tech, top_features=json.dumps(feats),
+                plain_explanation=plain, mitre_tactic=tactic,
+            )
+            if alert_id:
+                # Spread timestamps so the "alerts by day" chart and recency sort look real.
+                ts = (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S")
+                with db._write_lock:
+                    db.conn.execute("UPDATE alerts SET timestamp = ? WHERE id = ?", (ts, alert_id))
+                    db.conn.commit()
+                created.append(alert_id)
+        except Exception as exc:            # one bad insert must not abort the rest
+            print(f"[seed_demo_alerts] alert for {ip} skipped: {exc}", file=sys.stderr)
 
     return {"skipped": False, "removed": removed, "devices": len(DEMO_DEVICES),
             "alerts": len(created), "ids": created}
@@ -151,10 +161,19 @@ def main() -> int:
     ap.add_argument("--db", default=str(Path(__file__).resolve().parent.parent
                                         / "data" / "database" / "iotsentinel.db"),
                     help="Path to the IoTSentinel SQLite database.")
+    ap.add_argument("--strict", action="store_true",
+                    help="Return non-zero on failure (default: non-fatal, for first-boot).")
     args = ap.parse_args()
 
-    db = DatabaseManager(args.db)
-    result = seed(db, reset=args.reset)
+    # First-boot safe: any failure (DB not ready, locked, etc.) is logged and swallowed so
+    # the model-eval service never blocks boot. --strict makes CLI/tests fail loudly.
+    try:
+        db = DatabaseManager(args.db)
+        result = seed(db, reset=args.reset)
+    except Exception as exc:
+        print(f"[seed_demo_alerts] skipped (non-fatal): {exc}", file=sys.stderr)
+        return 1 if args.strict else 0
+
     if result.get("skipped"):
         print(f"Nothing to do: {result['reason']}.")
         return 0
