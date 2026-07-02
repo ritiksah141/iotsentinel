@@ -4,13 +4,10 @@ name: Pi Dependency Check
 # The main test workflow only runs on x86_64, so a dependency that ships no
 # aarch64/piwheel (e.g. a numpy/pandas major bump) would pass CI yet break a
 # fresh Pi install. This job catches that class of failure.
+# Image-build only: runs solely as a gate inside build-pi-image.yml (workflow_call),
+# not on every push/PR — an ARM64-incompatible requirements-pi.txt bump surfaces the
+# next time a Pi image is built, not immediately in CI.
 on:
-  push:
-    branches: [ main ]
-    paths: [ 'requirements-pi.txt' ]
-  pull_request:
-    branches: [ main ]
-    paths: [ 'requirements-pi.txt' ]
   workflow_call:          # so build-pi-image can gate on it (covers the tag build)
 
 # Cancel superseded runs on a PR branch when new commits arrive; never cancel

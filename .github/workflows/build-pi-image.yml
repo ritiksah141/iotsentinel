@@ -1,10 +1,8 @@
 name: Build Raspberry Pi Image
 
-# Triggered on version tag push (e.g., v1.0.0) or manually from GitHub Actions UI
+# Manual only: run from the GitHub Actions UI (optionally against a version tag ref
+# to also publish to a GitHub Release — see the ref_type == 'tag' step below).
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:

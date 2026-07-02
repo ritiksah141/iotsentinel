@@ -4,10 +4,11 @@ updates:
   # Monthly to keep PR churn low; everything lands in one grouped PR.
   - package-ecosystem: "pip"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "monthly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     labels:
       - "dependencies"
     groups:
@@ -39,10 +40,11 @@ updates:
   # Grouped so all action bumps arrive as a single PR, not one per action.
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "monthly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     labels:
       - "dependencies"
       - "ci"

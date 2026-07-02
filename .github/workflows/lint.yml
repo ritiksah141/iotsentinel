@@ -2,9 +2,9 @@ name: Lint
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 # Cancel superseded runs on a PR branch when new commits arrive; never cancel
 # on main, where every commit must be validated.
