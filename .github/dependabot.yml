@@ -31,10 +31,17 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "pandas"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "scikit-learn"
-        update-types: ["version-update:semver-major"]
       - dependency-name: "webauthn"
         update-types: ["version-update:semver-major"]
+      # scikit-learn and river are pinned as an ABI-coupled set with numpy<2
+      # (see requirements.txt). scikit-learn's own version stays on "1.x" well
+      # past what's actually ABI-compatible (1.9.0 already requires numpy>=2),
+      # so semver-major alone doesn't catch it — block minor bumps too, patch
+      # only. Same coupling applies to river; it had no ignore rule before.
+      - dependency-name: "scikit-learn"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "river"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # GitHub Actions used by the CI / image-build workflows.
   # Grouped so all action bumps arrive as a single PR, not one per action.
