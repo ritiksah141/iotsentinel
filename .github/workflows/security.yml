@@ -2,9 +2,9 @@ name: Security
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
   schedule:
     - cron: '0 6 * * 1'   # weekly Monday 06:00 UTC — catch newly-disclosed CVEs
 
@@ -45,7 +45,25 @@ jobs:
           cache: pip
       - name: Install pip-audit
         run: pip install pip-audit
-      # Advisory: report known-vulnerable dependencies without blocking merges.
+      # Gating: fails on any known-vulnerable dependency NOT in the baseline below.
+      # Baseline captured 2026-07-03 (40 pre-existing findings, incl. authlib
+      # JWT-forgery CVE-2026-287 — see utils/oauth_handler.py) so this gate blocks
+      # new regressions immediately without turning every PR red today. Each pinned
+      # package below must be upgraded and its --ignore-vuln entries removed.
       - name: Audit requirements
-        run: pip-audit -r requirements.txt --desc
-        continue-on-error: true
+        run: |
+          pip-audit -r requirements.txt --desc \
+            --ignore-vuln CVE-2023-50782 --ignore-vuln CVE-2024-0727 --ignore-vuln CVE-2024-28219 \
+            --ignore-vuln CVE-2024-34069 --ignore-vuln CVE-2024-35195 --ignore-vuln CVE-2024-47081 \
+            --ignore-vuln CVE-2024-49766 --ignore-vuln CVE-2024-49767 --ignore-vuln CVE-2025-59420 \
+            --ignore-vuln CVE-2025-61920 --ignore-vuln CVE-2025-62706 --ignore-vuln CVE-2025-66221 \
+            --ignore-vuln CVE-2025-68158 --ignore-vuln CVE-2025-71176 --ignore-vuln CVE-2026-21860 \
+            --ignore-vuln CVE-2026-25645 --ignore-vuln CVE-2026-26007 --ignore-vuln CVE-2026-27199 \
+            --ignore-vuln CVE-2026-27205 --ignore-vuln CVE-2026-27448 --ignore-vuln CVE-2026-27459 \
+            --ignore-vuln CVE-2026-28490 --ignore-vuln CVE-2026-32274 --ignore-vuln CVE-2026-42310 \
+            --ignore-vuln CVE-2026-44405 --ignore-vuln GHSA-537c-gmf6-5ccf --ignore-vuln GHSA-cq46-m9x9-j8w2 \
+            --ignore-vuln GHSA-h4gh-qq45-vh27 --ignore-vuln PYSEC-2023-221 --ignore-vuln PYSEC-2024-110 \
+            --ignore-vuln PYSEC-2024-225 --ignore-vuln PYSEC-2024-35 --ignore-vuln PYSEC-2024-48 \
+            --ignore-vuln PYSEC-2024-52 --ignore-vuln PYSEC-2026-165 --ignore-vuln PYSEC-2026-188 \
+            --ignore-vuln PYSEC-2026-25 --ignore-vuln PYSEC-2026-287 --ignore-vuln PYSEC-2026-35 \
+            --ignore-vuln PYSEC-2026-457

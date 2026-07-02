@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
   workflow_call:        # allow other workflows (e.g. the Pi image build) to gate on this
 
 # Cancel superseded runs on a PR branch when new commits arrive; never cancel
