@@ -26,7 +26,7 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -45,7 +45,7 @@ jobs:
       # (tests/test_browser_render.py) actually runs instead of skipping; Selenium
       # Manager resolves the matching chromedriver automatically.
       - name: Set up Chrome (headless render gate)
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
         with:
           install-dependencies: true
 
